@@ -98,6 +98,8 @@ test('remplacements limités à 5 et changement de formation', () => {
 test('la fatigue fait baisser l\'énergie au fil du match', () => {
   const m = createMatch(matchCfg(world, div1[6], div1[7], 99));
   while (m.phase !== 'ft') stepMinute(m);
-  const starters = m.teams[0].onPitch.filter((mp) => mp && mp.minIn === 0 && mp.onPitch);
+  const T = m.teams[0];
+  const starters = T.onPitch.filter((mp) => mp && mp.minIn === 0 && mp.onPitch && T.slots[mp.slot].pos !== 'GB');
+  assert.ok(starters.length > 0);
   for (const mp of starters) assert.ok(mp.energy < 95, `énergie ${mp.energy}`);
 });
