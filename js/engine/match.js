@@ -34,6 +34,8 @@ const ZONE_CENTER = [0.2, 0.45, 0.68, 0.87];
 const LVL = { low: -1, mid: 0, high: 1 };
 const MENT = { defensive: -1, balanced: 0, offensive: 1 };
 const sigmoid = (x) => 1 / (1 + Math.exp(-x));
+/** Écart d'attributs adouci : un grand écart de talent ne garantit pas tout. */
+const gap = (d) => 15 * Math.tanh(d / 15);
 
 /* ------------------------------------------------------------------ */
 /* Création                                                            */
@@ -57,7 +59,12 @@ function makeTeam(cfg, side) {
     const p = byId.get(id);
     return p ? makeMatchPlayer(p, i, true) : null;
   });
-  const bench = (cfg.bench || []).map((id) => byId.get(id)).filter(Boolean).map((p) => makeMatchPlayer(p, -1, false));
+  let bench = (cfg.bench || []).map((id) => byId.get(id)).filter(Boolean).map((p) => makeMatchPlayer(p, -1, false));
+  // Compo incomplète : on comble avec des remplaçants.
+  onPitch.forEach((mp, i) => {
+    if (mp || !bench.length) return;
+    const b = bench.shift(); b.slot = i; b.onPitch = true; b.minIn = 0; onPitch[i] = b;
+  });
   return {
     side, club: cfg.club, tactics: { ...cfg.tactics }, slots, onPitch, bench, out: [],
     subsUsed: 0, isAI: !!cfg.isAI, talk: 0,
@@ -80,6 +87,11 @@ export function createMatch(cfg) {
     momentum: 0, momentumHistory: [], log: [], goals: [], lastPasser: null,
     shootout: null,
   };
+  // Niveau de référence du match : les seuils du moteur sont relatifs à ce niveau,
+  // pour qu'un match de D2 ressemble statistiquement à un match de D1.
+  let sum = 0, n = 0;
+  for (const t of m.teams) for (const mp of t.onPitch) if (mp) { sum += ratingAt(mp.p, t.slots[mp.slot].pos); n++; }
+  m.level = n ? sum / n : 72;
   return m;
 }
 
@@ -104,7 +116,7 @@ function slotDepth(t, mp) {
 /** Tirage pondéré d'un joueur proche d'une profondeur donnée. */
 function pickNear(m, t, depth, exclude, bias) {
   const list = activePlayers(t).filter((mp) => mp !== exclude);
-  if (!list.length) return exclude;
+  if (!list.length) return exclude || null;
   const w = list.map((mp) => {
     const s = t.slots[mp.slot];
     if (s.pos === 'GB') return depth < 0.25 ? 0.12 : 0.0001;
@@ -182,7 +194,7 @@ function chooseAction(m, A, c) {
   const s = A.slots[c.slot];
   const wide = s.y < 0.3 || s.y > 0.7;
   const tir = eff(c, 'tir'), dri = eff(c, 'dri');
-  const shotK = 0.55 + tir / 110;
+  const shotK = 0.55 + tir / (m.level * 1.45);
   const driK = 0.5 + dri / 100;
   let w;
   if (s.pos === 'GB') return m.rng.chance(0.55 + tv * 0.1) ? 'long' : 'short';
@@ -223,6 +235,7 @@ function resolveAction(m, out) {
   const counter = m.counter > 0 ? 0.45 : 0;
   if (m.counter > 0) m.counter--;
   const def = pickNear(m, D, 1 - ZONE_CENTER[z]);
+  if (!c || !def) { m.zone = Math.min(3, z + 1); return; } // cas dégénéré (équipe vide)
 
   if (act === 'shot') return shoot(m, out, A, D, c, z, { type: 'open' });
 
@@ -240,7 +253,7 @@ function resolveAction(m, out) {
     let base = long ? [0.9, 0.5, 0.2, 0][z] : [2.7, 2.1, 1.45, 0.7][z];
     if (nz > z) base -= long ? 0.2 : 0.55;
     if (nz < z) base += 0.8;
-    const p = sigmoid(base + (skill - dskill) / 13 - ctx + counter);
+    const p = sigmoid(base + gap(skill - dskill) / 13 - ctx + counter);
     A.stats.passes++; c.passes++;
     const target = pickNear(m, A, ZONE_CENTER[nz], c);
     if (m.rng.chance(p)) {
@@ -271,7 +284,7 @@ function resolveAction(m, out) {
     const skill = eff(c, 'dri') * 0.55 + eff(c, 'vit') * 0.3 + eff(c, 'phy') * 0.15;
     const dskill = eff(def, 'def') * 0.55 + eff(def, 'vit') * 0.25 + eff(def, 'phy') * 0.2;
     const base = [0.3, 0.15, -0.15, -0.5][z];
-    const p = sigmoid(base + (skill - dskill) / 11 - ctx + counter);
+    const p = sigmoid(base + gap(skill - dskill) / 11 - ctx + counter);
     A.stats.dribbles++;
     if (m.rng.chance(p)) {
       addRating(c, 0.07);
@@ -317,7 +330,7 @@ function cross(m, out, A, D, c, z, corner) {
   const aerial = eff(target, 'phy') * 0.5 + eff(target, 'tir') * 0.3 + eff(target, 'sf') * 0.2;
   const dAerial = eff(marker, 'phy') * 0.5 + eff(marker, 'def') * 0.5;
   const base = corner ? -1.45 : -1.8;
-  const p = sigmoid(base + (delivery - 65) / 30 + (aerial - dAerial) / 14 + defContext(D, 3) * -0.5);
+  const p = sigmoid(base + (delivery - (m.level - 11)) / 30 + gap(aerial - dAerial) / 14 + defContext(D, 3) * -0.5);
   if (!corner) { A.stats.passes++; c.passes++; }
   const pos = ballPos(m, A.side, 3, target);
   emit(m, out, { type: corner ? 'cornerkick' : 'cross', side: A.side, pid: c.id, pid2: target.id, ...pos, zone: 3 });
@@ -453,7 +466,7 @@ function shoot(m, out, A, D, s, z, opts) {
   }
   if (opts.type !== 'penalty') {
     xg *= Math.exp(m.rng.normal(0, 0.55)) * 0.74 * (opts.bonus || 1);
-    const q = (eff(s, 'tir') * 0.7 + eff(s, 'sf') * 0.3) / 68;
+    const q = (eff(s, 'tir') * 0.7 + eff(s, 'sf') * 0.3) / (m.level - 8);
     xg *= Math.pow(q, 1.3);
     if (z >= 2) xg *= 1 - defContext(D, 3) * 0.6;
     xg = clamp(xg, 0.01, 0.75);
@@ -462,7 +475,7 @@ function shoot(m, out, A, D, s, z, opts) {
   A.stats.xg += xg;
   momentum(m, A.side, 4 + xg * 30);
   const keeper = gk ? eff(gk, 'arr') * 0.85 + eff(gk, 'sf') * 0.15 : 20;
-  const kf = clamp(1 + (70 - keeper) / 100 * 0.7, 0.65, 1.3);
+  const kf = clamp(1 + (m.level - 6 - keeper) / 100 * 0.7, 0.65, 1.3);
   const blockP = opts.type === 'penalty' ? 0 : opts.type === 'header' ? 0.08 : opts.type === 'freekick' ? 0.25 : [0.4, 0.38, 0.32, 0.22][z];
   const goalP = clamp(xg * kf / (1 - blockP), 0, 0.95);
   const goalSide = A.side === 0 ? 1 : 0; // x du but visé
@@ -482,7 +495,7 @@ function shoot(m, out, A, D, s, z, opts) {
   }
   if (m.rng.chance(goalP)) return goal(m, out, A, D, s, ev, gk);
   // Cadré (arrêt) ou non cadré.
-  const onP = opts.type === 'penalty' ? 0.7 : clamp(0.3 + (eff(s, 'tir') - 60) / 220 + (z === 3 ? 0.06 : 0), 0.18, 0.55);
+  const onP = opts.type === 'penalty' ? 0.7 : clamp(0.3 + (eff(s, 'tir') - (m.level - 16)) / 220 + (z === 3 ? 0.06 : 0), 0.18, 0.55);
   if (m.rng.chance(onP)) {
     ev.outcome = 'saved'; ev.pid2 = gk ? gk.id : null;
     Object.assign(ev, abs(A.side, 0.985, m.rng.range(0.44, 0.56)));

@@ -44,7 +44,7 @@ export function createPlayer(rng, { pos, level, age, clubId = null }) {
     id: nextId++, first, last, name: `${first[0]}. ${last}`, age, pos, attrs: a, pot,
     form: rng.int(40, 60), morale: rng.int(55, 75), fatigue: 0, injury: 0, injuryName: '', suspended: 0,
     yellowAcc: 0, contract: rng.int(1, 4), clubId, number: 0, wage: 0, value: 0,
-    stats: { apps: 0, goals: 0, assists: 0, ratingSum: 0, yellows: 0, reds: 0, minutes: 0, motm: 0 },
+    stats: { apps: 0, goals: 0, lgoals: 0, assists: 0, ratingSum: 0, yellows: 0, reds: 0, minutes: 0, motm: 0 },
     trainingXp: 0, loanedOut: null, onLoanFrom: null, listed: false,
   };
   p.wage = playerWage(p);
@@ -122,14 +122,14 @@ export function createWorld(rng) {
     const [color, color2] = colors[i % colors.length];
     const club = {
       id: i + 1, name, short, city: cities[i], color, color2, rep: clamp(rep, 30, 92), div,
-      stadium: Math.round((div === 1 ? 15000 + rep * 450 : 5000 + rep * 140) / 500) * 500,
+      stadium: Math.round((div === 1 ? 15000 + rep * 450 : 6000 + rep * 200) / 500) * 500,
       budget: Math.round((div === 1 ? Math.pow(rep / 10, 2.6) * 120000 : Math.pow(rep / 10, 2.2) * 60000) / 100000) * 100000,
       academy: clamp(Math.round(rep / 22), 1, 5),
       tactics: { ...DEFAULT_TACTICS },
       playerIds: [], youthIds: [], lineup: null, bench: null,
       finances: { history: [] },
     };
-    const level = div === 1 ? Math.round(52 + rep * 0.3) : Math.round(46 + rep * 0.26);
+    const level = div === 1 ? Math.round(56 + rep * 0.25) : Math.round(50 + rep * 0.29);
     const squad = createSquad(rng, club, level);
     for (const p of squad) { players[p.id] = p; club.playerIds.push(p.id); }
     clubs.push(club);

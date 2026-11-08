@@ -20,7 +20,7 @@ export function playerValue(p) {
 /** Salaire hebdomadaire demandé. */
 export function playerWage(p) {
   const o = overall(p);
-  let w = 1200 * Math.pow(1.1, o - 50);
+  let w = 1700 * Math.pow(1.105, o - 50);
   if (p.age >= 31) w *= 1.1; // expérience
   return round(w, 100);
 }
@@ -34,18 +34,18 @@ export function wageBill(players) {
 export function matchdayRevenue(club, opponent, formPts = 0.5, cup = false) {
   const appeal = 0.55 + club.rep / 250 + (opponent ? opponent.rep / 600 : 0) + (formPts - 0.5) * 0.2 + (cup ? 0.05 : 0);
   const attendance = Math.round(Math.min(1, appeal) * club.stadium);
-  const price = 12 + club.rep * 0.25;
+  const price = 8 + club.rep * 0.12;
   return { attendance, revenue: Math.round(attendance * price) };
 }
 
 /** Sponsors : versement hebdomadaire selon réputation et division. */
 export function sponsorIncome(club) {
-  return round((club.div === 1 ? 60000 : 15000) + club.rep * club.rep * (club.div === 1 ? 45 : 12), 1000);
+  return round((club.div === 1 ? 30000 : 25000) + club.rep * club.rep * (club.div === 1 ? 20 : 15), 1000);
 }
 
 /** Primes de fin de saison selon la place et la division. */
 export function prizeMoney(div, position) {
-  if (div === 1) return round(14_000_000 * Math.pow(0.88, position - 1), 50000);
+  if (div === 1) return round(8_000_000 * Math.pow(0.88, position - 1), 50000);
   return round(3_000_000 * Math.pow(0.9, position - 1), 25000);
 }
 
