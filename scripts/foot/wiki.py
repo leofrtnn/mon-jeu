@@ -62,3 +62,71 @@ def entities(qids):
             'props': 'claims|labels|sitelinks', 'languages': 'fr|en', 'sitefilter': 'frwiki|enwiki', 'format': 'json'})
         out.update(d.get('entities', {}))
     return out
+
+
+def _page_cache(title):
+    return os.path.join(CACHE, 'p-' + hashlib.sha1(title.encode()).hexdigest() + '.json')
+
+def lead_sections(titles):
+    """Section 0 (infobox) de chaque page, avec un cache PAR TITRE : ajouter des joueurs ne refait pas tout."""
+    out, missing = {}, []
+    for t in titles:
+        path = _page_cache(t)
+        if os.path.exists(path):
+            with open(path) as f:
+                v = json.load(f)
+            if v: out[t] = tuple(v)
+        else:
+            missing.append(t)
+    print(f'  {len(titles) - len(missing)} en cache, {len(missing)} à télécharger', flush=True)
+    for i in range(0, len(missing), 50):
+        chunk = missing[i:i + 50]
+        d = get('https://en.wikipedia.org/w/api.php', {
+            'action': 'query', 'prop': 'revisions|pageprops', 'rvprop': 'content', 'rvslots': 'main', 'rvsection': 0,
+            'redirects': 1, 'format': 'json', 'formatversion': 2, 'ppprop': 'wikibase_item', 'titles': '|'.join(chunk)})
+        q = d.get('query', {})
+        alias = {}
+        for n in q.get('normalized', []): alias[n['to']] = n['from']
+        for r in q.get('redirects', []): alias[r['to']] = alias.get(r['from'], r['from'])
+        got = {}
+        for p in q.get('pages', []):
+            if 'revisions' not in p:
+                continue
+            src = p['title']
+            while src in alias: src = alias[src]
+            got[src] = [p['title'], p['revisions'][0]['slots']['main']['content'], p.get('pageprops', {}).get('wikibase_item')]
+        for t in chunk:
+            with open(_page_cache(t), 'w') as f:
+                json.dump(got.get(t), f)
+            if got.get(t): out[t] = tuple(got[t])
+        print(f'  {min(i + 50, len(missing))}/{len(missing)}', flush=True)
+    return out
+
+def seed_page_cache():
+    """Migre l'ancien cache par lots vers le cache par titre."""
+    n = 0
+    for name in os.listdir(CACHE):
+        if name.startswith('p-'):
+            continue
+        with open(os.path.join(CACHE, name)) as f:
+            d = json.load(f)
+        q = d.get('query', {}) if isinstance(d, dict) else {}
+        pages = q.get('pages', [])
+        if not pages or not any('revisions' in p for p in pages):
+            continue
+        alias = {}
+        for x in q.get('normalized', []): alias[x['to']] = x['from']
+        for r in q.get('redirects', []): alias[r['to']] = alias.get(r['from'], r['from'])
+        for p in pages:
+            if 'revisions' not in p: continue
+            content = p['revisions'][0]['slots']['main']['content']
+            if len(content) > 60000:  # page complète (club), pas une section 0
+                continue
+            src = p['title']
+            while src in alias: src = alias[src]
+            path = _page_cache(src)
+            if not os.path.exists(path):
+                with open(path, 'w') as f:
+                    json.dump([p['title'], content, p.get('pageprops', {}).get('wikibase_item')], f)
+                n += 1
+    return n

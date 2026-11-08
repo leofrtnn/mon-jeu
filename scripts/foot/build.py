@@ -46,6 +46,7 @@ def hexcol(v):
     return '#' + v.upper() if re.fullmatch(r'[0-9A-Fa-f]{6}', v) else None
 
 # ---------- Postes ----------
+_side = [0]
 def game_position(fs, detail):
     d = (detail or '').lower()
     rules = [
@@ -54,12 +55,15 @@ def game_position(fs, detail):
         ('full-back', 'DD'), ('wing-back', 'DD'),
         ('defensive midfielder', 'MDC'), ('holding midfielder', 'MDC'), ('attacking midfielder', 'MO'), ('playmaker', 'MO'),
         ('central midfielder', 'MC'), ('midfielder', 'MC'),
-        ('left winger', 'AG'), ('left wing', 'AG'), ('right winger', 'AD'), ('right wing', 'AD'), ('winger', 'AG'),
+        ('left winger', 'AG'), ('left wing', 'AG'), ('right winger', 'AD'), ('right wing', 'AD'), ('winger', 'WING'),
         ('striker', 'BU'), ('centre-forward', 'BU'), ('center-forward', 'BU'), ('centre forward', 'BU'), ('forward', 'BU'),
         ('defender', 'DC'),
     ]
     for k, v in rules:
         if k in d:
+            if v == 'WING':  # côté non précisé : répartition stable gauche/droite
+                _side[0] ^= 1
+                return 'AG' if _side[0] else 'AD'
             return v
     return {'GK': 'GB', 'DF': 'DC', 'MF': 'MC', 'FW': 'BU'}.get((fs or '').upper(), 'MC')
 
@@ -145,23 +149,7 @@ def build():
     # ---------- Joueurs ----------
     titles = sorted({r['title'] for rows in squads.values() for r in rows if r['title']})
     print(f'{len(titles)} pages de joueurs', flush=True)
-    ptexts = {}
-    for i in range(0, len(titles), 50):
-        d = wiki.get('https://en.wikipedia.org/w/api.php', {
-            'action': 'query', 'prop': 'revisions|pageprops', 'rvprop': 'content', 'rvslots': 'main', 'rvsection': 0,
-            'redirects': 1, 'format': 'json', 'formatversion': 2, 'ppprop': 'wikibase_item', 'titles': '|'.join(titles[i:i + 50])})
-        q = d.get('query', {})
-        alias = {}
-        for n in q.get('normalized', []): alias[n['to']] = n['from']
-        for r in q.get('redirects', []): alias[r['to']] = alias.get(r['from'], r['from'])
-        for p in q.get('pages', []):
-            if 'revisions' not in p:
-                continue
-            src = p['title']
-            while src in alias: src = alias[src]
-            ptexts[src] = (p['title'], p['revisions'][0]['slots']['main']['content'], p.get('pageprops', {}).get('wikibase_item'))
-        print(f'  {min(i + 50, len(titles))}/{len(titles)}', flush=True)
-
+    ptexts = wiki.lead_sections(titles)
     players, seen = [], set()
     for club in clubs:
         for r in squads[club['id']]:
