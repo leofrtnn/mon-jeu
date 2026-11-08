@@ -16,7 +16,7 @@ import { formationPos } from '../engine/positions.js';
 const DUR = {
   pass: 0.75, longpass: 1.15, dribble: 0.9, tackle: 0.55, interception: 0.55, header: 0.6, cross: 1.0, cornerkick: 1.1,
   clearance: 0.9, offside: 1.3, foul: 1.1, yellow: 1.7, red: 2.3, injury: 2.0, sub: 1.5, corner: 1.3, freekick: 1.3,
-  penalty: 1.9, shot: 0.75, goal: 3.4, var: 2.6, kickoff: 1.3, added: 1.1, ht: 0.6, ft: 0.6, et: 1.2, eht: 1.0,
+  replaystart: 0.5, replayend: 0.4, penalty: 1.9, shot: 0.75, goal: 3.4, var: 2.6, kickoff: 1.3, added: 1.1, ht: 0.6, ft: 0.6, et: 1.2, eht: 1.0,
 };
 const ARC = { longpass: 0.12, cross: 0.1, cornerkick: 0.12, clearance: 0.14, header: 0.04 };
 const PITCH_W = 68, PITCH_L = 105;
@@ -198,11 +198,13 @@ export class MatchView {
     this.curT = 0;
     if (ev.period && ev.period !== this.period) {
       this.period = ev.period;
-      // Changement de côté : on repositionne instantanément.
+      // Changement de côté : on repositionne et on l'annonce.
       this.syncPlayers(false);
+      if (!ev.replay) this.banner = { text: '⇅ Changement de côté', color: null, t: 0, dur: 1.6, small: true };
     }
     if (['sub', 'red', 'injury', 'kickoff'].includes(ev.type)) this.syncPlayers(false);
-    this.dur = DUR[ev.type] ?? 0.8;
+    this.dur = (DUR[ev.type] ?? 0.8) * (ev.replay && ev.type !== 'replaystart' && ev.type !== 'replayend' ? 2.3 : 1);
+    this.replaying = ev.replay && ev.type !== 'replayend';
     const b = this.ball;
     b.fx = b.x; b.fy = b.y;
     b.tx = ev.x ?? b.x; b.ty = ev.y ?? b.y;
@@ -213,11 +215,18 @@ export class MatchView {
     }
     if (ev.type === 'goal') this.celebrate(ev);
     else this.computeTargets(ev);
+    if (ev.type === 'replaystart') { this.banner = null; this.particles = []; this.cam.shake = 0; }
+    if (ev.snap) {
+      // Début du ralenti : tout le monde à sa place, ballon compris.
+      for (const p of this.players.values()) { p.x = p.tx; p.y = p.ty; }
+      b.x = b.fx = b.tx; b.y = b.fy = b.ty;
+    }
     if (ev.type === 'shot' && ev.outcome === 'post') this.cam.shake = 0.4;
     // Étiquettes de noms sur les actions importantes.
     if (['shot', 'goal', 'yellow', 'red', 'penalty', 'injury', 'dribble', 'sub'].includes(ev.type) && ev.pid) {
       this.tags.push({ id: ev.pid, text: this.nameOf(ev.pid), life: 1.6 });
     }
+    if (ev.replay) { this.opts.onEventStart?.(ev); return; }
     if (ev.type === 'yellow' || ev.type === 'red') this.banner = { text: ev.type === 'yellow' ? '🟨' : '🟥', color: null, t: 0, dur: 1.4, small: true };
     if (ev.type === 'var') this.banner = { text: ev.outcome === 'cancelled' ? 'VAR · REFUSÉ' : 'VAR · VALIDÉ', color: '#3a86ff', t: 0, dur: 2.2, small: true };
     if (ev.type === 'penalty') this.banner = { text: 'PENALTY', color: '#ffb703', t: 0, dur: 1.6, small: true };
@@ -263,7 +272,8 @@ export class MatchView {
   frame(ts) {
     const dt = Math.min(0.05, (ts - (this.lastTs || ts)) / 1000);
     this.lastTs = ts;
-    if (!this.paused) this.update(dt * this.speed, dt);
+    // Le ralenti garde une vitesse lisible même en x4.
+    if (!this.paused) this.update(dt * (this.cur?.replay ? Math.min(this.speed, 1.5) : this.speed), dt);
     else this.updateIdle(dt);
     this.draw();
     this.raf = requestAnimationFrame(this._loop);
@@ -425,6 +435,13 @@ export class MatchView {
     g.setTransform(1, 0, 0, 1, 0, 0);
     if (this.flash > 0) { g.fillStyle = `rgba(255,255,255,${this.flash * 0.25})`; g.fillRect(0, 0, W, H); }
     if (this.banner) this.drawBanner(g, W, H);
+    if (this.replaying) {
+      // Effet ralenti : bandes et pastille "RALENTI".
+      g.fillStyle = 'rgba(0,0,0,0.35)'; g.fillRect(0, 0, W, H * 0.05); g.fillRect(0, H * 0.95, W, H * 0.05);
+      g.fillStyle = '#e63946'; g.beginPath(); g.arc(W * 0.07, H * 0.025, H * 0.009, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#fff'; g.font = `700 ${Math.round(H * 0.024)}px system-ui, sans-serif`; g.textAlign = 'left'; g.textBaseline = 'middle';
+      g.fillText('RALENTI', W * 0.1, H * 0.026); g.textBaseline = 'alphabetic';
+    }
   }
 
   drawPlayer(g, p, r, alpha, isCarrier) {

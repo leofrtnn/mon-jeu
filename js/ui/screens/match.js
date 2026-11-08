@@ -11,6 +11,9 @@ import { FORMATION_NAMES, MENTALITIES, MENTALITY_LABELS, LEVELS, PRESSING_LABELS
 import { ratingAt } from '../../engine/ratings.js';
 import { MatchView } from '../matchView.js';
 import { esc, crest, cmpBar, ratingChip, posBadge, seg, scaleColor } from '../components.js';
+import { MatchAudio } from '../audio.js';
+import { xgChart, heatmap } from '../charts.js';
+import { userClub } from '../../game/state.js';
 import { showDayReport } from './dayReport.js';
 
 const SPEEDS = [1, 2, 4];
@@ -45,12 +48,14 @@ export function openMatch(app) {
       <button class="btn" data-c="speed">x${SPEEDS[0]}</button>
       <button class="btn" data-c="quick">⚡ Résumé</button>
       <button class="btn" data-c="skip">⏭ Fin</button>
+      <button class="btn" data-c="audio" style="flex:.6">${s.settings.audio ? '🔊' : '🔇'}</button>
     </div>`;
   app.$overlay.appendChild(root);
   document.body.style.overflow = 'hidden';
 
   const $ = (id) => root.querySelector('#' + id);
-  const ctrl = { speedIdx: Math.max(0, SPEEDS.indexOf(s.settings.speed || 1)), quick: false, finished: false, scorers: [[], []] };
+  const ctrl = { speedIdx: Math.max(0, SPEEDS.indexOf(s.settings.speed || 1)), quick: false, finished: false, scorers: [[], []], recent: [] };
+  const audio = new MatchAudio();
   const nameOf = (id) => {
     for (const t of m.teams) for (const mp of [...t.onPitch, ...t.bench, ...t.out]) if (mp && mp.id === id) return mp.name;
     return '';
@@ -80,6 +85,10 @@ export function openMatch(app) {
 
   /* ---------- Moteur -> vue ---------- */
   const onEventStart = (ev) => {
+    if (ev.replay) return; // ralenti : pas de commentaire ni de score
+    ctrl.recent.push(ev);
+    if (ctrl.recent.length > 8) ctrl.recent.shift();
+    sound(ev);
     if (ev.type !== 'kickoff' || ev.minute > 0) setClock(ev.minute, ev.extra);
     if (ev.type === 'goal') {
       setScore(ev.score, true);
@@ -91,9 +100,33 @@ export function openMatch(app) {
     const text = describe(ev, ctx, Math.random, { verbose: !ctrl.quick });
     if (text) addLine(ev, text);
     setMomentum();
+    if (ev.type === 'goal' && s.settings.replays) queueReplay();
     if (ev.type === 'ht') { view.pause(); setTimeout(halfTime, 400); }
     if (ev.type === 'ft') { view.pause(); setTimeout(fullTime, 500); }
   };
+
+  /** Indices sonores : sifflets, clameur, "oh !", rumeur selon la zone. */
+  function sound(ev) {
+    if (!audio.on) return;
+    if (ev.type === 'kickoff') audio.whistle(1);
+    else if (ev.type === 'foul' || ev.type === 'offside') audio.whistle(1);
+    else if (ev.type === 'ht' || ev.type === 'ft' || ev.type === 'et' || ev.type === 'eht') audio.whistle(ev.type === 'ft' ? 3 : 2, true);
+    else if (ev.type === 'goal') audio.roar();
+    else if (ev.type === 'shot' && ev.outcome !== 'goal' && (ev.xg >= 0.1 || ev.outcome === 'post')) audio.ooh();
+    const homeAttack = ev.poss === 0 ? ev.zone ?? 1 : 0;
+    audio.intensity(Math.min(1, 0.15 + homeAttack * 0.22 + Math.max(0, m.momentum) / 250));
+  }
+
+  /** Ralenti : rejoue les 3 dernières actions avant le but, au ralenti. */
+  function queueReplay() {
+    const shotIdx = ctrl.recent.length - 2; // l'événement juste avant 'goal' est le tir
+    if (shotIdx < 0) return;
+    const from = Math.max(0, shotIdx - 3);
+    const seq = ctrl.recent.slice(from + 1, shotIdx + 1).map((e) => ({ ...e, replay: true, key: false }));
+    const start = ctrl.recent[from];
+    view.queue.unshift({ type: 'replaystart', replay: true, snap: true, x: start.x, y: start.y, poss: start.poss, carrier: start.carrier, period: start.period }, ...seq,
+      { type: 'replayend', replay: true });
+  }
 
   const onIdle = () => {
     if (m.phase === 'ft' || ctrl.finished) return;
@@ -116,6 +149,7 @@ export function openMatch(app) {
   };
 
   const view = new MatchView($('pitch'), m, { userSide, onEventStart, onIdle });
+  window.__view = view; // débogage
   view.setSpeed(SPEEDS[ctrl.speedIdx]);
   root.querySelector('[data-c="speed"]').textContent = `x${SPEEDS[ctrl.speedIdx]}`;
 
@@ -138,6 +172,11 @@ export function openMatch(app) {
       app.toast(ctrl.quick ? 'Résumé rapide : seulement les temps forts' : 'Match en intégralité');
     }
     if (c === 'skip') skipToEnd();
+    if (c === 'audio') {
+      s.settings.audio = !s.settings.audio; app.save();
+      if (s.settings.audio) audio.start(); else audio.mute();
+      b.textContent = s.settings.audio ? '🔊' : '🔇';
+    }
   });
 
   /** Simule instantanément la fin du match (l'adjoint gère les changements). */
@@ -174,7 +213,7 @@ export function openMatch(app) {
       <p class="muted center" style="font-size:12px">Adversaire en ${O.tactics.formation}, mentalité ${MENTALITY_LABELS[O.tactics.mentality].toLowerCase()}.</p>
       <div class="btns"><button class="btn" data-act="back">Retour</button><button class="btn primary lg" data-act="go">Coup d'envoi</button></div>`,
     actions: {
-      go: (el, a, h) => { h.close(); view.play(); },
+      go: (el, a, h) => { h.close(); if (s.settings.audio) audio.start(); view.play(); },
       back: (el, a, h) => { h.close(); closeScreen(); },
     },
   });
@@ -228,6 +267,32 @@ export function openMatch(app) {
   }
 
   /* ---------- Mi-temps ---------- */
+  function chartsHtml() {
+    const cols = [hc.color, view.colors[1]];
+    return `<div class="label">xG minute par minute</div>${xgChart(m, cols, [hc.short, ac.short])}
+      <div class="label">Cartes de chaleur (attaque →)</div>
+      <div class="row" style="gap:8px;align-items:flex-start"><div class="grow"><small>${esc(hc.short)}</small>${heatmap(m, 0, cols[0])}</div>
+      <div class="grow"><small>${esc(ac.short)}</small>${heatmap(m, 1, cols[1])}</div></div>`;
+  }
+
+  /** Conseils de l'adjoint (plus précis avec un adjoint de bon niveau). */
+  function adviceHtml() {
+    const lvl = userClub(s).staff?.assistant ?? 1;
+    const sum = summarize(m);
+    const me = sum.stats[userSide], th = sum.stats[1 - userSide];
+    const tips = [];
+    const T = m.teams[userSide];
+    if (sum.possession[1 - userSide] > 58) tips.push('Ils confisquent le ballon : un pressing plus haut pourrait les gêner.');
+    if (th.xg > me.xg + 0.6) tips.push('Ils se créent trop d\'occasions : resserrez les lignes (mentalité défensive).');
+    if (me.xg < 0.4 && me.shots < 5) tips.push('Nous manquons de présence offensive : tentez une mentalité offensive ou un tempo rapide.');
+    const tired = T.onPitch.filter((mp) => mp && mp.onPitch && mp.energy < 66).map((mp) => mp.name);
+    if (tired.length) tips.push(`Fatigue : ${tired.slice(0, 3).join(', ')}. Pensez aux changements.`);
+    const booked = T.onPitch.filter((mp) => mp && mp.onPitch && mp.yellow).map((mp) => mp.name);
+    if (booked.length && lvl >= 2) tips.push(`Attention, ${booked.join(', ')} ${booked.length > 1 ? 'sont avertis' : 'est averti'}.`);
+    if (!tips.length) tips.push('Le plan fonctionne, ne changeons rien.');
+    return `<div class="card" style="margin-top:8px"><b>📋 L'adjoint :</b><br><small>${tips.slice(0, Math.max(1, lvl)).map(esc).join('<br>')}</small></div>`;
+  }
+
   function statsHtml() {
     const sum = summarize(m);
     const st = sum.stats, cols = [hc.color, view.colors[1]];
@@ -246,6 +311,7 @@ export function openMatch(app) {
     let talked = null;
     const html = () => `<div class="row between"><h2>Mi-temps</h2><b class="big" style="font-size:22px">${m.score[0]} - ${m.score[1]}</b></div>
       ${statsHtml()}
+      ${adviceHtml()}
       <div class="label">Causerie</div>
       ${talked ? `<div class="card" style="margin-top:0">${esc(talked.text)} <small>(moral ${talked.delta >= 0 ? '+' : ''}${talked.delta})</small></div>` : `
         <div class="btns" style="flex-direction:column">
@@ -284,6 +350,7 @@ export function openMatch(app) {
         <p class="muted" style="font-size:12px;margin:4px 0 12px">${sum.goals.map((g) => `${esc(g.name)} ${clockLabel(g.minute, g.extra)}${g.pen ? ' (p)' : ''}`).join(' · ') || 'Aucun but'}</p></div>
         ${motm ? `<div class="motm"><span style="font-size:26px">★</span><div class="grow">Homme du match<br><span style="font-size:17px">${esc(motm.name)}</span></div>${ratingChip(motm.rating)}</div>` : ''}
         <div class="card">${statsHtml()}</div>
+        <div class="card">${chartsHtml()}</div>
         <div class="label">Notes de vos joueurs</div>
         <div class="card list" style="padding:0 10px;margin-top:0">${my.map((r) => `<div class="prow" style="cursor:default">
           <span class="posb pos-${POSITION_GROUP[r.pos]}">${r.pos}</span>
@@ -304,6 +371,7 @@ export function openMatch(app) {
   }
 
   function closeScreen() {
+    audio.stop();
     view.destroy();
     root.remove();
     document.body.style.overflow = '';

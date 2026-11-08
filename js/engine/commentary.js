@@ -167,6 +167,48 @@ const T = {
   ft: ["C'est terminé ! {s}", "Coup de sifflet final ! {s}", "Fin du match : {s}.", "L'arbitre met fin à la rencontre. {s}"],
 };
 
+/* Phrases supplémentaires : plusieurs dizaines par type d'événement courant. */
+const MORE = {
+  pass: ["{p} temporise avant de servir {p2}.", "Ballon propre de {p} vers {p2}.", "{p} trouve {p2} d'une passe millimétrée.", "{p} joue dans les pieds de {p2}.",
+    "{t} fait circuler, {p2} reçoit.", "{p} glisse le ballon à {p2}.", "{p} décale {p2} sur le côté.", "Remise en une touche de {p} pour {p2}.", "{p} fixe un adversaire et lâche pour {p2}.",
+    "{p} cherche la verticalité vers {p2}.", "Passe laser de {p} !", "{t} patiente, le ballon arrive à {p2}.", "{p} ressort proprement le ballon.", "{p} sert {p2} dans l'intervalle."],
+  longpass: ["Diagonale de {p} pour {p2} !", "{p} lance {p2} dans la profondeur.", "Long ballon précis de {p}.", "{p} cherche {p2} au second poteau... dans le jeu.",
+    "{p} saute le milieu de terrain.", "Passe de 40 mètres de {p} !", "{p} ouvre le jeu d'une transversale.", "Ballon aérien de {p} vers {p2}.", "{p} balance devant, {p2} contrôle."],
+  dribble: ["{p} met le turbo !", "{p} enrhume {p2}.", "{p} se faufile entre deux joueurs.", "Grand pont de {p} !", "{p} s'en va seul vers l'avant.", "{p} danse autour de {p2}.",
+    "Accélération foudroyante de {p}.", "{p} protège bien et se retourne.", "Élastique de {p} ! {p2} est éliminé.", "{p} part dans un rush solitaire.", "{p} élimine son vis-à-vis.",
+    "{p} passe en force devant {p2}.", "Coup de rein de {p} !"],
+  tackle: ["{p} arrache le ballon.", "Excellent retour de {p} !", "{p} se jette et récupère.", "{p} remporte le face-à-face.", "{p} stoppe net {p2}.", "Duel gagné par {p}.",
+    "{p} reprend le ballon sans faute.", "{p} coupe court à l'action de {p2}.", "{p} récupère au pressing.", "Tacle parfaitement timé de {p}.", "{p} met le pied et récupère."],
+  interception: ["{p} lit la passe et intercepte.", "Interception de {p} !", "{p} vole le ballon.", "{p} était au bon endroit.", "La passe est interceptée par {p}.", "{p} anticipe parfaitement.",
+    "{p} se met sur la trajectoire.", "Bien placé, {p} récupère.", "{p} capte le ballon.", "Erreur technique de {t}, {p} récupère."],
+  cross: ["Centre fuyant de {p}.", "{p} met un ballon en cloche.", "Centre au premier poteau de {p} !", "{p} enroule son centre.", "{p} cherche {p2} d'un centre tendu.",
+    "Centre de l'extérieur du pied de {p} !", "{p} centre à ras de terre.", "{p} dépose un centre parfait.", "Centre-tir de {p} !", "{p} centre en première intention."],
+  foul: ["{p} commet la faute.", "Faute grossière de {p} sur {p2}.", "{p} fauche {p2} en pleine course.", "{p} pousse {p2} dans le dos.", "L'arbitre siffle une faute de {p}.",
+    "{p} accroche {p2} pour casser le contre.", "Main de {p}, coup de sifflet.", "{p} tire le maillot de {p2}.", "Coup de coude de {p} sur {p2}.", "Faute d'anticipation de {p}.", "{p} bloque {p2} irrégulièrement."],
+  yellow: ["{p} prend un jaune.", "Premier avertissement pour {p}.", "{p} va devoir se calmer : jaune.", "Jaune logique pour {p}.", "{p} écope d'un carton pour contestation.",
+    "{p} est sanctionné pour antijeu.", "L'arbitre avertit {p}.", "Jaune pour {p}, qui proteste.", "{p} paie sa faute d'un jaune.", "{p} est averti pour un tacle dangereux.", "Carton jaune sévère pour {p}."],
+  corner: ["Le ballon sort en corner.", "Corner obtenu par {t}.", "Encore un coup de pied de coin pour {t}.", "{t} va tirer un corner.", "Corner, le public se lève.",
+    "Corner pour {t}, les grands montent.", "Dévié en corner !", "Ça part en corner.", "Corner à droite pour {t}.", "Corner à gauche pour {t}.", "{t} enchaîne les corners."],
+  shot_saved: ["{p2} bloque sans difficulté.", "{p2} veille au grain sur la frappe de {p}.", "Arrêt décisif de {p2} !", "{p2} repousse des poings !", "Frappe de {p} captée par {p2}.",
+    "{p2} se couche bien sur la tentative de {p}.", "Main ferme de {p2} !", "{p2} sort le pied !", "{p2} fait le show !", "Parade spectaculaire de {p2} !", "{p2} détourne en corner."],
+  shot_wide: ["{p} rate de peu !", "À côté ! {p} se prend la tête.", "{p} met le ballon dans les tribunes.", "{p} manque l'immanquable !", "Tir enroulé de {p}, juste à côté.",
+    "{p} tente une frappe lointaine, sans succès.", "{p} pique son ballon… trop haut.", "La frappe de {p} frôle la lucarne.", "{p} tire dans le petit filet extérieur.", "{p} ne trouve pas le cadre.", "{p} vise mal."],
+  shot_blocked: ["Tir contré par {p2} !", "{p2} se sacrifie devant la frappe de {p}.", "{p} frappe dans un mur de défenseurs.", "Le tir de {p} est dévié.", "{p2} détourne la frappe.",
+    "Contre salvateur de {p2}.", "{p} trouve une jambe adverse.", "Bloqué ! {p2} était là.", "{p2} s'interpose avec courage.", "Frappe de {p} contrée."],
+  goal: ["BUT ! {p} transforme l'occasion !", "BUT ! {p} trompe la vigilance du gardien !", "BUT ! Frappe croisée de {p} !", "BUT ! Petit ballon piqué de {p} !",
+    "BUT ! {p} reprend en première intention !", "BUT ! {p} fusille le gardien !", "BUT ! {p} conclut en renard !", "BUT ! Une merveille de {p} !", "BUT ! {p} fait exploser le stade !",
+    "BUT ! {p} enroule dans le petit filet !", "BUT ! {p} glisse le ballon entre les jambes du gardien !", "BUT ! {p} est le plus prompt !", "BUT ! {s}"],
+  freekick: ["Coup franc intéressant pour {t}.", "{p} va tirer ce coup franc.", "Coup franc excentré pour {t}.", "Le mur se met en place.", "Coup franc plein axe !", "Bonne position pour {t}."],
+  offside: ["Hors-jeu de quelques centimètres pour {p}.", "{p} était hors-jeu, action annulée.", "Le juge de touche lève son drapeau : {p} hors-jeu.", "{p} part trop tôt.", "Hors-jeu évident de {p}."],
+  clearance: ["{p} dégage en touche.", "{p} renvoie de la tête.", "{p} écarte le ballon de la zone.", "{p} met fin à l'action.", "Dégagement long de {p}."],
+  kickoff: ["Le match est lancé !", "Engagement de {t}.", "{p} remet en jeu.", "On reprend ! {t} engage.", "Le ballon est au centre, {t} relance."],
+  injury: ["{p} grimace et demande le changement.", "Choc violent, {p} est touché.", "{p} boite, inquiétude.", "{p} doit sortir sur civière.", "Mauvaise réception pour {p}."],
+  sub: ["Coaching : {p} remplace {p2}.", "{p2} sort, {p} entre.", "Changement tactique : {p} pour {p2}.", "{p} apporte du sang neuf à la place de {p2}.", "Le banc s'active : {p} pour {p2}."],
+  header: ["{p} domine le duel aérien.", "{p} renvoie de la tête.", "Coup de tête défensif de {p}."],
+  shot_post: ["Poteau rentrant… non, sortant ! {p} maudit le sort.", "Le montant repousse la frappe de {p} !", "{p} touche le bois !", "Transversale ! {p} y était presque."],
+};
+for (const k in MORE) T[k].push(...MORE[k]);
+
 const COUNTER = ["Contre-attaque !", "Ça part en contre !", "Transition rapide !", "Attention au contre !"];
 const ASSIST = [" Passe décisive de {p2}.", " Servi par {p2}.", " Sur un service de {p2}.", " Grâce à une offrande de {p2}."];
 
