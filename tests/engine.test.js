@@ -103,3 +103,56 @@ test('la fatigue fait baisser l\'énergie au fil du match', () => {
   assert.ok(starters.length > 0);
   for (const mp of starters) assert.ok(mp.energy < 95, `énergie ${mp.energy}`);
 });
+
+test('coupe : prolongation puis tirs au but si égalité', () => {
+  let sawET = 0;
+  for (let i = 0; i < 80 && sawET < 3; i++) {
+    const cfg = matchCfg(world, div1[8], div1[9], 500 + i, { cup: true });
+    const m = createMatch(cfg);
+    m.teams.forEach((t) => (t.isAI = true));
+    const types = [];
+    while (m.phase !== 'ft') for (const e of stepMinute(m)) types.push(e.type);
+    if (types.includes('et')) {
+      sawET++;
+      assert.ok(types.includes('eht'));
+      assert.ok(m.minute >= 120, 'prolongation jouée jusqu\'à 120\'');
+    }
+  }
+  assert.ok(sawET > 0, 'au moins une prolongation');
+});
+
+test('tireur de penalty désigné', () => {
+  let checked = 0;
+  for (let i = 0; i < 300 && checked < 5; i++) {
+    const cfg = matchCfg(world, div1[10], div1[11], 900 + i);
+    const designated = cfg.home.lineup[10];
+    cfg.home.setPieces = { pen: designated };
+    const m = simulateMatch(cfg);
+    for (const e of m.log) if (e.type === 'penalty' && e.side === 0 && m.teams[0].onPitch.some((mp) => mp && mp.id === designated)) {
+      assert.equal(e.pid, designated); checked++;
+    }
+  }
+  assert.ok(checked > 0);
+});
+
+test('profil de championnat : plus de buts et moins de fautes', () => {
+  const run = (profile) => {
+    let g = 0, f = 0;
+    for (let i = 0; i < 250; i++) {
+      const s = summarize(simulateMatch(matchCfg(world, div1[i % 20], div1[(i * 7 + 3) % 20 === i % 20 ? 0 : (i * 7 + 3) % 20], 3000 + i, { profile })));
+      g += s.score[0] + s.score[1]; f += s.stats[0].fouls + s.stats[1].fouls;
+    }
+    return [g, f];
+  };
+  const [g0, f0] = run({});
+  const [g1, f1] = run({ goals: 1.2, fouls: 0.7 });
+  assert.ok(g1 > g0, `buts ${g1} > ${g0}`);
+  assert.ok(f1 < f0, `fautes ${f1} < ${f0}`);
+});
+
+test('heatmap et chronologie xG alimentées', () => {
+  const m = simulateMatch(matchCfg(world, div1[12], div1[13], 4242));
+  assert.ok(m.heat[0].reduce((a, b) => a + b, 0) > 50);
+  assert.ok(m.xgTimeline.length > 5);
+  assert.equal(m.xgTimeline.filter((x) => x.goal).length, m.score[0] + m.score[1]);
+});

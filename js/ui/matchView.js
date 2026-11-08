@@ -11,10 +11,12 @@
  * onIdle() quand la file est vide (il faut simuler une minute de plus).
  */
 
+import { formationPos } from '../engine/positions.js';
+
 const DUR = {
   pass: 0.75, longpass: 1.15, dribble: 0.9, tackle: 0.55, interception: 0.55, header: 0.6, cross: 1.0, cornerkick: 1.1,
   clearance: 0.9, offside: 1.3, foul: 1.1, yellow: 1.7, red: 2.3, injury: 2.0, sub: 1.5, corner: 1.3, freekick: 1.3,
-  penalty: 1.9, shot: 0.75, goal: 3.4, var: 2.6, kickoff: 1.3, added: 1.1, ht: 0.6, ft: 0.6,
+  penalty: 1.9, shot: 0.75, goal: 3.4, var: 2.6, kickoff: 1.3, added: 1.1, ht: 0.6, ft: 0.6, et: 1.2, eht: 1.0,
 };
 const ARC = { longpass: 0.12, cross: 0.1, cornerkick: 0.12, clearance: 0.14, header: 0.04 };
 const PITCH_W = 68, PITCH_L = 105;
@@ -103,7 +105,7 @@ export class MatchView {
 
   /** Coordonnées moteur -> pixels canvas. Le côté de l'utilisateur attaque vers le haut en 1re MT. */
   toScreen(x, y) {
-    const flip = (this.userSide === 1) !== (this.period === 2);
+    const flip = (this.userSide === 1) !== (this.period === 2 || this.period === 4);
     const vx = flip ? 1 - x : x, vy = flip ? 1 - y : y;
     return [this.padX + vy * PITCH_W * this.scale, this.padY + (1 - vx) * PITCH_L * this.scale];
   }
@@ -134,29 +136,9 @@ export class MatchView {
     }
   }
 
-  /** Position "de base" d'un joueur selon formation, phase et ballon (coordonnées absolues). */
+  /** Position "de base" d'un joueur : même calcul que le moteur (positions continues). */
   basePos(t, mp, bx, by, inPoss, kickoff) {
-    const s = t.slots[mp.slot];
-    const bd = t.side === 0 ? bx : 1 - bx; // profondeur du ballon pour cette équipe
-    const bl = t.side === 0 ? by : 1 - by;
-    let depth, lat;
-    const ment = { defensive: -0.04, balanced: 0, offensive: 0.04 }[t.tactics.mentality] || 0;
-    if (kickoff) {
-      depth = s.pos === 'GB' ? 0.03 : Math.min(0.47, 0.06 + s.x * 0.52);
-      lat = s.y;
-    } else if (s.pos === 'GB') {
-      depth = 0.025 + Math.max(0, bd - 0.4) * 0.14;
-      lat = 0.5 + (bl - 0.5) * 0.18;
-    } else {
-      depth = 0.07 + s.x * 0.66 + (bd - 0.5) * 0.42 + (inPoss ? 0.07 : -0.05) + ment;
-      const pull = inPoss ? 0.12 : 0.3;
-      const widthK = inPoss ? ({ low: 0.85, mid: 1, high: 1.12 }[t.tactics.width] || 1) : 0.82;
-      lat = 0.5 + (s.y - 0.5) * widthK;
-      lat += (bl - lat) * pull;
-      depth = Math.max(0.05, Math.min(0.93, depth));
-    }
-    lat = Math.max(0.03, Math.min(0.97, lat));
-    return t.side === 0 ? { x: depth, y: lat } : { x: 1 - depth, y: 1 - lat };
+    return formationPos(t, mp, bx, by, inPoss, kickoff);
   }
 
   /** Met à jour les cibles de tous les joueurs pour l'événement courant. */

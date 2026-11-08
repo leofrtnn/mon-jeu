@@ -84,3 +84,15 @@ export const DEFAULT_TACTICS = { formation: '4-4-2', mentality: 'balanced', pres
 export const SQUAD_SIZE = 25;
 export const MAX_SUBS = 5;
 export const BENCH_SIZE = 9;
+
+/** Rôles individuels (consignes par poste) et leurs effets dans le moteur. */
+export const ROLES = {
+  std: { label: 'Standard', pos: null, desc: 'Comportement classique du poste.' },
+  meneur: { label: 'Meneur', pos: ['MC', 'MO', 'MDC'], desc: 'Aimante le ballon et cherche la passe vers l\'avant.' },
+  pivot: { label: 'Pivot', pos: ['MDC', 'MC'], desc: 'Reste devant la défense, sécurise la relance.' },
+  piston: { label: 'Piston', pos: ['DG', 'DD'], desc: 'Monte très haut et multiplie les centres.' },
+  renard: { label: 'Renard', pos: ['BU'], desc: 'Vit dans la surface, tire dès qu\'il peut.' },
+  pointe: { label: 'Pivot de pointe', pos: ['BU'], desc: 'Cible des centres et des longs ballons.' },
+  interieur: { label: 'Ailier intérieur', pos: ['AG', 'AD', 'MO'], desc: 'Repique dans l\'axe pour dribbler et frapper.' },
+};
+export const rolesFor = (pos) => Object.keys(ROLES).filter((r) => !ROLES[r].pos || ROLES[r].pos.includes(pos));

@@ -40,7 +40,7 @@ export function aiManage(m, T, out, { doSub, bestBenchFor }) {
     else if (diff > 0 && min >= 75) T.tactics.mentality = 'defensive';
     if (diff < 0 && min >= 75) T.tactics.pressing = 'high';
   }
-  if (m.period === 2 && [58, 66, 74, 82].includes(min) && m.extra === 0 && T.subsUsed < MAX_SUBS) {
+  if (((m.period === 2 && [58, 66, 74, 82].includes(min)) || (m.period >= 3 && [95, 106].includes(min))) && m.extra === 0 && T.subsUsed < MAX_SUBS) {
     const cands = T.onPitch
       .filter((mp) => mp && mp.onPitch && !mp.red && !mp.injured && T.slots[mp.slot].pos !== 'GB')
       .map((mp) => ({ mp, need: (80 - mp.energy) / 8 + (6.4 - mp.rating) * 1.2 + (mp.yellow ? 0.6 : 0) + (min >= 74 ? 1 : min >= 66 ? 0.5 : 0) + (diff < 0 && ['BU', 'AG', 'AD', 'MO'].includes(T.slots[mp.slot].pos) ? 0.6 : 0) }))

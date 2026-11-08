@@ -162,6 +162,8 @@ const T = {
   var_pen_confirmed: ["VAR : le penalty est confirmé."],
   added: ["{x} minute(s) de temps additionnel.", "Le 4e arbitre annonce {x} minute(s) supplémentaires.", "Il reste {x} minute(s) à jouer dans le temps additionnel."],
   ht: ["C'est la mi-temps ! {s}", "L'arbitre siffle la pause. {s}", "Mi-temps sur le score de {s}.", "Les joueurs rentrent aux vestiaires : {s}."],
+  et: ["Égalité au bout du temps réglementaire : place à la prolongation ! {s}", "On jouera 30 minutes de plus ! {s}", "Prolongation ! Les organismes vont souffrir. {s}"],
+  eht: ["Fin de la première période de prolongation. {s}", "On change de côté pour les 15 dernières minutes. {s}"],
   ft: ["C'est terminé ! {s}", "Coup de sifflet final ! {s}", "Fin du match : {s}.", "L'arbitre met fin à la rencontre. {s}"],
 };
 
@@ -239,7 +241,7 @@ export function iconFor(ev) {
     case 'var': return '📺';
     case 'penalty': return '◎';
     case 'shot': return ev.outcome === 'post' ? '▮' : ev.outcome === 'saved' ? '🧤' : '•';
-    case 'ht': case 'ft': case 'kickoff': return '⏱';
+    case 'ht': case 'ft': case 'et': case 'eht': case 'kickoff': return '⏱';
     case 'corner': case 'cornerkick': return '⚑';
     default: return '·';
   }

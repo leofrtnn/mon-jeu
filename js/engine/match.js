@@ -28,6 +28,7 @@ import { createRng, clamp } from '../core/rng.js';
 import { FORMATIONS, MAX_SUBS, positionFit } from '../data/constants.js';
 import { conditionFactor, ratingAt } from './ratings.js';
 import { aiManage } from './ai.js';
+import { formationPos, pitchDist } from './positions.js';
 
 const ZONE_DEPTH = [[0.1, 0.33], [0.33, 0.58], [0.58, 0.8], [0.81, 0.94]];
 const ZONE_CENTER = [0.2, 0.45, 0.68, 0.87];
@@ -68,6 +69,7 @@ function makeTeam(cfg, side) {
   return {
     side, club: cfg.club, tactics: { ...cfg.tactics }, slots, onPitch, bench, out: [],
     subsUsed: 0, isAI: !!cfg.isAI, talk: 0,
+    roles: (cfg.roles || []).slice(), setPieces: { ...(cfg.setPieces || {}) }, injuryMod: cfg.injuryMod ?? 1,
     stats: { poss: 0, shots: 0, onTarget: 0, xg: 0, passes: 0, passesOk: 0, fouls: 0, corners: 0,
       yellows: 0, reds: 0, offsides: 0, saves: 0, tackles: 0, dribbles: 0 },
   };
@@ -85,8 +87,11 @@ export function createMatch(cfg) {
     phase: 'pre', period: 1, minute: 0, extra: 0, added: [0, 0], stoppages: 0,
     score: [0, 0], poss: 0, zone: 1, carrier: null, counter: 0, setPiece: null,
     momentum: 0, momentumHistory: [], log: [], goals: [], lastPasser: null,
-    shootout: null,
+    shootout: null, extraTime: cfg.extraTime ?? !!cfg.cup,
+    profile: { goals: 1, fouls: 1, cards: 1, ...(cfg.profile || {}) },
+    ball: { x: 0.5, y: 0.5 }, heat: [new Array(96).fill(0), new Array(96).fill(0)], xgTimeline: [],
   };
+  m.added = [0, 0, 0, 0];
   // Niveau de référence du match : les seuils du moteur sont relatifs à ce niveau,
   // pour qu'un match de D2 ressemble statistiquement à un match de D1.
   let sum = 0, n = 0;
@@ -137,13 +142,99 @@ function abs(side, depth, lat) {
 function ballPos(m, side, zone, mp) {
   const t = m.teams[side];
   const [a, b] = ZONE_DEPTH[zone];
-  const depth = m.rng.range(a, b);
+  let depth = m.rng.range(a, b);
   let lat = mp ? t.slots[mp.slot].y + m.rng.normal(0, 0.07) : m.rng.range(0.2, 0.8);
+  const pp = mp && m._pos?.get(mp);
+  if (pp) {
+    // Position réelle du joueur, ramenée dans la zone concernée.
+    const pd = side === 0 ? pp.x : 1 - pp.x, pl = side === 0 ? pp.y : 1 - pp.y;
+    depth = clamp(pd + m.rng.normal(0, 0.03), a, b);
+    lat = pl + m.rng.normal(0, 0.04);
+  }
   if (zone === 3) lat = 0.5 + (lat - 0.5) * 0.55;
   return abs(side, depth, clamp(lat, 0.04, 0.96));
 }
 
 function addRating(mp, v) { if (mp) mp.rating = clamp(mp.rating + v, 3, 10); }
+
+const roleOf = (t, mp) => (mp && t.roles[mp.slot]) || 'std';
+
+/** Calcule la position continue de tous les joueurs (une fois par action). */
+function computePositions(m) {
+  const pos = new Map();
+  for (const t of m.teams) {
+    for (const mp of activePlayers(t)) pos.set(mp, formationPos(t, mp, m.ball.x, m.ball.y, m.poss === t.side));
+  }
+  // Le porteur est sur le ballon.
+  if (m.carrier && pos.has(m.carrier)) pos.set(m.carrier, { x: m.ball.x, y: m.ball.y });
+  m._pos = pos;
+  m._oppPos = null; // positions adverses recalculées à la demande
+}
+
+/** Espace libre autour d'un joueur : distance à l'adversaire le plus proche. */
+function openness(m, mp, D) {
+  const p = m._pos.get(mp);
+  if (!p) return 0.08;
+  const opp = m._oppPos || (m._oppPos = activePlayers(D).map((o) => m._pos.get(o)).filter(Boolean));
+  let best = 1;
+  for (let i = 0; i < opp.length; i++) {
+    const dx = p.x - opp[i].x, dy = (p.y - opp[i].y) * 0.65;
+    const d2 = dx * dx + dy * dy;
+    if (d2 < best) best = d2;
+  }
+  return Math.sqrt(best);
+}
+
+/**
+ * Choix du receveur selon sa position réelle (proximité de la zone visée),
+ * l'espace libre autour de lui, la distance au passeur et son rôle.
+ */
+function pickReceiver(m, A, nz, exclude, long) {
+  if (!m._pos) return { mp: pickNear(m, A, ZONE_CENTER[nz], exclude), open: 0.08 };
+  const D = m.teams[1 - A.side];
+  const list = activePlayers(A).filter((mp) => mp !== exclude);
+  if (!list.length) return { mp: exclude, open: 0.08 };
+  const cp = exclude && m._pos.get(exclude);
+  const opens = list.map((mp) => openness(m, mp, D));
+  const w = list.map((mp, i) => {
+    const s = A.slots[mp.slot];
+    if (s.pos === 'GB') return nz === 0 ? 0.12 : 0.0001;
+    const p = m._pos.get(mp);
+    const depth = A.side === 0 ? p.x : 1 - p.x;
+    const d = depth - ZONE_CENTER[nz];
+    let v = (Math.exp(-(d * d) / (2 * 0.12 * 0.12)) + 0.02) * (0.5 + clamp(opens[i], 0, 0.2) * 7);
+    if (cp && !long) v *= Math.exp(-Math.max(0, pitchDist(cp, p) - 0.25) * 3);
+    const r = roleOf(A, mp);
+    if (r === 'meneur' && (nz === 1 || nz === 2)) v *= 1.6;
+    if (r === 'pivot') v *= nz <= 1 ? 1.5 : 0.6;
+    if (r === 'renard' && nz === 3) v *= 1.7;
+    if (r === 'pointe' && long) v *= 1.5;
+    return v;
+  });
+  const i = m.rng.weightedIndex(w);
+  return { mp: list[i], open: opens[i] };
+}
+
+/** Défenseur qui conteste : le plus proche du porteur (tirage pondéré). */
+function pickDefender(m, D, c, z) {
+  if (!m._pos) return pickNear(m, D, 1 - ZONE_CENTER[z]);
+  const cp = m._pos.get(c) || m.ball;
+  const list = activePlayers(D).filter((mp) => D.slots[mp.slot].pos !== 'GB' || z === 3);
+  if (!list.length) return null;
+  const w = list.map((mp) => {
+    const p = m._pos.get(mp);
+    const d = p ? pitchDist(p, cp) : 0.5;
+    return (D.slots[mp.slot].pos === 'GB' ? 0.15 : 1) / Math.pow(d + 0.04, 2);
+  });
+  return list[m.rng.weightedIndex(w)];
+}
+
+/** Tireur désigné (corner, coup franc, penalty) s'il est sur le terrain, sinon le meilleur. */
+function setPieceTaker(T, kind, score) {
+  const act = activePlayers(T).filter((mp) => T.slots[mp.slot].pos !== 'GB');
+  const chosen = act.find((mp) => mp.id === T.setPieces[kind]);
+  return chosen || act.sort((a, b) => score(b) - score(a))[0];
+}
 
 /** Multiplicateurs mis à jour chaque minute (fatigue, forme, moral, poste, contexte). */
 function refreshMultipliers(m) {
@@ -164,13 +255,17 @@ function refreshMultipliers(m) {
 /* Événements                                                          */
 /* ------------------------------------------------------------------ */
 
-const KEY_TYPES = new Set(['goal', 'shot', 'yellow', 'red', 'penalty', 'injury', 'sub', 'var', 'ht', 'ft', 'kickoff', 'added', 'post', 'save', 'freekick']);
+const KEY_TYPES = new Set(['goal', 'shot', 'yellow', 'red', 'penalty', 'injury', 'sub', 'var', 'ht', 'ft', 'et', 'eht', 'kickoff', 'added', 'post', 'save', 'freekick']);
 
 function emit(m, out, ev) {
   ev.minute = m.minute; ev.extra = m.extra; ev.period = m.period;
   ev.poss = m.poss; ev.carrier = m.carrier ? m.carrier.id : null;
   ev.score = [m.score[0], m.score[1]];
   ev.key = KEY_TYPES.has(ev.type);
+  if (ev.x != null && ev.x >= 0 && ev.x <= 1) {
+    m.ball.x = ev.x; m.ball.y = ev.y;
+    if (m.poss >= 0) m.heat[m.poss][Math.min(11, Math.floor(ev.x * 12)) * 8 + Math.min(7, Math.floor(ev.y * 8))]++;
+  }
   out.push(ev);
   if (ev.key && ev.type !== 'kickoff') m.log.push(ev);
   return ev;
@@ -204,6 +299,13 @@ function chooseAction(m, A, c) {
     case 2: w = { short: 4, long: 0.5, dribble: (1.9 + mv * 0.3) * driK, cross: (0.8 + wv * 0.35) * (wide ? 1.6 : 0.25), shot: (0.36 + mv * 0.1) * shotK }; break;
     default: w = { short: 2.2, long: 0, dribble: 1.4 * driK, cross: wide ? 0.6 : 0.15, shot: (1.45 + mv * 0.25) * shotK };
   }
+  // Rôle individuel du porteur.
+  const role = roleOf(A, c);
+  if (role === 'renard') w.shot *= 1.25;
+  if (role === 'interieur') { w.dribble *= 1.3; w.shot *= 1.3; w.cross *= 0.5; }
+  if (role === 'piston') w.cross *= 1.5;
+  if (role === 'pivot') { w.dribble *= 0.6; w.shot *= 0.5; }
+  if (role === 'meneur') w.long *= 1.2;
   // Fin de match : l'équipe menée prend plus de risques.
   const diff = m.score[A.side] - m.score[1 - A.side];
   if (m.minute > 75 && diff < 0) { w.shot *= 1.25; w.long *= 1.3; w.cross *= 1.2; }
@@ -228,13 +330,14 @@ function resolveAction(m, out) {
     c = m.carrier = pickNear(m, A, ZONE_CENTER[m.zone]);
   }
   A.stats.poss++;
+  computePositions(m);
   momentum(m, A.side, [0, 0.3, 1.1, 2.4][m.zone]);
   const z = m.zone;
   const act = chooseAction(m, A, c);
   const ctx = defContext(D, z);
   const counter = m.counter > 0 ? 0.45 : 0;
   if (m.counter > 0) m.counter--;
-  const def = pickNear(m, D, 1 - ZONE_CENTER[z]);
+  const def = pickDefender(m, D, c, z);
   if (!c || !def) { m.zone = Math.min(3, z + 1); return; } // cas dégénéré (équipe vide)
 
   if (act === 'shot') return shoot(m, out, A, D, c, z, { type: 'open' });
@@ -244,7 +347,7 @@ function resolveAction(m, out) {
     let nz = z;
     if (long) nz = Math.min(3, z + (m.rng.chance(z === 0 ? 0.55 : 0.35) ? 2 : 1));
     else if (z > 0 && m.rng.chance(0.08)) nz = z - 1;
-    else if (z < 3 && m.rng.chance([0.3, 0.27, 0.16][z] + MENT[A.tactics.mentality] * 0.05 + LVL[A.tactics.tempo] * 0.04 + counter * 0.3)) nz = z + 1;
+    else if (z < 3 && m.rng.chance([0.3, 0.27, 0.16][z] + MENT[A.tactics.mentality] * 0.05 + LVL[A.tactics.tempo] * 0.04 + counter * 0.3 + (roleOf(A, c) === 'meneur' ? 0.06 : 0))) nz = z + 1;
     if (nz === 3 && z < 2) nz = 2;
     const skill = long ? eff(c, 'pas') * 0.55 + eff(c, 'vis') * 0.35 + eff(c, 'phy') * 0.1
       : eff(c, 'pas') * 0.6 + eff(c, 'vis') * 0.25 + eff(c, 'sf') * 0.15;
@@ -253,9 +356,11 @@ function resolveAction(m, out) {
     let base = long ? [0.9, 0.5, 0.2, 0][z] : [2.7, 2.1, 1.45, 0.7][z];
     if (nz > z) base -= long ? 0.2 : 0.55;
     if (nz < z) base += 0.8;
+    const { mp: target, open } = pickReceiver(m, A, nz, c, long);
+    // Un receveur démarqué facilite la passe, un receveur marqué la complique.
+    base += clamp((open - 0.085) * 6, -0.4, 0.4);
     const p = sigmoid(base + gap(skill - dskill) / 13 - ctx + counter);
     A.stats.passes++; c.passes++;
-    const target = pickNear(m, A, ZONE_CENTER[nz], c);
     if (m.rng.chance(p)) {
       A.stats.passesOk++; c.passesOk++;
       addRating(c, nz > z ? 0.03 : 0.008);
@@ -276,7 +381,7 @@ function resolveAction(m, out) {
       return;
     }
     // Faute "tactique" pour casser une relance ou un contre.
-    if (z <= 2 && m.rng.chance(0.1 * (1 + LVL[D.tactics.pressing] * 0.3))) return foul(m, out, A, D, target, def, z);
+    if (z <= 2 && m.rng.chance(0.1 * m.profile.fouls * (1 + LVL[D.tactics.pressing] * 0.3))) return foul(m, out, A, D, target, def, z);
     return turnover(m, out, A, D, c, def, z, long ? 'header' : 'interception');
   }
 
@@ -298,7 +403,7 @@ function resolveAction(m, out) {
     }
     // Tacle : faute possible.
     const aggr = 1 + LVL[D.tactics.pressing] * 0.18 + (m.minute > 70 ? 0.1 : 0);
-    const foulP = (z === 3 ? 0.1 : 0.5) * aggr * (1.25 - eff(def, 'def') / 200);
+    const foulP = (z === 3 ? 0.1 : 0.56) * m.profile.fouls * aggr * (1.25 - eff(def, 'def') / 200);
     if (m.rng.chance(foulP)) return foul(m, out, A, D, c, def, z);
     addRating(c, -0.04);
     return turnover(m, out, A, D, c, def, z, 'tackle');
@@ -324,7 +429,7 @@ function turnover(m, out, A, D, c, def, z, how) {
 
 /** Centre (ou corner si corner=true). */
 function cross(m, out, A, D, c, z, corner) {
-  const target = pickNear(m, A, 0.86, c, (mp, s) => (s.pos === 'BU' ? 2.2 : 1) * (0.5 + eff(mp, 'phy') / 120));
+  const target = pickNear(m, A, 0.86, c, (mp, s) => (s.pos === 'BU' ? 2.2 : 1) * (roleOf(A, mp) === 'pointe' ? 2 : 1) * (0.5 + eff(mp, 'phy') / 120));
   const marker = pickNear(m, D, 0.14, null, (mp, s) => (s.pos === 'DC' ? 2 : 1));
   const delivery = eff(c, 'pas') * 0.7 + eff(c, 'vis') * 0.3;
   const aerial = eff(target, 'phy') * 0.5 + eff(target, 'tir') * 0.3 + eff(target, 'sf') * 0.2;
@@ -363,8 +468,7 @@ function awardCorner(m, out, A, by) {
   momentum(m, A.side, 2);
   const right = m.rng.chance(0.5);
   const pos = abs(A.side, 0.995, right ? 0.99 : 0.01);
-  const taker = activePlayers(A).filter((mp) => A.slots[mp.slot].pos !== 'GB')
-    .sort((a, b) => eff(b, 'pas') - eff(a, 'pas'))[0];
+  const taker = setPieceTaker(A, 'corner', (mp) => eff(mp, 'pas'));
   m.carrier = taker; m.zone = 3;
   emit(m, out, { type: 'corner', side: A.side, pid: taker.id, pid2: by ? by.id : null, ...pos, zone: 3 });
   m.stoppages += 0.1;
@@ -382,6 +486,7 @@ function foul(m, out, A, D, victim, offender, z) {
   // Cartons.
   let yP = 0.135 + (z === 1 || z === 2 ? 0.05 : 0) + (m.minute > 75 ? 0.04 : 0) + (m.counter ? 0.06 : 0) + (z === 3 ? 0.08 : 0);
   if (offender.yellow) yP *= 0.45; // un joueur averti se retient
+  yP *= m.profile.cards;
   if (m.rng.chance(0.003)) sendOff(m, out, D, offender, 'direct');
   else if (m.rng.chance(yP)) {
     offender.yellow++; D.stats.yellows++;
@@ -390,15 +495,14 @@ function foul(m, out, A, D, victim, offender, z) {
     else emit(m, out, { type: 'yellow', side: D.side, pid: offender.id, ...pos, zone: z });
   }
   // Blessure sur faute.
-  if (m.rng.chance(0.012)) injure(m, out, A, victim);
+  if (m.rng.chance(0.012 * A.injuryMod)) injure(m, out, A, victim);
   m.counter = 0;
   m.carrier = victim.onPitch && !victim.injured ? victim : pickNear(m, A, ZONE_CENTER[z]);
   if (z === 3) return penalty(m, out, A, D);
   if (z === 2) {
     const fk = emit(m, out, { type: 'freekick', side: A.side, pid: m.carrier.id, ...pos, zone: 2 });
     if (m.rng.chance(0.15)) {
-      const taker = activePlayers(A).filter((mp) => A.slots[mp.slot].pos !== 'GB')
-        .sort((a, b) => (eff(b, 'tir') + eff(b, 'sf')) - (eff(a, 'tir') + eff(a, 'sf')))[0];
+      const taker = setPieceTaker(A, 'fk', (mp) => eff(mp, 'tir') + eff(mp, 'sf'));
       fk.pid = taker.id; fk.direct = true;
       return shoot(m, out, A, D, taker, 2, { type: 'freekick' });
     }
@@ -465,7 +569,7 @@ function shoot(m, out, A, D, s, z, opts) {
     default: xg = [0.015, 0.024, 0.05, 0.13][z];
   }
   if (opts.type !== 'penalty') {
-    xg *= Math.exp(m.rng.normal(0, 0.55)) * 0.74 * (opts.bonus || 1);
+    xg *= Math.exp(m.rng.normal(0, 0.55)) * 0.7 * m.profile.goals * (opts.bonus || 1);
     const q = (eff(s, 'tir') * 0.7 + eff(s, 'sf') * 0.3) / (m.level - 8);
     xg *= Math.pow(q, 1.3);
     if (z >= 2) xg *= 1 - defContext(D, 3) * 0.6;
@@ -473,6 +577,7 @@ function shoot(m, out, A, D, s, z, opts) {
   }
   A.stats.shots++; s.shots++;
   A.stats.xg += xg;
+  m.xgTimeline.push({ minute: m.minute, extra: m.extra, side: A.side, xg, goal: false });
   momentum(m, A.side, 4 + xg * 30);
   const keeper = gk ? eff(gk, 'arr') * 0.85 + eff(gk, 'sf') * 0.15 : 20;
   const kf = clamp(1 + (m.level - 6 - keeper) / 100 * 0.7, 0.65, 1.3);
@@ -541,6 +646,8 @@ function goal(m, out, A, D, s, ev, gk) {
   }
   m.score[A.side]++;
   s.goals++; addRating(s, 1.0);
+  const tl = m.xgTimeline[m.xgTimeline.length - 1];
+  if (tl) tl.goal = true;
   const assist = m.lastPasser && m.lastPasser !== s && ev.kind !== 'penalty' && ev.kind !== 'freekick' ? m.lastPasser : null;
   if (assist) { assist.assists++; addRating(assist, 0.6); }
   if (gk) addRating(gk, -0.3);
@@ -555,8 +662,7 @@ function goal(m, out, A, D, s, ev, gk) {
 }
 
 function penalty(m, out, A, D) {
-  const taker = activePlayers(A).filter((mp) => A.slots[mp.slot].pos !== 'GB')
-    .sort((a, b) => (eff(b, 'tir') * 0.5 + eff(b, 'sf') * 0.5) - (eff(a, 'tir') * 0.5 + eff(a, 'sf') * 0.5))[0];
+  const taker = setPieceTaker(A, 'pen', (mp) => eff(mp, 'tir') * 0.5 + eff(mp, 'sf') * 0.5);
   const pos = abs(A.side, 0.895, 0.5);
   emit(m, out, { type: 'penalty', side: A.side, pid: taker.id, ...pos, zone: 3 });
   m.stoppages += 0.8;
@@ -593,7 +699,7 @@ function decayEnergy(m) {
       if (t.slots[mp.slot].pos === 'GB') d *= 0.35;
       mp.energy = clamp(mp.energy - d * late * (1 + (mp.p.age > 31 ? 0.1 : 0)), 5, 100);
       // Blessure "sans contact", plus fréquente quand le joueur est épuisé.
-      if (m.rng.chance(0.00005 * (mp.energy < 50 ? 2.5 : 1))) {
+      if (m.rng.chance(0.00005 * t.injuryMod * (mp.energy < 50 ? 2.5 : 1))) {
         m._pendingInjury = m._pendingInjury || [];
         m._pendingInjury.push([t, mp]);
       }
@@ -624,7 +730,7 @@ export function stepMinute(m) {
   }
 
   // Avance l'horloge.
-  const regEnd = m.period === 1 ? 45 : 90;
+  const regEnd = [45, 90, 105, 120][m.period - 1];
   if (m.minute < regEnd) m.minute++;
   else m.extra++;
 
@@ -648,17 +754,27 @@ export function stepMinute(m) {
 
   // Annonce du temps additionnel.
   if (m.minute === regEnd && m.extra === 0) {
-    const base = m.period === 1 ? 1 : 3;
-    m.added[m.period - 1] = clamp(Math.round(base + m.stoppages * 0.6 + m.rng.range(0, 1.5)), base, m.period === 1 ? 4 : 8);
+    const base = [1, 3, 0, 0][m.period - 1];
+    m.added[m.period - 1] = clamp(Math.round(base + m.stoppages * (m.period > 2 ? 0.2 : 0.6) + m.rng.range(0, 1.5)), base, [4, 8, 2, 2][m.period - 1]);
     emit(m, out, { type: 'added', side: -1, value: m.added[m.period - 1], x: 0.5, y: 0.5, zone: m.zone });
   }
   if (m.minute === regEnd && m.extra >= m.added[m.period - 1]) {
     if (m.period === 1) {
       m.phase = 'ht';
       emit(m, out, { type: 'ht', side: -1, x: 0.5, y: 0.5, zone: 1 });
+    } else if (m.period === 2 && m.extraTime && m.score[0] === m.score[1]) {
+      // Prolongation : 2 x 15 minutes, sans pause.
+      emit(m, out, { type: 'et', side: -1, x: 0.5, y: 0.5, zone: 1 });
+      m.period = 3; m.minute = 90; m.extra = 0; m.stoppages = 0;
+      for (const t of m.teams) for (const mp of activePlayers(t)) mp.energy = clamp(mp.energy + 3, 0, 100);
+      kickoff(m, out, m.kickoffSide);
+    } else if (m.period === 3) {
+      emit(m, out, { type: 'eht', side: -1, x: 0.5, y: 0.5, zone: 1 });
+      m.period = 4; m.minute = 105; m.extra = 0; m.stoppages = 0;
+      kickoff(m, out, 1 - m.kickoffSide);
     } else {
       m.phase = 'ft';
-      for (const t of m.teams) for (const mp of activePlayers(t)) mp.minOut = 90 + m.extra;
+      for (const t of m.teams) for (const mp of activePlayers(t)) mp.minOut = m.minute + m.extra;
       emit(m, out, { type: 'ft', side: -1, x: 0.5, y: 0.5, zone: 1 });
       finalizeRatings(m);
     }
