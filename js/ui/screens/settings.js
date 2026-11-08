@@ -3,7 +3,8 @@
  */
 import { exportNames, importNames } from '../../game/dataImport.js';
 import { esc } from '../components.js';
-import { downloadJson, readFileAsText } from '../files.js';
+import { downloadJson, downloadText, readFileAsText } from '../files.js';
+import { getSlot, exportFile, importFile, slotsInfo } from '../../game/state.js';
 
 export function render(app) {
   const st = app.state.settings;
@@ -15,7 +16,11 @@ export function render(app) {
       <div class="btns"><button class="btn" data-act="exportNames">Exporter les noms</button>
         <label class="btn">Importer des noms<input type="file" accept=".json,application/json" data-act="importNames" hidden></label></div>
     </div>
-    <div id="saves-panel"></div>
+    <div class="card"><h3>Sauvegarde</h3>
+      <p style="margin-top:0"><small>Emplacement ${getSlot()} · ${Math.round((slotsInfo()[getSlot()]?.size || 0) / 1024)} Ko compressés (gzip) · sauvegarde automatique</small></p>
+      <div class="btns"><button class="btn" data-act="exportSave">Exporter la partie</button>
+        <label class="btn">Importer ici<input type="file" accept=".json,application/json" data-act="importSave" hidden></label></div>
+      <p class="muted" style="font-size:12px;margin-bottom:0">L'export produit un fichier .json à conserver ou à transférer sur un autre appareil.</p></div>
     <div class="card"><button class="btn danger block" data-act="quit">Quitter vers le menu</button></div>`;
 }
 
@@ -30,6 +35,20 @@ export const actions = {
       app.toast(r.ok ? `${r.clubs} club(s) et ${r.players} joueur(s) renommés.` : `Import impossible : ${r.errors[0] || 'fichier vide'}`, 3500);
       if (r.ok) { app.save(); app.render(); }
     } catch (e) { app.toast('Fichier JSON invalide.'); }
+  },
+  exportSave(el, app) {
+    app.save(true);
+    downloadText(exportFile(app.state), `coach-de-poche-${app.state.season}-j${app.state.day + 1}.json`, 'application/json');
+  },
+  async importSave(el, app) {
+    const f = el.files?.[0];
+    if (!f) return;
+    try {
+      const st = importFile(await readFileAsText(f));
+      if (!st) throw new Error('version');
+      if (!(await app.confirm('Remplacer la partie ?', `La partie de l'emplacement ${getSlot()} sera remplacée.`, 'Importer', true))) return;
+      app.state = st; app.save(true); app.go('home'); app.toast('Partie importée !');
+    } catch { app.toast('Fichier invalide ou incompatible.'); }
   },
   async quit(el, app) {
     if (!(await app.confirm('Quitter ?', 'La partie est sauvegardée automatiquement.', 'Menu principal'))) return;

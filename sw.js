@@ -3,7 +3,7 @@
  * Stratégie : cache d'abord, puis réseau (et mise à jour du cache en arrière-plan).
  * Pensez à incrémenter VERSION à chaque livraison.
  */
-const VERSION = 'cdp-v2';
+const VERSION = 'cdp-v3';
 const ASSETS = [
   './',
   './css/style.css',
@@ -15,29 +15,42 @@ const ASSETS = [
   './js/data/constants.js',
   './js/data/generator.js',
   './js/data/names.js',
+  './js/data/world.js',
   './js/engine/ai.js',
   './js/engine/commentary.js',
   './js/engine/match.js',
+  './js/engine/positions.js',
   './js/engine/ratings.js',
+  './js/game/career.js',
+  './js/game/dataImport.js',
   './js/game/economy.js',
   './js/game/progression.js',
+  './js/game/scouting.js',
   './js/game/season.js',
   './js/game/state.js',
   './js/game/transfers.js',
+  './js/game/worker.js',
   './js/main.js',
   './js/ui/app.js',
+  './js/ui/audio.js',
+  './js/ui/charts.js',
   './js/ui/components.js',
+  './js/ui/files.js',
   './js/ui/matchView.js',
   './js/ui/screens/club.js',
   './js/ui/screens/dayReport.js',
   './js/ui/screens/endSeason.js',
+  './js/ui/screens/friends.js',
   './js/ui/screens/home.js',
   './js/ui/screens/match.js',
+  './js/ui/screens/negotiation.js',
   './js/ui/screens/playerSheet.js',
   './js/ui/screens/schedule.js',
+  './js/ui/screens/settings.js',
   './js/ui/screens/squad.js',
   './js/ui/screens/start.js',
   './js/ui/screens/tactics.js',
+  './js/ui/sim.js',
   './manifest.webmanifest',
 ];
 

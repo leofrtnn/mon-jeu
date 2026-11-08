@@ -8,6 +8,7 @@ import { esc, crest, formPills, gauge, scaleColor } from '../components.js';
 import { openMatch } from './match.js';
 import { showDayReport, showOffer } from './dayReport.js';
 import { showEndSeason } from './endSeason.js';
+import { simulateDays, busy } from '../sim.js';
 
 export function render(app) {
   const s = app.state;
@@ -47,11 +48,13 @@ export function render(app) {
     html += `<div class="card nextmatch"><h3>🌍 ${esc(t.label)}</h3>
       <p>${called.length ? `Convoqués : ${called.join(', ')}` : '<span class="muted">Aucun de vos joueurs n\'est sélectionné.</span>'}</p>
       <p class="muted" style="font-size:12px">Les internationaux reviennent fatigués, parfois blessés… mais plus confiants.</p>
-      <button class="btn primary lg block" data-act="simulate">Journée suivante ▸</button></div>`;
+      <button class="btn primary lg block" data-act="simulate">Journée suivante ▸</button>
+      <button class="btn block" style="margin-top:8px" data-act="skipto">⏩ Jusqu'à mon prochain match</button></div>`;
   } else if (t) {
     html += `<div class="card nextmatch"><h3>${esc(t.label)}</h3>
       <p class="muted">Votre équipe ne joue pas cette journée.</p>
-      <button class="btn primary lg block" data-act="simulate">Journée suivante ▸</button></div>`;
+      <button class="btn primary lg block" data-act="simulate">Journée suivante ▸</button>
+      <button class="btn block" style="margin-top:8px" data-act="skipto">⏩ Jusqu'à mon prochain match</button></div>`;
   }
 
   // Forme de l'équipe.
@@ -104,12 +107,8 @@ function line(label, v) {
 export const actions = {
   play(el, app) { openMatch(app); },
   tactics(el, app) { app.go('tactics'); },
-  simulate(el, app) {
-    const report = completeDay(app.state, null);
-    app.save();
-    app.render();
-    showDayReport(app, report);
-  },
+  async simulate(el, app) { await runSim(app, 1, false); },
+  async skipto(el, app) { await runSim(app, 12, true); },
   endseason(el, app) { showEndSeason(app); },
   msg(el, app) {
     const m = app.state.messages.find((x) => String(x.id) === el.dataset.id);
@@ -146,4 +145,20 @@ function jobSheet(app, clubId) {
       no: () => { h.close(); app.render(); app.toast('Offre déclinée.'); },
     },
   });
+}
+
+/** Simulation (Web Worker) puis rapport de la dernière journée. */
+async function runSim(app, n, untilMatch) {
+  busy(true);
+  try {
+    const reports = await simulateDays(app, n, untilMatch);
+    app.save();
+    app.render();
+    const last = reports[reports.length - 1];
+    if (last) {
+      if (reports.length > 1) last.label = `${reports.length} journées simulées · ${last.label}`;
+      last.injuries = reports.flatMap((r) => r.injuries);
+      showDayReport(app, last);
+    }
+  } finally { busy(false); }
 }
