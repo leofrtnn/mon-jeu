@@ -49,7 +49,9 @@ export const app = {
       if (b) this.go(b.dataset.tab);
     });
     // Délégation des actions de l'écran courant.
-    this.$screen.addEventListener('click', (e) => this.dispatch(e, this.current()?.actions));
+    this.$screen.addEventListener('click', (e) => { if (e.target.tagName !== 'SELECT' && e.target.type !== 'file') this.dispatch(e, this.current()?.actions); });
+    // Listes déroulantes et champs : événement "change".
+    this.$screen.addEventListener('change', (e) => this.dispatch(e, this.current()?.actions));
     this.$top.addEventListener('click', (e) => this.dispatch(e, this.current()?.actions));
   },
 
@@ -133,11 +135,17 @@ export const app = {
     handle.update(typeof opts.html === 'function' ? opts.html() : opts.html);
     wrap.addEventListener('click', (e) => {
       if (e.target.classList.contains('sheet-bg') && opts.dismissable !== false) { handle.close(); return; }
+      if (e.target.tagName === 'SELECT' || e.target.type === 'file' || e.target.type === 'range') return;
       const el = e.target.closest('[data-act]');
       if (!el) return;
       if (el.dataset.act === 'close') { handle.close(); return; }
       const fn = handle.actions[el.dataset.act];
       if (fn) { e.preventDefault(); fn(el, this, handle, e); }
+    });
+    wrap.addEventListener('change', (e) => {
+      const el = e.target.closest('[data-act]');
+      const fn = el && handle.actions[el.dataset.act];
+      if (fn) fn(el, this, handle, e);
     });
     (opts.root || this.$overlay).appendChild(wrap);
     this.sheets.push(handle);

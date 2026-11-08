@@ -4,32 +4,71 @@
  */
 
 const ORIGINS = [
-  { w: 40, first: ['Lucas','Hugo','Théo','Nathan','Louis','Maxime','Antoine','Julien','Romain','Kylian','Adrien','Baptiste','Clément','Florian','Quentin','Valentin','Mathis','Enzo','Raphaël','Benjamin','Yanis','Mehdi','Bastien','Corentin','Dylan','Kévin','Jordan','Loïc','Thibault','Gaëtan','Rémi','Alexis','Matthieu','Sacha','Noah','Evan','Tom','Arthur','Malo','Léo'],
+  { w: 40, key: 'fr', nations: ['France', 'France', 'France', 'Belgique', 'Suisse'], first: ['Lucas','Hugo','Théo','Nathan','Louis','Maxime','Antoine','Julien','Romain','Kylian','Adrien','Baptiste','Clément','Florian','Quentin','Valentin','Mathis','Enzo','Raphaël','Benjamin','Yanis','Mehdi','Bastien','Corentin','Dylan','Kévin','Jordan','Loïc','Thibault','Gaëtan','Rémi','Alexis','Matthieu','Sacha','Noah','Evan','Tom','Arthur','Malo','Léo'],
     last: ['Martin','Bernard','Dubois','Durand','Lefèvre','Moreau','Laurent','Simon','Michel','Garnier','Faure','Rousseau','Blanc','Guérin','Muller','Henry','Roussel','Nicolas','Perrin','Morin','Mathieu','Clément','Gauthier','Dumont','Lopez','Fontaine','Chevalier','Robin','Masson','Sanchez','Gérard','Nguyen','Boyer','Denis','Lemaire','Duval','Joly','Gautier','Roger','Roche','Roy','Noël','Meyer','Lucas','Meunier','Jean','Pérez','Marchand','Dufour','Blanchard','Barbier','Brun','Dumas','Brunet','Schmitt','Leroux','Colin','Fernandez','Pierre','Renard','Arnaud','Rolland','Caron','Aubert','Giraud','Leclerc','Vidal','Bourgeois','Renaud','Lemoine','Picard','Gaillard','Philippe','Leclercq','Lacroix','Fabre','Dupuis','Olivier','Rodriguez','Da Costa','Hubert','Carpentier','Deschamps','Marechal','Vasseur','Tessier','Lebrun','Besnard','Pasquier','Delmas'] },
-  { w: 14, first: ['Moussa','Ibrahima','Mamadou','Cheikh','Ousmane','Sékou','Abdoulaye','Bakary','Seydou','Amadou','Youssouf','Lamine','Idrissa','Boubacar','Souleymane','Kalidou','Ismaïla','Pape','Aliou','Modibo'],
+  { w: 14, key: 'waf', nations: ['Sénégal', 'Mali', 'Côte d\'Ivoire', 'Guinée', 'Cameroun'], first: ['Moussa','Ibrahima','Mamadou','Cheikh','Ousmane','Sékou','Abdoulaye','Bakary','Seydou','Amadou','Youssouf','Lamine','Idrissa','Boubacar','Souleymane','Kalidou','Ismaïla','Pape','Aliou','Modibo'],
     last: ['Diallo','Traoré','Koné','Diop','Ndiaye','Camara','Touré','Keïta','Sow','Cissé','Fofana','Bamba','Sylla','Sissoko','Coulibaly','Diarra','Konaté','Kanté','Gueye','Mendy','Sarr','Faye','Dembélé','Doucouré','Sangaré','Bakayoko','Kouyaté','Niang','Tall','Barry'] },
-  { w: 12, first: ['Diego','Pablo','Sergio','Álvaro','Javier','Iker','Rodrigo','Marcos','Raúl','Iván','Rafael','Tiago','João','Bruno','Diogo','Rúben','Gonçalo','Nuno','André','Pedro'],
+  { w: 12, key: 'ibe', nations: ['Espagne', 'Espagne', 'Portugal'], first: ['Diego','Pablo','Sergio','Álvaro','Javier','Iker','Rodrigo','Marcos','Raúl','Iván','Rafael','Tiago','João','Bruno','Diogo','Rúben','Gonçalo','Nuno','André','Pedro'],
     last: ['García','Martínez','López','Sánchez','Romero','Navarro','Ortega','Delgado','Castro','Morales','Iglesias','Moreno','Silva','Santos','Ferreira','Pereira','Oliveira','Costa','Carvalho','Almeida','Sousa','Ribeiro','Gomes','Marques','Pinto','Teixeira'] },
-  { w: 8, first: ['Gabriel','Matheus','Vinícius','Thiago','Felipe','Caio','Rafinha','Igor','Wesley','Danilo','Éverton','Renan'],
+  { w: 8, key: 'bra', nations: ['Brésil'], first: ['Gabriel','Matheus','Vinícius','Thiago','Felipe','Caio','Rafinha','Igor','Wesley','Danilo','Éverton','Renan'],
     last: ['Souza','Lima','Araújo','Barbosa','Rocha','Cardoso','Nascimento','Mendes','Freitas','Monteiro','Batista','Moura','Vieira','Correia'] },
-  { w: 8, first: ['Luka','Marko','Ivan','Nikola','Stefan','Milan','Dusan','Filip','Petar','Bojan','Andrej','Mateo'],
+  { w: 8, key: 'bal', nations: ['Croatie', 'Serbie'], first: ['Luka','Marko','Ivan','Nikola','Stefan','Milan','Dusan','Filip','Petar','Bojan','Andrej','Mateo'],
     last: ['Petrović','Jovanović','Marković','Kovačević','Babić','Horvat','Novak','Popović','Nikolić','Ilić','Stanković','Vidović','Lukić','Perić'] },
-  { w: 8, first: ['Youssef','Achraf','Hakim','Karim','Sofiane','Ilyes','Riyad','Nabil','Amine','Bilal','Rayan','Walid'],
+  { w: 8, key: 'mag', nations: ['Maroc', 'Algérie', 'Tunisie'], first: ['Youssef','Achraf','Hakim','Karim','Sofiane','Ilyes','Riyad','Nabil','Amine','Bilal','Rayan','Walid'],
     last: ['Benali','Haddad','Mansouri','Belkacem','Bensaïd','Amrani','Boudjema','Zerrouki','Chaïbi','Kaddour','Tahiri','Brahimi','Slimani','Hamdi'] },
-  { w: 6, first: ['Lars','Erik','Jonas','Mikkel','Emil','Oskar','Niklas','Lukas','Jan','Tim','Kai','Finn'],
+  { w: 6, key: 'nor', nations: ['Allemagne', 'Pays-Bas', 'Danemark', 'Suède'], first: ['Lars','Erik','Jonas','Mikkel','Emil','Oskar','Niklas','Lukas','Jan','Tim','Kai','Finn'],
     last: ['Hansen','Larsen','Nielsen','Johansson','Lindqvist','Berg','Schneider','Fischer','Weber','Becker','Wagner','Hoffmann','De Vries','Jansen','Peeters','Janssens'] },
-  { w: 4, first: ['Marco','Luca','Federico','Andrea','Lorenzo','Matteo','Davide','Simone'],
+  { w: 4, key: 'ita', nations: ['Italie'], first: ['Marco','Luca','Federico','Andrea','Lorenzo','Matteo','Davide','Simone'],
     last: ['Rossi','Russo','Ferrari','Esposito','Bianchi','Romano','Colombo','Ricci','Marino','Greco','Conti','De Luca'] },
+  { w: 0, key: 'eng', nations: ['Angleterre', 'Angleterre', 'Écosse', 'Irlande', 'Pays de Galles'], first: ['Jack','Harry','Oliver','George','Charlie','James','Thomas','William','Callum','Liam','Connor','Ryan','Declan','Mason','Kieran','Jamie','Owen','Reece','Aaron','Ben','Sam','Joe'],
+    last: ['Smith','Jones','Taylor','Brown','Wilson','Evans','Walker','Wright','Robinson','Thompson','White','Hughes','Edwards','Green','Hall','Wood','Harris','Clarke','Jackson','Turner','Hill','Cooper','Ward','Murphy','Kelly','O\'Brien','McKenzie','Fletcher','Barnes','Holloway','Pearce','Whitfield','Ashworth','Kershaw'] },
 ];
-const ORIGIN_WEIGHTS = ORIGINS.map((o) => o.w);
 
-/** Retourne { first, last } crédible. */
-export function randomName(rng) {
-  const o = ORIGINS[rng.weightedIndex(ORIGIN_WEIGHTS)];
+/** Pondération des origines selon le pays du club. */
+const COUNTRY_WEIGHTS = {
+  FRA: { fr: 40, waf: 14, ibe: 6, bra: 6, bal: 6, mag: 9, nor: 5, ita: 3, eng: 2 },
+  IBE: { fr: 5, waf: 7, ibe: 50, bra: 16, bal: 5, mag: 6, nor: 4, ita: 5, eng: 2 },
+  ALB: { fr: 5, waf: 12, ibe: 6, bra: 5, bal: 6, mag: 3, nor: 10, ita: 3, eng: 50 },
+};
+
+/** Retourne { first, last, nat } crédible pour un club du pays donné. */
+export function randomName(rng, country = 'FRA') {
+  const cw = COUNTRY_WEIGHTS[country] || COUNTRY_WEIGHTS.FRA;
+  const weights = ORIGINS.map((o) => cw[o.key] ?? o.w);
+  const o = ORIGINS[rng.weightedIndex(weights)];
   // De temps en temps, prénom et nom d'origines différentes (binationaux).
-  const o2 = rng.chance(0.12) ? ORIGINS[rng.weightedIndex(ORIGIN_WEIGHTS)] : o;
-  return { first: rng.pick(o.first), last: rng.pick(o2.last) };
+  const o2 = rng.chance(0.12) ? ORIGINS[rng.weightedIndex(weights)] : o;
+  return { first: rng.pick(o.first), last: rng.pick(o2.last), nat: rng.pick(o.nations) };
 }
+
+/** Villes fictives d'Ibérie et d'Albion. */
+export const CITIES_IBE = ['Valdemora', 'Castrillo', 'San Lorián', 'Albacena', 'Puerto Riel', 'Montealto', 'Villafría', 'Torrevieja Alta', 'Santa Olalla',
+  'Almoria', 'Calarrosa', 'Ourense Nova', 'Vilaflor', 'Benavira', 'Las Garzas', 'Peñarroja', 'Mirandela', 'Cortegana', 'Sotoluz', 'Fuenclara', 'Alcorán', 'Navalmar'];
+export const CITIES_ALB = ['Ashbury', 'Kingsmoor', 'Holloway', 'Bramford', 'Eastcliff', 'Whitmore', 'Redbridge Vale', 'Stockley', 'Harrowgate', 'Millbrook',
+  'Thornbury', 'Westhaven', 'Coldmere', 'Bexford', 'Langdale', 'Fairhurst', 'Northwick', 'Crowley', 'Saltmarsh', 'Ravenscar', 'Oakham Port', 'Dunmore'];
+const PATTERNS = {
+  IBE: ['Real {c}', 'Atlético {c}', 'CD {c}', 'Sporting {c}', 'UD {c}', '{c} CF', 'Racing {c}', 'Deportivo {c}', 'SD {c}', 'Unión {c}'],
+  ALB: ['{c} United', '{c} City', '{c} Rovers', '{c} Athletic', '{c} Town', '{c} Wanderers', 'AFC {c}', '{c} Albion', '{c} County', 'Real {c} FC'],
+};
+
+/** Nom de club dans le style du pays. */
+export function clubNameFor(rng, city, country) {
+  if (country === 'FRA') return clubName(rng, city);
+  const name = rng.pick(PATTERNS[country]).replace('{c}', city);
+  const letters = city.normalize('NFD').replace(/[^A-Za-z]/g, '').toUpperCase();
+  return { name, short: (letters[0] + letters[2] + letters[letters.length - 1]).slice(0, 3) };
+}
+
+/** Couleurs des sélections nationales (accent, secondaire). */
+export const NATION_COLORS = {
+  France: ['#1d3fbb', '#ffffff'], Belgique: ['#c8102e', '#fdda24'], Suisse: ['#d52b1e', '#ffffff'], Sénégal: ['#00853f', '#fdef42'],
+  Mali: ['#14b53a', '#fcd116'], "Côte d'Ivoire": ['#f77f00', '#ffffff'], Guinée: ['#ce1126', '#fcd116'], Cameroun: ['#007a5e', '#fcd116'],
+  Espagne: ['#c60b1e', '#ffc400'], Portugal: ['#8b0000', '#006600'], Brésil: ['#ffdf00', '#009c3b'], Croatie: ['#ff0000', '#ffffff'],
+  Serbie: ['#c6363c', '#0c4076'], Maroc: ['#c1272d', '#006233'], Algérie: ['#ffffff', '#006633'], Tunisie: ['#e70013', '#ffffff'],
+  Allemagne: ['#ffffff', '#000000'], 'Pays-Bas': ['#ff6f00', '#ffffff'], Danemark: ['#c60c30', '#ffffff'], Suède: ['#fecc00', '#006aa7'],
+  Italie: ['#0066cc', '#ffffff'], Angleterre: ['#ffffff', '#cf081f'], Écosse: ['#0065bd', '#ffffff'], Irlande: ['#169b62', '#ffffff'],
+  'Pays de Galles': ['#c8102e', '#00b140'],
+};
 
 /** Villes fictives (consonance francophone). */
 export const CITIES = [

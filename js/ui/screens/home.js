@@ -1,7 +1,7 @@
 /**
  * Accueil : prochain match, forme de l'équipe, messages importants (3 max).
  */
-import { today, completeDay, tablePosition, DIV_NAMES } from '../../game/season.js';
+import { today, completeDay, tablePosition, DIV_NAMES, nationSquad, eligibleNations, changeClub } from '../../game/season.js';
 import { userClub, clubById, clubPlayers, topMessages } from '../../game/state.js';
 import { isAvailable } from '../../engine/ratings.js';
 import { esc, crest, formPills, gauge, scaleColor } from '../components.js';
@@ -37,6 +37,17 @@ export function render(app) {
         <button class="btn sm" data-act="simulate">Simuler</button>
       </div>
     </div>`;
+  } else if (t && t.entry.type === 'intl') {
+    const elig = new Set(eligibleNations(s));
+    const called = [];
+    for (const n of new Set(clubPlayers(s, uc).map((p) => p.nat))) {
+      if (!elig.has(n)) continue;
+      for (const p of nationSquad(s, n)) if (p.clubId === uc.id) called.push(`${p.name} <small>(${esc(n)})</small>`);
+    }
+    html += `<div class="card nextmatch"><h3>🌍 ${esc(t.label)}</h3>
+      <p>${called.length ? `Convoqués : ${called.join(', ')}` : '<span class="muted">Aucun de vos joueurs n\'est sélectionné.</span>'}</p>
+      <p class="muted" style="font-size:12px">Les internationaux reviennent fatigués, parfois blessés… mais plus confiants.</p>
+      <button class="btn primary lg block" data-act="simulate">Journée suivante ▸</button></div>`;
   } else if (t) {
     html += `<div class="card nextmatch"><h3>${esc(t.label)}</h3>
       <p class="muted">Votre équipe ne joue pas cette journée.</p>
@@ -60,7 +71,7 @@ export function render(app) {
       <div>${row.form.length ? formPills(row.form) : '<small>Aucun match joué</small>'}</div>
       <div class="center"><div class="big" style="font-size:22px">${pos}<small style="font-size:12px">e</small></div><small>${row.pts} pts</small></div>
     </div>
-    ${line('Condition', cond)}${line('Moral', morale)}${line('Forme', form)}${line('Confiance du board', s.board.confidence)}
+    ${line('Condition', cond)}${line('Moral', morale)}${line('Forme', form)}${line('Confiance du board', s.board.confidence)}${line('Réputation du coach', s.coach.rep)}
     ${unavailable ? `<p style="margin:10px 0 0"><span class="tag bad">${unavailable} indisponible(s)</span> <small>blessés, suspendus ou prêtés</small></p>` : ''}
   </div>`;
 
@@ -106,6 +117,8 @@ export const actions = {
     m.read = true;
     app.save();
     if (m.action?.type === 'offer') showOffer(app, m.action.pid);
+    else if (m.action?.type === 'player') import('./playerSheet.js').then((mod) => { app.render(); mod.showPlayer(app, m.action.pid); });
+    else if (m.action?.type === 'job') jobSheet(app, m.action.clubId);
     else app.render();
   },
   allmsgs(el, app) {
@@ -118,3 +131,19 @@ export const actions = {
     });
   },
 };
+
+/** Offre d'emploi reçue d'un autre club. */
+function jobSheet(app, clubId) {
+  const s = app.state;
+  const c = clubById(s, clubId);
+  const uc = userClub(s);
+  const h = app.sheet({
+    html: `<div class="row" style="gap:12px">${crest(c, 'lg')}<div><h2>${esc(c.name)}</h2><small>${DIV_NAMES[c.div]} · réputation ${c.rep} (vous : ${uc.rep})</small></div></div>
+      <p>Le président de ${esc(c.name)} vous propose de prendre l'équipe <b>dès maintenant</b>. Vous quitteriez ${esc(uc.name)} en cours de saison.</p>
+      <div class="btns"><button class="btn" data-act="no">Décliner</button><button class="btn primary" data-act="yes">Accepter le poste</button></div>`,
+    actions: {
+      yes: () => { changeClub(s, clubId); app.save(true); h.close(); app.go('home'); app.toast(`Bienvenue à ${c.name} !`); },
+      no: () => { h.close(); app.render(); app.toast('Offre déclinée.'); },
+    },
+  });
+}

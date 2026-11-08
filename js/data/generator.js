@@ -2,7 +2,8 @@
  * Génération procédurale du monde : joueurs, clubs, divisions.
  */
 import { POSITION_WEIGHTS, ATTRS, FORMATIONS, DEFAULT_TACTICS } from './constants.js';
-import { randomName, CITIES, clubName, CLUB_COLORS } from './names.js';
+import { randomName, CITIES, CITIES_IBE, CITIES_ALB, clubNameFor, CLUB_COLORS } from './names.js';
+import { DIVISIONS } from './world.js';
 import { overall } from '../engine/ratings.js';
 import { playerValue, playerWage } from '../game/economy.js';
 import { clamp } from '../core/rng.js';
@@ -19,8 +20,8 @@ export function getNextId() { return nextId; }
  * Crée un joueur dont la note globale vise `level`.
  * Les attributs clés du poste sont proches de la cible, les autres plus bas.
  */
-export function createPlayer(rng, { pos, level, age, clubId = null }) {
-  const { first, last } = randomName(rng);
+export function createPlayer(rng, { pos, level, age, clubId = null, country = 'FRA' }) {
+  const { first, last, nat } = randomName(rng, country);
   const w = POSITION_WEIGHTS[pos];
   const attrs = {};
   for (const k of ATTRS) {
@@ -41,7 +42,7 @@ export function createPlayer(rng, { pos, level, age, clubId = null }) {
   const o = overall({ attrs: a, pos });
   const pot = clamp(Math.round(age <= 20 ? o + rng.range(5, 22) : age <= 24 ? o + rng.range(1, 12) : age <= 28 ? o + rng.range(0, 4) : o), o, 95);
   const p = {
-    id: nextId++, first, last, name: `${first[0]}. ${last}`, age, pos, attrs: a, pot,
+    id: nextId++, first, last, name: `${first[0]}. ${last}`, nat, caps: 0, intGoals: 0, age, pos, attrs: a, pot,
     form: rng.int(40, 60), morale: rng.int(55, 75), fatigue: 0, injury: 0, injuryName: '', suspended: 0,
     yellowAcc: 0, contract: rng.int(1, 4), clubId, number: 0, wage: 0, value: 0,
     stats: { apps: 0, goals: 0, lgoals: 0, assists: 0, ratingSum: 0, yellows: 0, reds: 0, minutes: 0, motm: 0 },
@@ -80,7 +81,7 @@ export function createSquad(rng, club, level) {
     const young = rng.chance(0.14);
     const age = young ? rng.int(17, 20) : squadAge(rng, 0);
     if (young) lv -= rng.range(4, 9);
-    const p = createPlayer(rng, { pos, level: Math.round(lv), age, clubId: club.id });
+    const p = createPlayer(rng, { pos, level: Math.round(lv), age, clubId: club.id, country: club.country });
     players.push(p);
   }
   assignNumbers(players);
@@ -101,44 +102,51 @@ export function assignNumbers(players) {
 }
 
 /**
- * Crée le monde : 2 divisions de 20 clubs fictifs + joueurs libres.
+ * Crée le monde : France (2 divisions), Ibérie et Albion (1 division chacun),
+ * 20 clubs fictifs par division, plus des joueurs libres.
  * Retourne { clubs, players, freeAgents }.
  */
 export function createWorld(rng) {
   nextId = 1;
-  const cities = rng.shuffle(CITIES.slice()).slice(0, 40);
+  const pools = { FRA: rng.shuffle(CITIES.slice()), IBE: rng.shuffle(CITIES_IBE.slice()), ALB: rng.shuffle(CITIES_ALB.slice()) };
   const colors = rng.shuffle(CLUB_COLORS.slice());
   const clubs = [];
   const players = {};
   const usedShort = new Set();
-  for (let i = 0; i < 40; i++) {
-    const div = i < 20 ? 1 : 2;
-    // Réputation décroissante avec du bruit : quelques gros, un ventre mou, des petits.
-    const rep = div === 1 ? Math.round(88 - i * 1.6 + rng.normal(0, 2)) : Math.round(60 - (i - 20) * 1.1 + rng.normal(0, 2));
-    const { name, short: s0 } = clubName(rng, cities[i]);
-    let short = s0; let k = 0;
-    while (usedShort.has(short)) short = s0.slice(0, 2) + String.fromCharCode(65 + k++);
-    usedShort.add(short);
-    const [color, color2] = colors[i % colors.length];
-    const club = {
-      id: i + 1, name, short, city: cities[i], color, color2, rep: clamp(rep, 30, 92), div,
-      stadium: Math.round((div === 1 ? 15000 + rep * 450 : 6000 + rep * 200) / 500) * 500,
-      budget: Math.round((div === 1 ? Math.pow(rep / 10, 2.6) * 120000 : Math.pow(rep / 10, 2.2) * 60000) / 100000) * 100000,
-      academy: clamp(Math.round(rep / 22), 1, 5),
-      tactics: { ...DEFAULT_TACTICS },
-      playerIds: [], youthIds: [], lineup: null, bench: null,
-      finances: { history: [] },
-    };
-    const level = div === 1 ? Math.round(56 + rep * 0.25) : Math.round(50 + rep * 0.29);
-    const squad = createSquad(rng, club, level);
-    for (const p of squad) { players[p.id] = p; club.playerIds.push(p.id); }
-    clubs.push(club);
+  let i = 0;
+  for (const div of Object.keys(DIVISIONS).map(Number)) {
+    const d = DIVISIONS[div];
+    for (let k = 0; k < 20; k++, i++) {
+      // Réputation décroissante avec du bruit : quelques gros, un ventre mou, des petits.
+      const top = d.country === 'ALB' ? 90 : 88;
+      const rep = d.level === 1 ? Math.round(top - k * 1.6 + rng.normal(0, 2)) : Math.round(60 - k * 1.1 + rng.normal(0, 2));
+      const city = pools[d.country].pop();
+      const { name, short: s0 } = clubNameFor(rng, city, d.country);
+      let short = s0; let n = 0;
+      while (usedShort.has(short)) short = s0.slice(0, 2) + String.fromCharCode(65 + n++);
+      usedShort.add(short);
+      const pair = colors[i % colors.length];
+      const [color, color2] = i >= colors.length ? [pair[0], pair[1]] : pair;
+      const club = {
+        id: i + 1, name, short, city, country: d.country, color, color2, rep: clamp(rep, 30, 95), div,
+        stadium: Math.round((d.level === 1 ? 15000 + rep * 450 : 6000 + rep * 200) / 500) * 500,
+        budget: Math.round((d.level === 1 ? Math.pow(rep / 10, 2.6) * 120000 : Math.pow(rep / 10, 2.2) * 60000) / 100000) * 100000,
+        academy: clamp(Math.round(rep / 22), 1, 5),
+        tactics: { ...DEFAULT_TACTICS },
+        playerIds: [], youthIds: [], lineup: null, bench: null,
+        finances: { history: [] },
+      };
+      const level = d.level === 1 ? Math.round(56 + rep * 0.25) : Math.round(50 + rep * 0.29);
+      const squad = createSquad(rng, club, level);
+      for (const p of squad) { players[p.id] = p; club.playerIds.push(p.id); }
+      clubs.push(club);
+    }
   }
   // Joueurs libres (agents libres).
   const freeAgents = [];
-  for (let i = 0; i < 40; i++) {
+  for (let k = 0; k < 50; k++) {
     const pos = rng.pick(['GB', 'DC', 'DC', 'DG', 'DD', 'MDC', 'MC', 'MC', 'MO', 'AG', 'AD', 'BU', 'BU']);
-    const p = createPlayer(rng, { pos, level: rng.int(50, 68), age: rng.int(19, 34) });
+    const p = createPlayer(rng, { pos, level: rng.int(50, 68), age: rng.int(19, 34), country: rng.pick(['FRA', 'IBE', 'ALB']) });
     p.contract = 0;
     players[p.id] = p;
     freeAgents.push(p.id);
@@ -149,7 +157,7 @@ export function createWorld(rng) {
 /** Jeune du centre de formation : potentiel lié au niveau du centre. */
 export function createYouth(rng, club) {
   const pos = rng.pick(SQUAD_TEMPLATE.slice(1));
-  const p = createPlayer(rng, { pos, level: rng.int(40, 50) + club.academy * 2, age: rng.int(16, 18), clubId: club.id });
+  const p = createPlayer(rng, { pos, level: rng.int(40, 50) + club.academy * 2, age: rng.int(16, 18), clubId: club.id, country: club.country });
   p.pot = clamp(Math.round(55 + club.academy * 5 + rng.normal(0, 8)), overall(p) + 5, 94);
   p.contract = 3;
   p.wage = Math.round(p.wage * 0.5 / 100) * 100;

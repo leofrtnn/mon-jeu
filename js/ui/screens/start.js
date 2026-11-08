@@ -5,7 +5,8 @@ import { newGame, startCareer } from '../../game/season.js';
 import { hasSave, load, deleteSave, clubPlayers } from '../../game/state.js';
 import { squadStrength } from '../../engine/ratings.js';
 import { money } from '../../game/economy.js';
-import { esc, crest, stars, seg } from '../components.js';
+import { esc, crest, stars } from '../components.js';
+import { DIVISIONS, DIV_IDS, COUNTRIES } from '../../data/world.js';
 
 export function render(app) {
   const ui = app.ui.start || (app.ui.start = { step: 'menu', div: 1 });
@@ -20,13 +21,13 @@ export function render(app) {
       ${saved ? '<button class="btn primary lg block" data-act="continue">Continuer la partie</button><div style="height:10px"></div>' : ''}
       <button class="btn ${saved ? '' : 'primary'} lg block" data-act="new">Nouvelle partie</button>
     </div>
-    <p class="muted center" style="font-size:12px">40 clubs fictifs · 2 divisions · 1 coupe<br>Sauvegarde automatique sur cet appareil</p>`;
+    <p class="muted center" style="font-size:12px">80 clubs fictifs · 3 pays · 4 championnats · coupes nationales et continentale<br>Sauvegarde automatique sur cet appareil</p>`;
   }
   const clubs = app.state.clubs.filter((c) => c.div === ui.div)
     .map((c) => ({ c, s: squadStrength(clubPlayers(app.state, c)) }))
     .sort((a, b) => b.c.rep - a.c.rep);
   return `<h2 style="margin:16px 4px 10px">Choisissez votre club</h2>
-    ${seg('div', [1, 2], ui.div, { 1: 'Division 1', 2: 'Division 2' })}
+    <div class="chips">${DIV_IDS.map((d) => `<button class="chip ${d === ui.div ? 'on' : ''}" data-act="div" data-v="${d}">${COUNTRIES[DIVISIONS[d].country].flag} ${DIVISIONS[d].name}</button>`).join('')}</div>
     <div class="card list" style="padding:4px 10px">
       ${clubs.map(({ c, s }) => `<div class="prow" data-act="pick" data-id="${c.id}">
         ${crest(c)}

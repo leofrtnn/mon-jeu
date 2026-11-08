@@ -22,8 +22,9 @@ test('deux saisons complètes sans erreur', () => {
       }
       completeDay(state, m);
     }
-    assert.equal(state.day, 43);
-    for (const div of [1, 2]) {
+    assert.equal(state.day, state.calendar.length);
+    assert.equal(state.calendar.length, 52);
+    for (const div of [1, 2, 3, 4]) {
       const tab = sortedTable(state, div);
       assert.equal(tab.length, 20);
       for (const r of tab) assert.equal(r.p, 38);
@@ -31,10 +32,12 @@ test('deux saisons complètes sans erreur', () => {
       const avg = goals / 380;
       assert.ok(avg > 2 && avg < 3.3, `buts/match div ${div} = ${avg}`);
     }
-    assert.ok(state.cup.winner, 'vainqueur de coupe');
+    for (const c of Object.values(state.cups)) assert.ok(c.winner, `vainqueur ${c.name}`);
+    assert.ok(state.conti.winner, 'vainqueur continental');
+    assert.ok(Object.values(state.nations).some((n) => n.p >= 3), 'matchs internationaux joués');
     const rep = endSeason(state);
     assert.equal(rep.promoted.length, 3);
-    assert.equal(state.clubs.filter((c) => c.div === 1).length, 20);
+    for (const d of [1, 2, 3, 4]) assert.equal(state.clubs.filter((c) => c.div === d).length, 20);
     for (const c of state.clubs) {
       assert.ok(Number.isFinite(c.budget), 'budget fini');
       assert.ok(c.playerIds.length >= 18 && c.playerIds.length <= 34, `effectif ${c.name} ${c.playerIds.length}`);
@@ -43,5 +46,17 @@ test('deux saisons complètes sans erreur', () => {
   }
   const size = JSON.stringify(state).length;
   console.log(`taille de sauvegarde : ${(size / 1024).toFixed(0)} Ko, budget user ${userClub(state).budget}`);
-  assert.ok(size < 2_500_000);
+  assert.ok(size < 4_000_000);
+});
+
+test('import / export de noms', async () => {
+  const { exportNames, importNames } = await import('../js/game/dataImport.js');
+  const state = newGame(99);
+  const data = exportNames(state);
+  data.clubs[0].name = 'Club Importé';
+  data.clubs[0].players[0] = 'Jean Testeur';
+  const r = importNames(state, JSON.parse(JSON.stringify(data)));
+  assert.ok(r.ok);
+  assert.equal(state.clubs[0].name, 'Club Importé');
+  assert.equal(state.players[state.clubs[0].playerIds[0]].name, 'J. Testeur');
 });

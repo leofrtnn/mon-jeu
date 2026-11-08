@@ -13,6 +13,7 @@ export function showDayReport(app, report) {
   const uc = userClub(s);
   const offers = (s.pendingOffers || []).filter((o) => s.players[o.pid]?.clubId === uc.id);
   const res = (r) => {
+    if (r.comp === 'intl') return `<div class="row" style="padding:6px 0;border-bottom:1px solid var(--line)"><span class="grow" style="text-align:right">${esc(r.h)}</span><b class="num" style="min-width:50px;text-align:center">${r.s[0]} - ${r.s[1]}</b><span class="grow">${esc(r.a)}</span></div>`;
     const h = clubById(s, r.h), a = clubById(s, r.a);
     const me = r.h === uc.id || r.a === uc.id;
     return `<div class="row" style="padding:6px 0;border-bottom:1px solid var(--line);${me ? 'font-weight:700' : ''}">
@@ -20,7 +21,7 @@ export function showDayReport(app, report) {
       <b class="num" style="min-width:50px;text-align:center">${r.s[0]} - ${r.s[1]}</b>
       ${crest(a, 'sm')}<span class="grow">${esc(a.short)}${r.pens ? ` <small>(${r.pens[0]}-${r.pens[1]} tab)</small>` : ''}</span></div>`;
   };
-  const results = report.results.filter((r) => r.cup || r.div === uc.div);
+  const results = report.results.filter((r) => (r.comp === 'league' && r.div === uc.div) || (r.comp === 'cup' && r.key === uc.country) || r.comp === 'conti' || r.comp === 'intl');
   const html = () => `<h2>${esc(report.label)}</h2>
     <p class="muted" style="margin-top:0">Gestion rapide</p>
     ${report.injuries.length || report.suspensions.length ? `<div class="card"><h3>Infirmerie & discipline</h3>
@@ -35,6 +36,7 @@ export function showDayReport(app, report) {
       return `<div class="row" style="padding:6px 0"><div class="grow"><b>${esc(p.name)}</b> <small>(${overall(p)})</small><br><small>${esc(c.name)} · ${money(o.amount)}</small></div>
         <button class="btn sm" data-act="decline" data-id="${p.id}">Refuser</button><button class="btn sm primary" data-act="accept" data-id="${p.id}">Accepter</button></div>`;
     }).join('')}</div>` : ''}
+    ${report.callups.length ? `<div class="card"><h3>🌍 Vos internationaux</h3><small>${report.callups.map(esc).join(', ')}</small></div>` : ''}
     <div class="card"><h3>Résultats</h3>${results.map(res).join('')}</div>
     <button class="btn primary lg block" data-act="close">Continuer</button>`;
   const h = app.sheet({

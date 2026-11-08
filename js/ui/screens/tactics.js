@@ -2,7 +2,7 @@
  * Tactique : formation, consignes, compo en glisser-déposer (ou tap-tap), compo auto.
  */
 import { userClub, clubPlayers } from '../../game/state.js';
-import { FORMATIONS, FORMATION_NAMES, MENTALITIES, MENTALITY_LABELS, LEVELS, PRESSING_LABELS, TEMPO_LABELS, WIDTH_LABELS, positionFit, BENCH_SIZE } from '../../data/constants.js';
+import { FORMATIONS, FORMATION_NAMES, MENTALITIES, MENTALITY_LABELS, LEVELS, PRESSING_LABELS, TEMPO_LABELS, WIDTH_LABELS, positionFit, BENCH_SIZE, ROLES, rolesFor } from '../../data/constants.js';
 import { autoLineup, ratingAt, isAvailable, overall, lineupStrength } from '../../engine/ratings.js';
 import { esc, playerRow, seg } from '../components.js';
 
@@ -50,6 +50,23 @@ export function render(app) {
     <div class="label">Pressing</div>${seg('press', LEVELS, t.pressing, PRESSING_LABELS)}
     <div class="label">Tempo</div>${seg('tempo', LEVELS, t.tempo, TEMPO_LABELS)}
     <div class="label">Largeur</div>${seg('width', LEVELS, t.width, WIDTH_LABELS)}
+    <div class="label">Rôles individuels</div>
+    <div class="card" style="margin-top:0">${slots.map((sl, i) => {
+      const p = byId.get(uc.lineup[i]);
+      if (sl.pos === 'GB' || !p) return '';
+      const opts = rolesFor(sl.pos);
+      const cur = (uc.roles || [])[i] || 'std';
+      return `<div class="formrow"><span><b>${sl.pos}</b> ${esc(p.last)}</span>
+        <select data-act="role" data-v="${i}">${opts.map((r) => `<option value="${r}" ${r === cur ? 'selected' : ''}>${ROLES[r].label}</option>`).join('')}</select></div>`;
+    }).join('')}
+      <p class="muted" style="font-size:12px;margin:6px 0 0">${Object.keys(ROLES).filter((r) => r !== 'std').map((r) => `<b>${ROLES[r].label}</b> : ${ROLES[r].desc}`).join('<br>')}</p></div>
+    <div class="label">Coups de pied arrêtés</div>
+    <div class="card" style="margin-top:0">${[['corner', 'Corners'], ['fk', 'Coups francs'], ['pen', 'Penaltys']].map(([k, l]) => {
+      const cur = (uc.setPieces || {})[k];
+      const xi = uc.lineup.map((id) => byId.get(id)).filter((p) => p && p.pos !== 'GB');
+      return `<div class="formrow"><span>${l}</span><select data-act="setpiece" data-v="${k}">
+        <option value="">Automatique</option>${xi.map((p) => `<option value="${p.id}" ${p.id === cur ? 'selected' : ''}>${esc(p.name)} (${k === 'corner' ? p.attrs.pas : k === 'fk' ? Math.round((p.attrs.tir + p.attrs.sf) / 2) : Math.round((p.attrs.tir + p.attrs.sf) / 2)})</option>`).join('')}</select></div>`;
+    }).join('')}</div>
     <div class="label">Remplaçants (${BENCH_SIZE})</div>
     <div class="card list" style="padding:0 10px;margin-top:0">${benchRows.join('')}</div>
     <div class="label">Réserve</div>
@@ -159,6 +176,7 @@ export const actions = {
   formation(el, app) {
     const uc = userClub(app.state);
     uc.tactics.formation = el.dataset.v;
+    uc.roles = [];
     const lu = autoLineup(clubPlayers(app.state, uc), uc.tactics.formation);
     uc.lineup = lu.lineup; uc.bench = lu.bench;
     app.save(); app.render();
@@ -169,6 +187,18 @@ export const actions = {
     uc.lineup = lu.lineup; uc.bench = lu.bench;
     app.ui.tsel = null;
     app.save(); app.render(); app.toast('Meilleur onze sélectionné.');
+  },
+  role(el, app) {
+    const uc = userClub(app.state);
+    uc.roles = uc.roles || [];
+    uc.roles[+el.dataset.v] = el.value;
+    app.save(); app.toast(`Rôle : ${ROLES[el.value].label}`);
+  },
+  setpiece(el, app) {
+    const uc = userClub(app.state);
+    uc.setPieces = uc.setPieces || {};
+    uc.setPieces[el.dataset.v] = el.value ? +el.value : null;
+    app.save(); app.toast('Tireur enregistré');
   },
   ment(el, app) { setT(app, 'mentality', el.dataset.v); },
   press(el, app) { setT(app, 'pressing', el.dataset.v); },

@@ -7,6 +7,8 @@ import { overall } from '../engine/ratings.js';
 import { playerValue, playerWage } from './economy.js';
 import { clamp } from '../core/rng.js';
 
+const FOCUS_ATTRS = { physical: ['vit', 'phy'], technical: ['tir', 'pas', 'dri'], tactical: ['def', 'vis', 'sf'] };
+
 /** Modifie les attributs d'un joueur de `delta` points (surtout ses attributs clés). */
 export function shiftAttributes(p, delta, rng) {
   const w = POSITION_WEIGHTS[p.pos];
@@ -26,15 +28,19 @@ export function shiftAttributes(p, delta, rng) {
  * Entraînement de la semaine : les jeunes progressent un peu, surtout s'ils jouent.
  * playedMinutes : minutes jouées cette journée.
  */
-export function weeklyTraining(p, rng, playedMinutes = 0) {
+export function weeklyTraining(p, rng, playedMinutes = 0, tp = null) {
   const o = overall(p);
   const gap = p.pot - o;
-  if (p.age <= 24 && gap > 0) {
-    const chance = 0.015 + gap * 0.003 + (playedMinutes > 45 ? 0.02 : 0);
+  const mult = tp?.mult ?? 1;
+  const focus = tp?.focus && FOCUS_ATTRS[tp.focus];
+  if (p.age <= 26 && gap > 0) {
+    const chance = (0.015 + gap * 0.003 + (playedMinutes > 45 ? 0.02 : 0)) * mult;
     if (rng.chance(chance)) {
       const w = POSITION_WEIGHTS[p.pos];
-      const keys = Object.keys(w);
-      const k = keys[rng.weightedIndex(keys.map((x) => w[x]))];
+      let keys = Object.keys(w);
+      // Le thème d'entraînement oriente la progression.
+      if (focus && rng.chance(0.65)) keys = focus.filter((k) => k !== 'arr' || p.pos === 'GB');
+      const k = keys[rng.weightedIndex(keys.map((x) => w[x] || 0.15))];
       p.attrs[k] = clamp(p.attrs[k] + 1, 1, 99);
     }
   } else if (p.age >= 32 && rng.chance(0.03)) {
@@ -47,7 +53,7 @@ export function weeklyTraining(p, rng, playedMinutes = 0) {
  * Évolution de fin de saison. Retourne { before, after } pour le bilan.
  * apps : matchs joués dans la saison.
  */
-export function seasonDevelopment(p, rng) {
+export function seasonDevelopment(p, rng, mult = 1) {
   const before = overall(p);
   const apps = p.stats.apps;
   const avgRating = apps ? p.stats.ratingSum / apps : 6;
@@ -61,6 +67,7 @@ export function seasonDevelopment(p, rng) {
   else delta = rng.normal(-2.8, 1.2);
   // Bonne saison = petit bonus.
   delta += (avgRating - 6.8) * 0.8 * play;
+  if (delta > 0) delta *= 0.85 + 0.15 * mult; // installations, staff, intensité
   if (delta > 0 && before >= p.pot) delta *= 0.2;
   shiftAttributes(p, delta, rng);
   p.age++;

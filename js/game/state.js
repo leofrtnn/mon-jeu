@@ -6,7 +6,7 @@ import { createRng, hashSeed } from '../core/rng.js';
 import { getNextId, setNextId } from '../data/generator.js';
 
 const SAVE_KEY = 'fm-light-save-v1';
-export const SAVE_VERSION = 1;
+export const SAVE_VERSION = 2;
 
 /** RNG "de partie" persistant : on sauvegarde son état interne. */
 export function gameRng(state) {
