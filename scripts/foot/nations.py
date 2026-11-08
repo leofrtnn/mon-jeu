@@ -1,0 +1,20 @@
+"""Codes pays FIFA (utilisés par les effectifs Wikipédia) -> noms en français."""
+NATIONS = {
+ 'AFG':'Afghanistan','ALB':'Albanie','ALG':'Algérie','AND':'Andorre','ANG':'Angola','ARG':'Argentine','ARM':'Arménie','AUS':'Australie','AUT':'Autriche','AZE':'Azerbaïdjan',
+ 'BEL':'Belgique','BEN':'Bénin','BIH':'Bosnie-Herzégovine','BLR':'Biélorussie','BOL':'Bolivie','BRA':'Brésil','BUL':'Bulgarie','BFA':'Burkina Faso','BDI':'Burundi',
+ 'CAN':'Canada','CMR':'Cameroun','CPV':'Cap-Vert','CTA':'Centrafrique','CHA':'Tchad','CHI':'Chili','CHN':'Chine','CIV':"Côte d'Ivoire",'COL':'Colombie','COM':'Comores',
+ 'COD':'RD Congo','CGO':'Congo','CRC':'Costa Rica','CRO':'Croatie','CUB':'Cuba','CUW':'Curaçao','CYP':'Chypre','CZE':'Tchéquie','DEN':'Danemark','DOM':'Rép. dominicaine',
+ 'ECU':'Équateur','EGY':'Égypte','ENG':'Angleterre','EQG':'Guinée équatoriale','ERI':'Érythrée','ESP':'Espagne','EST':'Estonie','ETH':'Éthiopie','FIN':'Finlande','FRA':'France',
+ 'FRO':'Îles Féroé','GAB':'Gabon','GAM':'Gambie','GEO':'Géorgie','GER':'Allemagne','GHA':'Ghana','GIB':'Gibraltar','GRE':'Grèce','GRN':'Grenade','GLP':'Guadeloupe','GUF':'Guyane',
+ 'GUI':'Guinée','GNB':'Guinée-Bissau','GUA':'Guatemala','GUY':'Guyana','HAI':'Haïti','HON':'Honduras','HUN':'Hongrie','ISL':'Islande','IND':'Inde','IDN':'Indonésie','IRN':'Iran',
+ 'IRQ':'Irak','IRL':'Irlande','ISR':'Israël','ITA':'Italie','JAM':'Jamaïque','JPN':'Japon','JOR':'Jordanie','KAZ':'Kazakhstan','KEN':'Kenya','KOR':'Corée du Sud','PRK':'Corée du Nord',
+ 'KOS':'Kosovo','KSA':'Arabie saoudite','KUW':'Koweït','KGZ':'Kirghizistan','LVA':'Lettonie','LBN':'Liban','LBR':'Liberia','LBY':'Libye','LIE':'Liechtenstein','LTU':'Lituanie',
+ 'LUX':'Luxembourg','MAD':'Madagascar','MTQ':'Martinique','MWI':'Malawi','MAS':'Malaisie','MLI':'Mali','MLT':'Malte','MTN':'Mauritanie','MRI':'Maurice','MEX':'Mexique','MDA':'Moldavie',
+ 'MNE':'Monténégro','MAR':'Maroc','MOZ':'Mozambique','NAM':'Namibie','NED':'Pays-Bas','NCL':'Nouvelle-Calédonie','NZL':'Nouvelle-Zélande','NIG':'Niger','NGA':'Nigeria',
+ 'NIR':'Irlande du Nord','MKD':'Macédoine du Nord','NOR':'Norvège','OMA':'Oman','PAK':'Pakistan','PLE':'Palestine','PAN':'Panama','PAR':'Paraguay','PER':'Pérou','PHI':'Philippines',
+ 'POL':'Pologne','POR':'Portugal','PUR':'Porto Rico','QAT':'Qatar','REU':'La Réunion','ROU':'Roumanie','RUS':'Russie','RWA':'Rwanda','SCO':'Écosse','SEN':'Sénégal','SRB':'Serbie',
+ 'SLE':'Sierra Leone','SVK':'Slovaquie','SVN':'Slovénie','SOM':'Somalie','RSA':'Afrique du Sud','SSD':'Soudan du Sud','SDN':'Soudan','SUR':'Suriname','SWE':'Suède','SUI':'Suisse',
+ 'SYR':'Syrie','TAN':'Tanzanie','THA':'Thaïlande','TOG':'Togo','TRI':'Trinité-et-Tobago','TUN':'Tunisie','TUR':'Turquie','UGA':'Ouganda','UKR':'Ukraine','UAE':'Émirats arabes unis',
+ 'URU':'Uruguay','USA':'États-Unis','UZB':'Ouzbékistan','VEN':'Venezuela','VIE':'Viêt Nam','WAL':'Pays de Galles','ZAM':'Zambie','ZIM':'Zimbabwe','SKN':'Saint-Christophe-et-Niévès',
+ 'MSR':'Montserrat','BER':'Bermudes','CAY':'Îles Caïmans','SMR':'Saint-Marin','STP':'Sao Tomé-et-Principe','SEY':'Seychelles','DJI':'Djibouti','LES':'Lesotho','BOT':'Botswana','SWZ':'Eswatini',
+}

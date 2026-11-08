@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Big 5 · effectifs</title>
+<style>
+  :root { --bg: #0d1117; --card: #161b22; --line: #2a313c; --fg: #e6edf3; --muted: #8b949e; --accent: #3fb950; color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.4 system-ui, -apple-system, sans-serif;
+    padding: env(safe-area-inset-top, 0) max(14px, env(safe-area-inset-right)) 40px max(14px, env(safe-area-inset-left)); }
+  header { position: sticky; top: 0; background: var(--bg); padding: 10px 0; z-index: 2; }
+  h1 { font-size: 20px; margin: 4px 0 8px; }
+  .chips { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; }
+  .chip { flex: none; min-height: 40px; padding: 0 14px; border-radius: 20px; border: 1px solid var(--line); background: var(--card); color: var(--muted); font-weight: 600; }
+  .chip.on { background: var(--accent); color: #0d1117; border-color: transparent; }
+  input { width: 100%; min-height: 44px; border-radius: 12px; border: 1px solid var(--line); background: var(--card); color: var(--fg); padding: 0 12px; font: inherit; margin-top: 8px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin-top: 10px; }
+  .club { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 12px; text-align: center; cursor: pointer; }
+  .club img { width: 64px; height: 64px; object-fit: contain; }
+  .club b { display: block; margin-top: 6px; font-size: 14px; }
+  .club small, .muted { color: var(--muted); font-size: 12px; }
+  .stripe { height: 6px; border-radius: 3px; display: flex; overflow: hidden; margin-top: 8px; }
+  .stripe i { flex: 1; }
+  .row { display: flex; gap: 10px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); cursor: pointer; }
+  .row img, .ph { width: 48px; height: 48px; border-radius: 50%; object-fit: cover; background: #222a35; flex: none; }
+  .ph { display: flex; align-items: center; justify-content: center; font-weight: 800; color: var(--muted); }
+  .grow { flex: 1; min-width: 0; }
+  .pos { font-size: 11px; font-weight: 800; padding: 2px 6px; border-radius: 6px; background: #1f6feb; }
+  .sheet { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: flex-end; z-index: 5; }
+  .sheet > div { background: #11161d; width: 100%; max-height: 90vh; overflow-y: auto; border-radius: 18px 18px 0 0; padding: 16px 16px calc(20px + env(safe-area-inset-bottom)); }
+  .kv { display: flex; justify-content: space-between; gap: 10px; padding: 5px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
+  .kv span:last-child { text-align: right; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+  td, th { padding: 5px 4px; border-bottom: 1px solid var(--line); text-align: right; }
+  td:first-child, th:first-child, td:nth-child(2), th:nth-child(2) { text-align: left; }
+  button.back { min-height: 40px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--fg); padding: 0 14px; font: inherit; }
+  a { color: #58a6ff; }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title">Big 5 · effectifs</h1>
+  <div class="chips" id="leagues"></div>
+  <input id="q" type="search" placeholder="Rechercher un joueur ou un club…" autocomplete="off">
+</header>
+<main id="main"><p class="muted">Chargement de foot5.json…</p></main>
+<p class="muted" id="credits"></p>
+<script>
+let D, league = null, club = null;
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const img = (u, cls = '', alt = '') => u ? `<img src="${esc(u)}?width=200" loading="lazy" alt="${esc(alt)}" class="${cls}" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'ph',textContent:'${esc((alt || '?')[0])}'}))">` : `<div class="ph">${esc((alt || '?')[0])}</div>`;
+
+fetch('foot5.json').then((r) => r.json()).then((d) => {
+  D = d;
+  D.byClub = Object.fromEntries(D.clubs.map((c) => [c.id, c]));
+  league = D.leagues[0].id;
+  $('#credits').innerHTML = `${D.meta.counts.clubs} clubs · ${D.meta.counts.players} joueurs · généré le ${D.meta.generated}.<br>${esc(D.meta.sources)}<br>${esc(D.meta.images)}`;
+  render();
+}).catch(() => { $('#main').innerHTML = '<p>Impossible de charger foot5.json (ouvrez cette page via un serveur web).</p>'; });
+
+function render() {
+  $('#leagues').innerHTML = D.leagues.map((l) => `<button class="chip ${l.id === league && !club ? 'on' : ''}" data-l="${l.id}">${esc(l.name)}</button>`).join('');
+  const q = $('#q').value.trim().toLowerCase();
+  if (q.length >= 2) return search(q);
+  if (club) return renderClub(D.byClub[club]);
+  const L = D.leagues.find((l) => l.id === league);
+  $('#main').innerHTML = `<div class="grid">${L.clubs.map((id) => D.byClub[id]).map((c) => `<div class="club" data-c="${c.id}">
+    ${img(c.logo.url, '', c.name)}<b>${esc(c.name)}</b><small>${esc(c.stadium || '')}</small>
+    <div class="stripe">${(c.colors.home.length ? c.colors.home : ['#444']).map((h) => `<i style="background:${h}"></i>`).join('')}</div></div>`).join('')}</div>`;
+}
+
+function playerRow(p) {
+  const c = D.byClub[p.club];
+  return `<div class="row" data-p="${esc(p.id)}">${img(p.photo.url, '', p.name)}
+    <div class="grow"><b>${p.number ? p.number + '. ' : ''}${esc(p.name)}</b><br><span class="muted">${esc(p.nationality.name || '')} · ${p.age ?? '?'} ans · ${esc(c.name)}</span></div>
+    <span class="pos">${p.position.game}</span></div>`;
+}
+
+function renderClub(c) {
+  const ps = D.players.filter((p) => p.club === c.id).sort((a, b) => 'GB DC DG DD MDC MC MO AG AD BU'.split(' ').indexOf(a.position.game) - 'GB DC DG DD MDC MC MO AG AD BU'.split(' ').indexOf(b.position.game));
+  $('#main').innerHTML = `<button class="back" data-back>← Retour</button>
+    <div style="display:flex;gap:12px;align-items:center;margin:12px 0">${img(c.logo.url, '', c.name)}<div><h2 style="margin:0">${esc(c.name)}</h2><span class="muted">${esc(c.fullName || '')}</span></div></div>
+    ${[['Fondation', c.founded], ['Stade', c.stadium && `${c.stadium}${c.capacity ? ` (${c.capacity.toLocaleString('fr-FR')} places)` : ''}`], ['Entraîneur', c.manager], ['Président', c.chairman], ['Propriétaire', c.owner], ['Surnom', c.nickname]]
+      .filter(([, v]) => v).map(([k, v]) => `<div class="kv"><span>${k}</span><span>${esc(v)}</span></div>`).join('')}
+    <h3>Effectif (${ps.length})</h3>${ps.map(playerRow).join('')}`;
+}
+
+function search(q) {
+  const ps = D.players.filter((p) => p.name.toLowerCase().includes(q) || (p.fullName || '').toLowerCase().includes(q)).slice(0, 60);
+  const cs = D.clubs.filter((c) => c.name.toLowerCase().includes(q)).slice(0, 10);
+  $('#main').innerHTML = `${cs.map((c) => `<div class="row" data-c="${c.id}">${img(c.logo.url, '', c.name)}<div class="grow"><b>${esc(c.name)}</b></div></div>`).join('')}${ps.map(playerRow).join('') || '<p class="muted">Aucun résultat.</p>'}`;
+}
+
+function showPlayer(id) {
+  const p = D.players.find((x) => x.id === id);
+  const c = D.byClub[p.club];
+  const el = document.createElement('div');
+  el.className = 'sheet';
+  el.innerHTML = `<div>
+    <div style="display:flex;gap:14px;align-items:center">${p.photo.url ? `<img src="${esc(p.photo.url)}?width=300" style="width:96px;height:96px;border-radius:50%;object-fit:cover" alt="">` : '<div class="ph" style="width:96px;height:96px">?</div>'}
+    <div><h2 style="margin:0">${esc(p.name)}</h2><span class="muted">${esc(p.fullName || '')}</span><br>${img(c.logo.url, '', c.name).replace('<img', '<img style="width:22px;height:22px;vertical-align:middle;border-radius:0"')} ${esc(c.name)}</div></div>
+    ${[['Poste', `${p.position.fr}${p.position.detail ? ` (${p.position.detail})` : ''}`], ['Numéro', p.number], ['Nationalité', p.nationality.name], ['Naissance', p.birthDate && `${p.birthDate}${p.birthPlace ? ' · ' + p.birthPlace : ''}`],
+       ['Âge', p.age], ['Taille', p.heightCm && p.heightCm + ' cm'], ['Rôle', p.role], ['Au club', p.clubStats && `${p.clubStats.apps ?? '?'} matchs · ${p.clubStats.goals ?? '?'} buts (depuis ${p.clubStats.since})`],
+       ['Sélection', p.international && `${p.international.team} : ${p.international.caps ?? '?'} sél. · ${p.international.goals ?? '?'} buts`]]
+      .filter(([, v]) => v != null && v !== '').map(([k, v]) => `<div class="kv"><span>${k}</span><span>${esc(v)}</span></div>`).join('')}
+    ${p.career.length ? `<h3>Carrière</h3><table><tr><th>Années</th><th>Club</th><th>M</th><th>B</th></tr>${p.career.map((k) => `<tr><td>${esc(k.years)}</td><td>${k.loan ? '→ ' : ''}${esc(k.club)}</td><td>${k.apps ?? ''}</td><td>${k.goals ?? ''}</td></tr>`).join('')}</table>` : ''}
+    <p class="muted">${p.wikipedia ? `<a href="${esc(p.wikipedia)}" target="_blank" rel="noopener">Page Wikipédia</a>` : ''}</p>
+    <button class="back" data-close style="width:100%">Fermer</button></div>`;
+  el.addEventListener('click', (e) => { if (e.target === el || e.target.closest('[data-close]')) el.remove(); });
+  document.body.appendChild(el);
+}
+
+document.addEventListener('click', (e) => {
+  const l = e.target.closest('[data-l]'); if (l) { league = l.dataset.l; club = null; $('#q').value = ''; render(); return; }
+  if (e.target.closest('[data-back]')) { club = null; render(); return; }
+  const c = e.target.closest('[data-c]'); if (c) { club = c.dataset.c; $('#q').value = ''; render(); window.scrollTo(0, 0); return; }
+  const p = e.target.closest('[data-p]'); if (p) showPlayer(p.dataset.p);
+});
+$('#q').addEventListener('input', render);
+</script>
+</body>
+</html>
