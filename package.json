@@ -1,0 +1,12 @@
+{
+  "name": "mon-jeu-football-manager",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Manager de football mobile léger (PWA)",
+  "scripts": {
+    "test": "node --test tests/*.test.js",
+    "calibrate": "node tests/calibrate.js",
+    "start": "python3 -m http.server 8080"
+  }
+}
