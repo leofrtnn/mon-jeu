@@ -67,16 +67,25 @@ POS_FR = {'GB': 'Gardien', 'DC': 'Défenseur central', 'DG': 'Latéral gauche', 
           'MC': 'Milieu central', 'MO': 'Milieu offensif', 'AG': 'Ailier gauche', 'AD': 'Ailier droit', 'BU': 'Attaquant'}
 
 # ---------- Clubs ----------
+SKIP = re.compile(r'former|notable|record|of the (year|season)|women|reserve|youth|academy|loan|under-|u-?\d\d|\bb team|retired|captain|international|world cup|staff|manager', re.I)
+
 def squad_section(text):
-    """Texte de la section de l'effectif actuel (jusqu'au titre suivant)."""
-    m = re.search(r'\n(={2,4})\s*(First[- ]team squad|Current squad|First team squad|Squad|Current first[- ]team squad|First-team)\s*\1', text, re.I)
-    if not m:
-        m = re.search(r'\n(={2,4})\s*[^=\n]*squad[^=\n]*\1', text, re.I)
-    if not m:
-        return ''
-    rest = text[m.end():]
-    nxt = re.search(r'\n={2,4}[^=\n]+={2,4}', rest)
-    return rest[:nxt.start()] if nxt else rest
+    """Premier bloc {{Fs start}}…{{Fs end}} de la section effectif (équipe première, hors prêts)."""
+    heads = [(m.start(), m.end(), len(m.group(1)), m.group(2).strip()) for m in re.finditer(r'\n(={2,4})([^=\n]+)\1', text)]
+    for i, (hs, he, lvl, title) in enumerate(heads):
+        if not re.search(r'squad|players', title, re.I) or SKIP.search(title):
+            continue
+        stop = next((h[0] for h in heads[i + 1:] if h[2] <= lvl), len(text))
+        sec = text[he:stop]
+        m = re.search(r'\{\{\s*(Fs start|Football squad start)', sec, re.I)
+        if m:
+            e = re.search(r'\{\{\s*(Fs end|Football squad end)', sec[m.end():], re.I)
+            block = sec[m.start(): m.end() + (e.start() if e else len(sec))]
+        else:
+            block = sec
+        if re.search(r'Fs player|Football squad player', block, re.I):
+            return block
+    return ''
 
 def parse_squad(text):
     sec = squad_section(text)
