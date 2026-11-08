@@ -20,13 +20,17 @@ const SPEEDS = [1, 2, 4];
 /** Événements montrés en mode "Résumé rapide". */
 const QUICK_KEEP = new Set(['goal', 'red', 'yellow', 'penalty', 'var', 'ht', 'ft', 'injury', 'kickoff', 'freekick']);
 
-export function openMatch(app) {
+/**
+ * opts (facultatif, matchs amicaux) : { cfg, label, userSide, onFinish(summary, m) }.
+ * Sans opts : match du jour de l'utilisateur, appliqué à la saison en fin de match.
+ */
+export function openMatch(app, opts = {}) {
   const s = app.state;
-  const cfg = userMatchCfg(s);
+  const cfg = opts.cfg || userMatchCfg(s);
   if (!cfg) { app.toast('Pas de match aujourd\'hui.'); return; }
   const m = createMatch(cfg);
-  const userSide = cfg.home.club.id === s.userClubId ? 0 : 1;
-  const label = today(s).label;
+  const userSide = opts.userSide ?? (cfg.home.club.id === s.userClubId ? 0 : 1);
+  const label = opts.label || today(s).label;
   const [hc, ac] = [cfg.home.club, cfg.away.club];
 
   const root = document.createElement('div');
@@ -360,6 +364,7 @@ export function openMatch(app) {
       actions: {
         done: (el, a, h) => {
           h.close();
+          if (opts.onFinish) { closeScreen(); opts.onFinish(sum, m); return; }
           const report = completeDay(s, m);
           app.save(true);
           closeScreen();

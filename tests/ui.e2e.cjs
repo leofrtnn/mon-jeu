@@ -96,6 +96,32 @@ function serve() {
     assert.equal(day2, day, 'reprise de la sauvegarde');
     step(`sauvegarde gzip (${Math.round(raw.length / 1024)} Ko) et reprise`);
 
+    // Multijoueur : code d'équipe, amical contre son propre code, ligue entre amis.
+    await page.click('[data-tab=club]'); await page.click('[data-act=ctab][data-v=friends]');
+    await page.click('[data-act=genCode]');
+    const code = await page.inputValue('#mycode');
+    assert.ok(code.startsWith('CDP1-'));
+    await page.fill('#friendcode', code);
+    await page.click('[data-act=challenge]');
+    await page.click('[data-act=go]');
+    await page.click('[data-c=skip]');
+    await page.waitForSelector('[data-act=done]');
+    await page.click('[data-act=done]');
+    await page.click('[data-act=no]');
+    await page.click('[data-tab=club]'); await page.click('[data-act=ctab][data-v=friends]');
+    await page.click('[data-act=addMine]');
+    // Deuxième équipe : un club d'un autre championnat, via l'état du jeu.
+    const code2 = await page.evaluate(async () => {
+      const f = await import('./js/game/friends.js');
+      const t = f.snapshotTeam(window.__app.state); t.name = 'Équipe test'; t.short = 'TST';
+      return f.encodeTeam(t);
+    });
+    await page.fill('#friendcode', code2);
+    await page.click('[data-act=addTeam]');
+    await page.click('[data-act=runLeague]');
+    await page.waitForSelector('table.tbl');
+    step('multijoueur : code, amical, ligue entre amis');
+
     assert.deepEqual(errors, [], 'aucune erreur console');
     console.log('\nTous les tests d\'interface sont passés.');
   } catch (e) {

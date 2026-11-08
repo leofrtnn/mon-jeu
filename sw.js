@@ -3,7 +3,7 @@
  * Stratégie : cache d'abord, puis réseau (et mise à jour du cache en arrière-plan).
  * Pensez à incrémenter VERSION à chaque livraison.
  */
-const VERSION = 'cdp-v3';
+const VERSION = 'cdp-v4';
 const ASSETS = [
   './',
   './css/style.css',
@@ -24,6 +24,7 @@ const ASSETS = [
   './js/game/career.js',
   './js/game/dataImport.js',
   './js/game/economy.js',
+  './js/game/friends.js',
   './js/game/progression.js',
   './js/game/scouting.js',
   './js/game/season.js',
