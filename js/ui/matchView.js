@@ -296,7 +296,9 @@ export class MatchView {
       taker.x = (P.x - ((tx - P.x) / d) * 1.2) / PITCH_L; taker.y = (P.y - ((ty - P.y) / d) * 1.2) / PITCH_W;
       taker.vx = taker.vy = 0; this.faceTo(taker, tx / PITCH_L, ty / PITCH_W);
     }
+    if (this.setPiece && !['corner', 'freekick', 'penalty'].includes(ev.type)) ev._sp = true; // coup de pied arrêté : pas de conduite
     if (!['corner', 'freekick', 'penalty'].includes(ev.type)) this.setPiece = false;
+    this.carry = null;
     if (this.needsApproach(ev)) { this.approach = { ev, t: 0 }; this.dur = 99; }
     else this.resolveEvent(ev);
   }
@@ -407,6 +409,7 @@ export class MatchView {
       else { this.opts.onIdle?.(); if (this.queue.length) this.startEvent(this.queue.shift()); }
     }
     if (this.approach) this.updateApproach(dt);
+    if (this.carry) this.updateCarry(dt);
     // Les 22 joueurs se replacent en continu selon la position réelle du ballon.
     this.reshapeT = (this.reshapeT || 0) + dt;
     if (this.reshapeT > 0.25 && !this.cur?.replay && !['corner', 'freekick', 'penalty', 'kickoff', 'goal'].includes(this.cur?.type)) this.reshape();
@@ -499,10 +502,73 @@ export class MatchView {
   /** Exécute l'événement une fois les joueurs au contact. */
   resolveEvent(ev) {
     if (['tackle', 'interception', 'foul'].includes(ev.type)) this.duel(ev);
-    else this.doKick(ev);
+    else {
+      // Avant de frapper, le porteur conduit le ballon (vers l'espace, la zone de tir, l'aile).
+      if (!ev._carried && this.startCarry(ev)) return;
+      this.doKick(ev);
+    }
     // Engagement : annoncé quand tout le monde est dans sa moitié (voir update).
     if (ev.type === 'kickoff' && !ev.replay) { this.koWait = 0; return; }
     this.announce(ev);
+  }
+
+  /**
+   * Conduite de balle avant l'action : passe (s'il a de l'espace devant lui), tir (jusqu'à
+   * une zone de frappe réaliste), centre (débordement sur l'aile).
+   */
+  startCarry(ev) {
+    const a = this.players.get(ev.pid);
+    if (!a || a.gk || this.holder !== ev.pid || this.inHands || ev._sp || ev.replay) return false;
+    const P = this.phys, dir = a.team.side === 0 ? 1 : -1, goalX = a.team.side === 0 ? PITCH_L : 0;
+    const dri = a.mp?.p?.attrs?.dri ?? 60;
+    let tx, ty, max;
+    if (ev.type === 'shot' && ev.kind !== 'header' && ev.kind !== 'penalty' && ev.kind !== 'freekick') {
+      // Zone de frappe : 14-18 m (occasion franche) ou 20-26 m (frappe lointaine).
+      const dist = ev.zone >= 3 ? 14 + this.rnd(ev, 7) * 4 : 20 + this.rnd(ev, 7) * 6;
+      const lat = Math.max(-13, Math.min(13, ((ev.y ?? 0.5) - 0.5) * PITCH_W * 0.7));
+      if (Math.hypot(goalX - P.x, PITCH_W / 2 - P.y) <= dist + 2) return false;
+      tx = goalX - dir * dist; ty = PITCH_W / 2 + lat; max = 6;
+    } else if (ev.type === 'cross') {
+      const flank = P.y < PITCH_W / 2 ? 5 : PITCH_W - 5;
+      tx = goalX - dir * (9 + this.rnd(ev, 8) * 8); ty = flank; max = 5;
+      if (Math.hypot(tx - P.x, ty - P.y) < 4) return false;
+    } else if (ev.type === 'pass' || ev.type === 'longpass') {
+      // Il avance balle au pied s'il n'est pas pressé (plus longtemps s'il dribble bien).
+      if (this.pressedAhead(a, 5)) return false;
+      const len = 5 + (dri / 100) * 9 * this.rnd(ev, 9);
+      tx = Math.max(2, Math.min(PITCH_L - 2, P.x + dir * len)); ty = P.y + (this.rnd(ev, 10) - 0.5) * 6; max = 0.6 + (dri / 100) * 1.2;
+    } else return false;
+    this.carry = { ev, t: 0, max, tx: Math.max(1, Math.min(PITCH_L - 1, tx)) / PITCH_L, ty: Math.max(1, Math.min(PITCH_W - 1, ty)) / PITCH_W };
+    this.dur = 99;
+    return true;
+  }
+
+  /** Un adversaire est-il devant le joueur, à moins de r mètres ? */
+  pressedAhead(a, r) {
+    const dir = a.team.side === 0 ? 1 : -1;
+    for (const p of this.players.values()) {
+      if (p.team === a.team) continue;
+      const dx = (p.x - a.x) * PITCH_L * dir, dy = (p.y - a.y) * PITCH_W;
+      if (dx > -0.5 && Math.hypot(dx, dy) < r) return true;
+    }
+    return false;
+  }
+
+  updateCarry(dt) {
+    const c = this.carry, a = this.players.get(c.ev.pid);
+    c.t += dt;
+    if (a) { a.tx = c.tx; a.ty = c.ty; }
+    const arrived = !a || Math.hypot((a.x - c.tx) * PITCH_L, (a.y - c.ty) * PITCH_W) < 1.5;
+    const lost = this.holder !== c.ev.pid;
+    // Il frappe / passe quand il est arrivé, s'il est pressé (passe ou centre), ou au bout du temps.
+    const pressed = a && c.ev.type !== 'shot' && c.t > 0.3 && this.pressedAhead(a, 2.2);
+    if (arrived || lost || pressed || c.t > c.max) {
+      this.carry = null;
+      c.ev._carried = true;
+      this.curT = 0;
+      this.dur = DUR[c.ev.type] ?? 0.8;
+      this.resolveEvent(c.ev);
+    }
   }
 
   /** Duel : tacle / interception (le défenseur repart avec le ballon) ou faute (jeu arrêté). */
@@ -532,7 +598,7 @@ export class MatchView {
   reshape(force = false) {
     const P = this.phys;
     const bx = Math.max(0, Math.min(1, P.x / PITCH_L)), by = Math.max(0, Math.min(1, P.y / PITCH_W));
-    const busy = new Set([this.holder, this.pending?.who, this.approach?.ev?.pid].filter((x) => x != null));
+    const busy = new Set([this.holder, this.pending?.who, this.approach?.ev?.pid, this.carry?.ev?.pid].filter((x) => x != null));
     const poss = this.poss ?? 0;
     for (const [id, pl] of this.players) {
       if (busy.has(id) || pl.celeb > 0 || pl.dive > 0) continue;
@@ -614,6 +680,7 @@ export class MatchView {
     }
     this.inHands = false;
     this.holder = null;
+    if (ev.type !== 'shot') this.shotOutcome = null;
     const head = ev.type === 'header' || (ev.type === 'shot' && ev.kind === 'header');
     // Tête : le joueur saute vers le ballon (on ne déplace pas le ballon vers lui).
     if (head && actor) { actor.jump = 0.45; actor.tx = P.x / PITCH_L; actor.ty = P.y / PITCH_W; }
@@ -671,6 +738,7 @@ export class MatchView {
     }
     const d = Math.hypot(tgt.x - P.x, tgt.y - P.y, (tgt.z ?? 0) - P.z);
     const T = solveKick(P, tgt, { T: Math.max(0.25, d / speed), spin, top });
+    this.shotOutcome = o; // un tir non marqué ne doit jamais finir au fond des filets
     if (o === 'saved' && gk) {
       const catchIt = speed < 27 && r2 < 0.55 && Math.abs(tgt.y - cy) < 2.2;
       this.pending = { at: this.physT + T, kind: 'save', who: gk.mp.id, catch: catchIt, r: r3 };
@@ -724,6 +792,12 @@ export class MatchView {
       }
     }
     if (!glued) stepBall(P, dt); // ballon libre : physique ; au pied ou dans les mains : il suit le joueur
+    // Garde-fou : si le moteur n'a pas accordé le but (arrêt, poteau, à côté, contre), le
+    // ballon ne franchit pas la ligne : il est repoussé (sur la ligne, par le gardien ou le montant).
+    if (P.inGoal && this.shotOutcome !== 'goal') {
+      const gx = P.inGoal > 0 ? PITCH_L : 0, d = P.inGoal > 0 ? -1 : 1;
+      P.x = gx + d * 0.3; P.vx = d * Math.max(3, Math.abs(P.vx) * 0.3); P.vy *= 0.5; P.vz = Math.max(P.vz, 1.5); P.inGoal = 0; P.spin = 0;
+    }
     if (P.hitPost && !this._postShake) { this.cam.shake = 0.5; this._postShake = true; }
     if (!P.hitPost) this._postShake = false;
     // Fin de trajectoire prévue : contrôle, arrêt ou contre.
