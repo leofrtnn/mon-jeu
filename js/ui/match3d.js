@@ -374,6 +374,11 @@ class Player3D {
       for (const a of this.arms) { a.sh.rotation.x = -dir * 2.9 * k; a.sh.rotation.z = 0.1; a.el.rotation.z = 0.05; }
       lL.hip.rotation.z = 0.2 * k; lR.hip.rotation.z = -0.3 * k;
     }
+    // Arbitre : carton brandi bras tendu vers le ciel, bras qui désigne le point de penalty,
+    // main à la bouche pour siffler.
+    if (p.card > 0) { const a = this.arms[1]; a.sh.rotation.x = -a.sgn * 3.0; a.sh.rotation.z = 0; a.el.rotation.z = 0; }
+    if (p.point > 0) { const a = this.arms[0]; a.sh.rotation.z = 1.5; a.el.rotation.z = 0.05; }
+    if (p.whistle > 0) { const a = this.arms[1]; a.sh.rotation.z = 0.6; a.el.rotation.z = 2.3; }
     // Fauché : il tombe en avant, reste au sol un instant, puis se relève.
     if (p.fall > 0) {
       const dur = p.fall > 0.6 || this._fallDur > 0.6 ? 1.1 : 0.6;
@@ -430,6 +435,12 @@ export class Match3D {
     this.buildStadium();
     this.buildBall();
     this.players = new Map(); // id -> { p3, label, side }
+    // Arbitre : tenue noire.
+    const black = new THREE.MeshLambertMaterial({ color: '#15171c' });
+    const refMats = { shirt: black, shorts: black, socks: black, boot: new THREE.MeshLambertMaterial({ color: '#0a0a0a' }),
+      shadow: new THREE.MeshBasicMaterial({ color: '#000', transparent: true, opacity: 0.32, depthWrite: false }), ring: black };
+    this.ref3d = new Player3D(refMats, '#c68642', '#1a120c', '', '#15171c', '#15171c');
+    this.scene.add(this.ref3d.root);
     this.mats = view.colors.map((c, side) => this.teamMats(side));
     this.resize();
   }
@@ -617,6 +628,12 @@ export class Match3D {
       e.p3.ring.visible = hl;
       e.p3.ring.material = this.mats[p.side].ring;
       e.label.visible = v.labelMode === 'name' || (v.labelMode !== 'none' && hl);
+    }
+    // Arbitre.
+    if (v.referee) {
+      const [rx, rz] = this.toWorld(v.referee.x, v.referee.y, flip);
+      this.ref3d.root.position.set(rx, 0, rz);
+      this.ref3d.pose(v.referee, flip);
     }
     const [bx, bz] = this.toWorld(v.ball.x, v.ball.y, flip);
     const hgt = v.ball.h * 26;

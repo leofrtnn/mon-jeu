@@ -227,10 +227,19 @@ export class LiveSim {
       const goalSide = ((px - rx) * ux + (py - ry) * uy) > -1;
       return { p, t, ix, iy, goalSide, d: Math.hypot(px - rx, py - ry), cost: t * (goalSide ? 0.75 : 1.9) };
     }).sort((a, b) => a.cost - b.cost);
+    // Zone de pressing (comme en vrai) : bloc bas = on attend dans sa moitié, bloc médian =
+    // on presse à partir du rond central, pressing haut = partout. Hors de cette zone, le plus
+    // proche « contient » le porteur à distance, sans se jeter, et le bloc reste en place.
+    const trigger = { low: 38, mid: 58, high: 110 }[D.tactics.pressing] ?? 58;
+    const ballDist = Math.abs(rx - ownGoalX);
+    const engage = ballDist < trigger || (h && this.pressure(h) < 2.5);
     const presser = cand.find((c) => c.d < pressRange);
-    if (presser) {
+    if (presser && engage) {
       const p = presser.p;
       p.tx = clamp(presser.ix + ux * 0.9, 0, L) / L; p.ty = clamp(presser.iy + uy * 0.9, 0, W) / W; p.role = 'press';
+    } else if (presser) {
+      const p = presser.p, gap = 6 + (this.rand() * 2);
+      p.tx = clamp(rx + ux * gap, 0, L) / L; p.ty = clamp(ry + uy * gap, 0, W) / W; p.role = 'contain';
     }
     const cover = cand.find((c) => c !== presser && c.goalSide && c.d < pressRange + 10);
     if (cover) { const p = cover.p; p.tx = (rx + ux * 7) / L; p.ty = (ry + uy * 7) / W; p.role = 'cover'; }
@@ -785,6 +794,7 @@ export class LiveSim {
       if (o.cd > 0) continue;
       const d = Math.hypot((o.x - h.x) * L, (o.y - h.y) * W);
       if (d > 1.4) continue;
+      if (o.role !== 'press' && o !== h.carry?.takeon?.def && d > 0.9) continue; // seul le presseur va au duel
       const press = LVL[D.tactics.pressing] || 0;
       // Par derrière : on tente rarement (et c'est plus souvent faute).
       const hs = Math.hypot(h.vx || 0, h.vy || 0);
@@ -1218,7 +1228,8 @@ export class LiveSim {
       while (d > Math.PI) d -= Math.PI * 2;
       while (d < -Math.PI) d += Math.PI * 2;
       p.face = (p.face || 0) + d * Math.min(1, dt * 7);
-      p.phase = (p.phase || 0) + p.speed * dt * (2.3 + 1.6 * (1 - Math.min(1, p.speed / 8)));
+      // Foulée réelle : un cycle (deux pas) ≈ 4,4 m en sprint, ≈ 2,8 m en petite foulée.
+      p.phase = (p.phase || 0) + p.speed * dt * (1.45 + 0.8 * (1 - Math.min(1, p.speed / 8)));
     };
     for (const p of this.players.values()) {
       const vit = p.mp?.p?.attrs?.vit ?? 60, en = p.mp?.energy ?? 100;

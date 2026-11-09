@@ -104,7 +104,10 @@ export class MatchView {
     this.syncPlayers(true);
     // Moteur en direct : les 22 joueurs décident eux-mêmes (voir engine/live.js) ; la vue
     // se contente d'afficher. Sinon (ancien mode), la vue rejoue les événements du moteur.
-    if (opts.live) this.live = new LiveSim(match, { players: this.players, ball: this.phys, sync: () => this.syncPlayers(false) });
+    if (opts.live) {
+      this.live = new LiveSim(match, { players: this.players, ball: this.phys, sync: () => this.syncPlayers(false) });
+      this.TS = 1.25; // un peu plus lent : on voit mieux les gestes
+    }
     this.resize();
     if (this.style === '3d') this.setStyle('3d');
     this._ro = new ResizeObserver(() => this.resize());
@@ -480,9 +483,13 @@ export class MatchView {
       this.live.handle(evs, []);
       for (const ev of evs) this.liveEvent(ev);
     }
-    let left = dt * this.TS;
+    // Ralenti bref sur les temps forts (faute, grosse occasion, but).
+    let slow = 1;
+    if (this.slowmo) { slow = this.slowmo.k; this.slowmo.t -= realDt; if (this.slowmo.t <= 0) this.slowmo = null; }
+    let left = dt * this.TS * slow;
+    this.moveReferee(left);
     while (left > 1e-6) {
-      const h = Math.min(0.05, left);
+      const h = Math.min(0.025, left); // pas de simulation fin : décisions et contacts plus précis
       left -= h;
       for (const ev of this.live.step(h)) this.liveEvent(ev);
       if (this.paused) break; // mi-temps / fin : l'écran a mis en pause
@@ -513,6 +520,40 @@ export class MatchView {
     if (ev.type === 'shot' && ev.outcome === 'post') this.cam.shake = 0.4;
     this.cur = ev; // pour les étiquettes et la caméra
     this.announce(ev);
+    // Temps forts plus lisibles : ralenti bref, bannière avec le nom, l'arbitre intervient.
+    const nm = (id) => (this.nameOf(id) || '').split(' ').slice(-1)[0];
+    const r = this.referee;
+    if (ev.type === 'foul') {
+      this.slowmo = { t: 1.5, k: 0.3 };
+      this.banner = { text: `FAUTE · ${nm(ev.pid)}`, color: '#e63946', t: 0, dur: 2, small: true };
+      r.focus = { x: ev.x, y: ev.y, t: 3 }; r.whistle = 0.8;
+    }
+    if (ev.type === 'yellow' || ev.type === 'red') {
+      this.banner = { text: `${ev.type === 'yellow' ? '🟨 Carton jaune' : '🟥 Carton rouge'} · ${nm(ev.pid)}`, color: ev.type === 'yellow' ? '#d4a017' : '#c1121f', t: 0, dur: 2.6, small: true };
+      r.card = 1.6;
+      const p = this.players.get(ev.pid); if (p) r.focus = { x: p.x, y: p.y, t: 2.5 };
+    }
+    if (ev.type === 'offside') { this.slowmo = { t: 0.9, k: 0.4 }; this.banner = { text: `HORS-JEU · ${nm(ev.pid)}`, color: '#3a86ff', t: 0, dur: 1.8, small: true }; }
+    if (ev.type === 'penalty') { r.focus = { x: ev.x, y: ev.y, t: 2.5 }; r.point = 1.4; }
+    if (ev.type === 'shot' && (ev.xg >= 0.15 || ev.outcome === 'post' || ev.outcome === 'goal')) this.slowmo = { t: 1.1, k: 0.4 };
+    if (ev.type === 'tackle' && Math.random() < 0.35) this.slowmo = { t: 0.7, k: 0.45 };
+  }
+
+  /** Arbitre : suit le jeu en diagonale, court vers le lieu d'une faute, siffle, montre les cartons. */
+  moveReferee(dt) {
+    const r = this.referee, b = this.ball;
+    if (r.focus && (r.focus.t -= dt) > 0) { r.tx = r.focus.x + (r.focus.x < 0.5 ? 0.025 : -0.025); r.ty = r.focus.y + 0.03; }
+    else { r.focus = null; r.tx = Math.max(0.08, Math.min(0.92, b.x - 0.1)); r.ty = Math.max(0.1, Math.min(0.9, b.y + (b.y < 0.5 ? 0.18 : -0.18))); }
+    const dx = (r.tx - r.x) * PITCH_L, dy = (r.ty - r.y) * PITCH_W, d = Math.hypot(dx, dy);
+    const want = d < 0.3 ? 0 : Math.min(7.5, Math.sqrt(2 * 5 * d));
+    const k = Math.min(1, dt * 3);
+    r.vx = (r.vx || 0) + ((d ? dx / d : 0) * want - (r.vx || 0)) * k;
+    r.vy = (r.vy || 0) + ((d ? dy / d : 0) * want - (r.vy || 0)) * k;
+    r.x += (r.vx * dt) / PITCH_L; r.y += (r.vy * dt) / PITCH_W;
+    r.speed = Math.hypot(r.vx, r.vy);
+    if (r.speed > 1) r.face = Math.atan2(r.vy, r.vx); else r.face = Math.atan2((b.y - r.y) * PITCH_W, (b.x - r.x) * PITCH_L);
+    r.phase = (r.phase || 0) + r.speed * dt * (1.45 + 0.8 * (1 - Math.min(1, r.speed / 8)));
+    for (const k2 of ['card', 'whistle', 'point']) if (r[k2] > 0) r[k2] = Math.max(0, r[k2] - dt / 1.25);
   }
 
   /* ---------------- Ballon physique ---------------- */
