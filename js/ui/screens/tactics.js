@@ -4,7 +4,10 @@
 import { userClub, clubPlayers } from '../../game/state.js';
 import { FORMATIONS, FORMATION_NAMES, MENTALITIES, MENTALITY_LABELS, LEVELS, PRESSING_LABELS, TEMPO_LABELS, WIDTH_LABELS, positionFit, BENCH_SIZE, ROLES, rolesFor, DEFAULT_TACTICS, TEAM_INSTRUCTIONS, PLAYER_INSTRUCTIONS, slotsOf, posFromXY } from '../../data/constants.js';
 import { autoLineup, ratingAt, isAvailable, overall, lineupStrength } from '../../engine/ratings.js';
-import { esc, playerRow, seg, posBadge } from '../components.js';
+import { esc, playerRow, seg, posBadge, abilityStars } from '../components.js';
+import { face } from '../images.js';
+import { toLocal, localRect } from '../viewport.js';
+const stars = (r) => `${String(abilityStars(r)).replace('.', ',')}★`;
 
 const TABS = [['team', 'Équipe'], ['players', 'Joueurs'], ['squad', 'Compo'], ['sp', 'Coups francs']];
 
@@ -19,26 +22,30 @@ export function render(app) {
   const byId = new Map(players.map((p) => [p.id, p]));
   const slots = slotsOf(t);
   if (!uc.lineup || uc.lineup.length !== 11) { const lu = autoLineup(players, slots); uc.lineup = lu.lineup; uc.bench = lu.bench; }
-  const sel = app.ui.tsel;
   const edit = !!app.ui.tEdit;
-  const isSel = (k, v) => sel && sel.kind === k && sel.v === v;
   const pitch = slots.map((sl, i) => {
     const p = byId.get(uc.lineup[i]);
     const fit = p ? positionFit(p.pos, sl.pos) : 0;
     const fc = fit >= 1 ? 'var(--good)' : fit >= 0.85 ? 'var(--ok)' : 'var(--bad)';
-    return `<div class="slot ${p ? '' : 'empty'} ${isSel('slot', i) ? 'sel' : ''} ${edit && sl.pos !== 'GB' ? 'editable' : ''}" data-drag="slot" data-drop="slot" data-v="${i}"
+    return `<div class="slot ${p ? '' : 'empty'} ${edit && sl.pos !== 'GB' ? 'editable' : ''}" data-drag="slot" data-drop="slot" data-v="${i}"
       style="--x:${sl.x.toFixed(3)};--y:${sl.y.toFixed(3)}">
-      <div class="shirt">${edit ? `<small>${sl.pos}</small>` : p ? p.number : '+'}${p && !edit ? `<span class="fit" style="background:${fc}"></span>` : ''}</div>
+      <div class="tok">${edit ? `<span class="shirt"><small>${sl.pos}</small></span>` : p ? `${face(p, uc)}<em class="num">${p.number}</em><span class="fit" style="background:${fc}"></span>` : '<span class="shirt">+</span>'}</div>
       <div class="nm">${p ? esc(p.last) : '—'}${p && (!isAvailable(p)) ? ' ✚' : ''}</div>
-      <div class="ps">${sl.pos}${p ? ' · ' + Math.round(ratingAt(p, sl.pos)) : ''}</div>
+      <div class="ps">${sl.pos}${p ? ' · ' + stars(ratingAt(p, sl.pos)) : ''}</div>
     </div>`;
+  }).join('');
+  const benchIds = (uc.bench || []).slice(0, BENCH_SIZE);
+  const benchStrip = Array.from({ length: BENCH_SIZE }, (_, i) => {
+    const p = byId.get(benchIds[i]);
+    return p ? `<div class="btok ${isAvailable(p) ? '' : 'dim'}" data-drag="bench" data-drop="bench" data-v="${i}">${face(p, uc)}<em class="num">${p.number}</em><small>${esc(p.last)}</small><b>${p.pos}</b></div>`
+      : `<div class="btok empty" data-drop="bench" data-v="${i}"><span class="face"></span><small>Libre</small></div>`;
   }).join('');
   const strength = lineupStrength(players, uc.lineup, slots);
   const tab = app.ui.tacTab || 'team';
   let side = '';
   if (tab === 'team') side = teamTab(app, uc, t);
   else if (tab === 'players') side = playersTab(uc, slots, byId);
-  else if (tab === 'squad') side = squadTab(uc, players, byId, isSel);
+  else if (tab === 'squad') side = squadTab(uc, players, byId);
   else side = setPiecesTab(uc, byId);
   return `
     <div class="tac-layout"><div class="tac-main">
@@ -50,7 +57,8 @@ export function render(app) {
       <button class="btn sm primary" data-act="auto">⚡ Auto</button>
     </div>
     <div class="tpitch ${edit ? 'editing' : ''}" id="tpitch">${pitch}</div>
-    <p class="muted" style="font-size:12px;margin:6px 2px">${edit ? 'Mode postes : glissez un joueur pour déplacer son poste (le poste s\'adapte à la zone).' + (t.custom ? ' <a href="#" data-act="resetpos">Revenir à la formation de base</a>' : '') : 'Glissez un joueur sur un autre pour les échanger (ou touchez-en deux).'}</p>
+    ${edit ? '' : `<div class="bench-strip"><span class="bs-l">Banc</span>${benchStrip}</div>`}
+    <p class="muted tac-help">${edit ? 'Mode postes : glissez un joueur pour déplacer son poste (le poste s\'adapte à la zone).' + (t.custom ? ' <a href="#" data-act="resetpos">Revenir à la formation de base</a>' : '') : 'Glissez un joueur sur un autre pour les échanger (terrain, banc, réserve). Touchez un joueur pour voir sa fiche.'}</p>
     </div><div class="tac-side">
       <div class="chips">${TABS.map(([k, l]) => `<button class="chip ${tab === k ? 'on' : ''}" data-act="ttab" data-v="${k}">${l}</button>`).join('')}</div>
       ${side}
@@ -91,7 +99,8 @@ function playersTab(uc, slots, byId) {
     <p class="muted" style="font-size:11.5px;margin:6px 2px">${Object.keys(ROLES).filter((r) => r !== 'std').map((r) => `<b>${ROLES[r].label}</b> : ${ROLES[r].desc}`).join('<br>')}</p>`;
 }
 
-function squadTab(uc, players, byId, isSel) {
+const grip = '<span class="grip" aria-hidden="true">⠿</span>';
+function squadTab(uc, players, byId) {
   const benchIds = (uc.bench || []).slice(0, BENCH_SIZE);
   const used = new Set([...uc.lineup, ...benchIds]);
   const reserve = players.filter((p) => !used.has(p.id)).sort((a, b) => overall(b) - overall(a));
@@ -99,13 +108,13 @@ function squadTab(uc, players, byId, isSel) {
   for (let i = 0; i < BENCH_SIZE; i++) {
     const p = byId.get(benchIds[i]);
     benchRows.push(p
-      ? `<div data-drag="bench" data-drop="bench" data-v="${i}" class="benchrow ${isSel('bench', i) ? 'sel' : ''}">${playerRow(p, { act: '', dim: !isAvailable(p) })}</div>`
+      ? `<div data-drag="bench" data-drop="bench" data-v="${i}" class="benchrow dragrow">${grip}${playerRow(p, { act: '', dim: !isAvailable(p), club: uc })}</div>`
       : `<div data-drop="bench" data-v="${i}" class="prow benchrow" style="justify-content:center;color:var(--muted)">Place libre</div>`);
   }
   return `<div class="label">Remplaçants (${BENCH_SIZE})</div>
     <div class="card list" style="padding:0 10px;margin-top:0">${benchRows.join('')}</div>
     <div class="label">Réserve</div>
-    <div class="card list" style="padding:0 10px;margin-top:0">${reserve.map((p) => `<div data-drag="res" data-drop="res" data-v="${p.id}" class="${isSel('res', p.id) ? 'sel' : ''}">${playerRow(p, { act: '', dim: !isAvailable(p) })}</div>`).join('') || '<p class="muted">Personne en réserve.</p>'}</div>`;
+    <div class="card list" style="padding:0 10px;margin-top:0">${reserve.map((p) => `<div data-drag="res" data-drop="res" data-v="${p.id}" class="dragrow">${grip}${playerRow(p, { act: '', dim: !isAvailable(p), club: uc })}</div>`).join('') || '<p class="muted">Personne en réserve.</p>'}</div>`;
 }
 
 function setPiecesTab(uc, byId) {
@@ -154,28 +163,45 @@ function swap(app, a, b) {
 
 export function mount(app, root) {
   let drag = null;
-  const desc = (el) => ({ kind: el.dataset.drag || el.dataset.drop, v: el.dataset.drag === 'res' || el.dataset.drop === 'res' ? +el.dataset.v : +el.dataset.v });
-  const landscape = () => window.matchMedia('(orientation: landscape) and (min-width: 640px)').matches;
+  const desc = (el) => ({ kind: el.dataset.drag || el.dataset.drop, v: +el.dataset.v });
+  const landscape = () => document.documentElement.classList.contains('land');
   /** Coordonnées terrain (x profondeur, y latéral) depuis un point écran, selon l'orientation. */
   const toPitch = (cx, cy) => {
-    const r = root.querySelector('#tpitch').getBoundingClientRect();
+    const r = localRect(root.querySelector('#tpitch'));
+    ({ x: cx, y: cy } = toLocal(cx, cy));
     const px = ((cx - r.left) / r.width) * 100, py = ((cy - r.top) / r.height) * 100;
     if (landscape()) return { x: (px - 5) / 104, y: (py - 6) / 88 };
     return { x: (94 - py) / 105, y: (px - 8) / 84 };
   };
+  const dropAt = (x, y) => {
+    if (drag?.ghost) drag.ghost.style.display = 'none';
+    const t = document.elementFromPoint(x, y)?.closest('[data-drop]');
+    if (drag?.ghost) drag.ghost.style.display = '';
+    return t;
+  };
+  const end = () => {
+    if (!drag) return;
+    drag.ghost?.remove();
+    drag.over?.classList.remove('drop-hover');
+    drag.el.classList.remove('dragging');
+    drag = null;
+  };
   const onDown = (e) => {
     const el = e.target.closest('[data-drag]');
-    if (!el || e.button > 0) return;
+    if (!el || e.button > 0 || drag) return;
+    // Listes : au doigt, on saisit le joueur par sa poignée (le reste de la ligne fait défiler la liste).
+    if (el.classList.contains('dragrow') && e.pointerType !== 'mouse' && !e.target.closest('.grip, .face, .posb')) return;
     if (app.ui.tEdit) {
       if (el.dataset.drag !== 'slot' || !el.classList.contains('editable')) return;
       e.preventDefault();
       drag = { el, edit: true, i: +el.dataset.v };
       return;
     }
-    drag = { el, src: desc(el), x: e.clientX, y: e.clientY, moved: false, ghost: null, over: null };
+    e.preventDefault();
+    drag = { el, src: desc(el), x: e.clientX, y: e.clientY, moved: false, ghost: null, over: null, id: e.pointerId };
   };
   const onMove = (e) => {
-    if (!drag) return;
+    if (!drag || (drag.id != null && e.pointerId !== drag.id)) return;
     if (drag.edit) {
       e.preventDefault();
       const q = toPitch(e.clientX, e.clientY);
@@ -185,26 +211,30 @@ export function mount(app, root) {
       return;
     }
     const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
-    if (!drag.moved && Math.hypot(dx, dy) > 10) {
+    if (!drag.moved && Math.hypot(dx, dy) > 6) {
       drag.moved = true;
-      const g = (drag.el.querySelector('.shirt') || drag.el.querySelector('.posb') || drag.el).cloneNode(true);
+      const src = drag.el.querySelector('.face') || drag.el.querySelector('.shirt') || drag.el;
+      const g = src.cloneNode(true);
       g.classList.add('drag-ghost');
       document.body.appendChild(g);
       drag.ghost = g;
+      drag.el.classList.add('dragging');
     }
     if (drag.moved) {
       e.preventDefault();
-      drag.ghost.style.left = e.clientX + 'px';
-      drag.ghost.style.top = e.clientY + 'px';
-      const t = document.elementFromPoint(e.clientX, e.clientY)?.closest('[data-drop]');
+      const q = toLocal(e.clientX, e.clientY); // le jeu peut être pivoté
+      drag.ghost.style.left = q.x + 'px';
+      drag.ghost.style.top = q.y + 'px';
+      const t = dropAt(e.clientX, e.clientY);
       if (drag.over && drag.over !== t) drag.over.classList.remove('drop-hover');
-      if (t && t !== drag.el) { t.classList.add('drop-hover'); drag.over = t; }
+      if (t && t !== drag.el) { t.classList.add('drop-hover'); drag.over = t; } else drag.over = null;
     }
   };
   const onUp = (e) => {
-    if (!drag) return;
-    const d = drag; drag = null;
+    if (!drag || (drag.id != null && e.pointerId !== drag.id)) return;
+    const d = drag;
     if (d.edit) {
+      drag = null;
       if (d.x == null) return;
       const uc = userClub(app.state);
       const slots = slotsOf(uc.tactics).map((sl) => ({ ...sl }));
@@ -213,37 +243,31 @@ export function mount(app, root) {
       app.save(); app.render();
       return;
     }
-    if (d.ghost) d.ghost.remove();
-    if (d.over) d.over.classList.remove('drop-hover');
+    const t = d.moved ? dropAt(e.clientX, e.clientY) : null;
+    end();
     if (d.moved) {
-      const t = document.elementFromPoint(e.clientX, e.clientY)?.closest('[data-drop]');
-      if (t) { swap(app, d.src, desc(t)); app.ui.tsel = null; app.render(); }
+      if (t && t !== d.el) { swap(app, d.src, desc(t)); app.render(); }
       return;
     }
-    // Tap : sélection puis échange au deuxième tap.
-    const sel = app.ui.tsel;
-    if (sel) {
-      app.ui.tsel = null;
-      if (!(sel.kind === d.src.kind && sel.v === d.src.v)) swap(app, sel, d.src);
-    } else app.ui.tsel = d.src;
-    app.render();
+    // Simple toucher : fiche du joueur.
+    const uc = userClub(app.state);
+    const id = getId(uc, d.src);
+    if (id != null) import('./playerSheet.js').then((m) => m.showPlayer(app, id));
   };
-  // Tap sur une place libre du banc quand un joueur est sélectionné.
-  const onClick = (e) => {
-    const t = e.target.closest('[data-drop]:not([data-drag])');
-    if (t && app.ui.tsel) { swap(app, app.ui.tsel, desc(t)); app.ui.tsel = null; app.render(); }
-  };
-  root.addEventListener('click', onClick);
+  const block = (e) => { if (drag) e.preventDefault(); };
   root.addEventListener('pointerdown', onDown);
   window.addEventListener('pointermove', onMove, { passive: false });
   window.addEventListener('pointerup', onUp);
+  window.addEventListener('pointercancel', end);
+  window.addEventListener('touchmove', block, { passive: false });
   // Démontage appelé par app.render() au prochain rendu.
   return () => {
-    if (drag?.ghost) drag.ghost.remove();
-    root.removeEventListener('click', onClick);
+    end();
     root.removeEventListener('pointerdown', onDown);
     window.removeEventListener('pointermove', onMove);
     window.removeEventListener('pointerup', onUp);
+    window.removeEventListener('pointercancel', end);
+    window.removeEventListener('touchmove', block);
   };
 }
 
@@ -262,10 +286,9 @@ export const actions = {
     const uc = userClub(app.state);
     const lu = autoLineup(clubPlayers(app.state, uc), slotsOf(uc.tactics));
     uc.lineup = lu.lineup; uc.bench = lu.bench;
-    app.ui.tsel = null;
     app.save(); app.render(); app.toast('Meilleur onze sélectionné.');
   },
-  editpos(el, app) { app.ui.tEdit = !app.ui.tEdit; app.ui.tsel = null; app.render(); },
+  editpos(el, app) { app.ui.tEdit = !app.ui.tEdit; app.render(); },
   resetpos(el, app) { delete userClub(app.state).tactics.custom; app.save(); app.render(); app.toast('Formation de base rétablie.'); },
   ttab(el, app) { app.ui.tacTab = el.dataset.v; app.render(); },
   ti(el, app) { setT(app, el.dataset.k, el.dataset.v); },

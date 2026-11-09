@@ -91,6 +91,16 @@ const REAL = {
   conti: { 1: 3, 2: 2, 3: 2, 4: 2, 5: 2, 6: 1, 7: 1, 8: 1, 9: 1, 10: 1 },
 };
 
+/**
+ * Richesse des championnats (droits TV, sponsors) : à réputation égale, un club anglais
+ * ou saoudien a bien plus d'argent qu'un club suisse.
+ */
+export const LEAGUE_WEALTH = {
+  ENG: 1.45, ESP: 1.3, ITA: 1.05, GER: 1.15, FRA: 0.9, KSA: 1.45, POR: 0.6, NED: 0.62, BEL: 0.55, TUR: 0.7,
+  BRA: 0.62, MEX: 0.55, JPN: 0.5, RUS: 0.62, USA: 0.7, SCO: 0.45, AUT: 0.5, SUI: 0.5, DEN: 0.45, GRE: 0.45,
+  CZE: 0.38, POL: 0.42, NOR: 0.4, SWE: 0.4, CRO: 0.35, SRB: 0.33, UKR: 0.4, ROU: 0.35, HUN: 0.38, CYP: 0.38, ISR: 0.38,
+};
+
 export const COUNTRIES = {};
 export const DIVISIONS = {};
 export const DIV_IDS = [];

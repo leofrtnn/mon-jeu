@@ -6,7 +6,7 @@ import { sortedTable, topScorers, CUP_ROUND_NAMES, CONTI_ROUND_NAMES, contiGroup
 import { userClub, clubById } from '../../game/state.js';
 import { esc, crest, seg, posBadge } from '../components.js';
 import { ensureManagers, freeManagers, applyForJob } from '../../game/managers.js';
-import { changeClub } from '../../game/season.js';
+import { changeClub, leagueRoundOf } from '../../game/season.js';
 import { PHILOSOPHIES, randomLook, coachName } from '../../game/coach.js';
 import { avatarSvg } from '../avatar.js';
 import { createRng, hashSeed } from '../../core/rng.js';
@@ -52,8 +52,10 @@ function fixtures(s, uc) {
   const items = s.calendar.map((e, day) => {
     let f = null, label;
     if (e.type === 'league') {
-      f = s.fixtures[uc.div][e.round].find((x) => x.h === uc.id || x.a === uc.id);
-      label = `J${e.round + 1}`;
+      const rr = leagueRoundOf(s.fixtures[uc.div].length, e.round); // championnats de 30 à 34 journées
+      if (rr == null) return '';
+      f = s.fixtures[uc.div][rr].find((x) => x.h === uc.id || x.a === uc.id);
+      label = `J${rr + 1}`;
     } else if (e.type === 'cup') {
       const cup = s.cups[uc.country];
       const cr = e.round - (5 - cup.nRounds);

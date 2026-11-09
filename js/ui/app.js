@@ -7,6 +7,7 @@ import { save as saveState, userClub } from '../game/state.js';
 import { money } from '../game/economy.js';
 import { esc, clubAccent, refreshStarRef, crest } from './components.js';
 import { DIVISIONS } from '../data/world.js';
+import { scrollTop } from './viewport.js';
 import { today } from '../game/season.js';
 import { currentDate, longDate } from '../game/dates.js';
 import { avatarSvg } from './avatar.js';
@@ -93,6 +94,15 @@ export const app = {
       if (n.sub) this.ui[n.sub[0]] = n.sub[1];
       this.go(n.tab);
     });
+    // Clavier (mode PC) : Espace/Entrée = bouton principal, 1-9 = menu, Échap = fermer.
+    document.addEventListener('keydown', (e) => {
+      if (e.ctrlKey || e.metaKey || e.altKey || /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
+      if (e.key === 'Escape' && this.sheets.length) { const s = this.sheets[this.sheets.length - 1]; if (s) s.close(); return; }
+      if (!this.state?.userClubId || this.sheets.length || document.querySelector('.match-screen')) return;
+      if (e.key === ' ' || e.key === 'Enter') { const a = home.primaryAction(this); if (a) { e.preventDefault(); a.run(); } return; }
+      const n = /^[1-9]$/.test(e.key) ? this.$tabs.querySelectorAll('[data-nav]')[+e.key - 1] : null;
+      if (n) { e.preventDefault(); n.click(); }
+    });
     // Délégation des actions de l'écran courant.
     this.$screen.addEventListener('click', (e) => { if (e.target.tagName !== 'SELECT' && e.target.type !== 'file') this.dispatch(e, this.current()?.actions); });
     // Listes déroulantes et champs : événement "change".
@@ -129,10 +139,10 @@ export const app = {
   },
 
   go(tab) {
-    if (this.tab === tab) { window.scrollTo({ top: 0, behavior: 'smooth' }); }
+    if (this.tab === tab) scrollTop(true);
     this.tab = tab;
     this.render();
-    window.scrollTo(0, 0);
+    scrollTop();
   },
 
   /** Rendu complet de l'écran courant. */

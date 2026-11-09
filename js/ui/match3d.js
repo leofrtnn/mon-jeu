@@ -6,6 +6,7 @@
  * période) — la logique d'animation et le moteur restent communs aux vues 2D et 3D.
  */
 import * as THREE from '../vendor/three.module.min.js';
+import { toLocal, localRect } from './viewport.js';
 
 const L = 105, W = 68;
 const K = 1.25;              // agrandissement des joueurs (lisibilité sur téléphone)
@@ -461,7 +462,8 @@ export class Match3D {
 
   /** Joueur sous le doigt : le plus proche à l'écran (tête projetée). */
   pick(clientX, clientY) {
-    const rect = this.canvas.getBoundingClientRect();
+    const rect = localRect(this.canvas);
+    ({ x: clientX, y: clientY } = toLocal(clientX, clientY));
     let best = null, bd = 40 * 40;
     const vtx = new THREE.Vector3();
     for (const [id, e] of this.players) {

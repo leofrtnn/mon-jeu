@@ -35,15 +35,31 @@ export function askingPrice(state, p, buyer = null) {
   return Math.round(playerValue(p) * key * (p.listed ? 0.85 : 1) * pol.mult * hypeMult(state, p) / 25000) * 25000;
 }
 
-/** Liste du marché (hors club de l'utilisateur). */
-export function marketList(state, { pos = null, maxPrice = Infinity, youngOnly = false, buyer = null } = {}) {
+/**
+ * Liste du marché (hors club de l'utilisateur), du meilleur au moins bon.
+ * Le prix (calcul coûteux) n'est évalué que pour les joueurs retenus : avec 14 000 joueurs,
+ * minOvr / maxOvr / where / limit évitent de tout chiffrer.
+ */
+export function marketList(state, { pos = null, maxPrice = Infinity, youngOnly = false, buyer = null, minOvr = -Infinity, maxOvr = Infinity, where = null, limit = Infinity } = {}) {
   const ids = [...state.freeAgents];
   for (const c of state.clubs) if (c.id !== state.userClubId) ids.push(...c.playerIds);
-  return ids.map((id) => state.players[id])
-    .filter((p) => p && !p.onLoanFrom && (!pos || p.pos === pos) && (!youngOnly || p.age <= 23))
-    .map((p) => ({ p, price: askingPrice(state, p, buyer), ovr: overall(p) }))
-    .filter((x) => x.price <= maxPrice)
-    .sort((a, b) => b.ovr - a.ovr);
+  const cand = [];
+  for (const id of ids) {
+    const p = state.players[id];
+    if (!p || p.onLoanFrom || (pos && p.pos !== pos) || (youngOnly && p.age > 23)) continue;
+    const ovr = overall(p);
+    if (ovr < minOvr || ovr > maxOvr || (where && !where(p))) continue;
+    cand.push({ p, ovr });
+  }
+  cand.sort((a, b) => b.ovr - a.ovr);
+  const out = [];
+  for (const x of cand) {
+    x.price = askingPrice(state, x.p, buyer);
+    if (x.price > maxPrice) continue;
+    out.push(x);
+    if (out.length >= limit) break;
+  }
+  return out;
 }
 
 function removeFromClub(state, p) {
@@ -254,15 +270,15 @@ function aiTransferRound(state, rng, deadline) {
     let pool;
     if (c.rep >= 72 && rng.chance(0.35)) {
       // Recrutement « vedette » : le meilleur joueur d'un club moins prestigieux.
-      pool = marketList(state, { maxPrice: c.budget * 0.75, buyer: c })
-        .filter((x) => x.p.clubId && x.p.clubId !== c.id && x.ovr >= strength + 1 && clubById(state, x.p.clubId).rep < c.rep);
+      pool = marketList(state, { maxPrice: c.budget * 0.75, buyer: c, minOvr: strength + 1, limit: 20,
+        where: (p) => p.clubId && p.clubId !== c.id && clubById(state, p.clubId).rep < c.rep });
     } else {
       const byPos = {};
       for (const p of squad) byPos[p.pos] = Math.max(byPos[p.pos] || 0, overall(p));
       const weakest = Object.entries(byPos).sort((a, b) => a[1] - b[1])[0];
       if (!weakest) continue;
-      pool = marketList(state, { pos: weakest[0], maxPrice: c.budget * 0.6, buyer: c })
-        .filter((x) => x.p.clubId !== c.id && x.ovr > weakest[1] + 2 && x.ovr <= strength + 8);
+      pool = marketList(state, { pos: weakest[0], maxPrice: c.budget * 0.6, buyer: c, minOvr: weakest[1] + 3, maxOvr: strength + 8, limit: 20,
+        where: (p) => p.clubId !== c.id });
     }
     pool = pool.slice(0, 20).filter((x) => !isHumanClub(state, x.p.clubId) && playerInterest(state, x.p, c).ok && sellerAccepts(state, x.p, c)).slice(0, 6);
     if (!pool.length) continue;

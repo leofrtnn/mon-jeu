@@ -5,11 +5,16 @@ import { exportNames, importNames } from '../../game/dataImport.js';
 import { esc } from '../components.js';
 import { downloadJson, downloadText, readFileAsText } from '../files.js';
 import { getSlot, exportFile, importFile, slotsInfo } from '../../game/state.js';
+import { displayMode, setDisplayMode } from '../viewport.js';
 
 export function render(app) {
   const st = app.state.settings;
   const tog = (k, label) => `<div class="row between" style="padding:6px 0"><span>${label}</span><button class="btn sm ${st[k] ? 'primary' : ''}" data-act="toggle" data-v="${k}">${st[k] ? 'Activé' : 'Désactivé'}</button></div>`;
-  return `<div class="card"><h3>Match</h3>
+  const dm = displayMode();
+  return `<div class="card"><h3>Affichage</h3>
+      <div class="seg">${[['auto', 'Automatique'], ['pc', 'PC (souris, clavier)'], ['mobile', 'Téléphone']].map(([v, l]) => `<button data-act="display" data-v="${v}" class="${dm === v ? 'on' : ''}">${l}</button>`).join('')}</div>
+      <p class="muted" style="font-size:12px;margin-bottom:0">Sur PC : <b>Espace</b> = Continuer / Jouer · <b>1 à 9</b> = menu · <b>Échap</b> = fermer une fenêtre.</p></div>
+    <div class="card"><h3>Match</h3>
       ${tog('var', 'Arbitrage vidéo (VAR)')}${tog('replays', 'Ralentis des buts')}${tog('audio', 'Ambiance sonore')}</div>
     <div class="card"><h3>Données · noms</h3>
       <p class="muted" style="font-size:13px;margin-top:0">Le jeu n'utilise que des noms fictifs. Vous pouvez exporter le fichier de noms, le modifier (par exemple avec de vrais noms), puis le réimporter.</p>
@@ -25,6 +30,7 @@ export function render(app) {
 }
 
 export const actions = {
+  display(el, app) { setDisplayMode(el.dataset.v); app.render(); },
   toggle(el, app) { const k = el.dataset.v; app.state.settings[k] = !app.state.settings[k]; app.save(); app.render(); },
   exportNames(el, app) { downloadJson(exportNames(app.state), 'coach-de-poche-noms.json'); },
   async importNames(el, app) {

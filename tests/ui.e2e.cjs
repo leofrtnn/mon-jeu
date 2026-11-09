@@ -106,8 +106,20 @@ function serve() {
 
     await page.click('[data-nav=tactics]');
     await page.click('[data-act=auto]');
-    await page.click('.slot >> nth=10'); await page.click('.slot >> nth=9');
-    step('compo (tap-tap)');
+    // Glisser-déposer : le 1er remplaçant prend la place du n° 11 (et inversement).
+    const lu = () => page.evaluate(() => { const s = window.__app.state; const u = s.clubs.find((c) => c.id === s.userClubId); return [u.lineup[10], u.bench[0]]; });
+    const before = await lu();
+    const from = await page.locator('.btok[data-v="0"]').boundingBox(), to = await page.locator('.slot[data-v="10"]').boundingBox();
+    await page.mouse.move(from.x + from.width / 2, from.y + 14); await page.mouse.down();
+    for (let i = 1; i <= 8; i++) await page.mouse.move(from.x + from.width / 2 + (to.x + to.width / 2 - from.x - from.width / 2) * i / 8, from.y + 14 + (to.y + 20 - from.y - 14) * i / 8);
+    await page.mouse.up();
+    await page.waitForTimeout(200);
+    assert.deepEqual(await lu(), [before[1], before[0]], 'échange terrain ↔ banc');
+    // Simple toucher : fiche du joueur.
+    await page.click('.slot >> nth=9');
+    await page.waitForSelector('.sheet');
+    await page.keyboard.press('Escape');
+    step('compo (glisser-déposer terrain ↔ banc, fiche au toucher)');
 
     await page.click('[data-nav=home]');
     await page.click('[data-act=play]');

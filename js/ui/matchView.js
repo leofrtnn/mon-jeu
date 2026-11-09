@@ -12,6 +12,7 @@
  */
 
 import { formationPos } from '../engine/positions.js';
+import { toLocal, localRect } from './viewport.js';
 
 const DUR = {
   pass: 0.75, longpass: 1.15, dribble: 0.9, tackle: 0.55, interception: 0.55, header: 0.6, cross: 1.0, cornerkick: 1.1,
@@ -311,7 +312,8 @@ export class MatchView {
   /** Joueur sous un point écran (pour le toucher). */
   playerAt(cx, cy) {
     if (this.style === '3d' && this.r3d) return this.r3d.pick(cx, cy);
-    const rect = this.canvas.getBoundingClientRect();
+    const rect = localRect(this.canvas);
+    ({ x: cx, y: cy } = toLocal(cx, cy));
     const sx = (cx - rect.left) * this.dpr, sy = (cy - rect.top) * this.dpr;
     const T = this.view || { z: 1, tx: 0, ty: 0 };
     const wx = (sx - T.tx) / T.z, wy = (sy - T.ty) / T.z;

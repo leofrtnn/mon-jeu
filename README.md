@@ -40,8 +40,15 @@ Chaque championnat a son propre profil : style plus technique en Ibérie, plus p
 ## Fonctionnalités
 
 ### Monde
-- **Monde réel** (le seul mode de jeu) : les 20 premiers championnats européens, avec leur vrai format.
-  - Angleterre, Espagne, Italie, Allemagne, France, Portugal, Pays-Bas, Belgique, Turquie, Tchéquie, Grèce, Norvège, Pologne, Danemark, Autriche, Suisse, Écosse, Suède, Croatie, Serbie : 320 clubs, 9 000 joueurs.
+- **Monde réel** (le seul mode de jeu) : 30 championnats, avec leur vrai format.
+  - Angleterre, Espagne, Italie, Allemagne, France, Portugal, Pays-Bas, Belgique, Turquie, Tchéquie, Grèce, Norvège, Pologne, Danemark, Autriche, Suisse, Écosse, Suède, Croatie, Serbie,
+    Brésil, Arabie saoudite, Mexique, Japon, Russie, Ukraine, Roumanie, Hongrie, Chypre, Israël : 484 clubs, 13 850 joueurs.
+  - **Notes des joueurs** calculées une fois pour toutes (identiques dans toutes les parties) : niveau du club, rang dans l'effectif,
+    anciens clubs, sélections pondérées par la force du pays, buts en carrière (attaquants), notoriété (longueur de l'article Wikipédia), âge.
+  - **Budgets** : réputation du club × richesse du championnat (droits TV : Angleterre et Arabie saoudite en tête).
+- **Affichage** : toujours à l'horizontale. Téléphone tenu droit : le jeu se pivote tout seul. **Mode PC** (automatique avec une souris,
+  ou dans Paramètres → Affichage) : mise en page large, survols, raccourcis (Espace = Continuer, 1-9 = menu, Échap = fermer).
+- **Composition** : visages des joueurs sur le terrain et banc sous le terrain ; glisser-déposer terrain ↔ banc ↔ réserve, toucher = fiche.
   - Nombre de clubs réel (10 à 20) ; les petits championnats se jouent en 3 ou 4 confrontations (Écosse 33 journées, Croatie 36).
   - Vrais clubs, joueurs (noms, postes, âges, nationalités, numéros, sélections) et entraîneurs de la saison 2026-27.
   - Le monde fictif d'origine reste dans le code (tests automatiques, anciennes sauvegardes) mais n'est plus proposé.

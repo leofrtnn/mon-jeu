@@ -145,7 +145,7 @@ export function applySlice(state, slice) {
   // 4. Effets sur le reste du monde.
   for (const [id, d] of Object.entries(budgets)) { const c = clubById(state, +id); if (c && !state.online.clubOf[c.id]) c.budget += d; }
   state.rel = state.rel || {};
-  for (const [k, v] of Object.entries(slice.rel || {})) state.rel[k] = v;
+  for (const [k, v] of Object.entries(slice.rel || {})) state.rel[k] = v; // (la journée suivante invalide le cache des alliés)
   const taken = new Set(slice.staffTaken || []);
   state.staffPool = (state.staffPool || []).filter((m) => !taken.has(m.id)).concat(slice.staffReturned || []);
   // 5. Les données du manager.

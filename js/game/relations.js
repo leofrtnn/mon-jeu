@@ -38,6 +38,7 @@ export function relGet(state, a, b) {
 }
 
 export function relAdd(state, a, b, d) {
+  relVersion++;
   if (!a || !b || a === b || !d) return;
   state.rel = state.rel || {};
   const k = key(a, b);
@@ -46,6 +47,7 @@ export function relAdd(state, a, b, d) {
 
 /** Initialisation : derbys tendus, clubs du même groupe proches. */
 export function initRelations(state) {
+  relVersion++;
   state.rel = state.rel || {};
   for (const A of state.clubs) for (const B of state.clubs) {
     if (A.id >= B.id) continue;
@@ -66,6 +68,7 @@ export function tension(state, a, b) {
 
 /** Une journée : retour à la base, petites guerres médiatiques entre clubs IA. */
 export function relationsDaily(state, rng) {
+  relVersion++;
   for (const k of Object.keys(state.rel || {})) {
     const [a, b] = k.split('-').map(Number);
     const base = relBase(state, a, b);
@@ -153,9 +156,10 @@ export function isUntouchable(state, p) {
 }
 
 let allyCache = { state: null, key: '', map: null };
+let relVersion = 0; // incrémenté à chaque modification des relations (invalide le cache des alliés)
 /** Alliés d'un club (relation ≥ seuil d'alliance), mis en cache par journée. */
 export function alliesOf(state, id) {
-  const k = `${state.season}-${state.day}-${Object.keys(state.rel || {}).length}`;
+  const k = `${state.season}-${state.day}-${relVersion}`;
   if (allyCache.state !== state || allyCache.key !== k) {
     const map = {};
     for (const [kk, v] of Object.entries(state.rel || {})) {

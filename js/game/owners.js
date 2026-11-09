@@ -3,7 +3,7 @@
  * et SANTÉ FINANCIÈRE (crise, soldes, retrait de points, faillite).
  */
 import { isHumanClub, humanOfClub, withHuman } from './humans.js';
-import { COUNTRIES } from '../data/world.js';
+import { COUNTRIES, LEAGUE_WEALTH } from '../data/world.js';
 import { clamp, createRng, hashSeed } from '../core/rng.js';
 import { BAL } from '../data/balance.js';
 import { randomName } from '../data/names.js';
@@ -217,7 +217,7 @@ registerDecision('sellstar', {
 
 /** Budget de référence d'un club IA à l'intersaison (selon son propriétaire, dettes reportées). */
 export function aiSeasonBudget(club, lvl1) {
-  const base = (lvl1 ? Math.pow(club.rep / 10, 2.6) * 120000 : Math.pow(club.rep / 10, 2.2) * 60000) * ownerType(club).budget;
+  const base = (lvl1 ? Math.pow(club.rep / 10, 2.6) * 120000 : Math.pow(club.rep / 10, 2.2) * 60000) * ownerType(club).budget * (LEAGUE_WEALTH[club.country] ?? 1);
   const carry = club.budget >= 0 ? club.budget * 0.4 : club.budget * C.negativeCarry;
   return Math.round((carry + base) / 100000) * 100000;
 }

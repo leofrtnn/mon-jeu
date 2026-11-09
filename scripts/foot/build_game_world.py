@@ -184,6 +184,78 @@ for lg in d['leagues']:
         used.add(short)
         clubs.append({'id': cid, 'league': lg['id'], 'name': name, 'short': short, 'colors': colors(c),
                       'stadium': c.get('capacity') or 15000, 'rep': rep, 'logo': clean_logo(cid, (c.get('logo') or {}).get('file'))})
+# ---------- Niveau des joueurs (déterministe : le même joueur a la même note à chaque partie) ----------
+# Force des sélections (0 à 1) : 60 sélections avec la France ne valent pas 60 avec Malte.
+NATION_STR = {
+  'FRA': 1, 'ESP': 1, 'ENG': 1, 'ARG': 1, 'BRA': .95, 'POR': .95, 'NED': .9, 'BEL': .85, 'GER': .9, 'ITA': .88, 'CRO': .85,
+  'URU': .78, 'COL': .75, 'MAR': .78, 'USA': .62, 'MEX': .65, 'JPN': .7, 'SUI': .72, 'DEN': .74, 'SEN': .7, 'NOR': .68,
+  'AUT': .7, 'TUR': .68, 'UKR': .62, 'SRB': .64, 'POL': .62, 'SWE': .62, 'KOR': .62, 'ECU': .62, 'CZE': .58, 'SCO': .55,
+  'HUN': .55, 'WAL': .55, 'NGA': .6, 'CIV': .62, 'EGY': .55, 'ALG': .58, 'GHA': .52, 'CMR': .55, 'IRN': .5, 'AUS': .5,
+  'CAN': .55, 'CHI': .5, 'PER': .45, 'PAR': .5, 'VEN': .45, 'GRE': .52, 'RUS': .55, 'SVK': .5, 'SVN': .5, 'ROU': .5,
+  'IRL': .48, 'NIR': .4, 'ISL': .42, 'FIN': .42, 'GEO': .52, 'TUN': .5, 'MLI': .52, 'BIH': .45, 'ALB': .45, 'MKD': .4,
+  'MNE': .4, 'ISR': .4, 'KSA': .42, 'QAT': .4, 'CRC': .42, 'PAN': .42, 'JAM': .4, 'BUL': .38, 'CYP': .3, 'KOS': .42,
+  'BFA': .48, 'COD': .5, 'GUI': .45, 'GAB': .42, 'ZAM': .38, 'RSA': .42, 'UZB': .45, 'CPV': .45, 'ANG': .38, 'BEN': .35,
+}
+def norm_club(n):
+    n = ascii_low(n)
+    n = re.sub(r'\(.*?\)', ' ', n)
+    words = [w for w in re.split(r'[\W_]+', n) if w and w not in PREFIX and w not in ('futbol', 'football', 'calcio', 'de', 'and', 'the')]
+    return ' '.join(words)
+def lead_bonus(n):
+    if n <= 0: return -1.5
+    import math
+    return max(-1.5, min(4.5, (math.log10(n) - 2.3) * 3.2))   # 200 car. → 0, 1000 → 2,2, 3000 → 3,7
+
+def player_score(p, rep_club, rep_of):
+    caps = ((p.get('international') or {}).get('caps')) or 0
+    nat = (p.get('nationality') or {}).get('code') or ''
+    strn = NATION_STR.get(nat, .3)
+    intl = (min(caps, 90) / 90) ** .6 * (1.5 + 6.5 * strn) - (1.2 if caps == 0 else 0)
+    senior = 0; best = 0; goals = 0
+    for c in p.get('career') or []:
+        a = c.get('apps') or 0
+        g = c.get('goals') or 0
+        name = c.get('club') or ''
+        if re.search(r'\b(U-?\d\d|II|B|reserves?|youth|academy|Jong|Castilla|Primavera)\b', name, re.I):
+            continue
+        senior += a; goals += g
+        if a >= 12:
+            r = rep_of.get(norm_club(name))
+            if r: best = max(best, r)
+    age = p.get('age') or 26
+    age_k = -7 if age <= 17 else -5 if age <= 19 else -3 if age <= 21 else -1 if age <= 23 else 0 if age <= 30 else -1 if age <= 32 else -2.5 if age <= 34 else -4
+    exp = min(2.5, senior / 160) - (2.5 if senior < 15 else 0)
+    pedigree = max(0, best - rep_club) * .16
+    gp = (p.get('position') or {}).get('game')
+    scorer = 0
+    if gp in ('BU', 'AG', 'AD', 'MO') and senior >= 40:
+        scorer = max(-1, min(3.5, (goals / senior - .25) * 9 if gp == 'BU' else (goals / senior - .15) * 9))
+    return intl + exp + pedigree + age_k + scorer + lead_bonus(p.get('leadLen') or 0)
+
+def stable_noise(key):
+    import hashlib
+    return (int(hashlib.md5(key.encode()).hexdigest()[:6], 16) / 0xFFFFFF - .5) * 2.0   # ±1
+
+rep_of = {}
+for c in clubs:
+    src = next(x for x in d['clubs'] if x['id'] == c['id'])
+    for n in (src.get('name'), src.get('fullName'), src.get('shortName'), c['name']):
+        if n: rep_of.setdefault(norm_club(n), c['rep'])
+club_rep = {c['id']: c['rep'] for c in clubs}
+levels = {}
+by_club = {}
+for p in d['players']:
+    if p['club'] not in club_rep: continue
+    by_club.setdefault(p['club'], []).append(p)
+for cid, ps in by_club.items():
+    rep = club_rep[cid]
+    target = 31 + rep * .54                          # moyenne visée des 14 meilleurs (rep 94 → 81,8 ; 70 → 68,8 ; 55 → 60,7)
+    raw = {p['id']: player_score(p, rep, rep_of) + stable_noise(p['name'] + cid) for p in ps}
+    top = sorted(raw.values(), reverse=True)[:14]
+    mean = sum(top) / len(top)
+    for p in ps:
+        levels[p['id']] = max(40, min(93, round(target + (raw[p['id']] - mean) * 1.1)))
+
 players = []
 for p in d['players']:
     first, last = split(p['name'])
@@ -191,8 +263,8 @@ for p in d['players']:
     players.append({'club': p['club'], 'f': first, 'l': last, 'pos': p['position']['game'], 'age': p.get('age') or 0,
                     'nat': (p.get('nationality') or {}).get('name') or '', 'num': p.get('number') or 0,
                     'caps': intl.get('caps') or 0, 'ig': intl.get('goals') or 0, 'apps': (p.get('clubStats') or {}).get('apps') or 0,
-                    'ph': (p.get('photo') or {}).get('file')})
-coaches = [{'club': c['club'], 'name': c['name'], 'nat': (c.get('nationality') or [''])[0], 'age': c.get('age') or 50} for c in d['coaches']]
+                    'ph': (p.get('photo') or {}).get('file'), 'lv': levels.get(p['id'])})
+coaches = [{'club': c['club'], 'name': re.sub(r'\s*\([^)]*\)', '', c['name'] or '').strip() or None, 'nat': (c.get('nationality') or [''])[0], 'age': c.get('age') or 50} for c in d['coaches']]
 out = {'format': 'coach-de-poche-monde-reel-v1', 'season': d['meta']['season'], 'sources': d['meta']['sources'],
        'leagues': [{'id': lg['id'], 'name': lg['name'], 'country': lg['country']} for lg in d['leagues']],
        'clubs': clubs, 'players': players, 'coaches': coaches}

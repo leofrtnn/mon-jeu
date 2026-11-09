@@ -105,6 +105,16 @@ def parse_squad(text):
                      'name': name, 'title': target, 'other': clean(p.get('other', ''))})
     return rows
 
+def lead_len(text):
+    """Longueur du résumé de l'article (hors modèles et références) : indice de notoriété."""
+    t = re.sub(r'<ref[^>]*/>|<ref[^>]*>.*?</ref>', '', text or '', flags=re.S)
+    for _ in range(6):
+        t2 = re.sub(r'\{\{[^{}]*\}\}', '', t)
+        if t2 == t: break
+        t = t2
+    t = re.sub(r'\[\[(?:[^\]|]*\|)?([^\]]*)\]\]', r'\1', t)
+    return len(re.sub(r'\s+', ' ', t).strip())
+
 def build():
     data_leagues = leagues.all_leagues()
     club_titles = [c for lg in data_leagues for c in lg['clubs']]
@@ -204,6 +214,7 @@ def build():
                 'clubStats': {'apps': current['apps'], 'goals': current['goals'], 'since': current['years']} if current else None,
                 'international': nat_team,
                 'career': career,
+                'leadLen': lead_len(text),
                 'wikipedia': wiki_url(final) if final else None, 'wikidata': qid,
             })
     coaches = build_coaches(clubs, manager_titles)
