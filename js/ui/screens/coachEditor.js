@@ -1,70 +1,133 @@
 /**
- * Création / personnalisation du coach : identité, apparence, philosophie, compétences.
- * mode 'create' : 50 points à répartir librement. mode 'edit' : apparence libre,
+ * Création / personnalisation du coach, en 4 étapes : identité, apparence, style, compétences.
+ * mode 'create' : 50 points à répartir (ou un profil tout prêt). mode 'edit' : apparence libre,
  * compétences seulement augmentables avec les points gagnés (saisons, trophées).
+ *
+ * Les champs de texte ne redessinent PAS la fenêtre pendant la saisie (sinon le clavier du
+ * téléphone se ferme et le bouton « Commencer » disparaît sous le doigt) : l'aperçu est mis à
+ * jour directement.
  */
 import { COACH_SKILLS, SKILL_KEYS, START_POINTS, SKILL_MIN, SKILL_MAX, PHILOSOPHIES, LOOK, COACH_NATIONS, randomLook, skillsTotal, ensureCoachProfile, coachName } from '../../game/coach.js';
 import { FORMATION_NAMES } from '../../data/constants.js';
 import { esc } from '../components.js';
 import { avatarSvg } from '../avatar.js';
+import { randomName } from '../../data/names.js';
+import { createRng } from '../../core/rng.js';
+
+const STEPS = [['id', 'Identité'], ['look', 'Apparence'], ['style', 'Style de jeu'], ['skills', 'Compétences']];
+/** Profils de compétences tout prêts (50 points). */
+const PRESETS = {
+  balanced: { label: '⚖ Équilibré', skills: { tactics: 10, motivation: 10, discipline: 10, youth: 10, fitness: 10 } },
+  tactician: { label: '🧠 Tacticien', skills: { tactics: 18, motivation: 10, discipline: 8, youth: 6, fitness: 8 } },
+  motivator: { label: '🔥 Meneur d\'hommes', skills: { tactics: 8, motivation: 18, discipline: 8, youth: 6, fitness: 10 } },
+  youth: { label: '🌱 Formateur', skills: { tactics: 8, motivation: 10, discipline: 6, youth: 18, fitness: 8 } },
+  physical: { label: '💪 Préparateur', skills: { tactics: 9, motivation: 9, discipline: 8, youth: 6, fitness: 18 } },
+};
+const NAT_ORIGIN = { France: 'FRA', Belgique: 'BEL', Suisse: 'SUI', Espagne: 'ESP', Portugal: 'POR', Italie: 'ITA', Allemagne: 'GER', Angleterre: 'ENG', Écosse: 'SCO', Brésil: 'BRA', Argentine: 'ESP', Croatie: 'CRO', Serbie: 'SRB', Japon: 'JPN', 'Pays-Bas': 'NED', Danemark: 'DEN', Suède: 'SWE' };
 
 export function openCoachEditor(app, { mode = 'edit', onDone } = {}) {
   const coach = ensureCoachProfile(app.state.coach);
   const d = JSON.parse(JSON.stringify(coach)); // brouillon
   const base = { ...coach.skills };
-  let tab = 'id';
+  let step = 0;
   const remaining = () => (mode === 'create' ? START_POINTS - skillsTotal(d.skills) : coach.points - (skillsTotal(d.skills) - skillsTotal(base)));
   const sw = (act, list, cur) => `<div class="swatches">${list.map((c) => `<button class="sw ${c === cur ? 'on' : ''}" data-act="${act}" data-v="${c}" style="background:${c}" aria-label="${c}"></button>`).join('')}</div>`;
-  const chips = (act, obj, cur) => `<div class="chips" style="flex-wrap:wrap">${Object.entries(obj).map(([k, v]) => `<button class="chip ${k === cur ? 'on' : ''}" data-act="${act}" data-v="${k}">${esc(typeof v === 'string' ? v : v.label)}</button>`).join('')}</div>`;
-  const html = () => `
-    <div class="coach-head">
-      <div id="cprev">${avatarSvg(d.look, 108)}</div>
-      <div class="grow"><small class="muted">${mode === 'create' ? 'Créez votre coach' : 'Mon coach'}</small>
-        <h2 style="font-size:28px">${esc(coachName(d)) || 'Sans nom'}</h2>
-        <small>${esc(d.nationality)} · ${d.age} ans · ${esc(PHILOSOPHIES[d.philosophy].label)} · ${esc(d.formation)}</small></div>
-    </div>
-    <div class="chips" style="margin:10px 0">${[['id', 'Identité'], ['look', 'Apparence'], ['style', 'Style'], ['skills', `Compétences${remaining() > 0 ? ` (${remaining()})` : ''}`]].map(([k, l]) => `<button class="chip ${tab === k ? 'on' : ''}" data-act="tab" data-v="${k}">${l}</button>`).join('')}</div>
-    ${tab === 'id' ? `<div class="card" style="margin-top:0">
-        <div class="formrow"><span>Prénom</span><input type="text" id="c-fn" maxlength="20" value="${esc(d.firstName)}" data-act="fn"></div>
-        <div class="formrow"><span>Nom</span><input type="text" id="c-ln" maxlength="24" value="${esc(d.lastName)}" data-act="ln"></div>
-        <div class="formrow"><span>Nationalité</span><select data-act="nat">${COACH_NATIONS.map((n) => `<option ${n === d.nationality ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></div>
-        <div class="formrow"><span>Âge : <b>${d.age}</b></span><input type="range" min="28" max="72" value="${d.age}" data-act="age"></div>
-      </div>` : ''}
-    ${tab === 'look' ? `<div class="card" style="margin-top:0">
-        <div class="label" style="margin-top:0">Teint</div>${sw('skin', LOOK.skins, d.look.skin)}
-        <div class="label">Coiffure</div>${chips('hairStyle', LOOK.hairStyles, d.look.hairStyle)}
-        <div class="label">Couleur des cheveux</div>${sw('hairColor', LOOK.hairColors, d.look.hairColor)}
-        <div class="label">Barbe</div>${chips('beard', LOOK.beards, d.look.beard)}
-        <div class="label">Tenue</div>${chips('outfit', LOOK.outfits, d.look.outfit)}
-        <div class="label">Couleur de la tenue</div>${sw('outfitColor', LOOK.outfitColors, d.look.outfitColor)}
-        <div class="btns" style="margin-top:12px"><button class="btn sm" data-act="glasses">${d.look.glasses ? '👓 Retirer les lunettes' : '👓 Lunettes'}</button><button class="btn sm" data-act="random">🎲 Aléatoire</button></div>
-      </div>` : ''}
-    ${tab === 'style' ? `<div class="card" style="margin-top:0">
-        <div class="label" style="margin-top:0">Philosophie de jeu</div>${chips('philo', PHILOSOPHIES, d.philosophy)}
-        <small class="muted">Appliquée à votre tactique quand vous prenez un club.</small>
-        <div class="label">Formation préférée</div>${chips('form', Object.fromEntries(FORMATION_NAMES.map((f) => [f, f])), d.formation)}
-      </div>` : ''}
-    ${tab === 'skills' ? `<div class="card" style="margin-top:0">
-        <div class="row between"><small class="muted">${mode === 'create' ? 'Répartissez vos points (1 à 20 par compétence).' : 'Dépensez les points gagnés au fil des saisons et des trophées.'}</small>
-          <b class="big" style="font-size:24px;color:${remaining() > 0 ? 'var(--accent)' : 'var(--muted)'}">${remaining()}</b></div>
-        ${SKILL_KEYS.map((k) => `<div class="skillrow">
-          <div class="grow"><b>${COACH_SKILLS[k].icon} ${COACH_SKILLS[k].label}</b><br><small class="muted">${COACH_SKILLS[k].desc}</small></div>
-          <button class="btn sm" data-act="dec" data-v="${k}" ${d.skills[k] <= (mode === 'create' ? SKILL_MIN : base[k]) ? 'disabled' : ''}>−</button>
-          <b class="skillv">${d.skills[k]}</b>
-          <button class="btn sm" data-act="inc" data-v="${k}" ${d.skills[k] >= SKILL_MAX || remaining() <= 0 ? 'disabled' : ''}>+</button>
-        </div>`).join('')}
-      </div>` : ''}
-    <div class="btns" style="margin-top:12px">${mode === 'edit' ? '<button class="btn" data-act="close">Annuler</button>' : ''}
-      <button class="btn primary lg" data-act="ok">${mode === 'create' ? 'Commencer la carrière ▸' : 'Enregistrer'}</button></div>`;
-  const refresh = () => h.update(html());
+  const chips = (act, obj, cur) => `<div class="chips wrap">${Object.entries(obj).map(([k, v]) => `<button class="chip ${k === cur ? 'on' : ''}" data-act="${act}" data-v="${k}">${esc(typeof v === 'string' ? v : v.label)}</button>`).join('')}</div>`;
+  const nameText = () => esc(coachName(d)) || '<span class="muted">Votre nom</span>';
+  const sub = () => `${esc(d.nationality)} · ${d.age} ans · ${esc(PHILOSOPHIES[d.philosophy].label)} · ${esc(d.formation)}`;
+
+  const stepBody = () => {
+    const k = STEPS[step][0];
+    if (k === 'id') return `
+      <label class="field big"><span>Prénom</span><input type="text" id="c-fn" maxlength="20" value="${esc(d.firstName)}" placeholder="Ex. : Léo" autocomplete="off" autocapitalize="words" enterkeyhint="next"></label>
+      <label class="field big"><span>Nom</span><input type="text" id="c-ln" maxlength="24" value="${esc(d.lastName)}" placeholder="Ex. : Martin" autocomplete="off" autocapitalize="words" enterkeyhint="done"></label>
+      <button class="btn sm" data-act="rname">🎲 Nom au hasard</button>
+      <div class="ce-grid">
+        <label class="field"><span>Nationalité</span><select data-act="nat">${COACH_NATIONS.map((n) => `<option ${n === d.nationality ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></label>
+        <label class="field"><span>Âge : <b id="c-age">${d.age} ans</b></span><input type="range" min="28" max="72" value="${d.age}" id="c-agein"></label>
+      </div>`;
+    if (k === 'look') return `
+      <div class="label" style="margin-top:0">Teint</div>${sw('skin', LOOK.skins, d.look.skin)}
+      <div class="label">Coiffure</div>${chips('hairStyle', LOOK.hairStyles, d.look.hairStyle)}
+      <div class="label">Couleur des cheveux</div>${sw('hairColor', LOOK.hairColors, d.look.hairColor)}
+      <div class="label">Barbe</div>${chips('beard', LOOK.beards, d.look.beard)}
+      <div class="label">Tenue</div>${chips('outfit', LOOK.outfits, d.look.outfit)}
+      <div class="label">Couleur de la tenue</div>${sw('outfitColor', LOOK.outfitColors, d.look.outfitColor)}
+      <div class="btns" style="margin-top:12px"><button class="btn sm" data-act="glasses">${d.look.glasses ? '👓 Sans lunettes' : '👓 Avec lunettes'}</button><button class="btn sm" data-act="random">🎲 Apparence au hasard</button></div>`;
+    if (k === 'style') return `
+      <div class="label" style="margin-top:0">Philosophie de jeu</div>${chips('philo', PHILOSOPHIES, d.philosophy)}
+      <p class="muted" style="font-size:12px;margin:6px 2px">Appliquée à la tactique de votre club (modifiable ensuite).</p>
+      <div class="label">Formation préférée</div>${chips('form', Object.fromEntries(FORMATION_NAMES.map((f) => [f, f])), d.formation)}`;
+    return `
+      ${mode === 'create' ? `<div class="label" style="margin-top:0">Profil tout prêt</div><div class="chips wrap">${Object.entries(PRESETS).map(([pk, p]) => `<button class="chip" data-act="preset" data-v="${pk}">${p.label}</button>`).join('')}</div>` : ''}
+      <div class="row between" style="margin:12px 2px 4px"><small class="muted">${mode === 'create' ? 'Ou répartissez vous-même (4 à 20 par compétence).' : 'Points gagnés au fil des saisons et des trophées.'}</small>
+        <span class="pts ${remaining() ? 'left' : ''}">${remaining()} point${remaining() > 1 ? 's' : ''}</span></div>
+      ${SKILL_KEYS.map((k) => `<div class="skillrow">
+        <span class="sk-ic">${COACH_SKILLS[k].icon}</span>
+        <div class="grow"><b>${COACH_SKILLS[k].label}</b><br><small class="muted">${COACH_SKILLS[k].desc}</small>
+          <div class="sk-bar"><i style="width:${d.skills[k] / SKILL_MAX * 100}%"></i></div></div>
+        <button class="btn sm round" data-act="dec" data-v="${k}" ${d.skills[k] <= (mode === 'create' ? SKILL_MIN : base[k]) ? 'disabled' : ''} aria-label="moins">−</button>
+        <b class="skillv">${d.skills[k]}</b>
+        <button class="btn sm round" data-act="inc" data-v="${k}" ${d.skills[k] >= SKILL_MAX || remaining() <= 0 ? 'disabled' : ''} aria-label="plus">+</button>
+      </div>`).join('')}`;
+  };
+
+  const html = () => `<div class="coach-ed">
+    <aside class="ce-side">
+      <div id="cprev" class="ce-avatar">${avatarSvg(d.look, 132)}</div>
+      <small class="muted">${mode === 'create' ? 'Votre coach' : 'Mon coach'}</small>
+      <h2 id="cname">${nameText()}</h2>
+      <small id="csub">${sub()}</small>
+    </aside>
+    <section class="ce-main">
+      <div class="stepper">${STEPS.map(([, l], i) => `<button class="${i === step ? 'on' : i < step ? 'done' : ''}" data-act="step" data-v="${i}"><b>${i < step && mode === 'create' ? '✓' : i + 1}</b><span>${l}</span></button>`).join('')}</div>
+      <div class="ce-body">${stepBody()}</div>
+      <div class="ce-foot">
+        ${step > 0 ? '<button class="btn" data-act="prev">◂ Précédent</button>' : mode === 'edit' ? '<button class="btn" data-act="close">Annuler</button>' : '<span></span>'}
+        ${step < STEPS.length - 1 ? '<button class="btn primary" data-act="next">Suivant ▸</button>'
+          : `<button class="btn primary" data-act="ok">${mode === 'create' ? 'Commencer la carrière ▸' : 'Enregistrer'}</button>`}
+      </div>
+    </section></div>`;
+
+  // Mise à jour de l'aperçu sans redessiner (le clavier reste ouvert).
+  const preview = () => {
+    const el = h.body;
+    const n = el.querySelector('#cname'); if (n) n.innerHTML = nameText();
+    const s = el.querySelector('#csub'); if (s) s.innerHTML = sub();
+    const a = el.querySelector('#c-age'); if (a) a.textContent = `${d.age} ans`;
+  };
+  const readInputs = () => {
+    const el = h.body;
+    const fn = el.querySelector('#c-fn'), ln = el.querySelector('#c-ln');
+    if (fn) d.firstName = fn.value.trim().slice(0, 20);
+    if (ln) d.lastName = ln.value.trim().slice(0, 24);
+  };
+  const refresh = () => { readInputs(); h.update(html()); };
+  const go = (i) => { readInputs(); step = Math.max(0, Math.min(STEPS.length - 1, i)); h.update(html()); h.body.scrollTop = 0; };
+
   const h = app.sheet({
     full: true, dismissable: mode !== 'create', html,
+    mount: (body) => {
+      const fn = body.querySelector('#c-fn'), ln = body.querySelector('#c-ln'), age = body.querySelector('#c-agein');
+      fn?.addEventListener('input', () => { d.firstName = fn.value.trim().slice(0, 20); preview(); });
+      ln?.addEventListener('input', () => { d.lastName = ln.value.trim().slice(0, 24); preview(); });
+      fn?.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); ln?.focus(); } });
+      ln?.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); ln.blur(); } });
+      age?.addEventListener('input', () => { d.age = +age.value; preview(); });
+    },
     actions: {
-      tab: (el) => { tab = el.dataset.v; refresh(); },
-      fn: (el) => { d.firstName = el.value.trim().slice(0, 20); refresh(); },
-      ln: (el) => { d.lastName = el.value.trim().slice(0, 24); refresh(); },
-      nat: (el) => { d.nationality = el.value; refresh(); },
-      age: (el) => { d.age = +el.value; refresh(); },
+      step: (el) => go(+el.dataset.v),
+      next: () => {
+        readInputs();
+        if (step === 0 && !d.firstName && !d.lastName) { app.toast('Donnez un nom à votre coach.'); h.body.querySelector('#c-fn')?.focus(); return; }
+        go(step + 1);
+      },
+      prev: () => go(step - 1),
+      rname: () => {
+        const r = randomName(createRng((Date.now() ^ (Math.random() * 1e9)) >>> 0), NAT_ORIGIN[d.nationality] || 'FRA');
+        d.firstName = r.first; d.lastName = r.last; refresh();
+      },
+      nat: (el) => { d.nationality = el.value; readInputs(); preview(); },
       skin: (el) => { d.look.skin = el.dataset.v; refresh(); },
       hairStyle: (el) => { d.look.hairStyle = el.dataset.v; refresh(); },
       hairColor: (el) => { d.look.hairColor = el.dataset.v; refresh(); },
@@ -75,11 +138,20 @@ export function openCoachEditor(app, { mode = 'edit', onDone } = {}) {
       random: () => { d.look = randomLook(); refresh(); },
       philo: (el) => { d.philosophy = el.dataset.v; refresh(); },
       form: (el) => { d.formation = el.dataset.v; refresh(); },
+      preset: (el) => { d.skills = { ...PRESETS[el.dataset.v].skills }; refresh(); },
       inc: (el) => { const k = el.dataset.v; if (remaining() > 0 && d.skills[k] < SKILL_MAX) d.skills[k]++; refresh(); },
       dec: (el) => { const k = el.dataset.v; if (d.skills[k] > (mode === 'create' ? SKILL_MIN : base[k])) d.skills[k]--; refresh(); },
       ok: () => {
-        if (!d.firstName && !d.lastName) { app.toast('Donnez un nom à votre coach.'); tab = 'id'; refresh(); return; }
-        if (mode === 'create' && remaining() > 0) { app.toast(`Il reste ${remaining()} point(s) à répartir.`); tab = 'skills'; refresh(); return; }
+        readInputs();
+        if (!d.firstName && !d.lastName) { app.toast('Donnez un nom à votre coach.'); go(0); return; }
+        if (mode === 'create' && remaining() > 0) {
+          // Points restants : répartis automatiquement sur les compétences les plus basses.
+          while (remaining() > 0) {
+            const k = SKILL_KEYS.filter((x) => d.skills[x] < SKILL_MAX).sort((a, b) => d.skills[a] - d.skills[b])[0];
+            if (!k) break;
+            d.skills[k]++;
+          }
+        }
         const spent = skillsTotal(d.skills) - skillsTotal(base);
         Object.assign(coach, { firstName: d.firstName, lastName: d.lastName, nationality: d.nationality, age: d.age, look: d.look,
           philosophy: d.philosophy, formation: d.formation, skills: d.skills, created: true });
@@ -88,6 +160,7 @@ export function openCoachEditor(app, { mode = 'edit', onDone } = {}) {
         h.close();
         onDone?.();
         app.render();
+        app.toast(`Bienvenue, coach ${coachName(coach)} !`);
       },
     },
   });

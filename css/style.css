@@ -745,3 +745,75 @@ html.pc .slot .nm { font-size: 11.5px; max-width: 90px; }
 #updating b { font-family: var(--display); font-size: 24px; }
 #updating small { color: var(--muted); }
 .pos2 .posb { opacity: .55; min-width: 34px; height: 22px; font-size: 11px; }
+
+/* ---------- Choix du club ---------- */
+.picker { display: flex; flex-direction: column; gap: 10px; padding-top: 8px; }
+.pk-top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.pk-top h2 { font-family: var(--body); font-size: 22px; font-weight: 700; flex: 1; min-width: 180px; }
+.pk-search { display: flex; align-items: center; gap: 8px; padding: 0 12px; min-height: 42px; border-radius: 12px; background: var(--card); border: 1px solid var(--line2); flex: 1; max-width: 360px; }
+.pk-search input { flex: 1; min-width: 0; background: none; border: 0; color: var(--text); font: 15px var(--body); outline: none; }
+.pk-body { display: grid; grid-template-columns: minmax(230px, 300px) minmax(0, 1fr); gap: 14px; align-items: start; }
+.pk-leagues { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 4px 8px 10px; max-height: calc(var(--H, 100vh) - 150px); overflow-y: auto; position: sticky; top: 70px; }
+.lg-group .label { margin: 12px 6px 4px; font-size: 11px; }
+.lg-row { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 46px; padding: 6px 8px; border: 0; border-radius: 10px; background: none; color: var(--text); text-align: left; cursor: pointer; }
+.lg-row:hover { background: rgba(255, 255, 255, .04); }
+.lg-row.on { background: linear-gradient(90deg, rgba(124, 92, 255, .45), rgba(124, 92, 255, .1)); box-shadow: inset 3px 0 0 #a78bfa; }
+.lg-row .flag { font-size: 20px; width: 26px; text-align: center; }
+.lg-row b { display: block; font-size: 14px; font-weight: 600; }
+.lg-row small { font-size: 11.5px; color: var(--muted); }
+.starbar.sm { font-size: 11px; }
+.pk-title { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin: 2px 2px 10px; font: 700 20px var(--body); color: var(--text); text-transform: none; letter-spacing: 0; }
+.pk-title small { font-size: 13px; font-weight: 500; color: var(--muted); }
+.club-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.club-card { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 14px 10px 12px; border-radius: 14px; background: var(--card); border: 1px solid var(--line); color: var(--text); cursor: pointer; text-align: center; transition: transform .12s var(--ease), border-color .15s; }
+.club-card:hover { border-color: rgba(167, 139, 250, .6); }
+.club-card:active { transform: scale(.97); }
+.club-card.on { border-color: #a78bfa; box-shadow: 0 0 0 2px rgba(167, 139, 250, .35); }
+.club-card b { font-size: 14px; line-height: 1.2; min-height: 2.4em; display: flex; align-items: center; }
+.club-card small { font-size: 12px; color: var(--muted); }
+.pk-facts { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin: 14px 0 4px; }
+.pk-facts > div { background: var(--card2); border-radius: 12px; padding: 8px 12px; }
+.pk-facts small { display: block; font-size: 11px; color: var(--muted); }
+.pk-facts b { font-size: 14px; }
+html:not(.land) .pk-body { grid-template-columns: 1fr; }
+html:not(.land) .pk-leagues { position: static; max-height: 240px; }
+
+/* ---------- Éditeur du coach ---------- */
+.coach-ed { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 18px; align-items: start; }
+.ce-side { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 4px; padding: 18px 12px; border-radius: var(--radius);
+  background: radial-gradient(160px 120px at 50% 20%, rgba(124, 92, 255, .3), transparent 70%), var(--card2); position: sticky; top: 0; }
+.ce-avatar svg { width: 132px; height: 132px; }
+.ce-side h2 { font-family: var(--body); font-size: 22px; margin-top: 6px; word-break: break-word; }
+.ce-side small { font-size: 12px; }
+.stepper { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-bottom: 12px; }
+.stepper button { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 12px; border: 1px solid var(--line); background: var(--card); color: var(--muted); font-size: 13px; font-weight: 600; cursor: pointer; text-align: left; }
+.stepper button b { flex: none; width: 24px; height: 24px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; background: var(--card3); color: var(--text); font-size: 12px; }
+.stepper button.on { color: #fff; border-color: transparent; background: linear-gradient(100deg, rgba(106, 61, 255, .7), rgba(168, 85, 247, .5)); }
+.stepper button.on b { background: #fff; color: #5b3df5; }
+.stepper button.done b { background: var(--good); color: #062; }
+.ce-body { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+.ce-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.field { display: flex; flex-direction: column; gap: 6px; }
+.field > span { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+.field input[type=text], .field input[type=email], .field input[type=password], .field input[type=search], .field select {
+  min-height: 46px; padding: 0 14px; border-radius: 12px; border: 1px solid var(--line2); background: var(--bg2); color: var(--text); font: 16px var(--body); outline: none; }
+.field input:focus, .field select:focus { border-color: #a78bfa; box-shadow: 0 0 0 3px rgba(167, 139, 250, .25); }
+.field.big input { min-height: 54px; font-size: 20px; font-weight: 600; }
+.chips.wrap { flex-wrap: wrap; overflow: visible; }
+.ce-foot { display: flex; justify-content: space-between; gap: 10px; margin-top: 12px; }
+.ce-foot .btn { min-width: 150px; min-height: 48px; }
+.pts { font-weight: 700; padding: 4px 10px; border-radius: 999px; background: var(--card2); color: var(--muted); font-size: 13px; }
+.pts.left { background: rgba(167, 139, 250, .25); color: #fff; }
+.skillrow { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); }
+.sk-ic { font-size: 22px; width: 30px; text-align: center; }
+.sk-bar { height: 5px; border-radius: 3px; background: rgba(255, 255, 255, .07); margin-top: 6px; overflow: hidden; }
+.sk-bar i { display: block; height: 100%; background: var(--grad); }
+.btn.round { width: 40px; padding: 0; border-radius: 50%; font-size: 20px; }
+.skillv { min-width: 28px; text-align: center; font: 700 20px var(--display); }
+html:not(.land) .coach-ed { grid-template-columns: 1fr; }
+html.land.short .ce-avatar svg { width: 96px; height: 96px; }
+html.land.short .ce-side { padding: 10px; }
+/* Boutons d'action toujours visibles en bas des fenêtres (téléphone en paysage : peu de hauteur). */
+.ce-foot, .sheet-actions { position: sticky; bottom: -18px; z-index: 3; margin: 12px -4px -4px; padding: 12px 4px 14px;
+  background: linear-gradient(180deg, rgba(14, 17, 32, 0), var(--bg2) 35%); }
+.picker { padding-top: 14px; }

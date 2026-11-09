@@ -4,9 +4,9 @@
  */
 import { newGame, startCareer } from '../../game/season.js';
 import { load, deleteSave, clubPlayers, slotsInfo, SLOTS, setSlot, importFile, legacySave, dropLegacy, restoreSlot, lastKey } from '../../game/state.js';
-import { squadStrength } from '../../engine/ratings.js';
+import { squadStrength, overall } from '../../engine/ratings.js';
 import { money } from '../../game/economy.js';
-import { esc, crest, stars, starBar } from '../components.js';
+import { esc, crest, stars, starBar, playerRow } from '../components.js';
 import { DIVISIONS, DIV_IDS, COUNTRIES } from '../../data/world.js';
 import { readFileAsText } from '../files.js';
 import { openCoachEditor } from './coachEditor.js';
@@ -40,7 +40,7 @@ export function render(app) {
       <p>Le manager de foot qui tient dans une main.</p>
       <p class="muted" style="font-size:11px">Version ${APP_VERSION}</p>
       <p class="account-line">👤 <b>${esc(app.user?.username || '')}</b> <button class="btn sm ghost" data-act="logout">Se déconnecter</button></p>
-      <p class="muted" style="font-size:12px">Les 10 premiers championnats européens · vrais clubs, joueurs et entraîneurs · coupes nationales et continentale</p>
+      <p class="muted" style="font-size:12px">35 championnats (dont les D2 des 5 grands) · vrais clubs, joueurs et entraîneurs · coupes nationales et continentale</p>
     </div><div>
     ${legacySave() ? `<div class="card"><small>Une sauvegarde d'une ancienne version a été trouvée : elle n'est pas compatible avec le nouveau monde (3 pays, 80 clubs).</small>
       <button class="btn sm block" style="margin-top:8px" data-act="droplegacy">Supprimer l'ancienne sauvegarde</button></div>` : ''}
@@ -60,20 +60,100 @@ export function render(app) {
     <p class="muted center" style="font-size:12px">Sauvegarde automatique sur cet appareil</p>
     ${onlineSection(app)}</div></div>`;
   }
-  const clubs = app.state.clubs.filter((c) => c.div === ui.div)
-    .map((c) => ({ c, s: squadStrength(clubPlayers(app.state, c)) }))
-    .sort((a, b) => b.c.rep - a.c.rep);
-  const avg = clubs.reduce((a, x) => a + x.s, 0) / Math.max(1, clubs.length);
-  return `<h2 style="margin:16px 4px 10px">Choisissez votre club</h2>
-    <div class="chips">${DIV_IDS.map((d) => `<button class="chip ${d === ui.div ? 'on' : ''}" data-act="div" data-v="${d}">${COUNTRIES[DIVISIONS[d].country].flag} ${DIVISIONS[d].name}</button>`).join('')}</div>
-    <div class="card list" style="padding:4px 10px">
-      ${clubs.map(({ c, s }) => `<div class="prow" data-act="pick" data-id="${c.id}">
-        ${crest(c)}
-        <div class="pname"><b>${esc(c.name)}</b><small>Réputation ${c.rep >= 85 ? 'mondiale' : c.rep >= 75 ? 'continentale' : c.rep >= 62 ? 'nationale' : 'régionale'} · Budget ${money(c.budget)}</small></div>
-        <span class="stars-chip">${starBar(Math.max(0.5, Math.min(5, Math.round((2.5 + (s - avg) / 3) * 2) / 2)))}</span>
-      </div>`).join('')}
+  return pickerHtml(app, ui);
+}
+
+/* ---------------- Choix du club ---------------- */
+
+/** Groupes de championnats affichés dans la colonne de gauche. */
+const GROUPS = [
+  ['Les 5 grands championnats', (d) => d <= 5],
+  ['Deuxièmes divisions', (d) => DIVISIONS[d].level === 2],
+  ['Autres championnats européens', (d) => DIVISIONS[d].level === 1 && d > 5 && !['BRA', 'KSA', 'MEX', 'JPN'].includes(DIVISIONS[d].country)],
+  ['Reste du monde', (d) => ['BRA', 'KSA', 'MEX', 'JPN'].includes(DIVISIONS[d].country)],
+];
+const REP_WORD = (r) => (r >= 85 ? 'mondiale' : r >= 75 ? 'continentale' : r >= 62 ? 'nationale' : 'régionale');
+const leagueStars = (avg) => Math.max(1, Math.min(5, Math.round((avg - 50) / 7 * 2) / 2));
+
+function pickerHtml(app, ui) {
+  const s = app.state;
+  const q = (ui.q || '').trim().toLowerCase();
+  const byDiv = {};
+  for (const c of s.clubs) (byDiv[c.div] ||= []).push(c);
+  const leagues = GROUPS.map(([title, f]) => {
+    const ids = DIV_IDS.filter(f);
+    if (!ids.length) return '';
+    return `<div class="lg-group"><div class="label">${title}</div>${ids.map((d) => {
+      const cl = byDiv[d] || [];
+      const avg = cl.reduce((a, c) => a + c.rep, 0) / Math.max(1, cl.length);
+      return `<button class="lg-row ${d === ui.div && !q ? 'on' : ''}" data-act="div" data-v="${d}">
+        <span class="flag">${COUNTRIES[DIVISIONS[d].country].flag}</span>
+        <span class="grow"><b>${esc(DIVISIONS[d].name)}</b><small>${esc(COUNTRIES[DIVISIONS[d].country].name)} · ${cl.length} clubs</small></span>
+        ${starBar(leagueStars(avg), 'sm')}</button>`;
+    }).join('')}</div>`;
+  }).join('');
+  // Clubs : ceux du championnat choisi, ou le résultat de la recherche (tous championnats).
+  const list = (q ? s.clubs.filter((c) => c.name.toLowerCase().includes(q) || (c.short || '').toLowerCase() === q).slice(0, 40)
+    : (byDiv[ui.div] || [])).slice().sort((a, b) => b.rep - a.rep);
+  const strength = new Map(list.map((c) => [c.id, squadStrength(clubPlayers(s, c))]));
+  const vals = [...strength.values()];
+  const avg = vals.reduce((a, x) => a + x, 0) / Math.max(1, vals.length);
+  const D = DIVISIONS[ui.div];
+  const head = q ? `<h3 class="pk-title">Recherche : « ${esc(ui.q)} » <small>${list.length} club(s)</small></h3>`
+    : `<h3 class="pk-title"><span class="flag">${COUNTRIES[D.country].flag}</span> ${esc(D.name)} <small>${esc(COUNTRIES[D.country].name)}${D.down ? ` · ${D.down} relégués` : ''}${D.up ? ` · ${D.up} promus` : ''}</small></h3>`;
+  const cards = list.map((c) => `<button class="club-card ${c.id === ui.sel ? 'on' : ''}" data-act="sel" data-id="${c.id}">
+      ${crest(c, 'lg')}
+      <b>${esc(c.name)}</b>
+      ${starBar(Math.max(0.5, Math.min(5, Math.round((2.5 + (strength.get(c.id) - avg) / 3) * 2) / 2)), 'sm')}
+      <small>${q ? `${esc(DIVISIONS[c.div].name)} · ` : ''}${money(c.budget)}</small>
+    </button>`).join('') || '<p class="muted" style="padding:20px">Aucun club trouvé.</p>';
+  return `<div class="picker">
+    <div class="pk-top">
+      <button class="btn ghost sm" data-act="back">◂ Retour</button>
+      <h2>Choisissez votre club</h2>
+      <label class="pk-search">🔎<input type="search" id="pk-q" placeholder="Rechercher un club…" value="${esc(ui.q || '')}" autocomplete="off"></label>
     </div>
-    <button class="btn ghost block" data-act="back">Retour</button>`;
+    <div class="pk-body">
+      <nav class="pk-leagues">${leagues}</nav>
+      <section class="pk-clubs">${head}<div class="club-grid">${cards}</div></section>
+    </div>
+  </div>`;
+}
+
+/** Fiche du club choisi : ambition, meilleurs joueurs, bouton pour le prendre. */
+function clubSheet(app, id) {
+  const s = app.state;
+  const c = s.clubs.find((x) => x.id === id);
+  const D = DIVISIONS[c.div];
+  const players = clubPlayers(s, c).slice().sort((a, b) => overall(b) - overall(a));
+  const top = players.slice(0, 5);
+  const rank = s.clubs.filter((x) => x.div === c.div).sort((a, b) => b.rep - a.rep).findIndex((x) => x.id === c.id) + 1;
+  const n = s.clubs.filter((x) => x.div === c.div).length;
+  const ambition = D.level === 2 ? (rank <= 4 ? `Viser la montée en ${DIVISIONS[D.upper]?.name || 'D1'}` : 'Jouer le haut de tableau')
+    : rank <= 2 ? 'Jouer le titre' : rank <= 5 ? 'Viser l\'Europe' : rank <= n / 2 ? 'Finir dans la première moitié' : 'Se maintenir';
+  const h = app.sheet({
+    html: `<div class="row" style="gap:14px">${crest(c, 'lg')}<div class="grow"><h2>${esc(c.name)}</h2>
+        <small>${COUNTRIES[D.country].flag} ${esc(D.name)} · réputation ${REP_WORD(c.rep)}</small></div></div>
+      <div class="pk-facts">
+        <div><small>Budget</small><b>${money(c.budget)}</b></div>
+        <div><small>Stade</small><b>${Number(c.stadium).toLocaleString('fr-FR')} places</b></div>
+        <div><small>Effectif</small><b>${players.length} joueurs</b></div>
+        <div><small>Ambition</small><b>${ambition}</b></div>
+      </div>
+      <div class="label">Joueurs clés</div>
+      <div class="list">${top.map((p) => playerRow(p, { act: '', club: c })).join('')}</div>
+      <div class="btns sheet-actions"><button class="btn" data-act="close">Autre club</button>
+        <button class="btn primary lg" data-act="take">Prendre ce club ▸</button></div>`,
+    actions: { take: () => { h.close(); takeClub(app, c.id); } },
+  });
+}
+
+function takeClub(app, id) {
+  startCareer(app.state, id);
+  const slot = app.ui.start.slot || 1;
+  enter(app, slot, app.state);
+  app.save(true);
+  openCoachEditor(app, { mode: 'create', onDone: () => applyPhilosophy(app.state) });
 }
 
 function startNew(app, slot, state) {
@@ -93,7 +173,18 @@ function enter(app, slot, state) {
 }
 
 /** Liste des parties en ligne (chargée à l'affichage du menu). */
-export function mount(app) {
+export function mount(app, root) {
+  // Recherche de club : filtre en direct, sans perdre le focus du champ.
+  const q = root?.querySelector('#pk-q');
+  if (q) {
+    q.addEventListener('input', () => {
+      app.ui.start.q = q.value;
+      const pos = q.selectionStart;
+      app.render();
+      const n = document.getElementById('pk-q');
+      if (n) { n.focus(); try { n.setSelectionRange(pos, pos); } catch { /* ignore */ } }
+    });
+  }
   if (app.ui.start?.step === 'menu' && !app.state && !app.ui.start.gamesLoaded) {
     app.ui.start.gamesLoaded = true;
     refreshGames(app);
@@ -120,7 +211,7 @@ export const actions = {
     if (!s) { app.toast('Sauvegarde illisible ou d\'une version incompatible.'); return; }
     enter(app, n, s);
   },
-  /** Nouvelle partie : toujours le monde réel (10 championnats européens). */
+  /** Nouvelle partie : toujours le monde réel (35 championnats). */
   async new(el, app) {
     const slot = +el.dataset.v;
     busy(true, 'Chargement des championnats…');
@@ -160,16 +251,9 @@ export const actions = {
       app.toast('Partie récupérée depuis le cloud !');
     } catch (e) { app.toast(`Récupération impossible : ${e.message}`, 4000); } finally { busy(false); }
   },
-  div(el, app) { app.ui.start.div = +el.dataset.v; app.render(); },
+  div(el, app) { app.ui.start.div = +el.dataset.v; app.ui.start.q = ''; app.render(); },
+  sel(el, app) { app.ui.start.sel = +el.dataset.id; clubSheet(app, +el.dataset.id); },
   back(el, app) { app.ui.start.step = 'menu'; app.state = null; app.render(); },
 
-  async pick(el, app) {
-    const c = app.state.clubs.find((x) => x.id === +el.dataset.id);
-    if (!(await app.confirm(c.name, `Prendre les rênes de <b>${esc(c.name)}</b> ?`, "C'est parti !"))) return;
-    startCareer(app.state, c.id);
-    const slot = app.ui.start.slot || 1;
-    enter(app, slot, app.state);
-    app.save(true);
-    openCoachEditor(app, { mode: 'create', onDone: () => applyPhilosophy(app.state) });
-  },
+  pick(el, app) { clubSheet(app, +el.dataset.id); },
 };

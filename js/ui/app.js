@@ -104,7 +104,11 @@ export const app = {
       if (n) { e.preventDefault(); n.click(); }
     });
     // Délégation des actions de l'écran courant.
-    this.$screen.addEventListener('click', (e) => { if (e.target.tagName !== 'SELECT' && e.target.type !== 'file') this.dispatch(e, this.current()?.actions); });
+    // Un toucher dans un champ (liste, texte, fichier) ne déclenche pas d'action : il doit
+    // juste donner le focus (sinon le clavier du téléphone se ferme aussitôt).
+    const isField = (t) => t.tagName === 'SELECT' || t.tagName === 'TEXTAREA' || (t.tagName === 'INPUT' && !['button', 'submit', 'checkbox', 'radio'].includes(t.type));
+    this.isField = isField;
+    this.$screen.addEventListener('click', (e) => { if (!isField(e.target)) this.dispatch(e, this.current()?.actions); });
     // Listes déroulantes et champs : événement "change".
     this.$screen.addEventListener('change', (e) => this.dispatch(e, this.current()?.actions));
     this.$top.addEventListener('click', (e) => {
@@ -239,7 +243,7 @@ export const app = {
     handle.update(typeof opts.html === 'function' ? opts.html() : opts.html);
     wrap.addEventListener('click', (e) => {
       if (e.target.classList.contains('sheet-bg') && opts.dismissable !== false) { handle.close(); return; }
-      if (e.target.tagName === 'SELECT' || e.target.type === 'file' || e.target.type === 'range') return;
+      if (this.isField(e.target)) return;
       const el = e.target.closest('[data-act]');
       if (!el) return;
       if (el.dataset.act === 'close') { handle.close(); return; }

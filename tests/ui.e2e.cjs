@@ -55,13 +55,17 @@ function serve() {
     await page.click('[data-act=new][data-v="1"]');
     await page.waitForSelector('[data-act=div][data-v="5"]');
     await page.click('[data-act=div][data-v="5"]');
-    await page.click('.prow[data-act=pick] >> nth=3');
-    await page.click('[data-act=yes]');
+    await page.click('.club-card >> nth=3');
+    await page.click('.sheet [data-act=take]');
     // Création du coach : apparence, compétences, puis validation.
-    await page.waitForSelector('.sheet [data-act=ok]');
-    await page.click('.sheet [data-act=tab][data-v=look]');
+    await page.waitForSelector('.sheet #c-fn');
+    // Nom du coach : saisie au clavier (la fenêtre ne doit pas se redessiner pendant la frappe).
+    await page.fill('.sheet #c-fn', 'Léo');
+    await page.fill('.sheet #c-ln', 'Fortin');
+    assert.equal(await page.textContent('.sheet #cname'), 'Léo Fortin');
+    await page.click('.sheet [data-act=next]');
     await page.click('.sheet [data-act=random]');
-    await page.click('.sheet [data-act=tab][data-v=skills]');
+    await page.click('.sheet [data-act=step][data-v="3"]');
     await page.click('.sheet [data-act=dec][data-v=discipline]');
     await page.click('.sheet [data-act=inc][data-v=tactics]');
     await page.click('.sheet [data-act=ok]');
@@ -77,6 +81,7 @@ function serve() {
     const coach = await page.evaluate(() => window.__app.state.coach);
     assert.equal(coach.skills.tactics, 11);
     assert.ok(coach.created);
+    assert.equal(coach.firstName + ' ' + coach.lastName, 'Léo Fortin', 'nom du coach enregistré');
     step('partie créée (monde réel, Ligue 1) + coach personnalisé + préparation (réunion CA, amical)');
 
     for (const tab of ['squad', 'tactics', 'schedule', 'club', 'home']) {
@@ -248,7 +253,8 @@ function serve() {
     await page.click('[data-act=opick] >> nth=0');
     await page.waitForSelector('[data-act=ostart]:not([disabled])');
     await page.click('[data-act=ostart]');
-    await page.waitForSelector('.sheet [data-act=ok]', { timeout: 60000 });
+    await page.waitForSelector('.sheet [data-act=step][data-v="3"]', { timeout: 60000 });
+    await page.click('.sheet [data-act=step][data-v="3"]');
     await page.click('.sheet [data-act=ok]');
     await page.waitForSelector('[data-act=oready]');
     await page.click('[data-act=oready]');
