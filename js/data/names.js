@@ -22,6 +22,17 @@ const ORIGINS = [
     last: ['Rossi','Russo','Ferrari','Esposito','Bianchi','Romano','Colombo','Ricci','Marino','Greco','Conti','De Luca'] },
   { w: 0, key: 'eng', nations: ['Angleterre', 'Angleterre', 'Écosse', 'Irlande', 'Pays de Galles'], first: ['Jack','Harry','Oliver','George','Charlie','James','Thomas','William','Callum','Liam','Connor','Ryan','Declan','Mason','Kieran','Jamie','Owen','Reece','Aaron','Ben','Sam','Joe'],
     last: ['Smith','Jones','Taylor','Brown','Wilson','Evans','Walker','Wright','Robinson','Thompson','White','Hughes','Edwards','Green','Hall','Wood','Harris','Clarke','Jackson','Turner','Hill','Cooper','Ward','Murphy','Kelly','O\'Brien','McKenzie','Fletcher','Barnes','Holloway','Pearce','Whitfield','Ashworth','Kershaw'] },
+  // Origines utilisées seulement par les championnats 21-30 (poids 0 ailleurs).
+  { w: 0, key: 'jpn', nations: ['Japon'], first: ['Haruto','Sota','Yuto','Ren','Kaito','Riku','Takumi','Daiki','Kenta','Shota','Yuki','Ryota','Kazuki','Hiroki'],
+    last: ['Sato','Suzuki','Takahashi','Tanaka','Watanabe','Ito','Yamamoto','Nakamura','Kobayashi','Kato','Yoshida','Yamada','Sasaki','Matsumoto','Inoue','Kimura'] },
+  { w: 0, key: 'arb', nations: ['Arabie saoudite', 'Arabie saoudite', 'Émirats arabes unis', 'Qatar'], first: ['Abdullah','Mohammed','Fahad','Saud','Faisal','Turki','Nawaf','Salem','Yasser','Hattan','Abdulrahman','Sultan'],
+    last: ['Al-Dawsari','Al-Shahrani','Al-Ghannam','Al-Qahtani','Al-Faraj','Al-Bulaihi','Al-Malki','Al-Harbi','Al-Otaibi','Al-Amri','Al-Shehri','Al-Najei'] },
+  { w: 0, key: 'sla', nations: ['Russie', 'Ukraine', 'Ukraine'], first: ['Aleksandr','Dmitri','Maksim','Artem','Ivan','Nikita','Andriy','Oleksandr','Mykola','Vladyslav','Denys','Igor'],
+    last: ['Ivanov','Smirnov','Kuznetsov','Popov','Sokolov','Morozov','Shevchenko','Kovalenko','Bondarenko','Tkachenko','Kravchenko','Melnyk','Volkov','Lebedev'] },
+  { w: 0, key: 'heb', nations: ['Israël'], first: ['Itay','Omer','Yonatan','Noam','Eden','Dor','Liel','Roy','Shon','Gadi','Eran','Tal'],
+    last: ['Cohen','Levi','Mizrahi','Peretz','Biton','Dahan','Avraham','Friedman','Azoulay','Katz','Golan','Ben Haim'] },
+  { w: 0, key: 'est', nations: ['Roumanie', 'Hongrie', 'Bulgarie', 'Chypre'], first: ['Andrei','Alexandru','Ionut','Razvan','Bence','Dominik','Levente','Gergő','Georgi','Nikos','Andreas','Christos'],
+    last: ['Popescu','Ionescu','Stan','Dumitru','Marin','Nagy','Kovács','Tóth','Szabó','Horváth','Petrov','Georgiou','Christodoulou','Ioannou'] },
 ];
 
 /** Pondération des origines selon le pays du club. */
@@ -49,6 +60,16 @@ const COUNTRY_WEIGHTS = {
   SWE: { fr: 2, waf: 8, ibe: 2, bra: 2, bal: 10, mag: 5, nor: 68, ita: 1, eng: 3 },
   CRO: { fr: 1, waf: 4, ibe: 2, bra: 3, bal: 80, mag: 1, nor: 4, ita: 3, eng: 1 },
   SRB: { fr: 1, waf: 5, ibe: 1, bra: 3, bal: 82, mag: 1, nor: 3, ita: 2, eng: 1 },
+  BRA: { fr: 0, waf: 1, ibe: 8, bra: 88, bal: 0, mag: 0, nor: 0, ita: 2, eng: 0 },
+  KSA: { fr: 2, waf: 6, ibe: 3, bra: 8, bal: 3, mag: 8, nor: 2, ita: 1, eng: 1, arb: 66 },
+  MEX: { fr: 0, waf: 1, ibe: 85, bra: 4, bal: 1, mag: 0, nor: 1, ita: 1, eng: 2 },
+  JPN: { fr: 0, waf: 1, ibe: 1, bra: 5, bal: 1, mag: 0, nor: 1, ita: 0, eng: 1, jpn: 90 },
+  RUS: { fr: 1, waf: 4, ibe: 2, bra: 4, bal: 8, mag: 1, nor: 2, ita: 1, eng: 1, sla: 76 },
+  UKR: { fr: 1, waf: 3, ibe: 1, bra: 5, bal: 4, mag: 1, nor: 1, ita: 1, eng: 1, sla: 82 },
+  ROU: { fr: 2, waf: 5, ibe: 4, bra: 3, bal: 10, mag: 2, nor: 2, ita: 3, eng: 1, est: 68 },
+  HUN: { fr: 2, waf: 4, ibe: 2, bra: 2, bal: 12, mag: 1, nor: 6, ita: 2, eng: 1, est: 68 },
+  CYP: { fr: 3, waf: 10, ibe: 10, bra: 6, bal: 14, mag: 3, nor: 4, ita: 3, eng: 3, est: 44 },
+  ISR: { fr: 2, waf: 6, ibe: 3, bra: 3, bal: 6, mag: 4, nor: 2, ita: 1, eng: 1, heb: 72 },
 };
 
 /** Retourne { first, last, nat } crédible pour un club du pays donné. */

@@ -21,7 +21,7 @@ const FICTIONAL = {
   conti: { 1: 6, 3: 5, 4: 5 },
 };
 
-/** Les 20 premiers championnats européens (seules les élites sont dans les données : pas de relégation). */
+/** 30 championnats : les 20 premiers européens et 10 autres (Europe de l'Est, Brésil, Arabie saoudite, Mexique, Japon) (seules les élites sont dans les données : pas de relégation). */
 const REAL = {
   countries: {
     ENG: { name: 'Angleterre', flag: '🏴󠁧󠁢󠁥󠁮󠁧󠁿', cup: 'FA Cup' },
@@ -44,6 +44,16 @@ const REAL = {
     SWE: { name: 'Suède', flag: '🇸🇪', cup: 'Coupe de Suède' },
     CRO: { name: 'Croatie', flag: '🇭🇷', cup: 'Coupe de Croatie' },
     SRB: { name: 'Serbie', flag: '🇷🇸', cup: 'Coupe de Serbie' },
+    BRA: { name: 'Brésil', flag: '🇧🇷', cup: 'Copa do Brasil' },
+    KSA: { name: 'Arabie saoudite', flag: '🇸🇦', cup: 'King\'s Cup' },
+    MEX: { name: 'Mexique', flag: '🇲🇽', cup: 'Copa MX' },
+    JPN: { name: 'Japon', flag: '🇯🇵', cup: 'Coupe de l\'Empereur' },
+    RUS: { name: 'Russie', flag: '🇷🇺', cup: 'Coupe de Russie' },
+    UKR: { name: 'Ukraine', flag: '🇺🇦', cup: 'Coupe d\'Ukraine' },
+    ROU: { name: 'Roumanie', flag: '🇷🇴', cup: 'Coupe de Roumanie' },
+    HUN: { name: 'Hongrie', flag: '🇭🇺', cup: 'Coupe de Hongrie' },
+    CYP: { name: 'Chypre', flag: '🇨🇾', cup: 'Coupe de Chypre' },
+    ISR: { name: 'Israël', flag: '🇮🇱', cup: 'Coupe d\'Israël' },
   },
   divisions: {
     1: { name: 'Premier League', short: 'PL', country: 'ENG', level: 1, source: 'ENG1', profile: { goals: 1.0, fouls: 0.85, cards: 0.8 } },
@@ -66,6 +76,16 @@ const REAL = {
     18: { name: 'Allsvenskan', short: 'SE', country: 'SWE', level: 1, source: 'SWE1', profile: { goals: 1.05, fouls: 0.9, cards: 0.85 } },
     19: { name: 'HNL', short: 'HR', country: 'CRO', level: 1, source: 'CRO1', profile: { goals: 0.98, fouls: 1.05, cards: 1.15 } },
     20: { name: 'SuperLiga', short: 'RS', country: 'SRB', level: 1, source: 'SRB1', profile: { goals: 0.98, fouls: 1.1, cards: 1.2 } },
+    21: { name: 'Brasileirão', short: 'BR', country: 'BRA', level: 1, source: 'BRA1', profile: { goals: 0.95, fouls: 1.15, cards: 1.25 } },
+    22: { name: 'Saudi Pro League', short: 'SPL', country: 'KSA', level: 1, source: 'KSA1', profile: { goals: 1.1, fouls: 1, cards: 1.05 } },
+    23: { name: 'Liga MX', short: 'MX', country: 'MEX', level: 1, source: 'MEX1', profile: { goals: 1.02, fouls: 1.05, cards: 1.1 } },
+    24: { name: 'J1 League', short: 'J1', country: 'JPN', level: 1, source: 'JPN1', profile: { goals: 1, fouls: 0.75, cards: 0.6 } },
+    25: { name: 'Premier League (RUS)', short: 'RU', country: 'RUS', level: 1, source: 'RUS1', profile: { goals: 0.95, fouls: 1.05, cards: 1.1 } },
+    26: { name: 'Premier League (UKR)', short: 'UA', country: 'UKR', level: 1, source: 'UKR1', profile: { goals: 0.98, fouls: 1.05, cards: 1.1 } },
+    27: { name: 'SuperLiga (ROU)', short: 'RO', country: 'ROU', level: 1, source: 'ROU1', profile: { goals: 0.95, fouls: 1.1, cards: 1.2 } },
+    28: { name: 'NB I', short: 'HU', country: 'HUN', level: 1, source: 'HUN1', profile: { goals: 1.05, fouls: 1, cards: 1.05 } },
+    29: { name: 'First Division', short: 'CY', country: 'CYP', level: 1, source: 'CYP1', profile: { goals: 1, fouls: 1.05, cards: 1.15 } },
+    30: { name: 'Ligat HaAl', short: 'IL', country: 'ISR', level: 1, source: 'ISR1', profile: { goals: 1.02, fouls: 1, cards: 1.05 } },
   },
   // 16 qualifiés pour la Ligue des Étoiles.
   conti: { 1: 3, 2: 2, 3: 2, 4: 2, 5: 2, 6: 1, 7: 1, 8: 1, 9: 1, 10: 1 },

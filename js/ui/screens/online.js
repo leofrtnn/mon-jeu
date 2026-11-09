@@ -11,7 +11,8 @@ import { DIVISIONS } from '../../data/world.js';
 import { busy } from '../sim.js';
 
 const LEAGUE_NAMES = { ENG1: 'Premier League', ESP1: 'LaLiga', ITA1: 'Serie A', GER1: 'Bundesliga', FRA1: 'Ligue 1', POR1: 'Liga Portugal', NED1: 'Eredivisie', BEL1: 'Pro League', TUR1: 'Süper Lig', CZE1: 'Chance Liga',
-  GRE1: 'Super League', NOR1: 'Eliteserien', POL1: 'Ekstraklasa', DEN1: 'Superliga', AUT1: 'Bundesliga (AUT)', SUI1: 'Super League (SUI)', SCO1: 'Premiership', SWE1: 'Allsvenskan', CRO1: 'HNL', SRB1: 'SuperLiga' };
+  GRE1: 'Super League', NOR1: 'Eliteserien', POL1: 'Ekstraklasa', DEN1: 'Superliga', AUT1: 'Bundesliga (AUT)', SUI1: 'Super League (SUI)', SCO1: 'Premiership', SWE1: 'Allsvenskan', CRO1: 'HNL', SRB1: 'SuperLiga',
+  BRA1: 'Brasileirão', KSA1: 'Saudi Pro League', MEX1: 'Liga MX', JPN1: 'J1 League', RUS1: 'Premier League (RUS)', UKR1: 'Premier League (UKR)', ROU1: 'SuperLiga (ROU)', HUN1: 'NB I', CYP1: 'First Division', ISR1: 'Ligat HaAl' };
 
 /* ---------------- Menu (écran d'accueil) ---------------- */
 

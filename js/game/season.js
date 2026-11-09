@@ -111,7 +111,8 @@ export function roundRobin(ids, rng) {
 
 /** Divisions du monde réel couvertes par les données (identifiants de championnat → divisions). */
 const REAL_SOURCES = { ENG1: 1, ESP1: 2, ITA1: 3, GER1: 4, FRA1: 5, POR1: 6, NED1: 7, BEL1: 8, TUR1: 9, CZE1: 10,
-  GRE1: 11, NOR1: 12, POL1: 13, DEN1: 14, AUT1: 15, SUI1: 16, SCO1: 17, SWE1: 18, CRO1: 19, SRB1: 20 };
+  GRE1: 11, NOR1: 12, POL1: 13, DEN1: 14, AUT1: 15, SUI1: 16, SCO1: 17, SWE1: 18, CRO1: 19, SRB1: 20,
+  BRA1: 21, KSA1: 22, MEX1: 23, JPN1: 24, RUS1: 25, UKR1: 26, ROU1: 27, HUN1: 28, CYP1: 29, ISR1: 30 };
 const REAL_DIVS = (data) => [...new Set(data.clubs.map((c) => REAL_SOURCES[c.league]).filter(Boolean))].sort((a, b) => a - b);
 
 const clubsOfDiv = (state, div) => state.clubs.filter((c) => c.div === div);

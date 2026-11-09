@@ -76,9 +76,30 @@ REP_KEY = [
   ('crvena', 72, 'CZV'), ('red star', 72, 'CZV'), ('partizan', 66, 'PAR'), ('vojvodina', 60, 'VOJ'), ('cukaricki', 58, 'CUK'), ('tsc', 58, 'TSC'),
   ('radnicki nis', 55, 'RNI'), ('novi pazar', 55, 'NPA'), ('mladost', 54, 'MLA'), ('ofk beograd', 54, 'OFK'), ('imt', 53, 'IMT'), ('radnik', 53, 'RAS'),
   ('zeleznicar', 53, 'ZEL'), ('radnicki 1923', 54, 'R23'), ('macva', 52, 'MAC'), ('zemun', 52, 'ZEM'),
+  # Championnats 21 à 30.
+  ('flamengo', 80, 'FLA'), ('palmeiras', 80, 'PAL'), ('botafogo', 75, 'BOT'), ('fluminense', 72, 'FLU'), ('atletico mineiro', 73, 'CAM'),
+  ('corinthians', 72, 'COR'), ('sao paulo', 72, 'SAO'), ('internacional', 71, 'INT2'), ('gremio', 70, 'GRE2'), ('cruzeiro', 72, 'CRU'),
+  ('bahia', 69, 'BAH'), ('vasco', 68, 'VAS'), ('santos fc', 68, 'SAN'), ('bragantino', 68, 'RBB'), ('athletico', 67, 'CAP'),
+  ('vitoria', 63, 'VIT'), ('mirassol', 63, 'MIR'), ('coritiba', 62, 'CFC'), ('chapecoense', 61, 'CHA'), ('remo', 60, 'REM'),
+  ('al hilal', 78, 'HIL'), ('al-hilal', 78, 'HIL'), ('al nassr', 77, 'NAS'), ('al ahli', 76, 'AHL'), ('al-ittihad', 75, 'ITT'), ('al qadsiah', 72, 'QAD'),
+  ('al-ettifaq', 66, 'ETT'), ('al shabab', 66, 'SHB'), ('al-taawoun', 65, 'TAA'), ('neom', 64, 'NEO'), ('al-khaleej', 62, 'KHL'),
+  ('al-fateh', 62, 'FAT'), ('al-fayha', 61, 'FAY'), ('al-kholood', 61, 'KHO'), ('al-riyadh', 60, 'RIY'), ('al-hazem', 59, 'HAZ'),
+  ('al-diriyah', 59, 'DIR'), ('al-faisaly', 59, 'FAI'), ('abha', 58, 'ABH'),
+  ('club america', 72, 'AME'), ('monterrey', 72, 'MTY'), ('tigres', 72, 'TIG'), ('cruz azul', 71, 'CAZ'), ('toluca', 70, 'TOL'),
+  ('guadalajara', 68, 'CHV'), ('pachuca', 67, 'PAC'), ('pumas', 66, 'PUM'), ('leon', 65, 'LEO'), ('santos laguna', 63, 'SLA'),
+  ('kawasaki', 66, 'KAW'), ('vissel', 68, 'VIS'), ('sanfrecce', 67, 'SAN2'), ('kashima', 67, 'KAS'), ('urawa', 66, 'URA'), ('machida', 66, 'MAC2'),
+  ('yokohama f', 65, 'YFM'), ('gamba', 64, 'GAM'), ('kashiwa', 65, 'KRE'), ('fc tokyo', 63, 'TOK'), ('nagoya', 63, 'NAG'), ('cerezo', 63, 'CER'),
+  ('zenit', 74, 'ZEN'), ('krasnodar', 71, 'KRA'), ('spartak', 70, 'SPA'), ('cska moscow', 69, 'CSK'), ('dynamo moscow', 68, 'DYM'), ('lokomotiv moscow', 68, 'LMO'),
+  ('rubin', 63, 'RUB'), ('rostov', 63, 'ROS'),
+  ('shakhtar', 72, 'SHA'), ('dynamo kyiv', 70, 'DYN'), ('polissya', 63, 'POL2'), ('kryvbas', 60, 'KRY'), ('zorya', 60, 'ZOR'), ('oleksandriya', 58, 'OLE'),
+  ('fcsb', 66, 'FCSB'), ('cfr cluj', 64, 'CFR'), ('universitatea craiova', 64, 'UCV'), ('rapid', 63, 'RAP'), ('dinamo bucuresti', 61, 'DIN2'), ('farul', 61, 'FAR'),
+  ('ferencvaros', 69, 'FTC'), ('puskas', 61, 'PAFC'), ('paksi', 60, 'PAK'), ('gyor', 60, 'ETO'), ('debreceni', 58, 'DVSC'), ('ujpest', 57, 'UTE'),
+  ('apoel', 63, 'APO'), ('pafos', 65, 'PAF'), ('omonia', 63, 'OMO'), ('aek larnaca', 62, 'AEK2'), ('aris limassol', 60, 'ARI'), ('apollon', 60, 'APL'),
+  ('maccabi tel aviv', 66, 'MTA'), ('maccabi haifa', 64, 'MHA'), ('hapoel be', 64, 'HBS'), ('beitar', 63, 'BEI'), ('hapoel tel aviv', 60, 'HTA'),
 ]
 DEFAULT_REP = {'POR1': 57, 'NED1': 58, 'BEL1': 57, 'TUR1': 59, 'CZE1': 55, 'GRE1': 55, 'NOR1': 55, 'POL1': 56, 'DEN1': 56, 'AUT1': 55,
-               'SUI1': 56, 'SCO1': 54, 'SWE1': 55, 'CRO1': 54, 'SRB1': 53}
+               'SUI1': 56, 'SCO1': 54, 'SWE1': 55, 'CRO1': 54, 'SRB1': 53,
+               'BRA1': 64, 'KSA1': 58, 'MEX1': 62, 'JPN1': 61, 'RUS1': 60, 'UKR1': 56, 'ROU1': 56, 'HUN1': 54, 'CYP1': 54, 'ISR1': 55}
 PREFIX = {'fc', 'sc', 'sk', 'fk', 'ac', 'kv', 'k', 'r', 'rsc', 'sl', 'cd', 'cf', 'gd', 'ud', 'kaa', 'krc', 'kvc', 'rc', 'sv', 'afc', 'f', 'c', 's', 'a',
           'royal', 'royale', 'club', 'cs', 'pec', 'ado', 'sfk', '1', 'raal', 'fsv', 'ksv', 'vv', 'sint', 'oud'}
 

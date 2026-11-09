@@ -1,4 +1,4 @@
-"""Clubs actuels des 20 premiers championnats européens (modèles de navigation Wikipédia)."""
+"""Clubs actuels des 30 championnats championnats européens (modèles de navigation Wikipédia)."""
 import re, wiki
 
 LEAGUES = [
@@ -24,7 +24,41 @@ LEAGUES = [
     {'id': 'SWE1', 'size': 16, 'name': 'Allsvenskan', 'country': 'Suède', 'templates': ['Template:Allsvenskan'], 'season': '2026'},
     {'id': 'CRO1', 'size': 10, 'name': 'HNL', 'country': 'Croatie', 'templates': ['Template:Hrvatska nogometna liga']},
     {'id': 'SRB1', 'size': 16, 'name': 'SuperLiga', 'country': 'Serbie', 'templates': ['Template:Serbian SuperLiga']},
+    # Championnats 21 à 30 (Europe de l'Est, Méditerranée, et quatre grands championnats hors d'Europe).
+    {'id': 'BRA1', 'size': 20, 'name': 'Brasileirão', 'country': 'Brésil', 'templates': ['Template:Campeonato Brasileiro Série A'], 'season': '2026'},
+    {'id': 'KSA1', 'size': 18, 'name': 'Saudi Pro League', 'country': 'Arabie saoudite', 'templates': [], 'clubs': [
+        'Abha Club', 'Al Ahli Saudi FC', 'Al-Ettifaq Club', 'Al-Faisaly FC', 'Al-Fateh SC', 'Al-Fayha FC', 'Al-Diriyah Club', 'Al-Hazem FC',
+        'Al-Hilal Saudi FC', 'Al-Ittihad Club (Jeddah)', 'Al-Khaleej Club', 'Al-Kholood Club', 'Al Nassr FC', 'Al Qadsiah FC', 'Al-Riyadh SC',
+        'Al Shabab Club', 'Al-Taawoun FC', 'Neom SC']},
+    {'id': 'MEX1', 'size': 18, 'name': 'Liga MX', 'country': 'Mexique', 'templates': ['Template:Liga MX']},
+    {'id': 'JPN1', 'size': 20, 'name': 'J1 League', 'country': 'Japon', 'templates': [], 'article': '2026–27 J1 League'},
+    {'id': 'RUS1', 'size': 16, 'name': 'Premier League (RUS)', 'country': 'Russie', 'templates': ['Template:Russian Premier League']},
+    {'id': 'UKR1', 'size': 16, 'name': 'Premier League (UKR)', 'country': 'Ukraine', 'templates': ['Template:Ukrainian Premier League']},
+    {'id': 'ROU1', 'size': 16, 'name': 'SuperLiga (ROU)', 'country': 'Roumanie', 'templates': ['Template:Liga I teamlist']},
+    {'id': 'HUN1', 'size': 12, 'name': 'NB I', 'country': 'Hongrie', 'templates': ['Template:Nemzeti Bajnokság I']},
+    {'id': 'CYP1', 'size': 14, 'name': 'First Division', 'country': 'Chypre', 'templates': ['Template:Cypriot First Division']},
+    {'id': 'ISR1', 'size': 14, 'name': 'Ligat HaAl', 'country': 'Israël', 'templates': ['Template:Ligat HaAl'], 'season': '|Clubs]]'},
 ]
+CLUB_BOX = re.compile(r'\{\{\s*Infobox football club', re.I)
+
+def article_clubs(title, size):
+    """Clubs cités dans la section « Teams » de l'article de la saison (pages avec une infobox de club)."""
+    got = wiki.wikitexts([title])
+    if title not in got:
+        return []
+    t = got[title][1]
+    m = re.search(r'==\s*(Teams|Clubs|Stadiums and locations)', t)
+    block = t[m.start():m.start() + 15000] if m else t
+    links = []
+    for l in LINK.findall(block):
+        l = l.strip()
+        if l not in links and not l.startswith(('File:', 'Image:', 'Category:')): links.append(l)
+    pages = wiki.wikitexts(links[:120])
+    out, seen = [], set()
+    for l in links[:120]:
+        if l in pages and CLUB_BOX.search(pages[l][1]) and pages[l][0] not in seen:
+            seen.add(pages[l][0]); out.append(l)
+    return out[:size]
 LINK = re.compile(r'\[\[([^\]|#]+)(?:\|[^\]]*)?\]\]')
 
 def current_clubs(text, season='2026–27'):
@@ -68,6 +102,11 @@ def season_links(text, season, size):
 
 def all_leagues():
     for lg in LEAGUES:
+        if lg.get('clubs'):
+            continue
+        if lg.get('article'):
+            lg['clubs'] = article_clubs(lg['article'], lg['size'])
+            continue
         got = wiki.wikitexts(lg['templates'])
         for t in lg['templates']:
             if t in got:
