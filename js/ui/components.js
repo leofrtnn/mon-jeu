@@ -15,6 +15,16 @@ export function accentInk(hex) {
   return l > 0.6 ? '#0d1117' : '#ffffff';
 }
 
+/** Couleur d'accent lisible sur fond sombre (couleur 1 ou 2 du club, sinon éclaircie). */
+export function clubAccent(club) {
+  const lum = (h) => { const v = parseInt(h.slice(1), 16); return (0.299 * ((v >> 16) & 255) + 0.587 * ((v >> 8) & 255) + 0.114 * (v & 255)) / 255; };
+  const sat = (h) => { const v = parseInt(h.slice(1), 16); const r = (v >> 16) & 255, g = (v >> 8) & 255, b = v & 255; return (Math.max(r, g, b) - Math.min(r, g, b)) / 255; };
+  for (const c of [club.color, club.color2]) if (c && lum(c) > 0.32 && lum(c) < 0.92 && sat(c) > 0.25) return c;
+  const v = parseInt(club.color.slice(1), 16);
+  const mix = (x) => Math.round(x + (255 - x) * 0.45);
+  return '#' + [mix((v >> 16) & 255), mix((v >> 8) & 255), mix(v & 255)].map((x) => x.toString(16).padStart(2, '0')).join('');
+}
+
 export function crest(club, size = '') {
   return `<span class="crest ${size}" style="background:${club.color};color:${club.color2}">${esc(club.short)}</span>`;
 }

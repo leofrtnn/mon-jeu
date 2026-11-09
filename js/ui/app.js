@@ -5,7 +5,8 @@
  */
 import { save as saveState, userClub } from '../game/state.js';
 import { money } from '../game/economy.js';
-import { esc, accentInk } from './components.js';
+import { esc, accentInk, clubAccent } from './components.js';
+import { today } from '../game/season.js';
 import * as home from './screens/home.js';
 import * as squad from './screens/squad.js';
 import * as tactics from './screens/tactics.js';
@@ -35,6 +36,12 @@ export const app = {
   sheets: [],
 
   init() {
+    // Invitation à passer en paysage (on peut la refuser une fois pour toutes).
+    try { if (localStorage.getItem('cdp-portrait') === '1') document.body.classList.add('allow-portrait'); } catch { /* ignore */ }
+    document.getElementById('allow-portrait')?.addEventListener('click', () => {
+      document.body.classList.add('allow-portrait');
+      try { localStorage.setItem('cdp-portrait', '1'); } catch { /* ignore */ }
+    });
     this.$screen = document.getElementById('screen');
     this.$top = document.getElementById('topbar');
     this.$tabs = document.getElementById('tabbar');
@@ -78,13 +85,16 @@ export const app = {
   render() {
     const started = this.state && this.state.userClubId;
     this.$tabs.classList.toggle('hidden', !started);
+    document.body.classList.toggle('no-nav', !started);
     if (started) {
       const c = userClub(this.state);
-      document.documentElement.style.setProperty('--accent', c.color);
-      document.documentElement.style.setProperty('--accent-ink', accentInk(c.color));
+      const accent = clubAccent(c);
+      document.documentElement.style.setProperty('--accent', accent);
+      document.documentElement.style.setProperty('--accent-ink', accentInk(accent));
+      const t = today(this.state);
       this.$top.innerHTML = `
-        <span class="crest sm" style="background:${c.color};color:${c.color2}">${esc(c.short)}</span>
-        <span class="club">${esc(c.name)}</span>
+        <span class="crest" style="background:${c.color};color:${c.color2}">${esc(c.short)}</span>
+        <span class="club"><b>${esc(c.name)}</b><small>Saison ${this.state.season}-${String(this.state.season + 1).slice(2)} · ${esc(t ? t.label : 'Fin de saison')}</small></span>
         <span class="budget">${money(c.budget)}</span>`;
       this.$top.classList.remove('hidden');
     } else {

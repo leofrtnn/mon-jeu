@@ -32,7 +32,7 @@ function serve() {
   const srv = await serve();
   const base = `http://localhost:${srv.address().port}/`;
   const browser = await chromium.launch();
-  const ctx = await browser.newContext({ ...devices['Pixel 5'] });
+  const ctx = await browser.newContext({ ...devices['Pixel 5 landscape'] });
   const page = await ctx.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));

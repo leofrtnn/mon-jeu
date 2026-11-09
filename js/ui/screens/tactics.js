@@ -21,7 +21,7 @@ export function render(app) {
     const fit = p ? positionFit(p.pos, sl.pos) : 0;
     const fc = fit >= 1 ? 'var(--good)' : fit >= 0.85 ? 'var(--ok)' : 'var(--bad)';
     return `<div class="slot ${p ? '' : 'empty'} ${isSel('slot', i) ? 'sel' : ''}" data-drag="slot" data-drop="slot" data-v="${i}"
-      style="left:${(sl.y * 84 + 8).toFixed(1)}%;top:${(94 - sl.x * 105).toFixed(1)}%">
+      style="--x:${sl.x.toFixed(3)};--y:${sl.y.toFixed(3)}">
       <div class="shirt">${p ? p.number : '+'}${p ? `<span class="fit" style="background:${fc}"></span>` : ''}</div>
       <div class="nm">${p ? esc(p.last) : '—'}${p && (!isAvailable(p)) ? ' ✚' : ''}</div>
       <div class="ps">${sl.pos}${p ? ' · ' + Math.round(ratingAt(p, sl.pos)) : ''}</div>
@@ -39,6 +39,7 @@ export function render(app) {
       : `<div data-drop="bench" data-v="${i}" class="prow benchrow" style="justify-content:center;color:var(--muted)">Place libre</div>`);
   }
   return `
+    <div class="tac-layout"><div class="tac-main">
     <div class="chips" style="margin-top:6px">${FORMATION_NAMES.map((f) => `<button class="chip ${f === t.formation ? 'on' : ''}" data-act="formation" data-v="${f}">${f}</button>`).join('')}</div>
     <div class="row between" style="margin:8px 2px">
       <small>Force du onze : <b style="color:var(--text)">${strength.toFixed(1)}</b></small>
@@ -46,6 +47,7 @@ export function render(app) {
     </div>
     <div class="tpitch" id="tpitch">${pitch}</div>
     <p class="muted" style="font-size:12px;margin:6px 2px">Glissez un joueur sur un autre pour les échanger (ou touchez-en deux).</p>
+    </div><div class="tac-side">
     <div class="label">Mentalité</div>${seg('ment', MENTALITIES, t.mentality, MENTALITY_LABELS)}
     <div class="label">Pressing</div>${seg('press', LEVELS, t.pressing, PRESSING_LABELS)}
     <div class="label">Tempo</div>${seg('tempo', LEVELS, t.tempo, TEMPO_LABELS)}
@@ -70,7 +72,7 @@ export function render(app) {
     <div class="label">Remplaçants (${BENCH_SIZE})</div>
     <div class="card list" style="padding:0 10px;margin-top:0">${benchRows.join('')}</div>
     <div class="label">Réserve</div>
-    <div class="card list" style="padding:0 10px;margin-top:0">${reserve.map((p) => `<div data-drag="res" data-drop="res" data-v="${p.id}" class="${isSel('res', p.id) ? 'sel' : ''}">${playerRow(p, { act: '', dim: !isAvailable(p) })}</div>`).join('') || '<p class="muted">Personne en réserve.</p>'}</div>`;
+    <div class="card list" style="padding:0 10px;margin-top:0">${reserve.map((p) => `<div data-drag="res" data-drop="res" data-v="${p.id}" class="${isSel('res', p.id) ? 'sel' : ''}">${playerRow(p, { act: '', dim: !isAvailable(p) })}</div>`).join('') || '<p class="muted">Personne en réserve.</p>'}</div></div></div>`;
 }
 
 /* ---------- Échanges ---------- */

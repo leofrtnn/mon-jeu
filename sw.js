@@ -3,7 +3,7 @@
  * Stratégie : cache d'abord, puis réseau (et mise à jour du cache en arrière-plan).
  * Pensez à incrémenter VERSION à chaque livraison.
  */
-const VERSION = 'cdp-v4';
+const VERSION = 'cdp-v5';
 const ASSETS = [
   './',
   './css/style.css',
@@ -69,7 +69,8 @@ self.addEventListener('fetch', (e) => {
   e.respondWith(
     caches.match(e.request, { ignoreSearch: true }).then((hit) => {
       const net = fetch(e.request).then((res) => {
-        if (res && res.ok && new URL(e.request.url).origin === location.origin) {
+        const u = new URL(e.request.url);
+        if (res && (res.ok || res.type === 'opaque') && (u.origin === location.origin || /fonts\.(googleapis|gstatic)\.com$/.test(u.hostname))) {
           const copy = res.clone();
           caches.open(VERSION).then((c) => c.put(e.request, copy));
         }

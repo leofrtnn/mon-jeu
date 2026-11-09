@@ -88,8 +88,9 @@ export class MatchView {
     const parent = this.canvas.parentElement;
     const w = parent.clientWidth;
     const maxH = parent.clientHeight || w * 1.45;
-    // Le terrain fait 68 x 105 + marges : on respecte le ratio.
-    const ratio = (PITCH_L + 8) / (PITCH_W + 6);
+    // Paysage : terrain horizontal ; portrait : terrain vertical. Le ratio 68 x 105 (+ marges) est respecté.
+    this.landscape = w > maxH * 1.05;
+    const ratio = this.landscape ? (PITCH_W + 6) / (PITCH_L + 8) : (PITCH_L + 8) / (PITCH_W + 6);
     let cw = w, ch = w * ratio;
     if (ch > maxH) { ch = maxH; cw = ch / ratio; }
     this.cssW = cw; this.cssH = ch;
@@ -98,15 +99,19 @@ export class MatchView {
     this.canvas.width = Math.round(cw * dpr);
     this.canvas.height = Math.round(ch * dpr);
     this.dpr = dpr;
-    this.scale = (cw * dpr) / (PITCH_W + 6); // pixels par mètre
-    this.padX = 3 * this.scale; this.padY = 4 * this.scale;
+    this.scale = (cw * dpr) / (this.landscape ? PITCH_L + 8 : PITCH_W + 6); // pixels par mètre
+    this.padX = (this.landscape ? 4 : 3) * this.scale; this.padY = (this.landscape ? 3 : 4) * this.scale;
     this.pitchCache = null;
   }
 
-  /** Coordonnées moteur -> pixels canvas. Le côté de l'utilisateur attaque vers le haut en 1re MT. */
+  /**
+   * Coordonnées moteur -> pixels canvas. L'équipe de l'utilisateur attaque vers la droite
+   * (paysage) ou vers le haut (portrait) en 1re mi-temps.
+   */
   toScreen(x, y) {
     const flip = (this.userSide === 1) !== (this.period === 2 || this.period === 4);
     const vx = flip ? 1 - x : x, vy = flip ? 1 - y : y;
+    if (this.landscape) return [this.padX + vx * PITCH_L * this.scale, this.padY + vy * PITCH_W * this.scale];
     return [this.padX + vy * PITCH_W * this.scale, this.padY + (1 - vx) * PITCH_L * this.scale];
   }
 
@@ -319,9 +324,9 @@ export class MatchView {
   }
 
   updateFx(dt) {
-    // Caméra : suit le ballon verticalement, légère.
-    const [, by] = this.toScreen(this.ball.x, this.ball.y);
-    const target = by / (this.canvas.height || 1);
+    // Caméra : suit le ballon dans l'axe du terrain, légère.
+    const [bx0, by] = this.toScreen(this.ball.x, this.ball.y);
+    const target = this.landscape ? bx0 / (this.canvas.width || 1) : by / (this.canvas.height || 1);
     this.cam.y += (target - this.cam.y) * (1 - Math.exp(-dt * 1.5));
     this.cam.shake = Math.max(0, this.cam.shake - dt * 1.4);
     this.flash = Math.max(0, this.flash - dt * 1.5);
@@ -337,21 +342,37 @@ export class MatchView {
   /* ---------------- Dessin ---------------- */
 
   drawPitch() {
+    if (this.landscape) {
+      // On dessine le terrain en portrait puis on le fait pivoter (le terrain est symétrique, sans texte).
+      const p = this.drawPortraitPitch(this.canvas.height, this.canvas.width, this.padY, this.padX);
+      const c = document.createElement('canvas');
+      c.width = this.canvas.width; c.height = this.canvas.height;
+      const g = c.getContext('2d');
+      g.setTransform(0, 1, -1, 0, c.width, 0);
+      g.drawImage(p, 0, 0);
+      this.pitchCache = c;
+      return;
+    }
+    this.pitchCache = this.drawPortraitPitch(this.canvas.width, this.canvas.height, this.padX, this.padY);
+  }
+
+  drawPortraitPitch(width, height, padX, padY) {
     const c = document.createElement('canvas');
-    c.width = this.canvas.width; c.height = this.canvas.height;
+    c.width = width; c.height = height;
     const g = c.getContext('2d');
     const s = this.scale;
+    this._px = padX; this._py = padY;
     // Fond et bandes de tonte.
     g.fillStyle = '#1f6b3a';
     g.fillRect(0, 0, c.width, c.height);
     const stripes = 12;
     for (let i = 0; i < stripes; i++) {
       g.fillStyle = i % 2 ? '#237a42' : '#1f703d';
-      g.fillRect(this.padX, this.padY + (i * PITCH_L * s) / stripes, PITCH_W * s, (PITCH_L * s) / stripes + 1);
+      g.fillRect(padX, padY + (i * PITCH_L * s) / stripes, PITCH_W * s, (PITCH_L * s) / stripes + 1);
     }
     g.strokeStyle = 'rgba(255,255,255,0.82)';
     g.lineWidth = Math.max(1, 0.18 * s);
-    const X = (m) => this.padX + m * s, Y = (m) => this.padY + m * s;
+    const X = (m) => padX + m * s, Y = (m) => padY + m * s;
     g.strokeRect(X(0), Y(0), PITCH_W * s, PITCH_L * s);
     g.beginPath(); g.moveTo(X(0), Y(PITCH_L / 2)); g.lineTo(X(PITCH_W), Y(PITCH_L / 2)); g.stroke();
     g.beginPath(); g.arc(X(PITCH_W / 2), Y(PITCH_L / 2), 9.15 * s, 0, Math.PI * 2); g.stroke();
@@ -379,7 +400,7 @@ export class MatchView {
     for (const [x, y, a] of [[0, 0, 0], [PITCH_W, 0, Math.PI / 2], [PITCH_W, PITCH_L, Math.PI], [0, PITCH_L, -Math.PI / 2]]) {
       g.beginPath(); g.arc(X(x), Y(y), 1 * s, a, a + Math.PI / 2); g.stroke();
     }
-    this.pitchCache = c;
+    return c;
   }
 
   draw() {
@@ -390,10 +411,15 @@ export class MatchView {
     g.fillRect(0, 0, W, H);
     // Caméra : léger zoom centré sur le ballon (vertical), tremblement au but.
     const z = this.cam.zoom;
-    const cy = Math.max(H / (2 * z), Math.min(H - H / (2 * z), this.cam.y * H));
     const sh = this.cam.shake * 7 * this.dpr;
     const ox = (Math.random() - 0.5) * sh, oy = (Math.random() - 0.5) * sh;
-    g.setTransform(z, 0, 0, z, W / 2 - (W / 2) * z + ox, H / 2 - cy * z + oy);
+    if (this.landscape) {
+      const cx = Math.max(W / (2 * z), Math.min(W - W / (2 * z), this.cam.y * W));
+      g.setTransform(z, 0, 0, z, W / 2 - cx * z + ox, H / 2 - (H / 2) * z + oy);
+    } else {
+      const cy = Math.max(H / (2 * z), Math.min(H - H / (2 * z), this.cam.y * H));
+      g.setTransform(z, 0, 0, z, W / 2 - (W / 2) * z + ox, H / 2 - cy * z + oy);
+    }
     g.drawImage(this.pitchCache, 0, 0);
 
     const r = 1.55 * this.scale; // rayon d'un joueur (~1,5 m à l'échelle, lisible)

@@ -30,7 +30,7 @@ export function render(app) {
   else if (tab === 'friends') body = friends.render(app);
   else if (tab === 'settings') body = settings.render(app);
   else body = career(s);
-  return `<div class="chips" style="margin-top:6px">${TABS.map(([k, l]) => `<button class="chip ${tab === k ? 'on' : ''}" data-act="ctab" data-v="${k}">${l}</button>`).join('')}</div>${body}`;
+  return `<div class="chips" style="margin-top:6px">${TABS.map(([k, l]) => `<button class="chip ${tab === k ? 'on' : ''}" data-act="ctab" data-v="${k}">${l}</button>`).join('')}</div><div class="${tab === 'market' ? '' : 'tab-body'}">${body}</div>`;
 }
 
 function finances(s) {

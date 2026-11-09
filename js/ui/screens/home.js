@@ -14,7 +14,7 @@ export function render(app) {
   const s = app.state;
   const uc = userClub(s);
   const t = today(s);
-  let html = '';
+  let html = ''; let right = '';
 
   if (s.seasonOver) {
     html += `<div class="card nextmatch"><h3>Saison ${s.season}-${s.season + 1} terminée</h3>
@@ -68,7 +68,7 @@ export function render(app) {
   const row = s.tables[uc.div][uc.id];
   const pos = tablePosition(s, uc.id);
   const unavailable = squad.length - fit.length;
-  html += `<div class="card">
+  right += `<div class="card">
     <h3>Forme de l'équipe</h3>
     <div class="row between" style="margin-bottom:12px">
       <div>${row.form.length ? formPills(row.form) : '<small>Aucun match joué</small>'}</div>
@@ -91,13 +91,13 @@ export function render(app) {
   }
 
   const msgs = topMessages(s);
-  html += `<div class="card"><div class="row between"><h3 style="margin:0">Messages</h3>
+  right += `<div class="card"><div class="row between"><h3 style="margin:0">Messages</h3>
     <button class="btn sm ghost" data-act="allmsgs">Tout voir</button></div>
     ${msgs.length ? msgs.map((m) => `<div class="msg p${m.prio}" data-act="msg" data-id="${m.id}">
       <span class="ic">${m.icon}</span><div class="grow"><b>${esc(m.title)}</b><br><small>${esc(m.text)}</small></div></div>`).join('')
     : '<p class="muted" style="margin:8px 0 0">Rien de neuf, coach.</p>'}
   </div>`;
-  return html;
+  return `<div class="layout-2"><div class="col">${html}</div><div class="col">${right}</div></div>`;
 }
 
 function line(label, v) {

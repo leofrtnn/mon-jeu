@@ -22,11 +22,11 @@ export function render(app) {
     list = Object.keys(GROUPS).map((g) => {
       const ps = players.filter((p) => POSITION_GROUP[p.pos] === g)
         .sort((a, b) => POSITIONS.indexOf(a.pos) - POSITIONS.indexOf(b.pos) || overall(b) - overall(a));
-      return ps.length ? `<div class="label">${GROUPS[g]} · ${ps.length}</div><div class="card list" style="padding:0 10px;margin-top:0">${ps.map((p) => row(p, lineup)).join('')}</div>` : '';
+      return ps.length ? `<div class="label">${GROUPS[g]} · ${ps.length}</div><div class="card list cols2" style="padding:0 10px;margin-top:0">${ps.map((p) => row(p, lineup)).join('')}</div>` : '';
     }).join('');
   } else {
     const key = sort === 'ovr' ? (p) => overall(p) : (p) => p.form;
-    list = `<div class="card list" style="padding:0 10px">${players.slice().sort((a, b) => key(b) - key(a)).map((p) => row(p, lineup)).join('')}</div>`;
+    list = `<div class="card list cols2" style="padding:0 10px">${players.slice().sort((a, b) => key(b) - key(a)).map((p) => row(p, lineup)).join('')}</div>`;
   }
   return `<div class="row between" style="margin:8px 2px">
       <div><b>${players.length}</b> <small>joueurs · ${avgAge.toFixed(1)} ans de moyenne</small></div>

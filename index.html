@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
-  <meta name="theme-color" content="#0d1117">
+  <meta name="theme-color" content="#0a1310">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="description" content="Manager de football mobile, léger et rapide, avec simulation de match en direct.">
@@ -11,6 +11,9 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Barlow:wght@400;500;600;700&display=swap">
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -21,6 +24,12 @@
   </div>
   <div id="overlay-root"></div>
   <div id="toast" role="status" aria-live="polite"></div>
+  <div id="rotate" role="dialog" aria-label="Tournez votre téléphone">
+    <div class="phone"></div>
+    <h2>Tournez votre téléphone</h2>
+    <p>Coach de Poche se joue à l'horizontale : terrain plus grand, menus sur deux colonnes.</p>
+    <button class="btn sm ghost" id="allow-portrait">Continuer en portrait</button>
+  </div>
   <noscript>Ce jeu nécessite JavaScript.</noscript>
   <script type="module" src="js/main.js"></script>
 </body>

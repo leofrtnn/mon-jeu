@@ -14,11 +14,12 @@ export function render(app) {
   const ui = app.ui.start || (app.ui.start = { step: 'menu', div: 1 });
   if (ui.step === 'menu' || !app.state) {
     const info = slotsInfo();
-    return `<div class="hero">
+    return `<div class="start-layout"><div class="hero">
       <svg class="logo-ball" viewBox="0 0 100 100"><circle cx="50" cy="50" r="46" fill="#e6edf3"/><path d="M50 22l15 11-6 18H41l-6-18z" fill="#0d1117"/><path d="M50 4v18M65 33l26-6M59 51l14 22M41 51 27 73M35 33 9 27" stroke="#0d1117" stroke-width="4"/></svg>
-      <h1>Coach de Poche</h1>
+      <h1>Coach<br><em>de Poche</em></h1>
       <p>Le manager de foot qui tient dans une main.</p>
-    </div>
+      <p class="muted" style="font-size:12px">80 clubs · 3 pays · 4 championnats · coupes nationales et continentale</p>
+    </div><div>
     ${legacySave() ? `<div class="card"><small>Une sauvegarde d'une ancienne version a été trouvée : elle n'est pas compatible avec le nouveau monde (3 pays, 80 clubs).</small>
       <button class="btn sm block" style="margin-top:8px" data-act="droplegacy">Supprimer l'ancienne sauvegarde</button></div>` : ''}
     ${SLOTS.map((n) => {
@@ -33,7 +34,7 @@ export function render(app) {
           <label class="btn sm">Importer<input type="file" accept=".json,application/json" data-act="import" data-v="${n}" hidden></label></div>`}
       </div>`;
     }).join('')}
-    <p class="muted center" style="font-size:12px">80 clubs fictifs · 3 pays · 4 championnats · coupes nationales et continentale<br>Sauvegarde automatique compressée sur cet appareil</p>`;
+    <p class="muted center" style="font-size:12px">Sauvegarde automatique sur cet appareil</p></div></div>`;
   }
   const clubs = app.state.clubs.filter((c) => c.div === ui.div)
     .map((c) => ({ c, s: squadStrength(clubPlayers(app.state, c)) }))
