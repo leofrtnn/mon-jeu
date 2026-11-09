@@ -60,7 +60,7 @@ export class MatchView {
     this.ball = { x: 0.5, y: 0.5, fx: 0.5, fy: 0.5, tx: 0.5, ty: 0.5, h: 0, arc: 0 };
     // Ballon physique (mètres) : la vue 2D/3D lit this.ball, recalculé à chaque image.
     this.phys = createBall();
-    this.TS = 2.0;          // le match est rejoué en accéléré (×2) : ballon et joueurs au même rythme
+    this.TS = 1.3;          // le match est rejoué légèrement accéléré (×1,3) : ballon et joueurs au même rythme
     this.holder = null;     // joueur qui a le ballon dans les pieds (ou dans les mains : inHands)
     this.inHands = false;
     this.pending = null;    // fin prévue d'une frappe : contrôle, arrêt, contre
@@ -268,8 +268,10 @@ export class MatchView {
       this.place(f.x, f.y);
     }
     // Le ballon : frappe calculée physiquement, la durée de l'action suit son trajet.
-    const T = this.kick(ev);
-    if (T != null) this.dur = Math.max(0.35, T / (this.TS * (this.replaying ? 0.45 : 1)) + 0.12);
+    // Frappe : si l'acteur n'est pas au ballon, il va d'abord le chercher (pas de téléportation).
+    this.approach = null;
+    if (this.needsApproach(ev)) { this.approach = { ev, t: 0 }; this.dur = 99; }
+    else this.doKick(ev);
     if (ev.type === 'shot' && ev.outcome === 'post') this.cam.shake = 0.4;
     this.animate(ev);
     // Étiquettes de noms sur les actions importantes.
@@ -369,9 +371,13 @@ export class MatchView {
       if (this.queue.length) this.startEvent(this.queue.shift());
       else { this.opts.onIdle?.(); if (this.queue.length) this.startEvent(this.queue.shift()); }
     }
+    if (this.approach) this.updateApproach(dt);
     if (this.cur) {
       this.curT += dt / this.dur;
-      if (this.curT >= 1) {
+      // L'action suivante attend que le receveur ait le ballon (au plus 2,5 s).
+      const waiting = this.curT >= 1 && this.pending?.kind === 'receive' && (this.waitT = (this.waitT || 0) + dt) < 2.5;
+      if (this.curT >= 1 && !waiting) {
+        this.waitT = 0;
         const ev = this.cur;
         this.cur = null;
         this.opts.onEventEnd?.(ev);
@@ -397,6 +403,40 @@ export class MatchView {
     this.pending = null;
   }
 
+  /** Faut-il que l'acteur aille d'abord au ballon ? */
+  needsApproach(ev) {
+    if (!['pass', 'longpass', 'cross', 'cornerkick', 'clearance', 'shot'].includes(ev.type)) return false;
+    if (ev.type === 'shot' && ev.kind === 'header') return false;
+    const a = this.players.get(ev.pid), P = this.phys;
+    if (!a || this.inHands || P.inGoal || P.x < 0 || P.x > PITCH_L || P.y < 0 || P.y > PITCH_W) return false;
+    if (this.holder === ev.pid) return false;
+    const f = this.footOf(a);
+    return Math.hypot(f.x - P.x, f.y - P.y) > 1.3 && P.z < 1.5;
+  }
+
+  /** L'acteur court au ballon (en se plaçant derrière lui, face à la cible), puis frappe. */
+  updateApproach(dt) {
+    const ap = this.approach, ev = ap.ev, a = this.players.get(ev.pid), P = this.phys;
+    ap.t += dt;
+    if (a) {
+      const tx = (ev.x ?? 0.5) * PITCH_L, ty = (ev.y ?? 0.5) * PITCH_W;
+      const d = Math.hypot(tx - P.x, ty - P.y) || 1;
+      a.tx = (P.x - ((tx - P.x) / d) * 0.6) / PITCH_L; a.ty = (P.y - ((ty - P.y) / d) * 0.6) / PITCH_W;
+    }
+    const f = a ? this.footOf(a) : null;
+    if (!a || Math.hypot(f.x - P.x, f.y - P.y) < 1.0 || ap.t > 1.6) {
+      this.approach = null;
+      this.curT = 0;
+      this.doKick(ev);
+      if (this.dur === 99) this.dur = DUR[ev.type] ?? 0.8;
+    }
+  }
+
+  doKick(ev) {
+    const T = this.kick(ev);
+    if (T != null) this.dur = Math.max(0.4, T / (this.TS * (this.replaying ? 0.45 : 1)) + 0.15);
+  }
+
   /** Règle la frappe correspondant à l'événement. Retourne la durée du trajet (s), ou null. */
   kick(ev) {
     const P = this.phys;
@@ -414,42 +454,48 @@ export class MatchView {
     const kicks = ['pass', 'longpass', 'cross', 'cornerkick', 'clearance', 'header', 'interception', 'tackle', 'shot', 'dribble'];
     if (!kicks.includes(ev.type)) {
       // Faute, carton, hors-jeu… : jeu arrêté, le ballon finit sa course sans être relancé.
-      if (['foul', 'offside', 'yellow', 'red', 'injury'].includes(ev.type)) { this.holder = null; P.vx *= 0.4; P.vy *= 0.4; }
+      if (['foul', 'offside', 'yellow', 'red', 'injury'].includes(ev.type)) { this.holder = null; this.pending = null; P.vx *= 0.1; P.vy *= 0.1; P.vz = Math.min(P.vz, 0); P.spin = 0; }
       return null;
     }
     // Le ballon part du pied de l'acteur (s'il était sorti, ou un peu loin : remise en jeu, il est replacé).
-    if (actor) {
+    // Ballon sorti (remise en jeu) ou dans les mains du gardien : il repart de l'acteur.
+    if (actor && (out || this.inHands)) {
       const f = this.footOf(actor);
-      const d = Math.hypot(f.x - P.x, f.y - P.y);
-      if (out || this.inHands || (d > 1.2 && d < 6 && P.z < 1.2) || (d >= 6 && Math.hypot(P.vx, P.vy) < 3)) {
-        Object.assign(P, { x: f.x, y: f.y, z: this.inHands && actor.gk ? 1.0 : BALL_R, vx: 0, vy: 0, vz: 0, inGoal: 0 });
-      }
+      Object.assign(P, { x: f.x, y: f.y, z: this.inHands && actor.gk ? 1.0 : BALL_R, vx: 0, vy: 0, vz: 0, inGoal: 0 });
     }
     this.inHands = false;
     this.holder = null;
     const head = ev.type === 'header' || (ev.type === 'shot' && ev.kind === 'header');
-    if (head && actor) { const f = this.footOf(actor, 0.25); Object.assign(P, { x: f.x, y: f.y, z: 2.1 }); }
+    // Tête : le joueur saute vers le ballon (on ne déplace pas le ballon vers lui).
+    if (head && actor) { actor.jump = 0.45; actor.tx = P.x / PITCH_L; actor.ty = P.y / PITCH_W; }
     const dist = Math.hypot(tx - P.x, ty - P.y);
     if (actor) { actor.kick = 0.32; actor.kickPow = ev.type === 'shot' ? 1 : ev.type === 'pass' ? 0.45 : 0.75; this.faceTo(actor, tx / PITCH_L, ty / PITCH_W); }
-    const receive = (T) => { if (recv) { this.pending = { at: this.physT + T, kind: 'receive', who: recv.mp.id }; recv.tx = tx / PITCH_L; recv.ty = ty / PITCH_W; } return T; };
+    // Passe vers un coéquipier : on vise là où il est réellement (et où il se dirige), pas un point théorique.
+    let tx2 = tx, ty2 = ty;
+    if (recv && recv !== actor && ['pass', 'longpass', 'cross', 'cornerkick', 'header'].includes(ev.type)) {
+      const lead = Math.min(1.2, Math.hypot(recv.x * PITCH_L - P.x, recv.y * PITCH_W - P.y) / 18);
+      tx2 = Math.max(1, Math.min(PITCH_L - 1, recv.x * PITCH_L + (recv.vx || 0) * lead * 0.6));
+      ty2 = Math.max(1, Math.min(PITCH_W - 1, recv.y * PITCH_W + (recv.vy || 0) * lead * 0.6));
+    }
+    const receive = (T) => { if (recv) { this.pending = { at: this.physT + T, kind: 'receive', who: recv.mp.id }; recv.tx = tx2 / PITCH_L; recv.ty = ty2 / PITCH_W; } return T; };
     switch (ev.type) {
       case 'dribble':
         this.holder = ev.pid; if (actor) { actor.tx = tx / PITCH_L; actor.ty = ty / PITCH_W; }
         return null;
       case 'pass':
-        return receive(solveKick(P, { x: tx, y: ty }, { mode: 'ground', arrive: Math.min(9, 4.5 + dist * 0.12), spin: (r1 - 0.5) * 4 }));
+        return receive(solveKick(P, { x: tx2, y: ty2 }, { mode: 'ground', arrive: Math.min(9, 4.5 + dist * 0.12) }));
       case 'longpass':
-        return receive(solveKick(P, { x: tx, y: ty, z: 0.3 + r1 * 1.3 }, { T: 1.0 + dist / 30, spin: (r2 - 0.5) * 8, top: 2 }));
+        return receive(solveKick(P, { x: tx2, y: ty2, z: 0.3 + r1 * 1.3 }, { T: 1.0 + dist / 30, spin: (r2 - 0.5) * 8, top: 2 }));
       case 'cross': case 'cornerkick': {
         // Centre rentrant ou sortant : l'effet fait tourner le ballon vers le but (ou l'en écarte).
         const vy = ty - P.y, swing = r2 < 0.65 ? 1 : -1;
         const spin = -Math.sign(vy || 1) * gdir * swing * (7 + r3 * 5);
-        return receive(solveKick(P, { x: tx, y: ty, z: 1.7 + r1 * 0.6 }, { T: (ev.type === 'cornerkick' ? 1.15 : 0.9) + dist / 32, spin }));
+        return receive(solveKick(P, { x: tx2, y: ty2, z: 1.7 + r1 * 0.6 }, { T: (ev.type === 'cornerkick' ? 1.15 : 0.9) + dist / 32, spin }));
       }
       case 'clearance':
         return receive(solveKick(P, { x: tx, y: ty, z: BALL_R }, { T: 1.6 + dist / 38, spin: (r1 - 0.5) * 6, top: 1.5 }));
       case 'header':
-        return receive(solveKick(P, { x: tx, y: ty, z: 0.4 + r1 * 0.8 }, { T: 0.45 + dist / 22 }));
+        return receive(solveKick(P, { x: tx2, y: ty2, z: 0.4 + r1 * 0.8 }, { T: 0.45 + dist / 22 }));
       case 'interception': case 'tackle':
         // Ballon contré : il repart vers le récupérateur.
         if (recv) this.holder = null;
@@ -502,26 +548,36 @@ export class MatchView {
     const P = this.phys;
     this.physT += dt;
     const h = this.holder != null ? this.players.get(this.holder) : null;
+    let glued = false;
     if (h && this.inHands) {
+      glued = true;
       const f = this.footOf(h, 0.35);
       Object.assign(P, { x: f.x, y: f.y, z: 1.05, vx: 0, vy: 0, vz: 0 });
     } else if (h) {
-      const f = this.footOf(h, 0.65);
-      const dx = f.x - P.x, dy = f.y - P.y, d = Math.hypot(dx, dy);
-      if (P.z < 0.5 && d < 3) {
-        const sp = h.speed || 0;
-        if (sp > 1.6) {
-          // Conduite de balle : quand le ballon revient au pied, une touche le pousse devant.
-          const ahead = (P.x - h.x * PITCH_L) * Math.cos(h.face) + (P.y - h.y * PITCH_W) * Math.sin(h.face);
-          if (ahead < 0.5) {
-            const push = sp * 1.32 + 1.0;
-            P.vx = Math.cos(h.face) * push; P.vy = Math.sin(h.face) * push; P.vz = 0; P.z = BALL_R;
-            h.touch = 0.16;
-          }
-        } else { P.vx = dx * 5; P.vy = dy * 5; } // à l'arrêt : sous la semelle
-      } else if (d >= 3) { h.tx = P.x / PITCH_L; h.ty = P.y / PITCH_W; } // le ballon s'est échappé : il court après
+      // Conduite : le ballon reste au pied du porteur ; à chaque foulée, une touche le pousse
+      // un peu devant puis il revient (il ne part jamais seul).
+      const sp = h.speed || 0;
+      const f0 = this.footOf(h, 0.5);
+      const near = P.z < 0.6 && Math.hypot(f0.x - P.x, f0.y - P.y) < 2.2;
+      if (near) {
+        glued = true;
+        h.dribT = (h.dribT || 0) + dt;
+        const per = 0.55;
+        const cyc = sp > 1.4 ? (h.dribT % per) / per : 0;
+        if (sp > 1.4 && cyc < (h.lastCyc ?? 0)) h.touch = 0.16;
+        h.lastCyc = cyc;
+        const f = this.footOf(h, 0.45 + (sp > 1.4 ? Math.min(1.1, sp * 0.13) * Math.sin(cyc * Math.PI) : 0));
+        const k = Math.min(1, dt * 14);
+        const nx = P.x + (f.x - P.x) * k, ny = P.y + (f.y - P.y) * k;
+        P.vx = (nx - P.x) / Math.max(dt, 1e-4); P.vy = (ny - P.y) / Math.max(dt, 1e-4);
+        P.x = nx; P.y = ny; P.z = BALL_R; P.vz = 0; P.spin = 0; P.top = 0;
+        P.rot.a += (Math.hypot(P.vx, P.vy) / BALL_R) * dt; P.rot.b = Math.atan2(P.vy, P.vx);
+      } else {
+        // Le ballon lui a échappé : il court le récupérer.
+        h.tx = P.x / PITCH_L; h.ty = P.y / PITCH_W;
+      }
     }
-    stepBall(P, dt);
+    if (!glued) stepBall(P, dt); // ballon libre : physique ; au pied ou dans les mains : il suit le joueur
     if (P.hitPost && !this._postShake) { this.cam.shake = 0.5; this._postShake = true; }
     if (!P.hitPost) this._postShake = false;
     // Fin de trajectoire prévue : contrôle, arrêt ou contre.
@@ -529,15 +585,8 @@ export class MatchView {
     if (pd && this.physT >= pd.at) {
       this.pending = null;
       if (pd.kind === 'receive') {
-        const r = this.players.get(pd.who);
-        if (r && P.z < 1.4) {
-          const f = this.footOf(r, 0.6);
-          if (Math.hypot(f.x - P.x, f.y - P.y) < 4) {
-            // Contrôle orienté : le ballon est amorti.
-            P.vx *= 0.15; P.vy *= 0.15; P.vz = Math.min(0, P.vz) * 0.2;
-            this.holder = pd.who; r.touch = 0.2;
-          }
-        }
+        // Le receveur poursuit le ballon jusqu'au contrôle (voir plus bas).
+        this.pending = { ...pd, kind: 'chase' };
       } else if (pd.kind === 'save') {
         const g = this.players.get(pd.who);
         if (pd.catch) { this.holder = pd.who; this.inHands = true; P.vx = P.vy = P.vz = 0; P.spin = 0; }
@@ -549,6 +598,43 @@ export class MatchView {
         if (g) g.saveFx = 0.4;
       } else if (pd.kind === 'block') {
         P.vx = -P.vx * 0.25; P.vy += (pd.r - 0.5) * 9; P.vz = 1.2 + pd.r * 2; P.spin = 0;
+      }
+    }
+    // Ballon libre qui roule sans destinataire (dégagement, parade, contre) : le joueur désigné
+    // par le moteur, sinon le plus proche du point d'arrêt, va le chercher.
+    if (!this.holder && !this.pending && !this.approach && !P.inGoal && Math.hypot(P.vx, P.vy) > 0.5
+      && P.x > 0 && P.x < PITCH_L && P.y > 0 && P.y < PITCH_W && this.cur?.type !== 'shot' && this.cur?.type !== 'goal') {
+      const stopT = Math.min(2, Math.hypot(P.vx, P.vy) / 3);
+      const sx = P.x + P.vx * stopT * 0.6, sy = P.y + P.vy * stopT * 0.6;
+      let who = this.players.get(this.cur?.carrier);
+      if (!who) {
+        let bd = Infinity;
+        for (const p of this.players.values()) {
+          if (p.gk && Math.hypot(p.x * PITCH_L - sx, p.y * PITCH_W - sy) > 12) continue;
+          const d = Math.hypot(p.x * PITCH_L - sx, p.y * PITCH_W - sy);
+          if (d < bd) { bd = d; who = p; }
+        }
+      }
+      if (who) this.pending = { kind: 'chase', who: who.mp.id };
+    }
+    // Ballon à récupérer : le receveur court dessus et le contrôle dès qu'il l'atteint.
+    const pc = this.pending;
+    if (pc && (pc.kind === 'chase' || pc.kind === 'receive')) {
+      const r = this.players.get(pc.who);
+      if (!r) this.pending = null;
+      else {
+        const f = this.footOf(r, 0.5);
+        const d = Math.hypot(f.x - P.x, f.y - P.y);
+        if (P.z < 1.3 && d < (pc.kind === 'chase' ? 1.3 : 0.9)) {
+          // Contrôle : le ballon est amorti.
+          P.vx *= 0.2; P.vy *= 0.2; P.vz = Math.min(0, P.vz) * 0.2; P.spin = 0;
+          this.holder = pc.who; r.touch = 0.2; this.pending = null;
+        } else if (pc.kind === 'chase') {
+          // Il vise l'endroit où le ballon va s'arrêter (ou le ballon lui-même s'il est lent).
+          const sp = Math.hypot(P.vx, P.vy);
+          const ahead = Math.min(1.2, sp / 6);
+          r.tx = Math.max(0, Math.min(1, (P.x + P.vx * ahead) / PITCH_L)); r.ty = Math.max(0, Math.min(1, (P.y + P.vy * ahead) / PITCH_W));
+        }
       }
     }
     // Lecture par les rendus 2D / 3D.
