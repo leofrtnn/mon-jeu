@@ -260,9 +260,13 @@ export class SupabaseBackend {
   }
   async loadState(id) {
     const g = await this.getGame(id);
-    const { data, error } = await this.sb.storage.from('games').download(`${id}/state.txt`);
-    if (error) throw new Error(frErr(error));
-    return { version: g.version, data: await data.text() };
+    // Téléchargement direct avec la version dans l'adresse : jamais de copie périmée en cache.
+    const { data: ses } = await this.sb.auth.getSession();
+    const r = await fetch(`${SUPABASE_URL}/storage/v1/object/authenticated/games/${id}/state.txt?v=${g.version}`, {
+      cache: 'no-store', headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${ses?.session?.access_token || SUPABASE_ANON_KEY}` },
+    });
+    if (!r.ok) throw new Error(frErr(`Téléchargement de la partie impossible (${r.status})`));
+    return { version: g.version, data: await r.text() };
   }
   subscribe(id, cb) {
     const ch = this.sb.channel(`game-${id}`)

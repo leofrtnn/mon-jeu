@@ -115,7 +115,17 @@ export function leaveOnline(app) {
 
 async function onRemoteChange(app) {
   const o = app.online;
-  if (!o || o.busy) return;
+  if (!o) return;
+  if (o.busy || o.checking) { o.recheck = true; return; } // une vérification à la fois
+  o.checking = true;
+  try { await checkRemote(app); } finally {
+    o.checking = false;
+    if (o.recheck) { o.recheck = false; setTimeout(() => onRemoteChange(app), 50); }
+  }
+}
+
+async function checkRemote(app) {
+  const o = app.online;
   const g = await app.backend.getGame(o.game.id);
   if (!g || !app.online) return;
   o.game = g;

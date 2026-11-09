@@ -13,7 +13,8 @@
  */
 import { newGame, startCareer, completeDay, endSeason } from '../game/season.js';
 import { HUMAN_KEYS, switchTo, stashCurrent, humanIds } from '../game/humans.js';
-import { clubById } from '../game/state.js';
+import { clubById, migrate } from '../game/state.js';
+import { applyWorld } from '../data/world.js';
 
 const freshHuman = () => ({ userClubId: null, coach: null, board: { confidence: 60 }, life: null, objectives: undefined, seasonStats: undefined,
   sponsorDeals: undefined, preseason: undefined, pendingOffers: [], scout: {}, scoutQueue: [], missions: undefined, scoutReports: undefined,
@@ -46,6 +47,8 @@ export function createOnlineCareer(realData, seed, players, gameId) {
 /** Prépare l'état reçu pour le manager uid (sa perspective au premier niveau). */
 export function adoptOnline(state, uid) {
   if (!state.online?.humans?.[uid]) throw new Error('Vous ne participez pas à cette partie.');
+  migrate(state);
+  applyWorld(state.world || 'real', state.worldDivs || null); // championnats de la partie (sinon : monde par défaut)
   switchTo(state, uid);
   return state;
 }
