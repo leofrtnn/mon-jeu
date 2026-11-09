@@ -31,6 +31,14 @@ export function fmtDate(s, withDay = true) {
   return `${withDay ? WD[d.getUTCDay()] + ' ' : ''}${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}`;
 }
 
+/** Date longue pour l'en-tête : « Sam. 17 août 2026 ». */
+export function longDate(s) {
+  if (!s) return '';
+  const d = new Date(t0(s));
+  const wd = WD[d.getUTCDay()];
+  return `${wd[0].toUpperCase()}${wd.slice(1)} ${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+}
+
 /** Fenêtres de transfert de la saison. */
 export function windows(season) {
   return [

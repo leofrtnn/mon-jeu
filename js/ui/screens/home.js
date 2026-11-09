@@ -1,7 +1,8 @@
 /**
  * Accueil : prochain match, forme de l'équipe, messages importants (3 max).
  */
-import { today, completeDay, tablePosition, DIV_NAMES, nationSquad, eligibleNations, changeClub } from '../../game/season.js';
+import { today, tablePosition, DIV_NAMES, nationSquad, eligibleNations, changeClub, leagueRoundOf } from '../../game/season.js';
+import { DIVISIONS, COUNTRIES } from '../../data/world.js';
 import { jobCandidates } from '../../game/career.js';
 import { preseasonCard, preseasonActions } from './preseasonUI.js';
 import { userClub, clubById, clubPlayers, topMessages } from '../../game/state.js';
@@ -13,14 +14,13 @@ import { showEndSeason } from './endSeason.js';
 import { simulateDays, busy } from '../sim.js';
 import { msgRow, openMessage } from './inboxUI.js';
 import { openDeadline } from './deadlineUI.js';
-import { windowInfo } from '../../game/dates.js';
+import { windowInfo, currentDate, longDate, fmtDate } from '../../game/dates.js';
 import { onlineCard, onlineActions } from './online.js';
 
 export function render(app) {
   const s = app.state;
   const uc = userClub(s);
   const t = today(s);
-  let html = ''; let right = '';
 
   if (s.sacked) {
     const offers = jobCandidates(s, true);
@@ -32,107 +32,180 @@ export function render(app) {
       </div>`;
   }
   if (s.preseason?.active) return s.online ? onlineCard(app) + preseasonCard(app) : preseasonCard(app);
-  if (s.online) {
-    // Carrière en ligne : pas de match en direct ni de simulation libre, on passe « Prêt ».
-    if (s.seasonOver) html += `<div class="card nextmatch"><h3>Saison ${s.season}-${s.season + 1} terminée</h3><p>Classement final : <b>${tablePosition(s, uc.id)}e</b> de ${DIV_NAMES[uc.div]}</p></div>`;
-    else if (t && t.userFixture) {
-      const f = t.userFixture, h = clubById(s, f.h), a = clubById(s, f.a);
-      html += `<div class="card nextmatch"><h3>${esc(t.label)} · ${f.neutral ? 'Terrain neutre' : h.id === uc.id ? 'Domicile' : 'Extérieur'}</h3>
-        <div class="vs"><div class="team">${crest(h, 'lg')}<span>${esc(h.name)}</span></div><div class="mid">VS</div><div class="team">${crest(a, 'lg')}<span>${esc(a.name)}</span></div></div>
-        <button class="btn block" data-act="tactics">Tactique</button></div>`;
-    } else if (t) html += `<div class="card nextmatch"><h3>${esc(t.label)}</h3><p class="muted">Votre équipe ne joue pas cette journée.</p></div>`;
-    html += onlineCard(app);
-  } else if (s.seasonOver) {
-    html += `<div class="card nextmatch"><h3>Saison ${s.season}-${s.season + 1} terminée</h3>
-      <p>Classement final : <b>${tablePosition(s, uc.id)}e</b> de ${DIV_NAMES[uc.div]}</p>
-      <button class="btn primary lg block" data-act="endseason">Voir le bilan</button></div>`;
+
+  /* ---------- Colonne 1 : le club ---------- */
+  const row = s.tables[uc.div][uc.id];
+  const pos = tablePosition(s, uc.id);
+  const dv = DIVISIONS[uc.div];
+  const flag = COUNTRIES[uc.country]?.flag || '';
+  const diff = row.gf - row.ga;
+  let col1 = `<div class="card club-hero">
+    <div class="hero-crest">${crest(uc, 'xl')}</div>
+    <h2>${esc(uc.name)}</h2>
+    <small>${flag} ${esc(dv.name)}${uc.stadium ? ` · ${Number(uc.stadium).toLocaleString('fr-FR')} places` : ''}</small>
+    <div class="hero-stats">
+      <div><b>${pos}<sup>e</sup></b><small>Classement</small></div>
+      <div><b>${row.pts} pts</b><small>Points</small></div>
+      <div><b>${diff > 0 ? '+' : ''}${diff}</b><small>Diff. buts</small></div>
+    </div>
+    <div class="hero-form">${row.form.length ? formPills(row.form) : '<small>Aucun match joué</small>'}</div>
+  </div>`;
+  const squad = clubPlayers(s, uc);
+  const fit = squad.filter(isAvailable);
+  const top = fit.slice().sort((a, b) => b.form - a.form).slice(0, 16);
+  const avg = (arr, f) => (arr.length ? arr.reduce((x, p) => x + f(p), 0) / arr.length : 0);
+  const unavailable = squad.length - fit.length;
+  col1 += `<div class="card"><h3 class="ttl">${ico('pulse')}État de l'équipe</h3>
+    <div class="gauges2">${line('Condition', avg(top, (p) => 100 - (p.fatigue || 0)))}${line('Moral', avg(squad, (p) => p.morale))}${line('Forme', avg(top, (p) => p.form))}${line('Vestiaire', s.coach.dressing ?? 60)}${line('Confiance du CA', s.board.confidence)}${line('Supporters', s.board.fans ?? 60)}${line('Médias', s.coach.media ?? 50)}${line('Réputation', s.coach.rep)}</div>
+    ${unavailable ? `<p style="margin:8px 0 0"><span class="tag bad">${unavailable} indisponible(s)</span> <small>blessés, suspendus ou prêtés</small></p>` : ''}
+  </div>`;
+
+  /* ---------- Colonne 2 : le prochain rendez-vous ---------- */
+  let col2 = '';
+  if (s.online) col2 += onlineCard(app);
+  if (s.seasonOver) {
+    col2 += `<div class="card nextmatch"><h3 class="ttl">${ico('trophy')}Saison ${s.season}-${s.season + 1} terminée</h3>
+      <p>Classement final : <b>${pos}e</b> de ${esc(DIV_NAMES[uc.div])}</p>
+      ${s.online ? '' : '<button class="btn primary lg block" data-act="endseason">Voir le bilan</button>'}</div>`;
   } else if (t && t.userFixture) {
     const f = t.userFixture;
     const h = clubById(s, f.h), a = clubById(s, f.a);
     const opp = h.id === uc.id ? a : h;
     const oppPos = opp.div === uc.div && t.entry.type === 'league' ? `${tablePosition(s, opp.id)}e` : DIV_NAMES[opp.div];
-    html += `<div class="card nextmatch">
-      <h3>${esc(t.label)} · ${f.neutral ? 'Terrain neutre' : h.id === uc.id ? 'Domicile' : 'Extérieur'}</h3>
+    col2 += `<div class="card nextmatch">
+      <h3 class="ttl">${ico('ball')}Prochain match</h3>
       <div class="vs">
         <div class="team">${crest(h, 'lg')}<span>${esc(h.name)}</span></div>
-        <div class="mid">VS<br><small>${esc(oppPos)}</small></div>
+        <div class="mid">VS<small>${esc(oppPos)}</small></div>
         <div class="team">${crest(a, 'lg')}<span>${esc(a.name)}</span></div>
       </div>
-      <button class="btn primary lg block" data-act="play">▶ Jouer le match</button>
-      <div class="btns" style="margin-top:8px">
-        <button class="btn sm" data-act="tactics">Tactique</button>
-        <button class="btn sm" data-act="simulate">Simuler</button>
-      </div>
+      <p class="nm-meta">${esc(t.label)}<br>${esc(longDate(currentDate(s)))} · ${f.neutral ? 'Terrain neutre' : `${esc(h.name)} (${h.id === uc.id ? 'domicile' : 'extérieur'})`}</p>
+      ${s.online ? '<button class="btn block" data-act="tactics">Préparer le match →</button>' : `<div class="btns">
+        <button class="btn" data-act="tactics">Préparer le match</button>
+        <button class="btn primary" data-act="play">▶ Jouer</button>
+      </div><button class="btn ghost sm block" data-act="simulate" style="margin-top:4px">Simuler le match</button>`}
     </div>`;
   } else if (t && t.entry.type === 'intl') {
     const elig = new Set(eligibleNations(s));
     const called = [];
-    for (const n of new Set(clubPlayers(s, uc).map((p) => p.nat))) {
+    for (const n of new Set(squad.map((p) => p.nat))) {
       if (!elig.has(n)) continue;
       for (const p of nationSquad(s, n)) if (p.clubId === uc.id) called.push(`${p.name} <small>(${esc(n)})</small>`);
     }
-    html += `<div class="card nextmatch"><h3>🌍 ${esc(t.label)}</h3>
+    col2 += `<div class="card nextmatch"><h3 class="ttl">${ico('globe')}${esc(t.label)}</h3>
       <p>${called.length ? `Convoqués : ${called.join(', ')}` : '<span class="muted">Aucun de vos joueurs n\'est sélectionné.</span>'}</p>
       <p class="muted" style="font-size:12px">Les internationaux reviennent fatigués, parfois blessés… mais plus confiants.</p>
-      <button class="btn primary lg block" data-act="simulate">Journée suivante ▸</button>
-      <button class="btn block" style="margin-top:8px" data-act="skipto">⏩ Jusqu'à mon prochain match</button></div>`;
+      ${s.online ? '' : '<div class="btns"><button class="btn primary" data-act="simulate">Journée suivante ▸</button><button class="btn" data-act="skipto">⏩ Mon prochain match</button></div>'}</div>`;
   } else if (t) {
-    html += `<div class="card nextmatch"><h3>${esc(t.label)}</h3>
+    col2 += `<div class="card nextmatch"><h3 class="ttl">${ico('ball')}${esc(t.label)}</h3>
       <p class="muted">Votre équipe ne joue pas cette journée.</p>
-      <button class="btn primary lg block" data-act="simulate">Journée suivante ▸</button>
-      <button class="btn block" style="margin-top:8px" data-act="skipto">⏩ Jusqu'à mon prochain match</button></div>`;
+      ${s.online ? '' : '<div class="btns"><button class="btn primary" data-act="simulate">Journée suivante ▸</button><button class="btn" data-act="skipto">⏩ Mon prochain match</button></div>'}</div>`;
   }
-
   // Deadline day : un direct de 2 minutes, depuis l'Accueil.
   if (windowInfo(s).deadline && s.life && s.life.deadlineDone !== `${s.season}-${s.day}`) {
-    html += `<div class="card deadline-card"><div class="row between"><div><b>⏰ Deadline day</b><br><small>Dernières heures du mercato : offres surprises et bonnes affaires.</small></div>
+    col2 += `<div class="card deadline-card"><div class="row between"><div><b>⏰ Deadline day</b><br><small>Dernières heures du mercato : offres surprises et bonnes affaires.</small></div>
       <button class="btn primary" data-act="deadline">En direct ▸</button></div></div>`;
   }
-
-  // Forme de l'équipe.
-  const squad = clubPlayers(s, uc);
-  const fit = squad.filter(isAvailable);
-  const top = fit.slice().sort((a, b) => b.form - a.form).slice(0, 16);
-  const avg = (arr, f) => (arr.length ? arr.reduce((x, p) => x + f(p), 0) / arr.length : 0);
-  const cond = avg(top, (p) => 100 - (p.fatigue || 0));
-  const morale = avg(squad, (p) => p.morale);
-  const form = avg(top, (p) => p.form);
-  const row = s.tables[uc.div][uc.id];
-  const pos = tablePosition(s, uc.id);
-  const unavailable = squad.length - fit.length;
-  right += `<div class="card">
-    <h3>Forme de l'équipe</h3>
-    <div class="row between" style="margin-bottom:12px">
-      <div>${row.form.length ? formPills(row.form) : '<small>Aucun match joué</small>'}</div>
-      <div class="center"><div class="big" style="font-size:22px">${pos}<small style="font-size:12px">e</small></div><small>${row.pts} pts</small></div>
-    </div>
-    ${line('Condition', cond)}${line('Moral', morale)}${line('Forme', form)}${line('Confiance du board', s.board.confidence)}${line('Vestiaire', s.coach.dressing ?? 60)}${line('Supporters', s.board.fans ?? 60)}${line('Médias', s.coach.media ?? 50)}${line('Réputation du coach', s.coach.rep)}
-    ${unavailable ? `<p style="margin:10px 0 0"><span class="tag bad">${unavailable} indisponible(s)</span> <small>blessés, suspendus ou prêtés</small></p>` : ''}
-  </div>`;
-
   if (s.lastResult) {
     const r = s.lastResult;
     const h = clubById(s, r.h), a = clubById(s, r.a);
     const side = r.h === uc.id ? 0 : 1;
-    const diff = r.s[side] - r.s[1 - side] || (r.pens ? r.pens[side] - r.pens[1 - side] : 0);
-    const res = diff > 0 ? 'V' : diff < 0 ? 'D' : 'N';
-    html += `<div class="card"><h3>Dernier match · ${esc(r.label)}</h3>
-      <div class="row"><span class="pill ${res}">${res}</span>
+    const d = r.s[side] - r.s[1 - side] || (r.pens ? r.pens[side] - r.pens[1 - side] : 0);
+    const res = d > 0 ? 'V' : d < 0 ? 'D' : 'N';
+    col2 += `<div class="card"><h3 class="ttl">${ico('clock')}Dernier match · ${esc(r.label)}</h3>
+      <div class="row"><span class="pill ${res}">${res}</span>${crest(h, 'sm')}
       <div class="grow">${esc(h.short)} <b>${r.s[0]} - ${r.s[1]}</b> ${esc(a.short)} ${r.pens ? `<small>(tab ${r.pens[0]}-${r.pens[1]})</small>` : ''}<br>
-      <small>${r.scorers.map((g) => `${esc(g.name)} ${g.minute}'${g.pen ? ' (p)' : ''}`).join(', ') || 'Aucun but'}</small></div></div></div>`;
+      <small>${r.scorers.map((g) => `${esc(g.name)} ${g.minute}'${g.pen ? ' (p)' : ''}`).join(', ') || 'Aucun but'}</small></div>${crest(a, 'sm')}</div></div>`;
+  }
+  const o = s.objectives || {};
+  const objs = [[o.league, 'trophy'], [o.cup, 'cup'], [o.conti, 'star'], [!o.cup || !o.conti ? o.youth : null, 'sprout']].filter((x) => x[0]).slice(0, 3);
+  if (objs.length) {
+    col2 += `<div class="card"><h3 class="ttl">${ico('target')}Objectifs de la saison</h3>
+      <div class="objs">${objs.map(([x, i]) => `<div>${ico(i)}<small>${esc(x.label)}</small></div>`).join('')}</div></div>`;
   }
 
+  /* ---------- Colonne 3 : actualités, calendrier, messages ---------- */
+  const news = (s.news || []).slice(0, 3);
+  let col3 = `<div class="card news-card"><h3 class="ttl">${ico('rss')}Actualités</h3>${news.length ? news.map((n, i) => (i === 0
+    ? `<div class="news-top"><b>${esc(n.text)}</b><small>${esc(ago(s, n))}</small></div>`
+    : `<div class="news-row"><span class="ic">${NEWS_IC[n.type] || '•'}</span><div class="grow">${esc(n.text)}<small>${esc(ago(s, n))}</small></div></div>`)).join('')
+    : '<p class="muted" style="margin:0">Le mercato et les bancs de touche feront bientôt parler d\'eux.</p>'}
+    <button class="btn ghost sm block" data-act="allnews">Toutes les actualités →</button></div>`;
+  const next = upcoming(s, 3);
+  col3 += `<div class="card"><div class="row between"><h3 class="ttl" style="margin:0">${ico('cal')}Calendrier</h3><button class="btn sm ghost" data-act="allfx">Voir tout →</button></div>
+    ${next.map((x) => `<div class="fx-row"><span class="fx-d">${esc(x.date)}</span>${crest(x.opp, 'sm')}<span class="grow">${esc(x.home ? `${uc.short} - ${x.opp.short}` : `${x.opp.short} - ${uc.short}`)}</span><small>${esc(x.comp)}</small></div>`).join('') || '<p class="muted" style="margin:8px 0 0">Aucun match programmé.</p>'}</div>`;
   const msgs = topMessages(s);
-  right += `<div class="card"><div class="row between"><h3 style="margin:0">Messages</h3>
-    <button class="btn sm ghost" data-act="allmsgs">Voir tout</button></div>
-    ${msgs.length ? msgs.map(msgRow).join('')
-    : '<p class="muted" style="margin:8px 0 0">Rien de neuf, coach.</p>'}
+  col3 += `<div class="card"><div class="row between"><h3 class="ttl" style="margin:0">${ico('mail')}Messages</h3>
+    <button class="btn sm ghost" data-act="allmsgs">Voir tout →</button></div>
+    ${msgs.length ? msgs.map(msgRow).join('') : '<p class="muted" style="margin:8px 0 0">Rien de neuf, coach.</p>'}
   </div>`;
-  return `<div class="layout-2"><div class="col">${html}</div><div class="col">${right}</div></div>`;
+  return `<div class="dash"><div class="col">${col1}</div><div class="col">${col2}</div><div class="col">${col3}</div></div>`;
+}
+
+const NEWS_IC = { manager: '🪑', transfer: '✍', loan: '⇆', crisis: '📉', owner: '🏦', clash: '⚡' };
+const ICO = {
+  pulse: '<path d="M3 12h4l2-5 4 10 2-5h6"/>',
+  trophy: '<path d="M7 4h10v4a5 5 0 0 1-10 0z"/><path d="M7 6H4v1a3 3 0 0 0 3 3M17 6h3v1a3 3 0 0 1-3 3M12 13v4M8 21h8M9 17h6"/>',
+  cup: '<path d="M6 3h12l-1.5 8a4.5 4.5 0 0 1-9 0z"/><path d="M12 15.5V19M8 21h8"/>',
+  star: '<path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z"/>',
+  sprout: '<path d="M12 21v-9M12 12c0-4 3-7 8-7 0 4-3 7-8 7zM12 14c0-3-2.5-5.5-7-5.5 0 3 2.5 5.5 7 5.5z"/>',
+  target: '<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5"/>',
+  ball: '<circle cx="12" cy="12" r="8.5"/><path d="m12 7.5 3.5 2.5-1.3 4h-4.4L8.5 10z"/>',
+  globe: '<circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.5 2.5 3.5 5.3 3.5 8.5s-1 6-3.5 8.5c-2.5-2.5-3.5-5.3-3.5-8.5s1-6 3.5-8.5z"/>',
+  clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7v5l3 2"/>',
+  rss: '<path d="M5 19h.01M5 12a7 7 0 0 1 7 7M5 5a14 14 0 0 1 14 14"/>',
+  cal: '<rect x="3.5" y="5" width="17" height="15.5" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/>',
+  mail: '<rect x="3" y="5.5" width="18" height="13" rx="2"/><path d="m3.5 7 8.5 6.5L20.5 7"/>',
+};
+const ico = (k) => `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICO[k]}</svg>`;
+
+/** « il y a 2 journées » pour une actualité. */
+function ago(s, n) {
+  if (n.season !== s.season) return `saison ${n.season}-${String(n.season + 1).slice(2)}`;
+  const d = s.day - n.day;
+  return d <= 0 ? 'aujourd\'hui' : d === 1 ? 'hier' : `il y a ${d} journées`;
+}
+
+/** Prochains matchs de championnat du club (date, adversaire, domicile/extérieur). */
+function upcoming(s, n) {
+  const out = [];
+  const uc = userClub(s);
+  const fx = s.fixtures[uc.div];
+  for (let d = s.day; d < s.calendar.length && out.length < n; d++) {
+    const e = s.calendar[d];
+    if (e.type !== 'league') continue;
+    const rr = leagueRoundOf(fx.length, e.round);
+    if (rr == null) continue;
+    const f = fx[rr].find((x) => x.h === uc.id || x.a === uc.id);
+    if (!f || f.s) continue;
+    const home = f.h === uc.id;
+    out.push({ date: fmtDate(e.date, false), opp: clubById(s, home ? f.a : f.h), home, comp: DIVISIONS[uc.div].short });
+  }
+  return out;
+}
+
+/** Action du gros bouton « Continuer » de l'en-tête (comme dans les jeux de gestion). */
+export function primaryAction(app) {
+  const s = app.state;
+  if (!s || s.sacked) return null;
+  if (s.preseason?.active) {
+    if (!s.preseason.meeting) return { label: 'Réunion du CA', run: () => preseasonActions.psmeeting(null, app) };
+    return { label: s.online ? 'Prêt' : 'Lancer la saison', run: () => preseasonActions.psstart(null, app) };
+  }
+  if (s.online) {
+    const o = app.online;
+    const me = o?.players?.find((p) => p.user_id === o.uid);
+    if (me?.ready && me.version === s.online.version) return null;
+    return { label: 'Prêt', run: () => onlineActions.oready(null, app) };
+  }
+  if (s.seasonOver) return { label: 'Bilan', run: () => showEndSeason(app) };
+  const t = today(s);
+  if (t?.userFixture) return { label: 'Jouer', run: () => openMatch(app) };
+  return { label: 'Continuer', run: () => runSim(app, 1, false) };
 }
 
 function line(label, v) {
-  return `<div style="margin:8px 0"><div class="row between" style="font-size:13px;margin-bottom:4px"><span>${label}</span><b style="color:${scaleColor(v)}">${Math.round(v)}</b></div>${gauge(v)}</div>`;
+  return `<div class="g-line"><div class="row between"><span>${label}</span><b style="color:${scaleColor(v)}">${Math.round(v)}</b></div>${gauge(v)}</div>`;
 }
 
 export const actions = {
@@ -146,6 +219,8 @@ export const actions = {
   endseason(el, app) { showEndSeason(app); },
   takejob(el, app) { const c = clubById(app.state, +el.dataset.id); changeClub(app.state, c.id); delete app.state.sacked; app.save(true); app.render(); app.toast(`Nouveau départ à ${c.name} !`); },
   deadline(el, app) { openDeadline(app); },
+  allnews(el, app) { app.ui.schedTab = 'news'; app.go('schedule'); },
+  allfx(el, app) { app.ui.schedTab = 'fixtures'; app.go('schedule'); },
   msg(el, app) {
     const m = app.state.messages.find((x) => String(x.id) === el.dataset.id);
     if (!m) return;

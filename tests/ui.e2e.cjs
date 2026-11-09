@@ -80,16 +80,16 @@ function serve() {
     step('partie créée (monde réel, Ligue 1) + coach personnalisé + préparation (réunion CA, amical)');
 
     for (const tab of ['squad', 'tactics', 'schedule', 'club', 'home']) {
-      await page.click(`[data-tab=${tab}]`);
+      await page.click(`[data-nav=${({ schedule: "table", club: "board" })[tab] || tab}]`);
       await page.waitForTimeout(150);
     }
     for (const t of ['fin', 'market', 'staff', 'train', 'youth', 'obj', 'friends', 'settings']) {
-      await page.click('[data-tab=club]'); await page.click(`[data-act=ctab][data-v=${t}]`);
+      await page.click('[data-nav=board]'); await page.click(`[data-act=ctab][data-v=${t}]`);
     }
     step('onglets et sous-onglets');
 
     // Mission de recrutement.
-    await page.click('[data-tab=club]'); await page.click('[data-act=ctab][data-v=market]');
+    await page.click('[data-nav=board]'); await page.click('[data-act=ctab][data-v=market]');
     await page.click('[data-act=mmode][data-v=scout]');
     await page.click('[data-act=mission] >> nth=0');
     await page.selectOption('.sheet select[data-act=mr]', 'FRA');
@@ -104,12 +104,12 @@ function serve() {
     await page.click('.sheet [data-act=close]');
     step('mission de recrutement + négociation de staff');
 
-    await page.click('[data-tab=tactics]');
+    await page.click('[data-nav=tactics]');
     await page.click('[data-act=auto]');
     await page.click('.slot >> nth=10'); await page.click('.slot >> nth=9');
     step('compo (tap-tap)');
 
-    await page.click('[data-tab=home]');
+    await page.click('[data-nav=home]');
     await page.click('[data-act=play]');
     await page.click('[data-act=go]');
     await page.click('[data-c=speed]'); await page.click('[data-c=speed]');
@@ -146,7 +146,7 @@ function serve() {
     step(`6 journées simulées dans le Web Worker (journée ${day + 1})`);
 
     // Boîte de réception : 3 messages max à l'accueil, « Voir tout », décisions.
-    await page.click('[data-tab=home]');
+    await page.click('[data-nav=home]');
     const shown = await page.$$eval('.layout-2 .msg', (els) => els.length);
     assert.ok(shown <= 3, `${shown} messages affichés`);
     await page.evaluate(() => import('./js/game/inbox.js').then((m) => m.pushDecision(window.__app.state, { kind: 'clash', title: 'Clash test', data: { a: window.__app.state.clubs.find((c) => c.id === window.__app.state.userClubId).playerIds[0], b: window.__app.state.clubs.find((c) => c.id === window.__app.state.userClubId).playerIds[1] }, choices: [{ key: 'a', label: 'A' }, { key: 'b', label: 'B' }, { key: 'fine', label: 'Amende' }] })));
@@ -157,7 +157,7 @@ function serve() {
     await page.waitForSelector('.sheet [data-act=close]');
     await page.click('.sheet [data-act=close]');
     // Fiche club et relations (depuis le classement).
-    await page.click('[data-tab=schedule]');
+    await page.click('[data-nav=table]');
     await page.click('[data-act=clubinfo] >> nth=1');
     await page.click('.sheet [data-act=rel]');
     await page.waitForSelector('.sheet:has-text("Relations")');
@@ -171,7 +171,7 @@ function serve() {
     await page.waitForSelector('.sheet:has-text("Le mercato est terminé")');
     await page.click('.sheet [data-act=close]');
     // Finances : billetterie et sponsors.
-    await page.click('[data-tab=club]'); await page.click('[data-act=ctab][data-v=fin]');
+    await page.click('[data-nav=board]'); await page.click('[data-act=ctab][data-v=fin]');
     await page.click('[data-act=ticket][data-v=high]');
     assert.equal(await page.evaluate(() => window.__app.state.clubs.find((c) => c.id === window.__app.state.userClubId).ticket), 'high');
     step('boîte de réception, décision, fiche club + relations, deadline day, billetterie');
@@ -184,13 +184,13 @@ function serve() {
     });
     assert.ok(raw && raw.startsWith('gz:'), 'sauvegarde compressée');
     await page.reload();
-    await page.waitForSelector('[data-tab=home]');
+    await page.waitForSelector('[data-nav=home]');
     const day2 = await page.evaluate(() => window.__app.state && window.__app.state.day);
     assert.equal(day2, day, 'reprise de la sauvegarde');
     step(`sauvegarde gzip (${Math.round(raw.length / 1024)} Ko) et reprise`);
 
     // Multijoueur : code d'équipe, amical contre son propre code, ligue entre amis.
-    await page.click('[data-tab=club]'); await page.click('[data-act=ctab][data-v=friends]');
+    await page.click('[data-nav=board]'); await page.click('[data-act=ctab][data-v=friends]');
     await page.click('[data-act=genCode]');
     const code = await page.inputValue('#mycode');
     assert.ok(code.startsWith('CDP1-'));
@@ -201,7 +201,7 @@ function serve() {
     await page.waitForSelector('[data-act=done]');
     await page.click('[data-act=done]');
     await page.click('[data-act=no]');
-    await page.click('[data-tab=club]'); await page.click('[data-act=ctab][data-v=friends]');
+    await page.click('[data-nav=board]'); await page.click('[data-act=ctab][data-v=friends]');
     await page.click('[data-act=addMine]');
     // Deuxième équipe : un club d'un autre championnat, via l'état du jeu.
     const code2 = await page.evaluate(async () => {
@@ -216,7 +216,7 @@ function serve() {
     step('multijoueur : code, amical, ligue entre amis');
 
     // Carrière en ligne (serveur local partagé) : l'hôte dans la page, un 2e manager simulé.
-    await page.click('[data-tab=club]'); await page.click('[data-act=ctab][data-v=settings]');
+    await page.click('[data-nav=board]'); await page.click('[data-act=ctab][data-v=settings]');
     await page.click('[data-act=quit]'); await page.click('.sheet [data-act=ok], .sheet .btn.primary');
     await page.evaluate(() => { window.__app.allowLocalOnline = true; window.__app.ui.start.gamesLoaded = false; window.__app.render(); });
     await page.click('[data-act=ocreate]');

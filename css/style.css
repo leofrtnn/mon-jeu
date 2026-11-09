@@ -5,26 +5,29 @@
    Accent = couleur du club (définie par app.js).
    ========================================================================== */
 :root {
-  /* Couleurs : herbe de nuit, craie, projecteurs. */
-  --bg: #0a1310;
-  --bg2: #0e1915;
-  --card: #12201a;
-  --card2: #182a22;
-  --card3: #1f352b;
-  --line: rgba(220, 255, 235, .09);
-  --line2: rgba(220, 255, 235, .16);
-  --text: #edf4ef;
-  --muted: #8ea69a;
+  /* Couleurs : bureau du manager de nuit — bleu nuit, verre fumé, accent violet. */
+  --bg: #090b16;
+  --bg2: #0e1120;
+  --card: rgba(22, 25, 44, .82);
+  --card2: #1d2138;
+  --card3: #272c4a;
+  --line: rgba(170, 180, 255, .09);
+  --line2: rgba(170, 180, 255, .17);
+  --text: #f1f2fa;
+  --muted: #959bb8;
   --good: #3ddc84;
   --ok: #f2b544;
-  --bad: #ff5d5d;
+  --bad: #ff5d6c;
   --info: #5ab0ff;
-  --accent: #3ddc84;
-  --accent-ink: #06110c;
+  --accent: #7c5cff;
+  --accent2: #a855f7;
+  --accent-ink: #ffffff;
+  --club: #7c5cff;
+  --grad: linear-gradient(100deg, #6a3dff, #8b5cf6 55%, #a855f7);
   /* Typo : condensée « tableau d'affichage » pour les titres et chiffres. */
   --display: "Barlow Condensed", "Roboto Condensed", "Arial Narrow", system-ui, sans-serif;
   --body: "Barlow", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --radius: 16px;
+  --radius: 14px;
   --tap: 44px;
   --rail: 84px;
   --safe-b: env(safe-area-inset-bottom, 0px);
@@ -40,10 +43,12 @@ body {
   font: 15px/1.4 var(--body);
   overscroll-behavior: none; -webkit-font-smoothing: antialiased; touch-action: manipulation;
   /* Lumière de projecteur aux couleurs du club + bandes de tonte très discrètes. */
+  /* Ambiance « bureau avec vue sur le stade » : projecteurs au loin, halo violet, couleur du club. */
   background:
-    radial-gradient(1200px 500px at 15% -10%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 60%),
-    repeating-linear-gradient(90deg, rgba(255, 255, 255, .012) 0 80px, transparent 80px 160px),
-    var(--bg);
+    radial-gradient(900px 420px at 72% -8%, rgba(120, 140, 255, .16), transparent 62%),
+    radial-gradient(700px 380px at 8% 0%, color-mix(in srgb, var(--club) 18%, transparent), transparent 60%),
+    radial-gradient(900px 500px at 100% 110%, rgba(124, 92, 255, .14), transparent 60%),
+    linear-gradient(180deg, #0c0f1e, var(--bg) 60%);
   background-attachment: fixed;
 }
 button { font: inherit; color: inherit; }
@@ -96,8 +101,9 @@ small, .muted { color: var(--muted); }
 
 /* ---------- Cartes & éléments ---------- */
 .card {
-  background: linear-gradient(180deg, var(--card), color-mix(in srgb, var(--card) 85%, var(--bg)));
+  background: var(--card); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
   border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; margin: 12px 0;
+  box-shadow: 0 14px 34px -22px rgba(0, 0, 0, .8), inset 0 1px 0 rgba(255, 255, 255, .03);
 }
 .card h3, .label {
   font-family: var(--display); font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .12em; color: var(--muted);
@@ -120,9 +126,9 @@ small, .muted { color: var(--muted); }
 .btn:hover { background: var(--card3); }
 .btn:active { transform: scale(.97); }
 .btn.primary {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 100%, #fff 12%), var(--accent));
-  color: var(--accent-ink); border-color: transparent;
-  box-shadow: 0 6px 22px -8px var(--accent);
+  background: var(--grad);
+  color: #fff; border-color: transparent;
+  box-shadow: 0 8px 24px -10px var(--accent), inset 0 1px 0 rgba(255, 255, 255, .18);
 }
 .btn.danger { background: rgba(255, 93, 93, .12); color: var(--bad); border-color: rgba(255, 93, 93, .3); }
 .btn.ghost { background: transparent; border-color: transparent; }
@@ -147,7 +153,7 @@ small, .muted { color: var(--muted); }
   background: var(--card); color: var(--muted); font-weight: 600; font-size: 13px; cursor: pointer; transition: all .15s;
 }
 .chip:hover { color: var(--text); }
-.chip.on { background: var(--accent); color: var(--accent-ink); border-color: transparent; box-shadow: 0 4px 16px -6px var(--accent); }
+.chip.on { background: var(--grad); color: #fff; border-color: transparent; box-shadow: 0 4px 16px -6px var(--accent); }
 
 /* Badges de club et de poste */
 .crest {
@@ -562,3 +568,118 @@ textarea { width: 100%; min-height: 90px; border-radius: 12px; border: 1px solid
 .online-ready.is-ready { border-color: color-mix(in srgb, var(--good) 60%, transparent); }
 .ready-list { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
 .online-tag { margin-right: 8px; font-size: 11px; }
+
+/* ==========================================================================
+   DIRECTION ARTISTIQUE « bureau du manager » : menu latéral, en-tête avec
+   date et bouton Continuer, accueil en tableau de bord (3 colonnes).
+   ========================================================================== */
+#tabbar .brand, #tabbar .nav-foot, #tabbar button.more { display: none; }
+#tabbar button svg { width: 22px; height: 22px; }
+.nav-badge { position: absolute; top: 6px; right: 12px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--bad); color: #fff; font: 700 11px/18px var(--body); font-style: normal; text-align: center; }
+.ttl { display: flex; align-items: center; gap: 8px; color: var(--text) !important; font-size: 15px !important; letter-spacing: .02em !important; text-transform: none !important; font-weight: 700 !important; }
+.ttl .ico { width: 18px; height: 18px; color: var(--accent2); flex: none; }
+.ico { width: 18px; height: 18px; }
+.crest.xl { width: 112px; height: 118px; font-size: 30px; border-radius: 22px 22px 46px 46px; }
+.crest.xl > img { inset: 2%; width: 96%; height: 96%; }
+
+/* En-tête */
+#topbar { gap: 10px; background: linear-gradient(180deg, rgba(9, 11, 22, .92), rgba(9, 11, 22, .55)); border-bottom: 1px solid var(--line); }
+.top-club { display: flex; align-items: center; gap: 10px; min-width: 0; background: none; border: 0; padding: 0; cursor: pointer; text-align: left; }
+.top-club .club { display: flex; flex-direction: column; min-width: 0; line-height: 1.15; }
+.top-club .club b { font-family: var(--body); font-size: 17px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.top-club .club small { font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+.chev { font-style: normal; opacity: .7; }
+#topbar .grow { flex: 1; }
+.top-date { display: flex; align-items: center; gap: 9px; padding: 6px 12px; border-radius: 12px; background: rgba(22, 25, 44, .85); border: 1px solid var(--line); }
+.top-date svg { width: 22px; height: 22px; color: var(--text); }
+.top-date > span { display: flex; flex-direction: column; line-height: 1.15; }
+.top-date b { font-size: 13.5px; white-space: nowrap; }
+.top-date small { font-size: 11.5px; white-space: nowrap; }
+#topbar .budget { font-size: 15px; background: rgba(22, 25, 44, .85); }
+.top-go { min-height: 46px; padding: 0 18px; border-radius: 12px; font-size: 16px; font-weight: 700; gap: 10px; clip-path: polygon(6% 0, 100% 0, 94% 100%, 0 100%); padding: 0 26px; }
+.top-go svg { width: 18px; height: 18px; }
+.top-go i { font-style: normal; font-size: 18px; }
+
+/* Accueil */
+.dash { display: block; }
+.club-hero { text-align: center; padding: 20px 14px 16px; background:
+  radial-gradient(260px 180px at 50% 18%, color-mix(in srgb, var(--club) 30%, transparent), transparent 70%), var(--card); }
+.hero-crest { display: flex; justify-content: center; margin-bottom: 10px; filter: drop-shadow(0 12px 24px rgba(0, 0, 0, .55)); }
+.club-hero h2 { font-family: var(--body); font-size: 24px; font-weight: 700; }
+.club-hero > small { display: block; margin-top: 3px; }
+.hero-stats { display: grid; grid-template-columns: repeat(3, 1fr); margin: 16px 0 10px; }
+.hero-stats > div { display: flex; flex-direction: column; gap: 2px; }
+.hero-stats > div + div { border-left: 1px solid var(--line2); }
+.hero-stats b { font-family: var(--display); font-size: 24px; font-weight: 700; }
+.hero-stats sup { font-size: 13px; }
+.hero-stats small { font-size: 12px; }
+.hero-form { display: flex; justify-content: center; }
+.gauges2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 14px; }
+.g-line { font-size: 12.5px; }
+.g-line .row { margin-bottom: 3px; }
+.g-line .gauge { height: 6px; }
+
+.nextmatch { text-align: center; background:
+  radial-gradient(60% 50% at 18% 0%, rgba(200, 210, 255, .22), transparent 70%),
+  radial-gradient(60% 50% at 82% 0%, rgba(200, 210, 255, .22), transparent 70%),
+  linear-gradient(180deg, rgba(40, 46, 92, .9), rgba(22, 25, 50, .95) 55%, rgba(20, 60, 40, .55));
+  border-color: rgba(140, 120, 255, .35); }
+.nextmatch h3.ttl { justify-content: flex-start; }
+.nextmatch .vs .mid { display: flex; flex-direction: column; font-size: 26px; color: var(--text); }
+.nextmatch .vs .team { font-family: var(--body); font-size: 16px; }
+.nm-meta { font-size: 13px; color: var(--muted); margin: 0 0 12px; }
+.objs { display: grid; grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); text-align: center; }
+.objs > div { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 2px 8px; }
+.objs > div + div { border-left: 1px solid var(--line2); }
+.objs .ico { width: 26px; height: 26px; color: var(--text); }
+.objs small { font-size: 12.5px; line-height: 1.25; color: var(--text); opacity: .85; }
+.news-top { padding: 16px 14px; margin: 0 -4px 6px; border-radius: 12px; background:
+  linear-gradient(0deg, rgba(9, 11, 22, .9), rgba(9, 11, 22, .2)), radial-gradient(120% 140% at 80% 0%, color-mix(in srgb, var(--club) 55%, transparent), transparent 70%), var(--card2); min-height: 110px; display: flex; flex-direction: column; justify-content: flex-end; gap: 4px; }
+.news-top b { font-size: 17px; line-height: 1.25; }
+.news-top small { font-size: 12px; }
+.news-row { display: flex; gap: 10px; align-items: flex-start; padding: 9px 2px; border-top: 1px solid var(--line); font-size: 13.5px; line-height: 1.3; }
+.news-row .ic { width: 34px; height: 34px; border-radius: 9px; background: var(--card2); display: flex; align-items: center; justify-content: center; flex: none; }
+.news-row small { display: block; margin-top: 2px; font-size: 11.5px; }
+.fx-row { display: flex; align-items: center; gap: 10px; padding: 9px 2px; border-top: 1px solid var(--line); font-size: 14px; }
+.fx-row:first-of-type { margin-top: 8px; }
+.fx-d { width: 58px; font-variant-numeric: tabular-nums; color: var(--muted); font-size: 13px; }
+
+@media (orientation: landscape) and (min-width: 640px) {
+  :root { --rail: 196px; }
+  #tabbar { justify-content: flex-start; background: linear-gradient(180deg, rgba(12, 14, 28, .97), rgba(9, 11, 22, .97)); overflow-y: auto; scrollbar-width: none; }
+  #tabbar .brand { display: flex; align-items: center; gap: 10px; padding: 16px 16px 12px 18px; }
+  #tabbar .brand .brand-ball { width: 38px; height: 42px; color: var(--text); flex: none; }
+  #tabbar .brand b { font-family: var(--display); font-size: 18px; line-height: .95; text-transform: uppercase; letter-spacing: .03em; }
+  #tabbar .inner { gap: 2px; padding: 0 8px; }
+  #tabbar .nav-foot { display: flex; flex-direction: column; gap: 2px; padding: 8px; margin-top: auto; border-top: 1px solid var(--line); }
+  #tabbar button, #tabbar button.more { display: flex; flex-direction: row; justify-content: flex-start; gap: 13px; min-height: 42px; padding: 0 14px; border-radius: 10px; font-size: 14.5px; font-weight: 500; letter-spacing: 0; color: #c4c8de; }
+  #tabbar button:hover { background: rgba(255, 255, 255, .04); }
+  #tabbar button.on { color: #fff; background: linear-gradient(90deg, rgba(124, 92, 255, .55), rgba(124, 92, 255, .12)); box-shadow: inset 3px 0 0 #a78bfa; }
+  #tabbar button.on svg { color: #fff; transform: none; }
+  #tabbar button.on::after { display: none; }
+  .nav-badge { position: static; margin-left: auto; }
+  #screen { max-width: 1320px; }
+  .dash { display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.25fr) minmax(0, 1.05fr); gap: 16px; align-items: start; }
+  .dash > .col > .card:first-child { margin-top: 12px; }
+}
+@media (orientation: landscape) and (max-height: 520px) {
+  :root { --rail: 176px; }
+  #tabbar .brand { padding: 10px 14px 6px 16px; }
+  #tabbar .brand .brand-ball { width: 30px; height: 34px; }
+  #tabbar .brand b { font-size: 15px; }
+  #tabbar button, #tabbar button.more { min-height: 36px; font-size: 13.5px; gap: 11px; }
+  #tabbar button svg { width: 19px; height: 19px; }
+  .top-go { min-height: 40px; font-size: 15px; }
+  .top-date { padding: 4px 10px; }
+  .crest.xl { width: 88px; height: 94px; }
+  .club-hero { padding: 14px 12px 12px; }
+  .club-hero h2 { font-size: 21px; }
+  .hero-stats { margin: 10px 0 8px; }
+  .hero-stats b { font-size: 21px; }
+  .news-top { min-height: 90px; padding: 12px; }
+}
+@media (orientation: landscape) and (max-width: 1100px) {
+  #topbar .budget { display: none; }
+}
+.nextmatch::before { opacity: .035; }
+.nextmatch .btns .btn { white-space: nowrap; padding: 0 12px; font-size: 15px; }
