@@ -7,6 +7,7 @@ import { save as saveState, userClub } from '../game/state.js';
 import { money } from '../game/economy.js';
 import { esc, accentInk, clubAccent } from './components.js';
 import { today } from '../game/season.js';
+import { currentDate, fmtDate } from '../game/dates.js';
 import { avatarSvg } from './avatar.js';
 import { ensureCoachProfile } from '../game/coach.js';
 import { ensureManagers, onUserArrives } from '../game/managers.js';
@@ -107,7 +108,7 @@ export const app = {
       const t = today(this.state);
       this.$top.innerHTML = `
         <span class="crest" style="background:${c.color};color:${c.color2}">${esc(c.short)}</span>
-        <span class="club"><b>${esc(c.name)}</b><small>Saison ${this.state.season}-${String(this.state.season + 1).slice(2)} · ${esc(t ? t.label : 'Fin de saison')}</small></span>
+        <span class="club"><b>${esc(c.name)}</b><small>${esc(fmtDate(currentDate(this.state)))} · ${esc(this.state.preseason?.active ? 'Préparation' : t ? t.label : 'Fin de saison')}</small></span>
         <span class="budget">${money(c.budget)}</span>
         <button class="topcoach" id="topcoach" aria-label="Mon coach">${avatarSvg(this.state.coach?.look, 40)}</button>`;
       this.$top.classList.remove('hidden');

@@ -11,6 +11,7 @@ import { estimate, rangeLabel, observe } from '../../game/scouting.js';
 import { esc, posBadge, ovrChip, scaleColor, gauge, stars, statusTags } from '../components.js';
 import { negotiateTransfer, negotiateContract } from './negotiation.js';
 import { TALKS, playerTalk } from '../../game/media.js';
+import { windowInfo } from '../../game/dates.js';
 import { PROMISE_ROLES } from '../../game/transfers.js';
 
 /** Jauge d'attribut : valeur exacte ou plage estimée. */
@@ -52,7 +53,7 @@ export function showPlayer(app, pid, onChange) {
         <button class="btn primary" data-act="buy" ${windowOpen(s) ? '' : 'disabled'}>${p.clubId ? `Négocier · ${money(price)}` : 'Négocier (libre)'}</button>
         ${p.clubId && p.age <= 23 ? `<button class="btn" data-act="loanin" ${windowOpen(s) ? '' : 'disabled'}>Prêt</button>` : ''}
         ${!e.exact ? `<button class="btn" data-act="observe" ${queued ? 'disabled' : ''}>${queued ? 'En observation…' : '🔭 Observer'}</button>` : ''}
-      </div>${windowOpen(s) ? '' : '<p class="muted" style="font-size:12px">Mercato fermé (début de saison et mi-saison).</p>'}`;
+      </div>${windowOpen(s) ? '' : `<p class="muted" style="font-size:12px">${esc(windowInfo(s).label)}</p>`}`;
     }
     const ovrHtml = e.exact ? ovrChip(overall(p)) : `<span class="ovr t3" style="min-width:56px;font-size:13px">${rangeLabel(e.ovr)}</span>`;
     return `<div class="row" style="gap:12px;margin-bottom:10px">

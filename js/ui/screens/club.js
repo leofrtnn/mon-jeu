@@ -16,6 +16,7 @@ import { POSITIONS } from '../../data/constants.js';
 import { esc, seg, playerRow, gauge, stars, scaleColor } from '../components.js';
 import { showPlayer } from './playerSheet.js';
 import * as settings from './settings.js';
+import { windowInfo } from '../../game/dates.js';
 import { ensureBoard, REQUESTS, boardRequest, shiftBudget, wageRoom, youthShare, SALE_SHARE, WAGE_RATE } from '../../game/board.js';
 import { avatarSvg } from '../avatar.js';
 import { COACH_SKILLS, SKILL_KEYS, PHILOSOPHIES, coachName, ensureCoachProfile } from '../../game/coach.js';
@@ -116,7 +117,7 @@ function market(app) {
   const mode = app.ui.mktMode || 'buy';
   const open = windowOpen(s);
   let html = `<div class="card row between" style="padding:10px 14px">
-      <span>${open ? '🟢 Mercato ouvert' : '🔴 Mercato fermé'}</span><small>Transferts <b>${money(ensureBoard(s).transferBudget)}</b> · marge salariale <b>${money(Math.max(0, wageRoom(s)))}</b>/sem</small></div>
+      <span>${open ? (windowInfo(s).deadline ? '⏰' : '🟢') : '🔴'} ${esc(windowInfo(s).label)}</span><small>Transferts <b>${money(ensureBoard(s).transferBudget)}</b> · marge salariale <b>${money(Math.max(0, wageRoom(s)))}</b>/sem</small></div>
     ${seg('mmode', ['buy', 'loan', 'sell', 'scout'], mode, { buy: 'Acheter', loan: 'Prêts', sell: 'Ventes', scout: 'Observés' })}`;
   if (mode === 'sell') {
     const offers = (s.pendingOffers || []).filter((o) => s.players[o.pid]?.clubId === uc.id);

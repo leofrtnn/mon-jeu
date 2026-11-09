@@ -9,6 +9,9 @@ import { autoLineup, lineupStrength, squadStrength } from './ratings.js';
  * Choisit la meilleure formation selon les joueurs disponibles,
  * et une mentalité selon le rapport de force avec l'adversaire.
  */
+/** Sous-ensemble de consignes (l'IA garde l'intensité adaptée à l'adversaire). */
+const pick = (o, keys) => Object.fromEntries(Object.entries(o || {}).filter(([k]) => keys.includes(k)));
+
 export function aiPrepare(players, opponentPlayers, isHome, rng, pref = null) {
   let best = null;
   const prefOf = pref;
@@ -27,7 +30,7 @@ export function aiPrepare(players, opponentPlayers, isHome, rng, pref = null) {
     : diff < -4 ? { passing: 'direct', line: 'low', counter: 'on', tackling: 'hard' } : {};
   return {
     // La philosophie de l'entraîneur prime sur le style par défaut (la mentalité reste adaptée à l'adversaire).
-    tactics: { formation: best.f, mentality, pressing, tempo: 'mid', width: 'mid', ...style, ...(pref ? { ...pref.tactics, mentality } : {}) },
+    tactics: { formation: best.f, mentality, pressing, tempo: 'mid', width: 'mid', ...style, ...(pref ? pick(pref.tactics, ['passing', 'width', 'crossing', 'counter', 'line']) : {}) },
     lineup: best.lu.lineup, bench: best.lu.bench,
   };
 }

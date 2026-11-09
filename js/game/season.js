@@ -18,6 +18,7 @@ import { initClubExtras, newCoach, coachRep, coachAfterMatch, staffEffects, staf
 import { scoutDaily, marketEvents, seeInMatch } from './scouting.js';
 import { coachMods, ensureCoachProfile, grantSeasonPoints } from './coach.js';
 import { ensureManagers, managerStyle, managersAfterRound, managersEndSeason, onUserLeaves, onUserArrives } from './managers.js';
+import { assignDates, windowInfo, fmtDate } from './dates.js';
 import { ensureBoard, setBoardSeason, updateBoardParts, checkMidSeasonSack, recordUserMatch, IDENTITIES } from './board.js';
 import { slotsOf } from '../data/constants.js';
 
@@ -114,6 +115,7 @@ export function createSeason(state) {
   }
   createConti(state, rng);
   state.intl = { breaks: [] };
+  assignDates(state.calendar, state.season);
   state.day = 0;
   state.seasonOver = false;
   state.lastResult = null;
@@ -500,6 +502,10 @@ export function completeDay(state, userMatch = null) {
   updateBoard(state, t, report);
   state.day++;
   if (state.day >= state.calendar.length) state.seasonOver = true;
+  else {
+    const wi = windowInfo(state);
+    if (wi.deadline) pushMessage(state, { prio: 1, icon: '⏰', title: 'Dernier jour du mercato !', text: `Clôture le ${fmtDate(wi.closes, false)} : dernières affaires à conclure.` });
+  }
   return report;
 }
 

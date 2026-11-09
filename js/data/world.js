@@ -15,7 +15,7 @@ export const DIVISIONS = {
   1: { name: 'Division 1', short: 'D1', country: 'FRA', level: 1, profile: { goals: 1, fouls: 1, cards: 1 } },
   2: { name: 'Division 2', short: 'D2', country: 'FRA', level: 2, profile: { goals: 1.02, fouls: 1.08, cards: 1.05 } },
   3: { name: 'Liga Ibérica', short: 'LIB', country: 'IBE', level: 1, profile: { goals: 0.97, fouls: 0.95, cards: 1.25 } },
-  4: { name: 'Albion Premier', short: 'ALB', country: 'ALB', level: 1, profile: { goals: 1.08, fouls: 0.85, cards: 0.8 } },
+  4: { name: 'Albion Premier', short: 'ALB', country: 'ALB', level: 1, profile: { goals: 1.0, fouls: 0.85, cards: 0.8 } },
 };
 export const DIV_IDS = Object.keys(DIVISIONS).map(Number);
 

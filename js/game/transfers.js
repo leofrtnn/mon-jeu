@@ -9,15 +9,14 @@ import { assignNumbers, createPlayer } from '../data/generator.js';
 import { clamp, hashSeed } from '../core/rng.js';
 import { news } from './managers.js';
 import { boardAllows, spendTransfer, creditSale } from './board.js';
+import { windowInfo } from './dates.js';
 
 export const MAX_SQUAD = 32;
 const MIN_SQUAD = 20;
 
 /** Fenêtre de transferts ouverte ? (début de saison et mi-saison) */
 export function windowOpen(state) {
-  const e = state.calendar?.[state.day];
-  const lr = e ? e.lr : 0;
-  return lr <= 3 || (lr >= 19 && lr <= 22);
+  return windowInfo(state).open;
 }
 
 /** Prix demandé pour un joueur. */
@@ -220,6 +219,13 @@ export function logFinance(state, amount, label) {
 
 /** Activité du mercato pour les clubs IA + offres reçues par l'utilisateur. */
 export function aiTransferActivity(state, rng) {
+  // Dernier jour du mercato : frénésie des clubs.
+  const wi = windowInfo(state);
+  const rounds = wi.deadline ? 3 : 1;
+  for (let k = 0; k < rounds; k++) aiTransferRound(state, rng, wi.deadline);
+}
+
+function aiTransferRound(state, rng, deadline) {
   if (!windowOpen(state)) {
     // Hors fenêtre : les clubs IA complètent seulement leur effectif avec des libres.
     for (const c of state.clubs) if (c.id !== state.userClubId) fillSquad(state, c, rng);
@@ -229,7 +235,7 @@ export function aiTransferActivity(state, rng) {
     if (c.id === state.userClubId) continue;
     fillSquad(state, c, rng);
     // Les grands clubs sont plus actifs sur le marché.
-    if (!rng.chance(0.05 + c.rep / 900)) continue;
+    if (!rng.chance((0.05 + c.rep / 900) * (deadline ? 1.6 : 1))) continue;
     const squad = clubPlayers(state, c);
     const strength = squadStrength(squad);
     let pool;
