@@ -14,4 +14,5 @@ const out = sw.replace(/const ASSETS = \[[\s\S]*?\];/, `const ASSETS = [\n${list
 writeFileSync('sw.js', out);
 const v = out.match(/const VERSION = 'cdp-v(\d+)';/)[1];
 writeFileSync('js/version.js', `/** Numéro de version affiché (mis à jour par scripts/update-sw.js). */\nexport const APP_VERSION = ${v};\n`);
+writeFileSync('version.json', JSON.stringify({ v: +v }) + '\n');
 console.log(`${files.length} fichiers dans le cache du service worker.`);

@@ -738,3 +738,9 @@ html.pc .tac-main .tpitch { width: min(100%, calc((var(--H, 100vh) - 250px) * 1.
 html.pc .slot .tok, html.pc .slot .tok .face, html.pc .slot .tok .shirt { width: 50px; height: 50px; }
 html.pc .slot { width: 84px; }
 html.pc .slot .nm { font-size: 11.5px; max-width: 90px; }
+
+/* Mise à jour obligatoire en cours */
+#updating { position: fixed; inset: 0; z-index: 2000; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px;
+  background: rgba(9, 11, 22, .94); text-align: center; padding: 24px; }
+#updating b { font-family: var(--display); font-size: 24px; }
+#updating small { color: var(--muted); }

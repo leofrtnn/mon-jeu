@@ -1,10 +1,12 @@
 /**
- * Service worker : met en cache l'application pour un jeu 100 % hors ligne.
- * Stratégie : cache d'abord, puis réseau (et mise à jour du cache en arrière-plan).
- * Pensez à incrémenter VERSION à chaque livraison.
+ * Service worker : jeu jouable hors ligne, mais mises à jour immédiates.
+ * Stratégie : RÉSEAU D'ABORD pour les fichiers du jeu (revalidation rapide : le serveur
+ * répond « pas modifié » si rien n'a changé), copie locale si le réseau est absent ou trop lent.
+ * version.json n'est jamais mis en cache : le jeu s'en sert pour détecter une nouvelle version.
+ * VERSION est incrémentée par scripts/update-sw.js à chaque livraison.
  */
 const IMG_CACHE = 'cdp-img';
-const VERSION = 'cdp-v29';
+const VERSION = 'cdp-v31';
 const ASSETS = [
   './',
   './css/style.css',
@@ -119,17 +121,23 @@ self.addEventListener('fetch', (e) => {
     }))));
     return;
   }
-  e.respondWith(
-    caches.match(e.request, { ignoreSearch: true }).then((hit) => {
-      const net = fetch(e.request, { cache: 'no-cache' }).then((res) => {
-        const u = new URL(e.request.url);
-        if (res && (res.ok || res.type === 'opaque') && (u.origin === location.origin || /fonts\.(googleapis|gstatic)\.com$/.test(u.hostname))) {
-          const copy = res.clone();
-          caches.open(VERSION).then((c) => c.put(e.request, copy));
-        }
-        return res;
-      }).catch(() => hit);
-      return hit || net;
-    }),
-  );
+  const u = new URL(e.request.url);
+  if (u.origin === location.origin && u.pathname.endsWith('/version.json')) return; // toujours le réseau
+  const mine = u.origin === location.origin || /fonts\.(googleapis|gstatic)\.com$/.test(u.hostname);
+  if (!mine) return;
+  e.respondWith((async () => {
+    const cache = await caches.open(VERSION);
+    const net = fetch(e.request, { cache: 'no-cache' }).then((res) => {
+      if (res && (res.ok || res.type === 'opaque')) cache.put(e.request, res.clone());
+      return res;
+    });
+    const hit = await caches.match(e.request, { ignoreSearch: true });
+    if (!hit) return net;
+    // Réseau d'abord ; s'il ne répond pas en 4 s (ou hors ligne), la copie locale.
+    const slow = new Promise((r) => setTimeout(() => r(null), 4000));
+    try {
+      const res = await Promise.race([net, slow]);
+      return res || hit;
+    } catch { return hit; }
+  })());
 });
