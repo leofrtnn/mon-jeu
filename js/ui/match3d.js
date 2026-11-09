@@ -346,14 +346,22 @@ class Player3D {
       this.body.rotation.z = -0.1 - 0.25 * pow * Math.sin(t * Math.PI);
       this.body.rotation.x = 0.12 * pow * Math.sin(t * Math.PI);
     }
-    // Tacle glissé : corps basculé en arrière, jambe d'attaque tendue.
+    // Tacle : glissé (buste en ARRIÈRE, jambe d'attaque tendue devant, appui sur une main)
+    // ou debout (jambe tendue vers le ballon, buste droit).
     if (p.slide > 0) {
       const k = Math.sin((p.slide / 0.55) * Math.PI);
-      this.body.rotation.z = -1.25 * k;
-      this.body.position.y = 0.06 * k;
-      lL.hip.rotation.z = 1.25 * k; lR.hip.rotation.z = 0.7 * k;
-      lL.knee.rotation.z = 0; lR.knee.rotation.z = -0.8 * k;
-      this.arms[0].sh.rotation.x = 1.2 * k;
+      if (p.tk === 'stand') {
+        lR.hip.rotation.z = 1.0 * k; lR.knee.rotation.z = -0.1 * k;
+        lL.hip.rotation.z = -0.15 * k; lL.knee.rotation.z = -0.45 * k;
+        this.body.rotation.z = 0.12 * k;
+        this.arms[0].sh.rotation.x = 0.5 * k; this.arms[1].sh.rotation.x = -0.5 * k;
+      } else {
+        this.body.rotation.z = 1.1 * k;               // couché vers l'arrière
+        this.body.position.y = -0.25 * k;             // hanches au ras de la pelouse (glissade)
+        lR.hip.rotation.z = 0.35 * k; lR.knee.rotation.z = -0.05 * k; // jambe d'attaque tendue
+        lL.hip.rotation.z = -0.25 * k; lL.knee.rotation.z = -1.1 * k;  // jambe repliée dessous
+        this.arms[0].sh.rotation.z = -1.1 * k; this.arms[1].sh.rotation.x = -0.6 * k; // une main au sol
+      }
     }
     // Plongeon du gardien : il se projette sur le côté, bras tendus vers le ballon.
     if (p.dive > 0) {

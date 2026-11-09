@@ -35,14 +35,14 @@ const piOf = (t, mp, key, def) => (mp && t.pi?.[mp.slot]?.[key]) || def;
 /** Réglages d'équilibre (calibrés avec tests/live.test.js : buts, tirs, fautes, corners). */
 export const TUNE = {
   shotW: 1.0,         // attrait de la frappe face aux autres options
-  shotCost: 1.1,      // coût de la perte de balle dans le choix de tirer
-  carryW: 1.0,        // attrait de la conduite de balle
+  shotCost: 0.7,      // coût de la perte de balle dans le choix de tirer
+  carryW: 1.3,        // attrait de la conduite de balle
   crossW: 1.5,
   passRisk: 0.5,      // sévérité des interceptions
   lossW: 2.2,         // coût de la perte de balle dans le choix des passes
   tackleRate: 1.6,    // fréquence des tentatives de tacle
   foulP: 0.36,        // part des tentatives de tacle qui finissent en faute
-  xg: 0.35,           // échelle du modèle d'xG géométrique
+  xg: 0.48,           // échelle du modèle d'xG géométrique
   takeonW: 1.0,       // attrait du crochet / débordement
 };
 
@@ -209,19 +209,44 @@ export class LiveSim {
     const dirA = this.dir(poss);
     const ref = h || null;
     const rx = ref ? this.X(ref) : P.x, ry = ref ? this.Y(ref) : P.y;
-    // Défense : pressing du plus proche (portée selon la consigne), couverture du deuxième.
+    // Défense : le défenseur qui peut COUPER LA ROUTE du porteur presse (en priorité celui
+    // placé entre le porteur et le but), un deuxième couvre ; les défenseurs déjà dépassés
+    // se replient vers leur but au lieu de courir derrière le porteur.
     const pressRange = 14 + 11 * (LVL[D.tactics.pressing] + 1);
-    const defs = this.list(D.side).filter((p) => !p.gk && !busy.has(p))
-      .map((p) => ({ p, d: this.dist(p, rx, ry) })).sort((a, b) => a.d - b.d);
     const ownGoalX = this.goalX(poss); // but défendu par D = but attaqué par A
     const toG = Math.hypot(ownGoalX - rx, W / 2 - ry) || 1;
     const ux = (ownGoalX - rx) / toG, uy = (W / 2 - ry) / toG;
-    if (defs[0] && defs[0].d < pressRange) { const p = defs[0].p; p.tx = (rx + ux * 0.9) / L; p.ty = (ry + uy * 0.9) / W; p.role = 'press'; }
-    if (defs[1] && defs[1].d < pressRange + 8) { const p = defs[1].p; p.tx = (rx + ux * 6) / L; p.ty = (ry + uy * 6) / W; p.role = 'cover'; }
+    const hvx = h ? h.vx || 0 : P.vx, hvy = h ? h.vy || 0 : P.vy;
+    const cand = this.list(D.side).filter((p) => !p.gk && !busy.has(p)).map((p) => {
+      const px = this.X(p), py = this.Y(p);
+      // Point de rencontre : là où sera le porteur quand le défenseur y arrivera.
+      let t = 0;
+      for (let k = 0; k < 2; k++) t = Math.hypot(rx + hvx * t - px, ry + hvy * t - py) / 7.5;
+      const ix = rx + hvx * t, iy = ry + hvy * t;
+      // Côté but (entre le porteur et son but) ou déjà dépassé ?
+      const goalSide = ((px - rx) * ux + (py - ry) * uy) > -1;
+      return { p, t, ix, iy, goalSide, d: Math.hypot(px - rx, py - ry), cost: t * (goalSide ? 0.75 : 1.9) };
+    }).sort((a, b) => a.cost - b.cost);
+    const presser = cand.find((c) => c.d < pressRange);
+    if (presser) {
+      const p = presser.p;
+      p.tx = clamp(presser.ix + ux * 0.9, 0, L) / L; p.ty = clamp(presser.iy + uy * 0.9, 0, W) / W; p.role = 'press';
+    }
+    const cover = cand.find((c) => c !== presser && c.goalSide && c.d < pressRange + 10);
+    if (cover) { const p = cover.p; p.tx = (rx + ux * 7) / L; p.ty = (ry + uy * 7) / W; p.role = 'cover'; }
+    // Repli : dépassés, ils reviennent se placer entre le ballon et le but.
+    for (const c of cand) {
+      if (c === presser || c === cover || c.goalSide || c.d < 3) continue;
+      const k = Math.min(1, 10 / toG);
+      c.p.tx = clamp(rx + (ownGoalX - rx) * Math.max(k, 0.3), 1, L - 1) / L;
+      c.p.ty = clamp(c.p.ty * W + (W / 2 - c.p.ty * W) * 0.3, 2, W - 2) / W;
+      c.p.role = 'recover';
+    }
+    const defs = cand.filter((c) => !c.p.role).map((c) => ({ p: c.p, d: c.d }));
     // Marquage : dans sa moitié, chaque défenseur suit l'attaquant le plus proche de sa zone.
     const attackers = this.list(A.side).filter((p) => !p.gk && p !== h);
     const taken = new Set();
-    for (const { p } of defs.slice(2)) {
+    for (const { p } of defs) {
       const zx = p.tx * L, zy = p.ty * W;
       let best = null, bd = 9;
       for (const a of attackers) {
@@ -751,6 +776,9 @@ export class LiveSim {
     const h = this.holder;
     if (!h || this.inHands) return;
     const m = this.m, D = m.teams[1 - h.side];
+    // Un seul duel à la fois sur le porteur (pas de rafale de tacles).
+    this.duelCd = (this.duelCd || 0) - dt;
+    if (this.duelCd > 0) return;
     for (const o of this.list(D.side)) {
       if (o.gk && Math.abs(this.X(o) - this.goalX(h.side)) > 16) continue;
       o.cd -= dt;
@@ -758,6 +786,12 @@ export class LiveSim {
       const d = Math.hypot((o.x - h.x) * L, (o.y - h.y) * W);
       if (d > 1.4) continue;
       const press = LVL[D.tactics.pressing] || 0;
+      // Par derrière : on tente rarement (et c'est plus souvent faute).
+      const hs = Math.hypot(h.vx || 0, h.vy || 0);
+      const behind = hs > 1.5 && (((o.x - h.x) * L * (h.vx || 0) + (o.y - h.y) * W * (h.vy || 0)) / hs) < -0.6;
+      if (behind && this.rand() < 0.7) { o.cd = 0.6; continue; }
+      this.duelCd = 0.9 + this.rand() * 0.5;
+      o.tk = this.rand() < 0.35 ? 'slide' : 'stand';
       const to = h.carry?.takeon;
       if (to && to.def === o) {
         o.cd = 1.2;
@@ -782,7 +816,7 @@ export class LiveSim {
       const tk = TK[D.tactics.tackling] || 0;
       // Dans sa propre surface, un défenseur se retient (sinon c'est penalty).
       const ownBox = Math.abs(this.P.x - this.goalX(h.side)) < 16.5 && Math.abs(this.P.y - W / 2) < 20.15;
-      const foulP = TUNE.foulP * (m.profile.fouls || 1) * (1 + tk * 0.35) * ((h.speed || 0) > 5 ? 1.3 : 1) * (ownBox ? 0.07 : 1);
+      const foulP = TUNE.foulP * (m.profile.fouls || 1) * (1 + tk * 0.35) * ((h.speed || 0) > 5 ? 1.3 : 1) * (ownBox ? 0.07 : 1) * (behind ? 2.2 : 1);
       o.face = Math.atan2((h.y - o.y) * W, (h.x - o.x) * L);
       if (this.rand() < foulP) { this.foul(h, o, out); return; }
       const att = eff(h.mp, 'dri') * 0.75 + eff(h.mp, 'phy') * 0.25;
