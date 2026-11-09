@@ -139,7 +139,7 @@ export function migrate(s) {
 export function adoptState(s) {
   if (!s || !s.clubs || !s.players || !(s.version >= MIN_SAVE_VERSION && s.version <= SAVE_VERSION)) return null;
   migrate(s);
-  applyWorld(s.world || 'fictional');
+  applyWorld(s.world || 'fictional', s.worldDivs || (s.world === 'real' ? [1, 2, 3, 4, 5] : null));
   setNextId(s.nextId);
   return s;
 }

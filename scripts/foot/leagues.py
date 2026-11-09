@@ -1,4 +1,4 @@
-"""Clubs actuels des 5 grands championnats (modèles de navigation Wikipédia)."""
+"""Clubs actuels des 10 premiers championnats européens (modèles de navigation Wikipédia)."""
 import re, wiki
 
 LEAGUES = [
@@ -7,6 +7,12 @@ LEAGUES = [
     {'id': 'ITA1', 'size': 20, 'name': 'Serie A', 'country': 'Italie', 'templates': ['Template:Serie A']},
     {'id': 'GER1', 'size': 18, 'name': 'Bundesliga', 'country': 'Allemagne', 'templates': ['Template:Bundesliga']},
     {'id': 'FRA1', 'size': 18, 'name': 'Ligue 1', 'country': 'France', 'templates': ['Template:Ligue 1']},
+    # Championnats 6 à 10 (classement UEFA des pays).
+    {'id': 'POR1', 'size': 18, 'name': 'Liga Portugal', 'country': 'Portugal', 'templates': ['Template:Primeira Liga']},
+    {'id': 'NED1', 'size': 18, 'name': 'Eredivisie', 'country': 'Pays-Bas', 'templates': ['Template:Eredivisie']},
+    {'id': 'BEL1', 'size': 18, 'name': 'Pro League', 'country': 'Belgique', 'templates': ['Template:Belgian Pro League']},
+    {'id': 'TUR1', 'size': 18, 'name': 'Süper Lig', 'country': 'Turquie', 'templates': ['Template:Süper Lig']},
+    {'id': 'CZE1', 'size': 16, 'name': 'Chance Liga', 'country': 'Tchéquie', 'templates': ['Template:Czech First League']},
 ]
 LINK = re.compile(r'\[\[([^\]|#]+)(?:\|[^\]]*)?\]\]')
 
@@ -23,6 +29,17 @@ def current_clubs(text, season='2026–27'):
     block = text[start:start + (end.start() if end else 3000)]
     return [l.strip() for l in LINK.findall(block) if not l.strip().startswith(('File:', 'Image:'))]
 
+def clubs_group(text, season='2026–27'):
+    """Variante : un groupe du navbox dont l'étiquette contient la saison (« 2026–27 clubs »)."""
+    for m in re.finditer(r'\|\s*group\d+\s*=[^\n]*' + re.escape(season) + r'[^\n]*\n\s*\|\s*list\d+\s*=', text):
+        start = m.end()
+        end = re.search(r'\n\s*\|\s*(group|list|below|state)\w*\s*=|\n\}\}', text[start:])
+        block = text[start:start + (end.start() if end else 3000)]
+        clubs = [l.strip() for l in LINK.findall(block) if not l.strip().startswith(('File:', 'Image:'))]
+        if len(clubs) >= 10:
+            return clubs
+    return []
+
 def all_leagues():
     for lg in LEAGUES:
         got = wiki.wikitexts(lg['templates'])
@@ -30,6 +47,9 @@ def all_leagues():
             if t in got:
                 clubs = current_clubs(got[t][1])
                 clubs = [c for c in clubs if not re.match(r'^\d{4}', c)][:lg['size']]
+                if len(clubs) < lg['size'] - 2:
+                    alt = [c for c in clubs_group(got[t][1]) if not re.match(r'^\d{4}', c)][:lg['size']]
+                    if len(alt) > len(clubs): clubs = alt
                 if clubs:
                     lg['clubs'] = clubs
                     break

@@ -34,6 +34,11 @@ const COUNTRY_WEIGHTS = {
   ESP: { fr: 5, waf: 7, ibe: 50, bra: 16, bal: 5, mag: 6, nor: 4, ita: 5, eng: 2 },
   ITA: { fr: 5, waf: 8, ibe: 6, bra: 10, bal: 10, mag: 4, nor: 5, ita: 50, eng: 2 },
   GER: { fr: 6, waf: 9, ibe: 4, bra: 5, bal: 14, mag: 6, nor: 50, ita: 3, eng: 3 },
+  POR: { fr: 4, waf: 10, ibe: 50, bra: 25, bal: 4, mag: 3, nor: 3, ita: 2, eng: 1 },
+  NED: { fr: 4, waf: 10, ibe: 4, bra: 5, bal: 6, mag: 12, nor: 55, ita: 2, eng: 3 },
+  BEL: { fr: 30, waf: 14, ibe: 4, bra: 4, bal: 6, mag: 10, nor: 30, ita: 3, eng: 2 },
+  TUR: { fr: 3, waf: 8, ibe: 4, bra: 8, bal: 30, mag: 30, nor: 6, ita: 3, eng: 2 },
+  CZE: { fr: 2, waf: 6, ibe: 2, bra: 3, bal: 55, mag: 2, nor: 25, ita: 2, eng: 2 },
 };
 
 /** Retourne { first, last, nat } crédible pour un club du pays donné. */

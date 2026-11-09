@@ -4,7 +4,7 @@
  * Pensez à incrémenter VERSION à chaque livraison.
  */
 const IMG_CACHE = 'cdp-img';
-const VERSION = 'cdp-v20';
+const VERSION = 'cdp-v21';
 const ASSETS = [
   './',
   './css/style.css',

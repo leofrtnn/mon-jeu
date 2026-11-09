@@ -44,7 +44,9 @@ const CONTI_PRIZES = { win: 500000, draw: 250000, ko: [2_000_000, 3_000_000, 6_0
 /** Nouveau monde (avant le choix du club). */
 export function newGame(seed = (Date.now() >>> 0), { real = null } = {}) {
   const rng = createRng(seed);
-  applyWorld(real ? 'real' : 'fictional');
+  // Monde réel : seulement les championnats présents dans les données.
+  const divs = real ? REAL_DIVS(real) : null;
+  applyWorld(real ? 'real' : 'fictional', divs);
   const world = real ? createRealWorld(rng, real) : createWorld(rng);
   if (real) setNextId(world.nextId);
   world.clubs.forEach(initClubExtras);
@@ -54,7 +56,7 @@ export function newGame(seed = (Date.now() >>> 0), { real = null } = {}) {
     messages: [], pendingOffers: [], history: [], settings: { var: true, speed: 1, replays: true, audio: true },
     board: { confidence: 60 }, lastResult: null, seasonOver: false,
     coach: null, scout: {}, scoutQueue: [], nations: {}, lastFinal: null, friends: { teams: [] }, news: [],
-    world: real ? 'real' : 'fictional', dataSeason: real?.season || null,
+    world: real ? 'real' : 'fictional', worldDivs: divs, dataSeason: real?.season || null,
   };
   ensureManagers(state);
   // Monde réel : les vrais entraîneurs prennent place sur les bancs.
@@ -105,6 +107,10 @@ export function roundRobin(ids, rng) {
   const back = rounds.map((rd) => rd.map((f) => ({ h: f.a, a: f.h, s: null })));
   return [...rounds, ...back];
 }
+
+/** Divisions du monde réel couvertes par les données (identifiants de championnat → divisions). */
+const REAL_SOURCES = { ENG1: 1, ESP1: 2, ITA1: 3, GER1: 4, FRA1: 5, POR1: 6, NED1: 7, BEL1: 8, TUR1: 9, CZE1: 10 };
+const REAL_DIVS = (data) => [...new Set(data.clubs.map((c) => REAL_SOURCES[c.league]).filter(Boolean))].sort((a, b) => a - b);
 
 const clubsOfDiv = (state, div) => state.clubs.filter((c) => c.div === div);
 

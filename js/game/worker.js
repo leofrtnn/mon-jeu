@@ -9,7 +9,7 @@ import { applyWorld } from '../data/world.js';
 self.onmessage = (e) => {
   const { id, state, n, stopAtUserMatch } = e.data;
   try {
-    applyWorld(state.world || 'fictional');
+    applyWorld(state.world || 'fictional', state.worldDivs || (state.world === 'real' ? [1, 2, 3, 4, 5] : null));
     setNextId(state.nextId);
     const reports = [];
     for (let i = 0; i < n && !state.seasonOver; i++) {

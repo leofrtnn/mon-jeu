@@ -1,5 +1,5 @@
 """
-Construit data/foot5/foot5.json : clubs et joueurs des 5 grands championnats (saison en cours).
+Construit data/foot5/foot5.json : clubs et joueurs des 10 premiers championnats européens (saison en cours).
 
 Sources : Wikipédia en anglais (modèles de navigation des ligues, pages des clubs,
 infobox des joueurs). Les logos et photos ne sont PAS copiés : le fichier contient
@@ -209,7 +209,7 @@ def build():
     coaches = build_coaches(clubs, manager_titles)
     out = {
         'meta': {
-            'title': 'Big 5 — clubs et joueurs', 'season': '2026–27', 'generated': TODAY.isoformat(),
+            'title': 'Top 10 européen — clubs et joueurs', 'season': '2026–27', 'generated': TODAY.isoformat(),
             'counts': {'leagues': len(data_leagues), 'clubs': len(clubs), 'players': len(players), 'coaches': len(coaches)},
             'sources': 'Wikipédia en anglais (texte sous licence CC BY-SA 4.0), Wikidata (CC0). Données extraites automatiquement : peuvent contenir des erreurs.',
             'images': "Logos et photos non inclus : les champs 'url' pointent vers les fichiers hébergés par Wikipédia/Wikimedia Commons, chacun soumis à ses propres droits (les logos sont des marques déposées).",

@@ -37,7 +37,7 @@ export function render(app) {
       <h1>Coach<br><em>de Poche</em></h1>
       <p>Le manager de foot qui tient dans une main.</p>
       <p class="muted" style="font-size:11px">Version ${APP_VERSION}</p>
-      <p class="muted" style="font-size:12px">Monde réel (5 grands championnats) ou monde fictif · coupes nationales et continentale</p>
+      <p class="muted" style="font-size:12px">Les 10 premiers championnats européens · vrais clubs, joueurs et entraîneurs · coupes nationales et continentale</p>
     </div><div>
     ${legacySave() ? `<div class="card"><small>Une sauvegarde d'une ancienne version a été trouvée : elle n'est pas compatible avec le nouveau monde (3 pays, 80 clubs).</small>
       <button class="btn sm block" style="margin-top:8px" data-act="droplegacy">Supprimer l'ancienne sauvegarde</button></div>` : ''}
@@ -94,25 +94,15 @@ export const actions = {
     if (!s) { app.toast('Sauvegarde illisible ou d\'une version incompatible.'); return; }
     enter(app, n, s);
   },
-  new(el, app) {
+  /** Nouvelle partie : toujours le monde réel (10 championnats européens). */
+  async new(el, app) {
     const slot = +el.dataset.v;
-    const h = app.sheet({
-      html: `<h2>Quel monde ?</h2>
-        <button class="world-btn on" data-act="real"><b>🌍 Monde réel</b><small>Premier League, LaLiga, Serie A, Bundesliga, Ligue 1 : vrais clubs, joueurs et entraîneurs (saison 2026-27)</small></button>
-        <button class="world-btn" data-act="fict"><b>✨ Monde fictif</b><small>80 clubs inventés, 3 pays, montées et descentes</small></button>`,
-      actions: {
-        real: async () => {
-          h.close();
-          busy(true, 'Chargement des championnats…');
-          try {
-            const data = await loadRealData();
-            startNew(app, slot, newGame((Date.now() ^ (Math.random() * 1e9)) >>> 0, { real: data }));
-          } catch (e) { app.toast('Impossible de charger les données réelles (connexion ?).', 4000); }
-          finally { busy(false); }
-        },
-        fict: () => { h.close(); startNew(app, slot, newGame((Date.now() ^ (Math.random() * 1e9)) >>> 0)); },
-      },
-    });
+    busy(true, 'Chargement des championnats…');
+    try {
+      const data = await loadRealData();
+      startNew(app, slot, newGame((Date.now() ^ (Math.random() * 1e9)) >>> 0, { real: data }));
+    } catch (e) { app.toast('Impossible de charger les championnats (vérifiez la connexion).', 4000); }
+    finally { busy(false); }
   },
   async delete(el, app) {
     const n = +el.dataset.v;

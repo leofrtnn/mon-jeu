@@ -279,14 +279,18 @@ test('intégration : une journée réelle crée l\'interview et fait vivre les s
   assert.ok(clubById(s, s.userClubId).owner);
 });
 
-test('monde réel : 5 championnats, vrais clubs et joueurs, 34 ou 38 journées', async () => {
+test('monde réel : 10 championnats, vrais clubs et joueurs, 30 à 38 journées', async () => {
   const { loadRealData } = await import('../js/data/realWorld.js');
   const { DIVISIONS, DIV_IDS, applyWorld } = await import('../js/data/world.js');
   const { leagueRoundOf } = await import('../js/game/season.js');
   const s = newGame(11, { real: await loadRealData() });
   assert.equal(s.world, 'real');
-  assert.equal(DIV_IDS.length, 5);
-  assert.deepEqual(DIV_IDS.map((d) => s.clubs.filter((c) => c.div === d).length), [20, 20, 20, 18, 18]);
+  const sizes = [20, 20, 20, 18, 18, 18, 18, 18, 18, 16];
+  assert.ok(DIV_IDS.length === 5 || DIV_IDS.length === 10, `${DIV_IDS.length} championnats`);
+  assert.deepEqual(DIV_IDS.map((d) => s.clubs.filter((c) => c.div === d).length), sizes.slice(0, DIV_IDS.length));
+  const { CONTI_SLOTS } = await import('../js/data/world.js');
+  assert.equal(Object.values(CONTI_SLOTS).reduce((a, n) => a + n, 0), 16, '16 qualifiés continentaux');
+  if (DIV_IDS.length === 10) assert.ok(['Benfica', 'Ajax', 'Galatasaray', 'Club Brugge', 'Slavia'].every((k) => s.clubs.some((c) => c.name.includes(k))), 'grands clubs des championnats 6 à 10');
   assert.ok(s.clubs.some((c) => c.name === 'Paris Saint-Germain'));
   assert.ok(Object.values(s.players).some((p) => p.last === 'Mbappé' || p.last === 'Bellingham'));
   // 18 clubs : 34 journées réparties sur les 38 créneaux.
