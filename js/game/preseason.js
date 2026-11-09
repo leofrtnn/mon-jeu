@@ -30,7 +30,7 @@ export function startPreseason(state) {
 function ladder(state) {
   const lvl = DIVISIONS[userClub(state).div].level;
   const L = LADDERS[lvl].slice();
-  if (userClub(state).div !== 1 && lvl === 1) L[L.length - 1] = [15, 'Finir dans le top 15'];
+  if (!DIVISIONS[userClub(state).div].down && lvl === 1) L[L.length - 1] = [15, 'Finir dans le top 15'];
   return L;
 }
 

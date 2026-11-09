@@ -14,6 +14,7 @@ import { sellPolicy, relationsAfterTransfer, loanAllowed, relAdd, squadOveralls 
 import { agentDemands, paySellOn, hypeMult } from './agents.js';
 import { favouriteLeaves } from './fans.js';
 import { BAL } from '../data/balance.js';
+import { DIVISIONS } from '../data/world.js';
 
 export const MAX_SQUAD = 32;
 const MIN_SQUAD = 20;
@@ -462,7 +463,7 @@ export function playerInterest(state, p, buyer) {
   const star = buyer.id === state.userClubId && (state.coach?.rep ?? 0) >= 70;
   if (gap > 20 && !star) return { ok: false, reason: `${p.name} ne souhaite pas rejoindre un club de ce standing.` };
   if (gap > 8 && (key || amb >= 14) && !star) return { ok: false, reason: `${p.name} (ambitieux, titulaire à ${from.short}) refuse de descendre d'un cran.` };
-  if (p.age >= 32 && buyer.div === 2 && amb >= 10) return { ok: false, reason: `${p.name} veut finir sa carrière au plus haut niveau.` };
+  if (p.age >= 32 && (DIVISIONS[buyer.div]?.level ?? 1) > 1 && amb >= 10) return { ok: false, reason: `${p.name} veut finir sa carrière au plus haut niveau.` };
   return { ok: true };
 }
 

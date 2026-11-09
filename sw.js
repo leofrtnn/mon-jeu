@@ -3,10 +3,11 @@
  * Stratégie : cache d'abord, puis réseau (et mise à jour du cache en arrière-plan).
  * Pensez à incrémenter VERSION à chaque livraison.
  */
-const VERSION = 'cdp-v12';
+const VERSION = 'cdp-v14';
 const ASSETS = [
   './',
   './css/style.css',
+  './data/real-world.json',
   './icons/icon-192.png',
   './icons/icon-512.png',
   './icons/icon.svg',
@@ -17,6 +18,7 @@ const ASSETS = [
   './js/data/generator.js',
   './js/data/names.js',
   './js/data/pressTexts.js',
+  './js/data/realWorld.js',
   './js/data/world.js',
   './js/engine/ai.js',
   './js/engine/commentary.js',

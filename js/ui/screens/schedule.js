@@ -10,6 +10,7 @@ import { changeClub } from '../../game/season.js';
 import { PHILOSOPHIES, randomLook, coachName } from '../../game/coach.js';
 import { avatarSvg } from '../avatar.js';
 import { createRng, hashSeed } from '../../core/rng.js';
+import { CONTI_SLOTS } from '../../data/world.js';
 
 export function render(app) {
   const s = app.state;
@@ -32,7 +33,9 @@ export function render(app) {
 
 function table(s, div, uc) {
   const rows = sortedTable(s, div);
-  const zone = (i) => (div === 1 ? (i < 4 ? 'zone-eu' : i >= 17 ? 'zone-down' : '') : div === 2 ? (i < 3 ? 'zone-up' : '') : (i < 5 ? 'zone-eu' : ''));
+  const D = DIVISIONS[div];
+  const nEu = CONTI_SLOTS[div] || 0, nDown = D.down || 0, nUp = D.up || 0;
+  const zone = (i) => (i < nUp ? 'zone-up' : i < nEu ? 'zone-eu' : nDown && i >= rows.length - nDown ? 'zone-down' : '');
   return `<div class="card" style="padding:6px 8px"><div class="label" style="margin-top:4px">${esc(DIVISIONS[div].name)}</div><table class="tbl">
     <thead><tr><th class="l">#</th><th class="l">Club</th><th>J</th><th>Diff</th><th>Pts</th><th>Forme</th></tr></thead>
     <tbody>${rows.map((r, i) => `<tr class="${r.id === uc.id ? 'me' : ''}" data-act="clubinfo" data-id="${r.id}" style="cursor:pointer">
@@ -41,7 +44,7 @@ function table(s, div, uc) {
       <td>${r.p}</td><td>${r.gd > 0 ? '+' : ''}${r.gd}</td><td><b>${r.pts}</b></td>
       <td>${r.form.slice(-3).map((f) => `<span class="dot" style="width:7px;height:7px;margin-left:2px;background:${f === 'V' ? 'var(--good)' : f === 'N' ? '#8b949e' : 'var(--bad)'}"></span>`).join('')}</td>
     </tr>`).join('')}</tbody></table>
-    <p class="muted" style="font-size:11px;margin:8px 4px 2px">${div === 1 ? `<span style="color:var(--info)">▌</span> ${CONTI_NAME} · <span style="color:var(--bad)">▌</span> Relégation` : div === 2 ? '<span style="color:var(--good)">▌</span> Promotion' : `<span style="color:var(--info)">▌</span> ${CONTI_NAME}`}</p></div>`;
+    <p class="muted" style="font-size:11px;margin:8px 4px 2px">${[nUp ? '<span style="color:var(--good)">▌</span> Promotion' : '', nEu ? `<span style="color:var(--info)">▌</span> ${CONTI_NAME}` : '', nDown ? '<span style="color:var(--bad)">▌</span> Relégation' : ''].filter(Boolean).join(' · ')}</p></div>`;
 }
 
 /** Tous les matchs du club de l'utilisateur, toutes compétitions. */

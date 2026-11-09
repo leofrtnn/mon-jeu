@@ -13,6 +13,8 @@ import { openCoachEditor } from './coachEditor.js';
 import { PHILOSOPHIES } from '../../game/coach.js';
 import { autoLineup } from '../../engine/ratings.js';
 import { userClub } from '../../game/state.js';
+import { loadRealData } from '../../data/realWorld.js';
+import { busy } from '../sim.js';
 
 /** Applique la philosophie et la formation préférée du coach à son club. */
 export function applyPhilosophy(state) {
@@ -33,7 +35,7 @@ export function render(app) {
       <svg class="logo-ball" viewBox="0 0 100 100"><circle cx="50" cy="50" r="46" fill="#e6edf3"/><path d="M50 22l15 11-6 18H41l-6-18z" fill="#0d1117"/><path d="M50 4v18M65 33l26-6M59 51l14 22M41 51 27 73M35 33 9 27" stroke="#0d1117" stroke-width="4"/></svg>
       <h1>Coach<br><em>de Poche</em></h1>
       <p>Le manager de foot qui tient dans une main.</p>
-      <p class="muted" style="font-size:12px">80 clubs · 3 pays · 4 championnats · coupes nationales et continentale</p>
+      <p class="muted" style="font-size:12px">Monde réel (5 grands championnats) ou monde fictif · coupes nationales et continentale</p>
     </div><div>
     ${legacySave() ? `<div class="card"><small>Une sauvegarde d'une ancienne version a été trouvée : elle n'est pas compatible avec le nouveau monde (3 pays, 80 clubs).</small>
       <button class="btn sm block" style="margin-top:8px" data-act="droplegacy">Supprimer l'ancienne sauvegarde</button></div>` : ''}
@@ -66,6 +68,14 @@ export function render(app) {
     <button class="btn ghost block" data-act="back">Retour</button>`;
 }
 
+function startNew(app, slot, state) {
+  app.ui.start.slot = slot;
+  app.state = state;
+  app.ui.start.step = 'pick';
+  app.ui.start.div = DIV_IDS[0];
+  app.render();
+}
+
 function enter(app, slot, state) {
   setSlot(slot);
   try { localStorage.setItem('cdp-last', String(slot)); } catch { /* ignore */ }
@@ -82,10 +92,24 @@ export const actions = {
     enter(app, n, s);
   },
   new(el, app) {
-    app.ui.start.slot = +el.dataset.v;
-    app.state = newGame((Date.now() ^ (Math.random() * 1e9)) >>> 0);
-    app.ui.start.step = 'pick';
-    app.render();
+    const slot = +el.dataset.v;
+    const h = app.sheet({
+      html: `<h2>Quel monde ?</h2>
+        <button class="world-btn on" data-act="real"><b>🌍 Monde réel</b><small>Premier League, LaLiga, Serie A, Bundesliga, Ligue 1 : vrais clubs, joueurs et entraîneurs (saison 2026-27)</small></button>
+        <button class="world-btn" data-act="fict"><b>✨ Monde fictif</b><small>80 clubs inventés, 3 pays, montées et descentes</small></button>`,
+      actions: {
+        real: async () => {
+          h.close();
+          busy(true, 'Chargement des championnats…');
+          try {
+            const data = await loadRealData();
+            startNew(app, slot, newGame((Date.now() ^ (Math.random() * 1e9)) >>> 0, { real: data }));
+          } catch (e) { app.toast('Impossible de charger les données réelles (connexion ?).', 4000); }
+          finally { busy(false); }
+        },
+        fict: () => { h.close(); startNew(app, slot, newGame((Date.now() ^ (Math.random() * 1e9)) >>> 0)); },
+      },
+    });
   },
   async delete(el, app) {
     const n = +el.dataset.v;
@@ -106,6 +130,7 @@ export const actions = {
   droplegacy(el, app) { dropLegacy(); app.render(); },
   div(el, app) { app.ui.start.div = +el.dataset.v; app.render(); },
   back(el, app) { app.ui.start.step = 'menu'; app.state = null; app.render(); },
+
   async pick(el, app) {
     const c = app.state.clubs.find((x) => x.id === +el.dataset.id);
     if (!(await app.confirm(c.name, `Prendre les rênes de <b>${esc(c.name)}</b> ?`, "C'est parti !"))) return;

@@ -506,3 +506,6 @@ textarea { width: 100%; min-height: 90px; border-radius: 12px; border: 1px solid
 .dl-item .btns { margin-top: 6px; }
 @keyframes dlin { from { opacity: 0; transform: translateY(-6px); } }
 @media (max-width: 420px) { .press-grid { grid-template-columns: 1fr; } }
+.world-btn { display: block; width: 100%; text-align: left; padding: 14px 16px; margin-top: 10px; border-radius: 16px; border: 1px solid var(--line); background: var(--card2); color: inherit; cursor: pointer; font: inherit; }
+.world-btn.on { border-color: color-mix(in srgb, var(--accent) 60%, transparent); background: color-mix(in srgb, var(--accent) 14%, var(--card2)); }
+.world-btn b { font-size: 17px; display: block; } .world-btn small { display: block; color: var(--muted); margin-top: 4px; line-height: 1.3; }

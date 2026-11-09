@@ -6,7 +6,7 @@ import { readdirSync, statSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const walk = (d) => readdirSync(d).flatMap((f) => (statSync(join(d, f)).isDirectory() ? walk(join(d, f)) : [join(d, f)]));
-const files = ['index.html', 'manifest.webmanifest', ...['css', 'js', 'icons'].flatMap(walk)].sort();
+const files = ['index.html', 'manifest.webmanifest', 'data/real-world.json', ...['css', 'js', 'icons'].flatMap(walk)].sort();
 const sw = readFileSync('sw.js', 'utf8');
 const list = ["  './',", ...files.map((f) => `  './${f}',`)].join('\n');
 const out = sw.replace(/const ASSETS = \[[\s\S]*?\];/, `const ASSETS = [\n${list}\n];`)

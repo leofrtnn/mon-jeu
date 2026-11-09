@@ -278,3 +278,23 @@ test('intégration : une journée réelle crée l\'interview et fait vivre les s
   assert.ok(pers(clubPlayers(s, userClub(s))[0]));
   assert.ok(clubById(s, s.userClubId).owner);
 });
+
+test('monde réel : 5 championnats, vrais clubs et joueurs, 34 ou 38 journées', async () => {
+  const { loadRealData } = await import('../js/data/realWorld.js');
+  const { DIVISIONS, DIV_IDS, applyWorld } = await import('../js/data/world.js');
+  const { leagueRoundOf } = await import('../js/game/season.js');
+  const s = newGame(11, { real: await loadRealData() });
+  assert.equal(s.world, 'real');
+  assert.equal(DIV_IDS.length, 5);
+  assert.deepEqual(DIV_IDS.map((d) => s.clubs.filter((c) => c.div === d).length), [20, 20, 20, 18, 18]);
+  assert.ok(s.clubs.some((c) => c.name === 'Paris Saint-Germain'));
+  assert.ok(Object.values(s.players).some((p) => p.last === 'Mbappé' || p.last === 'Bellingham'));
+  // 18 clubs : 34 journées réparties sur les 38 créneaux.
+  let n = 0; for (let r = 0; r < 38; r++) if (leagueRoundOf(34, r) != null) n++;
+  assert.equal(n, 34);
+  startCareer(s, s.clubs.find((c) => c.div === 5).id);
+  s.preseason.active = false;
+  for (let i = 0; i < 3; i++) completeDay(s);
+  assert.ok(DIVISIONS[5].name === 'Ligue 1');
+  applyWorld('fictional');
+});

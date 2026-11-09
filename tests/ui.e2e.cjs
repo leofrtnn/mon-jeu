@@ -41,7 +41,9 @@ function serve() {
   try {
     await page.goto(base);
     await page.click('[data-act=new][data-v="1"]');
-    await page.click('[data-act=div][data-v="3"]');
+    await page.click('.sheet [data-act=real]');
+    await page.waitForSelector('[data-act=div][data-v="5"]');
+    await page.click('[data-act=div][data-v="5"]');
     await page.click('.prow[data-act=pick] >> nth=3');
     await page.click('[data-act=yes]');
     // Création du coach : apparence, compétences, puis validation.
@@ -64,7 +66,7 @@ function serve() {
     const coach = await page.evaluate(() => window.__app.state.coach);
     assert.equal(coach.skills.tactics, 11);
     assert.ok(coach.created);
-    step('partie créée (Liga Ibérica) + coach personnalisé + préparation (réunion CA, amical)');
+    step('partie créée (monde réel, Ligue 1) + coach personnalisé + préparation (réunion CA, amical)');
 
     for (const tab of ['squad', 'tactics', 'schedule', 'club', 'home']) {
       await page.click(`[data-tab=${tab}]`);

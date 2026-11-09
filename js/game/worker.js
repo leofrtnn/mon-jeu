@@ -4,10 +4,12 @@
  */
 import { completeDay, today } from './season.js';
 import { setNextId, getNextId } from '../data/generator.js';
+import { applyWorld } from '../data/world.js';
 
 self.onmessage = (e) => {
   const { id, state, n, stopAtUserMatch } = e.data;
   try {
+    applyWorld(state.world || 'fictional');
     setNextId(state.nextId);
     const reports = [];
     for (let i = 0; i < n && !state.seasonOver; i++) {

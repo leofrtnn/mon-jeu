@@ -1,6 +1,7 @@
 /**
  * Génération procédurale du monde : joueurs, clubs, divisions.
  */
+import { COUNTRIES } from './world.js';
 import { POSITION_WEIGHTS, ATTRS, FORMATIONS, DEFAULT_TACTICS } from './constants.js';
 import { randomName, CITIES, CITIES_IBE, CITIES_ALB, clubNameFor, CLUB_COLORS } from './names.js';
 import { DIVISIONS } from './world.js';
@@ -146,7 +147,7 @@ export function createWorld(rng) {
   const freeAgents = [];
   for (let k = 0; k < 50; k++) {
     const pos = rng.pick(['GB', 'DC', 'DC', 'DG', 'DD', 'MDC', 'MC', 'MC', 'MO', 'AG', 'AD', 'BU', 'BU']);
-    const p = createPlayer(rng, { pos, level: rng.int(50, 68), age: rng.int(19, 34), country: rng.pick(['FRA', 'IBE', 'ALB']) });
+    const p = createPlayer(rng, { pos, level: rng.int(50, 68), age: rng.int(19, 34), country: rng.pick(Object.keys(COUNTRIES)) });
     p.contract = 0;
     players[p.id] = p;
     freeAgents.push(p.id);

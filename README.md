@@ -40,6 +40,12 @@ Chaque championnat a son propre profil : style plus technique en Ibérie, plus p
 ## Fonctionnalités
 
 ### Monde
+- **Monde réel** (au choix en début de partie) : les 5 grands championnats, avec leur vrai format.
+  - Premier League, LaLiga et Serie A à 20 clubs (38 journées) ; Bundesliga et Ligue 1 à 18 clubs (34 journées).
+  - Vrais clubs, joueurs (noms, postes, âges, nationalités, numéros, sélections) et entraîneurs de la saison 2026-27.
+  - FA Cup, Copa del Rey, Coppa Italia, DFB-Pokal, Coupe de France ; qualifiés pour la coupe continentale : 4/4/3/3/2.
+  - Les notes des joueurs sont estimées par le jeu (niveau du club, statut international, âge). Pas de relégation : les données ne contiennent que l'élite.
+  - Données : `data/real-world.json`, généré depuis `data/foot5/foot5.json` par `scripts/foot/build_game_world.py`.
 - **80 clubs fictifs, 3 pays, 4 championnats** : France D1/D2 (promotions et relégations), Liga Ibérica, Albion Premier.
 - **Compétitions** : une coupe nationale par pays et une coupe continentale, la *Ligue des Étoiles* (4 groupes, puis quarts, demies et finale).
 - **Sélections nationales** : nationalités, 3 trêves internationales, classement Elo, capes. Les internationaux reviennent fatigués, et parfois blessés.

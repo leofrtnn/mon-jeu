@@ -2,6 +2,7 @@
  * CARRIÈRE LONGUE : réputation du coach, offres d'emploi, staff,
  * installations (centre d'entraînement, stade) et plan d'entraînement.
  */
+import { COUNTRIES } from '../data/world.js';
 import { clamp } from '../core/rng.js';
 import { userClub, clubById, pushMessage, gameRng } from './state.js';
 import { randomName } from '../data/names.js';
@@ -63,7 +64,7 @@ export const staffWageFor = (r) => Math.round(600 * Math.pow(1.17, r) / 100) * 1
 
 let staffSeq = 0;
 function makeStaff(rng, role, rating) {
-  const { first, last, nat } = randomName(rng, rng.pick(['FRA', 'IBE', 'ALB']));
+  const { first, last, nat } = randomName(rng, rng.pick(Object.keys(COUNTRIES)));
   const r = clamp(Math.round(rating), 1, 20);
   return { id: `S${Date.now().toString(36)}${(staffSeq++).toString(36)}${rng.int(0, 999)}`, role, first, last, name: `${first[0]}. ${last}`, nat,
     age: rng.int(28, 64), rating: r, wage: staffWageFor(r), contract: rng.int(1, 3) };

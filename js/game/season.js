@@ -4,8 +4,9 @@
  * fin de saison (promotions/relégations, palmarès, évolution).
  */
 import { createRng, hashSeed, clamp } from '../core/rng.js';
-import { createWorld, createYouth, getNextId, assignNumbers } from '../data/generator.js';
-import { DIVISIONS, DIV_IDS, COUNTRIES, CONTI_SLOTS, CONTI_NAME } from '../data/world.js';
+import { createWorld, createYouth, getNextId, setNextId, assignNumbers } from '../data/generator.js';
+import { createRealWorld } from '../data/realWorld.js';
+import { DIVISIONS, DIV_IDS, COUNTRIES, CONTI_SLOTS, CONTI_NAME, DIV_NAMES, applyWorld } from '../data/world.js';
 import { NATION_COLORS } from '../data/names.js';
 import { autoLineup, isAvailable, overall, squadStrength, ratingAt } from '../engine/ratings.js';
 import { aiPrepare } from '../engine/ai.js';
@@ -35,16 +36,17 @@ export const CONTI_ROUND_NAMES = ['Groupes · J1', 'Groupes · J2', 'Groupes · 
 const CUP_AFTER = [5, 12, 20, 28, 34];
 const CONTI_AFTER = [3, 9, 15, 23, 30, 36];
 const INTL_AFTER = [8, 18, 27];
-export const DIV_NAMES = Object.fromEntries(DIV_IDS.map((d) => [d, DIVISIONS[d].name]));
 const CONTI_GROUP_PAIRS = [[[0, 1], [2, 3]], [[0, 2], [1, 3]], [[0, 3], [1, 2]]];
 const CONTI_PRIZES = { win: 500000, draw: 250000, ko: [2_000_000, 3_000_000, 6_000_000] };
 
 /* ---------------- Création ---------------- */
 
 /** Nouveau monde (avant le choix du club). */
-export function newGame(seed = (Date.now() >>> 0)) {
+export function newGame(seed = (Date.now() >>> 0), { real = null } = {}) {
   const rng = createRng(seed);
-  const world = createWorld(rng);
+  applyWorld(real ? 'real' : 'fictional');
+  const world = real ? createRealWorld(rng, real) : createWorld(rng);
+  if (real) setNextId(world.nextId);
   world.clubs.forEach(initClubExtras);
   const state = {
     version: SAVE_VERSION, seed, season: 2026, day: 0, userClubId: null, rngState: rng.getState(),
@@ -52,8 +54,19 @@ export function newGame(seed = (Date.now() >>> 0)) {
     messages: [], pendingOffers: [], history: [], settings: { var: true, speed: 1, replays: true, audio: true },
     board: { confidence: 60 }, lastResult: null, seasonOver: false,
     coach: null, scout: {}, scoutQueue: [], nations: {}, lastFinal: null, friends: { teams: [] }, news: [],
+    world: real ? 'real' : 'fictional', dataSeason: real?.season || null,
   };
   ensureManagers(state);
+  // Monde réel : les vrais entraîneurs prennent place sur les bancs.
+  for (const co of world.coaches || []) {
+    const m = state.managers[clubById(state, co.clubId)?.managerId];
+    if (!m || !co.name) continue;
+    const parts = co.name.split(' ');
+    m.first = parts.length > 1 ? parts[0] : ''; m.last = parts.length > 1 ? parts.slice(1).join(' ') : parts[0];
+    m.name = m.first ? `${m.first[0]}. ${m.last}` : m.last; m.fullName = co.name;
+    if (co.nat) m.nat = co.nat;
+    if (co.age) m.age = co.age;
+  }
   return state;
 }
 
@@ -95,6 +108,17 @@ export function roundRobin(ids, rng) {
 
 const clubsOfDiv = (state, div) => state.clubs.filter((c) => c.div === div);
 
+/**
+ * Journée de championnat jouée par une division au créneau r (0-37) du calendrier.
+ * Les championnats à 18 clubs (34 journées) sautent 4 créneaux, répartis sur la saison.
+ */
+export function leagueRoundOf(nRounds, r) {
+  if (nRounds >= 38) return r < nRounds ? r : null;
+  const idx = Math.floor(r * nRounds / 38);
+  const prev = r > 0 ? Math.floor((r - 1) * nRounds / 38) : -1;
+  return idx !== prev ? idx : null;
+}
+
 export function createSeason(state) {
   const rng = gameRng(state);
   state.fixtures = {};
@@ -120,7 +144,7 @@ export function createSeason(state) {
   state.cups = {};
   for (const country of Object.keys(COUNTRIES)) {
     const clubs = state.clubs.filter((c) => c.country === country).sort((a, b) => (DIVISIONS[a.div].level - DIVISIONS[b.div].level) || b.rep - a.rep);
-    const n = country === 'FRA' ? 32 : 16;
+    const n = Math.min(32, Math.pow(2, Math.floor(Math.log2(Math.max(2, clubs.length))))); // 32 ou 16 clubs selon le pays
     state.cups[country] = { name: COUNTRIES[country].cup, alive: clubs.slice(0, n).map((c) => c.id), rounds: [], nRounds: Math.log2(n), winner: null };
   }
   createConti(state, rng);
@@ -164,13 +188,15 @@ export function setObjectives(state) {
   const divClubs = clubsOfDiv(state, club.div)
     .map((c) => ({ c, s: squadStrength(clubPlayers(state, c)) })).sort((a, b) => b.s - a.s);
   const expected = divClubs.findIndex((x) => x.c.id === club.id) + 1;
-  const hasRelegation = club.div === 1;
+  const nDown = DIVISIONS[club.div].down || 0;
+  const hasRelegation = nDown > 0;
+  const nClubs = divClubs.length;
   let target, label;
   if (level === 1) {
     if (expected <= 2) { target = 1; label = 'Être champion'; }
     else if (expected <= 5) { target = 4; label = 'Finir dans le top 4'; }
     else if (expected <= 10) { target = 10; label = 'Finir dans la 1re moitié'; }
-    else { target = hasRelegation ? 17 : 15; label = hasRelegation ? 'Assurer le maintien' : 'Finir dans le top 15'; }
+    else { target = hasRelegation ? nClubs - nDown : Math.min(15, nClubs - 2); label = hasRelegation ? 'Assurer le maintien' : `Finir dans le top ${Math.min(15, nClubs - 2)}`; }
   } else {
     if (expected <= 4) { target = 3; label = 'Monter en Division 1'; }
     else if (expected <= 10) { target = 8; label = 'Finir dans le top 8'; }
@@ -296,7 +322,10 @@ export function today(state) {
   if (!entry) return null;
   let fixtures = [], label;
   if (entry.type === 'league') {
-    for (const div of DIV_IDS) fixtures.push(...state.fixtures[div][entry.round].map((f) => ({ h: f.h, a: f.a, s: f.s, comp: 'league', div, ref: f })));
+    for (const div of DIV_IDS) {
+      const rr = leagueRoundOf(state.fixtures[div].length, entry.round);
+      if (rr != null) fixtures.push(...state.fixtures[div][rr].map((f) => ({ h: f.h, a: f.a, s: f.s, comp: 'league', div, ref: f })));
+    }
     label = `Journée ${entry.round + 1}`;
   } else if (entry.type === 'cup') {
     for (const key of Object.keys(state.cups)) {
@@ -714,7 +743,7 @@ export function endSeason(state) {
     champions: DIV_IDS.map((d) => ({ div: d, name: tables[d][0].club.name })),
     cups: Object.values(state.cups).map((c) => ({ name: c.name, winner: c.winner ? clubById(state, c.winner).name : '—' })),
     conti: state.conti.winner ? clubById(state, state.conti.winner).name : '—',
-    relegated: tables[1].slice(-3).map((r) => r.club.name), promoted: tables[2].slice(0, 3).map((r) => r.club.name),
+    relegated: [], promoted: [],
     userDiv, userPos, objective: state.objectives.league, progress: [], retired: [], youth: [], left: [],
     topScorer: topScorers(state, userDiv, 1)[0], prize: 0,
   };
@@ -761,21 +790,28 @@ export function endSeason(state) {
   // Réputation des clubs.
   for (const d of DIV_IDS) {
     const lvl1 = DIVISIONS[d].level === 1;
-    tables[d].forEach((r, i) => { r.club.rep = clamp(r.club.rep + (lvl1 ? (i < 4 ? 2 : i >= 17 ? -2 : 0) : (i < 3 ? 4 : 0)), 30, 95); });
+    const n = tables[d].length;
+    tables[d].forEach((r, i) => { r.club.rep = clamp(r.club.rep + (lvl1 ? (i < 4 ? 2 : i >= n - 3 ? -2 : 0) : (i < 3 ? 4 : 0)), 30, 95); });
   }
-  // Relégation administrative : un club de D1 en faillite descend à la place du 17e.
-  const down = tables[1].slice(-3);
-  for (const r of tables[1].slice(0, -3)) {
-    if (finHealth(state, r.club) >= BAL.crisis.bankrupt) continue;
-    const saved = down.shift();
-    down.push(r);
-    pushMessage(state, { prio: r.id === uc.id ? 1 : 2, icon: '⚖', title: `Relégation administrative : ${r.club.name}`, text: `Faute de garanties financières, ${r.club.name} est rétrogradé. ${saved.club.name} est repêché.` });
-    break;
+  // Promotions / relégations (seulement entre divisions liées ; aucune dans le monde réel,
+  // dont les données ne contiennent que l'élite). Relégation administrative d'un club en faillite.
+  for (const d of DIV_IDS) {
+    const D = DIVISIONS[d];
+    if (!D.down || !D.lower) continue;
+    const down = tables[d].slice(-D.down);
+    for (const r of tables[d].slice(0, -D.down)) {
+      if (finHealth(state, r.club) >= BAL.crisis.bankrupt) continue;
+      const saved = down.shift();
+      down.push(r);
+      pushMessage(state, { prio: r.id === uc.id ? 1 : 2, icon: '⚖', title: `Relégation administrative : ${r.club.name}`, text: `Faute de garanties financières, ${r.club.name} est rétrogradé. ${saved.club.name} est repêché.` });
+      break;
+    }
+    const up = tables[D.lower].slice(0, DIVISIONS[D.lower].up || D.down);
+    report.relegated.push(...down.map((r) => r.club.name));
+    report.promoted.push(...up.map((r) => r.club.name));
+    for (const r of down) { r.club.div = D.lower; r.club.rep = clamp(r.club.rep - 2, 30, 95); }
+    for (const r of up) r.club.div = d;
   }
-  report.relegated = down.map((r) => r.club.name);
-  // Promotions / relégations (France).
-  for (const r of down) { r.club.div = 2; r.club.rep = clamp(r.club.rep - 2, 30, 95); }
-  for (const r of tables[2].slice(0, 3)) r.club.div = 1;
   report.userNewDiv = uc.div;
   if (report.userNewDiv < userDiv) coachRep(state, 5, 'Promotion !');
   if (report.userNewDiv > userDiv) coachRep(state, -6, 'Relégation');
@@ -897,4 +933,4 @@ export function compLabel(state, r) {
   return 'Sélections';
 }
 
-export { money, DIVISIONS, DIV_IDS, COUNTRIES, CONTI_NAME };
+export { money, DIVISIONS, DIV_IDS, COUNTRIES, CONTI_NAME, DIV_NAMES };

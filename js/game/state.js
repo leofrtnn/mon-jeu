@@ -4,6 +4,7 @@
  */
 import { createRng, hashSeed } from '../core/rng.js';
 import { getNextId, setNextId } from '../data/generator.js';
+import { applyWorld } from '../data/world.js';
 
 export const SAVE_VERSION = 3;
 /** Versions de sauvegarde encore lisibles (migrées à la volée). */
@@ -138,6 +139,7 @@ export function migrate(s) {
 export function adoptState(s) {
   if (!s || !s.clubs || !s.players || !(s.version >= MIN_SAVE_VERSION && s.version <= SAVE_VERSION)) return null;
   migrate(s);
+  applyWorld(s.world || 'fictional');
   setNextId(s.nextId);
   return s;
 }

@@ -3,6 +3,7 @@
  * Montants en euros. Un "jour" de calendrier = une semaine de salaires.
  */
 import { overall } from '../engine/ratings.js';
+import { DIVISIONS } from '../data/world.js';
 
 const round = (v, step) => Math.max(step, Math.round(v / step) * step);
 
@@ -40,7 +41,8 @@ export function matchdayRevenue(club, opponent, formPts = 0.5, cup = false) {
 
 /** Sponsors : versement hebdomadaire selon réputation et division. */
 export function sponsorIncome(club) {
-  return round((club.div === 1 ? 30000 : 25000) + club.rep * club.rep * (club.div === 1 ? 20 : 15), 1000);
+  const top = (DIVISIONS[club.div]?.level ?? 1) === 1;
+  return round((top ? 30000 : 25000) + club.rep * club.rep * (top ? 20 : 15), 1000);
 }
 
 /** Primes de fin de saison selon la place et la division. */

@@ -5,6 +5,7 @@
  * - Postes vacants : l'utilisateur peut postuler (entretien) avant que le club n'embauche.
  * - Pool d'entraîneurs sans club, carrousel de fin de saison, fil d'actualité.
  */
+import { COUNTRIES } from '../data/world.js';
 import { clamp, createRng, hashSeed } from '../core/rng.js';
 import { randomName } from '../data/names.js';
 import { FORMATION_NAMES } from '../data/constants.js';
@@ -46,7 +47,7 @@ export function ensureManagers(state) {
     c.managerId = m.id;
   }
   for (let i = 0; i < 24; i++) {
-    const m = makeManager(rng, state, rng.range(35, 80), rng.pick(['FRA', 'IBE', 'ALB']));
+    const m = makeManager(rng, state, rng.range(35, 80), rng.pick(Object.keys(COUNTRIES)));
     state.managers[m.id] = m;
   }
 }
@@ -158,7 +159,7 @@ export function managersEndSeason(state, tables) {
   // Retraites et renouvellement du pool.
   for (const m of freeManagers(state)) if (m.age > 68 || rng.chance(0.08)) delete state.managers[m.id];
   while (freeManagers(state).length < 20) {
-    const m = makeManager(rng, state, rng.range(35, 75), rng.pick(['FRA', 'IBE', 'ALB']));
+    const m = makeManager(rng, state, rng.range(35, 75), rng.pick(Object.keys(COUNTRIES)));
     state.managers[m.id] = m;
   }
 }

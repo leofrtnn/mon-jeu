@@ -2,6 +2,7 @@
  * PROPRIÉTAIRES (rachats, politique, rencontre avec le nouveau patron)
  * et SANTÉ FINANCIÈRE (crise, soldes, retrait de points, faillite).
  */
+import { COUNTRIES } from '../data/world.js';
 import { clamp, createRng, hashSeed } from '../core/rng.js';
 import { BAL } from '../data/balance.js';
 import { randomName } from '../data/names.js';
@@ -27,7 +28,7 @@ function pickType(rng, rep, avoid = null) {
 }
 
 function makeOwner(state, rng, club, avoid) {
-  const { first, last } = randomName(rng, rng.pick(['FRA', 'IBE', 'ALB']));
+  const { first, last } = randomName(rng, rng.pick(Object.keys(COUNTRIES)));
   const type = pickType(rng, club.rep, avoid);
   let group = null;
   if (rng.chance(O.multiClub) && (type === 'ambitious' || type === 'speculator')) {
