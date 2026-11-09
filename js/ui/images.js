@@ -3,7 +3,8 @@
  * Wikipédia / Wikimedia Commons, jamais copiées dans le jeu. Sans connexion, ou si
  * l'image n'existe pas, on retombe sur l'écusson aux couleurs du club / les initiales.
  */
-export const wikiImg = (file, w = 96) => `https://en.wikipedia.org/wiki/Special:FilePath/${encodeURIComponent(String(file).replace(/ /g, '_'))}?width=${w}`;
+// Tailles « standard » de Wikimedia (vignettes déjà en cache chez eux : chargement rapide, pas de limitation).
+export const wikiImg = (file, w = 120) => `https://en.wikipedia.org/wiki/Special:FilePath/${encodeURIComponent(String(file).replace(/ /g, '_'))}?width=${w <= 120 ? 120 : 250}`;
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 

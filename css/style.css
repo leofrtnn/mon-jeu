@@ -540,3 +540,6 @@ textarea { width: 100%; min-height: 90px; border-radius: 12px; border: 1px solid
 .pitch-caption.key { box-shadow: 0 0 0 1px rgba(255, 209, 102, .5); }
 .pitch-caption.goal { background: rgba(31, 140, 70, .92); font-weight: 700; font-size: 16px; }
 .pitch-caption.hidden { opacity: 0; }
+/* Match en 3D : le canevas WebGL est dessous, le canevas 2D (bandeaux) transparent par-dessus. */
+.pitch-area canvas.pitch3d { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); border-radius: 6px; box-shadow: 0 0 60px rgba(0, 0, 0, .5); }
+.pitch-area canvas.overlay3d { position: relative; z-index: 1; background: transparent; box-shadow: none; }

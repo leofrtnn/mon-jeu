@@ -57,7 +57,8 @@ export function openMatch(app, opts = {}) {
       <button class="btn" data-c="speed">x${SPEEDS[0]}</button>
       <button class="btn" data-c="quick">⚡ Résumé</button>
       <button class="btn" data-c="skip">⏭ Fin</button>
-      <button class="btn" data-c="style" style="flex:.6" title="Vue">${(s.settings.matchStyle || 'fm') === 'fm' ? '2D' : '🎥'}</button>
+      <button class="btn" data-c="style" style="flex:.6" title="Vue">${{ fm: '2D', '3d': '3D', anim: '🎥' }[s.settings.matchStyle || '3d']}</button>
+      <button class="btn" data-c="cam" style="flex:.6" title="Caméra">📹</button>
       <button class="btn" data-c="labels" style="flex:.6" title="Étiquettes">${{ name: 'Aa', num: '#', none: '∅' }[s.settings.labels || 'name']}</button>
       <button class="btn" data-c="audio" style="flex:.6">${s.settings.audio ? '🔊' : '🔇'}</button>
     </div>`;
@@ -93,7 +94,7 @@ export function openMatch(app, opts = {}) {
       clearTimeout(ctrl.capT);
       ctrl.capT = setTimeout(() => cap.classList.add('hidden'), 3500);
     }
-    if ((s.settings.matchStyle || 'fm') === 'fm' && !ev.key && ev.type !== 'kickoff') return;
+    if ((s.settings.matchStyle || '3d') !== 'anim' && !ev.key && ev.type !== 'kickoff') return;
     const feed = $('feed');
     const d = document.createElement('div');
     d.className = `ln ${ev.key ? 'key' : ''} ${ev.type === 'goal' ? 'goal' : ''}`;
@@ -185,7 +186,8 @@ export function openMatch(app, opts = {}) {
     } while (view.queue.length === 0 && m.phase === 'live' && guard++ < 30);
   };
 
-  const view = new MatchView($('pitch'), m, { userSide, onEventStart, onIdle, labelMode: s.settings.labels || ((s.settings.matchStyle || 'fm') === 'fm' ? 'num' : 'name'), style: s.settings.matchStyle || 'fm', onPlayerTap: showTapCard });
+  const view = new MatchView($('pitch'), m, { userSide, onEventStart, onIdle, labelMode: s.settings.labels || ((s.settings.matchStyle || '3d') !== 'anim' ? 'num' : 'name'), style: s.settings.matchStyle || '3d', onPlayerTap: showTapCard,
+    on3DFail: () => { app.toast('3D indisponible sur cet appareil : vue 2D.', 3500); s.settings.matchStyle = 'fm'; root.querySelector('[data-c=style]').textContent = '2D'; } });
   window.__view = view; // débogage
   view.setSpeed(SPEEDS[ctrl.speedIdx]);
   root.querySelector('[data-c="speed"]').textContent = `x${SPEEDS[ctrl.speedIdx]}`;
@@ -210,11 +212,15 @@ export function openMatch(app, opts = {}) {
     }
     if (c === 'skip') skipToEnd();
     if (c === 'style') {
-      const st = view.style === 'fm' ? 'anim' : 'fm';
+      const st = { '3d': 'fm', fm: 'anim', anim: '3d' }[view.style] || '3d';
       view.setStyle(st);
       s.settings.matchStyle = st; app.save();
-      b.textContent = st === 'fm' ? '2D' : '🎥';
-      app.toast(st === 'fm' ? 'Vue 2D (façon FM)' : 'Vue animée');
+      b.textContent = { fm: '2D', '3d': '3D', anim: '🎥' }[st];
+      app.toast({ fm: 'Vue 2D (façon FM)', '3d': 'Match en 3D', anim: 'Vue animée' }[st]);
+    }
+    if (c === 'cam') {
+      if (view.style !== '3d' || !view.r3d) { app.toast('Caméras disponibles en vue 3D.'); return; }
+      app.toast(view.r3d.cycleCamera());
     }
     if (c === 'labels') {
       const order = ['name', 'num', 'none'];

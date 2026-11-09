@@ -3,7 +3,7 @@
  * Stratégie : cache d'abord, puis réseau (et mise à jour du cache en arrière-plan).
  * Pensez à incrémenter VERSION à chaque livraison.
  */
-const VERSION = 'cdp-v17';
+const VERSION = 'cdp-v18';
 const ASSETS = [
   './',
   './css/style.css',
@@ -59,6 +59,7 @@ const ASSETS = [
   './js/ui/components.js',
   './js/ui/files.js',
   './js/ui/images.js',
+  './js/ui/match3d.js',
   './js/ui/matchView.js',
   './js/ui/screens/club.js',
   './js/ui/screens/clubInfo.js',
@@ -79,6 +80,8 @@ const ASSETS = [
   './js/ui/screens/start.js',
   './js/ui/screens/tactics.js',
   './js/ui/sim.js',
+  './js/vendor/THREE-LICENSE.txt',
+  './js/vendor/three.module.min.js',
   './js/version.js',
   './manifest.webmanifest',
 ];

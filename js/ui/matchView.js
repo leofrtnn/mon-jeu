@@ -87,15 +87,31 @@ export class MatchView {
     canvas.addEventListener('pointerup', this._tap);
     this.syncPlayers(true);
     this.resize();
+    if (this.style === '3d') this.setStyle('3d');
     this._ro = new ResizeObserver(() => this.resize());
     this._ro.observe(canvas.parentElement || canvas);
     this._loop = (ts) => this.frame(ts);
     this.raf = requestAnimationFrame(this._loop);
   }
 
-  setStyle(st) { this.style = st; this.pitchCache = null; this.trail = []; }
+  /** Vue : 'fm' (2D façon FM), '3d' (stade en 3D), 'anim' (silhouettes animées). */
+  setStyle(st) {
+    this.style = st; this.pitchCache = null; this.trail = [];
+    if (st === '3d' && !this.r3d && !this._loading3d) {
+      this._loading3d = true;
+      import('./match3d.js').then((mod) => {
+        try { this.r3d = new mod.Match3D(this); this.canvas.classList.add('overlay3d'); }
+        catch (e) { console.warn('3D indisponible', e); this.style = 'fm'; this.opts.on3DFail?.(); }
+      }).catch(() => { this.style = 'fm'; this.opts.on3DFail?.(); }).finally(() => { this._loading3d = false; });
+    }
+    if (this.r3d) {
+      this.r3d.canvas.style.display = st === '3d' ? '' : 'none';
+      this.canvas.classList.toggle('overlay3d', st === '3d');
+    }
+  }
 
   destroy() {
+    this.r3d?.dispose();
     this.canvas.removeEventListener('pointerup', this._tap);
     cancelAnimationFrame(this.raf);
     this._ro.disconnect();
@@ -120,6 +136,7 @@ export class MatchView {
     this.scale = (cw * dpr) / (this.landscape ? PITCH_L + 8 : PITCH_W + 6); // pixels par mètre
     this.padX = (this.landscape ? 4 : 3) * this.scale; this.padY = (this.landscape ? 3 : 4) * this.scale;
     this.pitchCache = null;
+    this.r3d?.resize();
   }
 
   /**
@@ -293,6 +310,7 @@ export class MatchView {
 
   /** Joueur sous un point écran (pour le toucher). */
   playerAt(cx, cy) {
+    if (this.style === '3d' && this.r3d) return this.r3d.pick(cx, cy);
     const rect = this.canvas.getBoundingClientRect();
     const sx = (cx - rect.left) * this.dpr, sy = (cy - rect.top) * this.dpr;
     const T = this.view || { z: 1, tx: 0, ty: 0 };
@@ -345,6 +363,7 @@ export class MatchView {
   frame(ts) {
     const dt = Math.min(0.05, (ts - (this.lastTs || ts)) / 1000);
     this.lastTs = ts;
+    this.lastDt = dt;
     // Le ralenti garde une vitesse lisible même en x4.
     if (!this.paused) this.update(dt * (this.cur?.replay ? Math.min(this.speed, 1.5) : this.speed), dt);
     else this.updateIdle(dt);
@@ -506,7 +525,8 @@ export class MatchView {
   }
 
   draw() {
-    if (this.style === 'fm') return this.drawFM();
+    if (this.style === '3d' && this.r3d) return this.draw3D();
+    if (this.style === 'fm' || this.style === '3d') return this.drawFM();
     const g = this.ctx, W = this.canvas.width, H = this.canvas.height;
     if (!this.pitchCache) this.drawPitch();
     g.setTransform(1, 0, 0, 1, 0, 0);
@@ -612,6 +632,20 @@ export class MatchView {
     g.strokeStyle = '#111'; g.lineWidth = r * 0.1; g.stroke();
     // Noms : tous (petits), ou seulement le porteur du ballon et le joueur touché.
     this.drawFMLabels(g, r, carrierId);
+    if (this.banner) this.drawBanner(g, W, H);
+    if (this.replaying) {
+      g.fillStyle = 'rgba(0,0,0,0.35)'; g.fillRect(0, 0, W, H * 0.05); g.fillRect(0, H * 0.95, W, H * 0.05);
+      g.fillStyle = '#fff'; g.font = `700 ${Math.round(H * 0.024)}px system-ui, sans-serif`; g.textAlign = 'left'; g.textBaseline = 'middle';
+      g.fillText('● RALENTI', W * 0.03, H * 0.026); g.textBaseline = 'alphabetic';
+    }
+  }
+
+  /** Vue 3D : rendu WebGL, puis bandeaux (BUT, cartons, ralenti) sur le canevas 2D transparent posé dessus. */
+  draw3D() {
+    this.r3d.render(this.lastDt || 0.016);
+    const g = this.ctx, W = this.canvas.width, H = this.canvas.height;
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.clearRect(0, 0, W, H);
     if (this.banner) this.drawBanner(g, W, H);
     if (this.replaying) {
       g.fillStyle = 'rgba(0,0,0,0.35)'; g.fillRect(0, 0, W, H * 0.05); g.fillRect(0, H * 0.95, W, H * 0.05);

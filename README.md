@@ -60,6 +60,7 @@ Chaque championnat a son propre profil : style plus technique en Ibérie, plus p
 - **Calibration** propre à chaque championnat (buts, fautes, cartons).
 
 ### Affichage du match
+- **Match en 3D** (par défaut) : stade avec tribunes, panneaux, projecteurs, buts et filets ; joueurs 3D aux couleurs des clubs (numéro dans le dos, nom au-dessus) qui courent, frappent, taclent, plongent et célèbrent. Caméras : télé, rapprochée, vue d'ensemble, derrière le but (bouton 📹). Rendu avec three.js (licence MIT, `js/vendor/`), chargé seulement en vue 3D ; repli automatique en 2D si l'appareil ne gère pas WebGL.
 - **Vue 2D façon FM** (par défaut) : terrain entier fixe, pastilles numérotées, nom du porteur du ballon, bandeau de commentaire sur le terrain, fil réduit aux temps forts. Le bouton « 2D / 🎥 » rebascule sur la vue animée.
 - **Joueurs dessinés et animés** : numéro sur le torse, tête orientée, bras et pieds qui bougent, maillot et short aux couleurs du club.
 - **Gestes** : frappe, tacle glissé, plongeon du gardien, jeu de tête, célébration.
