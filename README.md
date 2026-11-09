@@ -52,6 +52,12 @@ Chaque championnat a son propre profil : style plus technique en Ibérie, plus p
   - **Budgets** : réputation du club × richesse du championnat (droits TV : Angleterre et Arabie saoudite en tête).
 - **Affichage** : toujours à l'horizontale. Téléphone tenu droit : le jeu se pivote tout seul. **Mode PC** (automatique avec une souris,
   ou dans Paramètres → Affichage) : mise en page large, survols, raccourcis (Espace = Continuer, 1-9 = menu, Échap = fermer).
+- **Moteur de match en direct** (matchs regardés) : les 22 joueurs prennent leurs décisions en temps réel selon leurs
+  positions et leurs attributs — passes évaluées selon les lignes de passe et le marquage, conduite dans l'espace,
+  frappes selon un xG géométrique (distance, angle, pression), centres et duels aériens, pressing, couverture, marquage,
+  tacles, fautes, hors-jeu, touches, six mètres, corners, coups francs, penalties. Ballon physique. Calibré sur 30 matchs :
+  ~2,5 buts, ~19 tirs, ~19 fautes, ~3 jaunes, ~7 corners par match. Le moteur classique reste utilisé pour les autres
+  matchs et pour « Fin » ; il peut être choisi pour les matchs regardés (Paramètres → Match).
 - **Composition** : visages des joueurs sur le terrain et banc sous le terrain ; glisser-déposer terrain ↔ banc ↔ réserve, toucher = fiche.
   - Nombre de clubs réel (10 à 20) ; les petits championnats se jouent en 3 ou 4 confrontations (Écosse 33 journées, Croatie 36).
   - Vrais clubs, joueurs (noms, postes, âges, nationalités, numéros, sélections) et entraîneurs de la saison 2026-27.

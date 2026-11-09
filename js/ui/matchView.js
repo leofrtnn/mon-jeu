@@ -14,6 +14,7 @@
 import { formationPos } from '../engine/positions.js';
 import { toLocal, localRect } from './viewport.js';
 import { createBall, stepBall, solveKick, R as BALL_R, GOAL_HALF } from './ballPhysics.js';
+import { LiveSim } from '../engine/live.js';
 
 const DUR = {
   pass: 0.75, longpass: 1.15, dribble: 0.9, tackle: 0.55, interception: 0.55, header: 0.6, cross: 1.0, cornerkick: 1.1,
@@ -101,6 +102,9 @@ export class MatchView {
     this.veil.style.cssText = 'position:absolute;inset:0;background:#000;opacity:0;pointer-events:none;transition:opacity .35s;z-index:4';
     par?.appendChild(this.veil);
     this.syncPlayers(true);
+    // Moteur en direct : les 22 joueurs décident eux-mêmes (voir engine/live.js) ; la vue
+    // se contente d'afficher. Sinon (ancien mode), la vue rejoue les événements du moteur.
+    if (opts.live) this.live = new LiveSim(match, { players: this.players, ball: this.phys, sync: () => this.syncPlayers(false) });
     this.resize();
     if (this.style === '3d') this.setStyle('3d');
     this._ro = new ResizeObserver(() => this.resize());
@@ -262,7 +266,10 @@ export class MatchView {
 
   push(events) { this.queue.push(...events); }
   setSpeed(s) { this.speed = s; }
-  play() { this.paused = false; }
+  play() {
+    this.paused = false;
+    if (this.live && this.m.phase === 'ht') this.live.resumeHT = true; // reprise de la 2e mi-temps
+  }
   pause() { this.paused = true; }
 
   startEvent(ev) {
@@ -426,6 +433,7 @@ export class MatchView {
   }
 
   update(dt, realDt) {
+    if (this.live) { this.updateLive(dt, realDt); return; }
     if (!this.cur) {
       if (this.queue.length) this.startEvent(this.queue.shift());
       else { this.opts.onIdle?.(); if (this.queue.length) this.startEvent(this.queue.shift()); }
@@ -460,6 +468,51 @@ export class MatchView {
     this.movePlayers(pdt);
     this.stepPhysics(pdt);
     this.updateFx(realDt);
+  }
+
+  /* ---------------- Moteur en direct ---------------- */
+
+  /** Fait avancer la simulation en direct et affiche ses événements. */
+  updateLive(dt, realDt) {
+    // Événements venus de l'écran (remplacement manuel) : annoncés, joueurs resynchronisés.
+    if (this.queue.length) {
+      const evs = this.queue.splice(0).filter((e) => !e.replay);
+      this.live.handle(evs, []);
+      for (const ev of evs) this.liveEvent(ev);
+    }
+    let left = dt * this.TS;
+    while (left > 1e-6) {
+      const h = Math.min(0.05, left);
+      left -= h;
+      for (const ev of this.live.step(h)) this.liveEvent(ev);
+      if (this.paused) break; // mi-temps / fin : l'écran a mis en pause
+    }
+    this.holder = this.live.holder ? this.live.holder.mp.id : null;
+    this.inHands = this.live.inHands;
+    const b = this.ball, P = this.phys;
+    b.x = P.x / PITCH_L; b.y = P.y / PITCH_W; b.h = Math.max(0, P.z - BALL_R) / 26;
+    this.updateFx(realDt);
+  }
+
+  /** Effets visuels et annonce d'un événement du moteur en direct. */
+  liveEvent(ev) {
+    if (ev.period && ev.period !== this.period) {
+      this.period = ev.period;
+      this.banner = { text: '⇅ Changement de côté', color: null, t: 0, dur: 1.6, small: true };
+    }
+    if (ev.type === 'goal') {
+      this.banner = { text: 'BUT !', color: this.colors[ev.side], t: 0, dur: 2.8 };
+      this.cam.shake = 1; this.flash = 1;
+      const [sx, sy] = this.toScreen(ev.side === 0 ? 1 : 0, 0.5);
+      for (let i = 0; i < 70; i++) {
+        this.particles.push({ x: sx, y: sy, vx: (Math.random() - 0.5) * 9, vy: (Math.random() - 0.5) * 9,
+          life: 1.5 + Math.random(), c: Math.random() < 0.6 ? this.colors[ev.side] : '#ffffff', s: 2 + Math.random() * 3 });
+      }
+      if (navigator.vibrate) try { navigator.vibrate([60, 40, 120]); } catch { /* ignore */ }
+    }
+    if (ev.type === 'shot' && ev.outcome === 'post') this.cam.shake = 0.4;
+    this.cur = ev; // pour les étiquettes et la caméra
+    this.announce(ev);
   }
 
   /* ---------------- Ballon physique ---------------- */
@@ -896,6 +949,7 @@ export class MatchView {
   }
 
   updateIdle(dt) {
+    if (this.live) { this.updateFx(dt); return; }
     this.movePlayers(dt * 0.6);
     this.updateFx(dt);
   }

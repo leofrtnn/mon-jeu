@@ -108,7 +108,7 @@ export function createMatch(cfg) {
 export const activePlayers = (t) => t.onPitch.filter((mp) => mp && !mp.red && !mp.injured);
 
 /** Attribut effectif (condition, poste, contexte). */
-function eff(mp, attr) {
+export function eff(mp, attr) {
   return mp.p.attrs[attr] * mp.mult;
 }
 
@@ -156,7 +156,7 @@ function ballPos(m, side, zone, mp) {
   return abs(side, depth, clamp(lat, 0.04, 0.96));
 }
 
-function addRating(mp, v) { if (mp) mp.rating = clamp(mp.rating + v, 3, 10); }
+export function addRating(mp, v) { if (mp) mp.rating = clamp(mp.rating + v, 3, 10); }
 
 const roleOf = (t, mp) => (mp && t.roles[mp.slot]) || 'std';
 /** Consigne individuelle d'un joueur (par poste). */
@@ -244,14 +244,14 @@ function pickDefender(m, D, c, z) {
 }
 
 /** Tireur désigné (corner, coup franc, penalty) s'il est sur le terrain, sinon le meilleur. */
-function setPieceTaker(T, kind, score) {
+export function setPieceTaker(T, kind, score) {
   const act = activePlayers(T).filter((mp) => T.slots[mp.slot].pos !== 'GB');
   const chosen = act.find((mp) => mp.id === T.setPieces[kind]);
   return chosen || act.sort((a, b) => score(b) - score(a))[0];
 }
 
 /** Multiplicateurs mis à jour chaque minute (fatigue, forme, moral, poste, contexte). */
-function refreshMultipliers(m) {
+export function refreshMultipliers(m) {
   for (const t of m.teams) {
     const n = activePlayers(t).length;
     const home = !m.neutral && t.side === 0 ? m.homeAdv : 1;
@@ -271,7 +271,7 @@ function refreshMultipliers(m) {
 
 const KEY_TYPES = new Set(['goal', 'shot', 'yellow', 'red', 'penalty', 'injury', 'sub', 'var', 'ht', 'ft', 'et', 'eht', 'kickoff', 'added', 'post', 'save', 'freekick']);
 
-function emit(m, out, ev) {
+export function emit(m, out, ev) {
   ev.minute = m.minute; ev.extra = m.extra; ev.period = m.period;
   ev.poss = m.poss; ev.carrier = m.carrier ? m.carrier.id : null;
   ev.score = [m.score[0], m.score[1]];
@@ -285,12 +285,12 @@ function emit(m, out, ev) {
   return ev;
 }
 
-function changePossession(m, side, zone, carrier) {
+export function changePossession(m, side, zone, carrier) {
   m.poss = side; m.zone = zone; m.carrier = carrier;
   m.lastPasser = null;
 }
 
-function momentum(m, side, v) {
+export function momentum(m, side, v) {
   m.momentum = clamp(m.momentum + (side === 0 ? v : -v), -100, 100);
 }
 
@@ -547,7 +547,7 @@ function foul(m, out, A, D, victim, offender, z) {
   }
 }
 
-function sendOff(m, out, T, mp, kind) {
+export function sendOff(m, out, T, mp, kind) {
   mp.red = true; mp.onPitch = false; mp.minOut = m.minute;
   T.stats.reds++;
   addRating(mp, -1.5);
@@ -556,7 +556,7 @@ function sendOff(m, out, T, mp, kind) {
   m.stoppages += 0.5;
 }
 
-function injure(m, out, T, mp) {
+export function injure(m, out, T, mp) {
   if (mp.injured || !mp.onPitch) return;
   mp.injured = true;
   emit(m, out, { type: 'injury', side: T.side, pid: mp.id, x: 0.5, y: 0.5, zone: m.zone });
@@ -580,7 +580,7 @@ export function bestBenchFor(T, slot) {
   return best;
 }
 
-function doSub(m, out, T, outMp, inMp, forced) {
+export function doSub(m, out, T, outMp, inMp, forced) {
   inMp.slot = outMp.slot; inMp.onPitch = true; inMp.minIn = m.minute;
   outMp.onPitch = false; outMp.minOut = m.minute;
   const idx = T.onPitch.indexOf(outMp);
@@ -716,7 +716,7 @@ function penalty(m, out, A, D) {
   return shoot(m, out, A, D, taker, 3, { type: 'penalty' });
 }
 
-function kickoff(m, out, side) {
+export function kickoff(m, out, side) {
   const T = m.teams[side];
   const c = pickNear(m, T, 0.7, null, (mp, s) => (s.pos === 'BU' || s.pos === 'MO' || s.pos === 'MC' ? 2 : 0.2));
   changePossession(m, side, 1, c);
@@ -727,7 +727,7 @@ function kickoff(m, out, side) {
 /* Déroulement minute par minute                                       */
 /* ------------------------------------------------------------------ */
 
-function decayEnergy(m) {
+export function decayEnergy(m) {
   const late = m.minute > 60 ? 1.15 : 1;
   for (const t of m.teams) {
     const pv = LVL[t.tactics.pressing], tv = LVL[t.tactics.tempo];
@@ -744,51 +744,23 @@ function decayEnergy(m) {
   }
 }
 
-/**
- * Avance le match d'une minute. Retourne les événements de la minute.
- * Gère coup d'envoi, mi-temps, reprise et fin du match.
- */
-export function stepMinute(m) {
-  const out = [];
-  if (m.phase === 'ft' || m.phase === 'done') return out;
-  if (m.phase === 'pre') {
-    m.phase = 'live';
-    refreshMultipliers(m);
-    m.kickoffSide = m.rng.chance(0.5) ? 0 : 1;
-    kickoff(m, out, m.kickoffSide);
-    return out;
-  }
-  if (m.phase === 'ht') {
-    m.phase = 'live'; m.period = 2; m.minute = 45; m.extra = 0; m.stoppages = 0;
-    for (const t of m.teams) for (const mp of activePlayers(t)) mp.energy = clamp(mp.energy + 6, 0, 100);
-    refreshMultipliers(m);
-    kickoff(m, out, 1 - m.kickoffSide);
-    return out;
-  }
 
-  // Avance l'horloge.
+/**
+ * Gestion du temps d'une minute (partagée avec le moteur en direct, live.js) :
+ * horloge, fatigue, multiplicateurs, gestion de l'IA (remplacements, mentalité).
+ */
+export function minuteStart(m, out) {
   const regEnd = [45, 90, 105, 120][m.period - 1];
   if (m.minute < regEnd) m.minute++;
   else m.extra++;
-
   decayEnergy(m);
   refreshMultipliers(m);
   for (const t of m.teams) if (t.isAI) aiManage(m, t, out, { doSub, bestBenchFor });
+}
 
-  const tempo = (LVL[m.teams[0].tactics.tempo] + LVL[m.teams[1].tactics.tempo]) * 0.14;
-  // Gagner du temps : l'équipe qui mène casse le rythme (et l'arbitre rallonge).
-  const waster = m.teams.find((t) => t.tactics.timeWasting === 'on' && m.score[t.side] > m.score[1 - t.side] && m.minute >= 60);
-  if (waster) m.stoppages += 0.15;
-  const n = clamp(Math.round(4 + tempo + m.rng.normal(0, 0.8) - (m.minute > 80 ? 0.3 : 0) - (waster ? 0.8 : 0)), 2, 6);
-  for (let i = 0; i < n; i++) {
-    const before = out.length;
-    resolveAction(m, out);
-    for (let k = before; k < out.length; k++) out[k].t = (i + (k - before) / Math.max(1, out.length - before)) / n;
-    if (m._pendingInjury) {
-      for (const [t, mp] of m._pendingInjury) injure(m, out, t, mp);
-      m._pendingInjury = null;
-    }
-  }
+/** Fin de minute : momentum, temps additionnel, mi-temps, prolongation, fin du match. */
+export function minuteEnd(m, out) {
+  const regEnd = [45, 90, 105, 120][m.period - 1];
   m.momentum *= 0.9;
   m.momentumHistory.push(Math.round(m.momentum));
 
@@ -819,11 +791,52 @@ export function stepMinute(m) {
       finalizeRatings(m);
     }
   }
+}
+
+/**
+ * Avance le match d'une minute. Retourne les événements de la minute.
+ * Gère coup d'envoi, mi-temps, reprise et fin du match.
+ */
+export function stepMinute(m) {
+  const out = [];
+  if (m.phase === 'ft' || m.phase === 'done') return out;
+  if (m.phase === 'pre') {
+    m.phase = 'live';
+    refreshMultipliers(m);
+    m.kickoffSide = m.rng.chance(0.5) ? 0 : 1;
+    kickoff(m, out, m.kickoffSide);
+    return out;
+  }
+  if (m.phase === 'ht') {
+    m.phase = 'live'; m.period = 2; m.minute = 45; m.extra = 0; m.stoppages = 0;
+    for (const t of m.teams) for (const mp of activePlayers(t)) mp.energy = clamp(mp.energy + 6, 0, 100);
+    refreshMultipliers(m);
+    kickoff(m, out, 1 - m.kickoffSide);
+    return out;
+  }
+
+  minuteStart(m, out);
+
+  const tempo = (LVL[m.teams[0].tactics.tempo] + LVL[m.teams[1].tactics.tempo]) * 0.14;
+  // Gagner du temps : l'équipe qui mène casse le rythme (et l'arbitre rallonge).
+  const waster = m.teams.find((t) => t.tactics.timeWasting === 'on' && m.score[t.side] > m.score[1 - t.side] && m.minute >= 60);
+  if (waster) m.stoppages += 0.15;
+  const n = clamp(Math.round(4 + tempo + m.rng.normal(0, 0.8) - (m.minute > 80 ? 0.3 : 0) - (waster ? 0.8 : 0)), 2, 6);
+  for (let i = 0; i < n; i++) {
+    const before = out.length;
+    resolveAction(m, out);
+    for (let k = before; k < out.length; k++) out[k].t = (i + (k - before) / Math.max(1, out.length - before)) / n;
+    if (m._pendingInjury) {
+      for (const [t, mp] of m._pendingInjury) injure(m, out, t, mp);
+      m._pendingInjury = null;
+    }
+  }
+  minuteEnd(m, out);
   return out;
 }
 
 /** Bonus/malus de fin de match selon le résultat. */
-function finalizeRatings(m) {
+export function finalizeRatings(m) {
   const [a, b] = m.score;
   for (const t of m.teams) {
     const diff = t.side === 0 ? a - b : b - a;

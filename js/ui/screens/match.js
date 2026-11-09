@@ -121,7 +121,7 @@ export function openMatch(app, opts = {}) {
     const text = describe(ev, ctx, Math.random, { verbose: !ctrl.quick });
     if (text) addLine(ev, text);
     setMomentum();
-    if (ev.type === 'goal' && s.settings.replays) queueReplay();
+    if (ev.type === 'goal' && s.settings.replays && !view.live) queueReplay();
     if (ev.type === 'ht') { view.pause(); setTimeout(halfTime, 400); }
     if (ev.type === 'ft') { view.pause(); setTimeout(fullTime, 500); }
   };
@@ -186,7 +186,7 @@ export function openMatch(app, opts = {}) {
     } while (view.queue.length === 0 && m.phase === 'live' && guard++ < 30);
   };
 
-  const view = new MatchView($('pitch'), m, { userSide, onEventStart, onIdle, labelMode: s.settings.labels || ((s.settings.matchStyle || '3d') !== 'anim' ? 'num' : 'name'), style: s.settings.matchStyle || '3d', onPlayerTap: showTapCard,
+  const view = new MatchView($('pitch'), m, { userSide, onEventStart, onIdle, live: s.settings.liveEngine !== false, labelMode: s.settings.labels || ((s.settings.matchStyle || '3d') !== 'anim' ? 'num' : 'name'), style: s.settings.matchStyle || '3d', onPlayerTap: showTapCard,
     on3DFail: () => { app.toast('3D indisponible sur cet appareil : vue 2D.', 3500); s.settings.matchStyle = 'fm'; root.querySelector('[data-c=style]').textContent = '2D'; } });
   window.__view = view; // débogage
   view.setSpeed(SPEEDS[ctrl.speedIdx]);
@@ -200,14 +200,14 @@ export function openMatch(app, opts = {}) {
     if (c === 'pause') { if (m.phase === 'live') { view.pause(); pauseSheet(); } }
     if (c === 'speed') {
       ctrl.speedIdx = (ctrl.speedIdx + 1) % SPEEDS.length;
-      view.setSpeed(SPEEDS[ctrl.speedIdx] * (ctrl.quick ? 1.5 : 1));
+      view.setSpeed(SPEEDS[ctrl.speedIdx] * (ctrl.quick ? (view.live ? 3 : 1.5) : 1));
       b.textContent = `x${SPEEDS[ctrl.speedIdx]}`;
       s.settings.speed = SPEEDS[ctrl.speedIdx]; app.save();
     }
     if (c === 'quick') {
       ctrl.quick = !ctrl.quick;
       b.classList.toggle('on', ctrl.quick);
-      view.setSpeed(SPEEDS[ctrl.speedIdx] * (ctrl.quick ? 1.5 : 1));
+      view.setSpeed(SPEEDS[ctrl.speedIdx] * (ctrl.quick ? (view.live ? 3 : 1.5) : 1));
       app.toast(ctrl.quick ? 'Résumé rapide : seulement les temps forts' : 'Match en intégralité');
     }
     if (c === 'skip') skipToEnd();
