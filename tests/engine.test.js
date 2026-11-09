@@ -156,3 +156,32 @@ test('heatmap et chronologie xG alimentées', () => {
   assert.ok(m.xgTimeline.length > 5);
   assert.equal(m.xgTimeline.filter((x) => x.goal).length, m.score[0] + m.score[1]);
 });
+
+test('consignes d\'équipe : tacles engagés => plus de fautes, passes courtes => plus de précision', () => {
+  const run = (home) => {
+    let fouls = 0, pass = 0, ok = 0;
+    for (let i = 0; i < 200; i++) {
+      const cfg = matchCfg(world, div1[i % 10], div1[10 + (i % 10)], 7000 + i);
+      Object.assign(cfg.home.tactics, home);
+      const s = summarize(simulateMatch(cfg));
+      fouls += s.stats[0].fouls; pass += s.stats[0].passes; ok += s.stats[0].passesOk;
+    }
+    return { fouls, acc: ok / pass };
+  };
+  const base = run({ tackling: 'normal', passing: 'mixed' });
+  const hard = run({ tackling: 'hard' });
+  const short = run({ passing: 'short' });
+  assert.ok(hard.fouls > base.fouls * 1.15, `fautes ${hard.fouls} vs ${base.fouls}`);
+  assert.ok(short.acc > base.acc, `précision ${short.acc} vs ${base.acc}`);
+});
+
+test('formation personnalisée : les postes déplacés sont utilisés par le moteur', async () => {
+  const { FORMATIONS, posFromXY } = await import('../js/data/constants.js');
+  const cfg = matchCfg(world, div1[0], div1[1], 8080);
+  const custom = FORMATIONS['4-4-2'].map((s) => ({ ...s }));
+  custom[9] = { pos: posFromXY(0.66, 0.5, false), x: 0.66, y: 0.5 };
+  cfg.home.tactics.custom = custom;
+  const m = createMatch(cfg);
+  assert.equal(m.teams[0].slots[9].pos, 'MO');
+  assert.equal(m.teams[0].slots[9].x, 0.66);
+});

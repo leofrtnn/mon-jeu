@@ -79,7 +79,50 @@ export const PRESSING_LABELS = { low: 'Bas', mid: 'Moyen', high: 'Haut' };
 export const TEMPO_LABELS = { low: 'Lent', mid: 'Normal', high: 'Rapide' };
 export const WIDTH_LABELS = { low: 'Étroit', mid: 'Normal', high: 'Large' };
 
-export const DEFAULT_TACTICS = { formation: '4-4-2', mentality: 'balanced', pressing: 'mid', tempo: 'mid', width: 'mid' };
+export const DEFAULT_TACTICS = {
+  formation: '4-4-2', mentality: 'balanced', pressing: 'mid', tempo: 'mid', width: 'mid',
+  // Consignes d'équipe avancées (valeurs neutres par défaut).
+  line: 'mid', passing: 'mixed', focus: 'mixed', counter: 'off', offsideTrap: 'off', tackling: 'normal',
+  marking: 'zonal', timeWasting: 'off', gkDist: 'mixed', longShots: 'mid', crossing: 'mid',
+};
+
+/** Consignes d'équipe : options et libellés (écran Tactique et pause du match). */
+export const TEAM_INSTRUCTIONS = [
+  { key: 'line', label: 'Ligne défensive', opts: { low: 'Basse', mid: 'Normale', high: 'Haute' }, help: 'Haute : on récupère plus haut, mais attention aux ballons dans le dos.' },
+  { key: 'passing', label: 'Style de passe', opts: { short: 'Court', mixed: 'Mixte', direct: 'Direct' }, help: 'Court : passes plus sûres. Direct : on avance plus vite mais on perd plus de ballons.' },
+  { key: 'focus', label: 'Couloir privilégié', opts: { left: 'Gauche', mixed: 'Mixte', center: 'Axe', right: 'Droite' }, help: 'Côté vers lequel l\'équipe oriente le jeu.' },
+  { key: 'crossing', label: 'Centres', opts: { low: 'Rares', mid: 'Normaux', high: 'Fréquents' } },
+  { key: 'longShots', label: 'Tirs de loin', opts: { low: 'Rarement', mid: 'Parfois', high: 'Souvent' } },
+  { key: 'counter', label: 'Contre-attaque', opts: { off: 'Non', on: 'Oui' }, help: 'Projection rapide dès la récupération du ballon.' },
+  { key: 'offsideTrap', label: 'Piège du hors-jeu', opts: { off: 'Non', on: 'Oui' }, help: 'Plus de hors-jeu signalés… et plus de risques si le piège échoue.' },
+  { key: 'tackling', label: 'Tacles', opts: { soft: 'Prudents', normal: 'Normaux', hard: 'Engagés' }, help: 'Engagés : plus de ballons récupérés, plus de fautes et de cartons.' },
+  { key: 'marking', label: 'Marquage', opts: { zonal: 'En zone', man: 'Individuel' }, help: 'Individuel : plus dur à dribbler, mais plus fatigant.' },
+  { key: 'gkDist', label: 'Relance du gardien', opts: { short: 'Courte', mixed: 'Mixte', long: 'Longue' } },
+  { key: 'timeWasting', label: 'Gagner du temps', opts: { off: 'Non', on: 'Oui' }, help: 'Quand on mène : moins d\'actions, plus de temps additionnel… et un arbitre agacé.' },
+];
+
+/** Consignes individuelles (par poste du onze). */
+export const PLAYER_INSTRUCTIONS = [
+  { key: 'duty', label: 'Mission', opts: { def: 'Défense', sup: 'Soutien', att: 'Attaque' }, def: 'sup' },
+  { key: 'shoot', label: 'Tirs', opts: { less: 'Moins', normal: 'Normal', more: 'Plus' }, def: 'normal' },
+  { key: 'dribble', label: 'Dribbles', opts: { less: 'Moins', normal: 'Normal', more: 'Plus' }, def: 'normal' },
+  { key: 'runs', label: 'Montées', opts: { stay: 'Rester', normal: 'Normal', join: 'Monter' }, def: 'normal' },
+];
+
+/** Postes d'une tactique : formation personnalisée si elle existe, sinon formation de base. */
+export const slotsOf = (tactics) => (tactics.custom && tactics.custom.length === 11 ? tactics.custom : FORMATIONS[tactics.formation] || FORMATIONS['4-4-2']);
+
+/** Poste déduit d'un emplacement sur le terrain (x = profondeur, y = latéral). */
+export function posFromXY(x, y, isGk) {
+  if (isGk) return 'GB';
+  const wide = y < 0.24 || y > 0.76;
+  const left = y < 0.5;
+  if (x < 0.3) return wide ? (left ? 'DG' : 'DD') : 'DC';
+  if (x < 0.43) return wide ? (left ? 'DG' : 'DD') : 'MDC';
+  if (x < 0.6) return wide ? (left ? 'AG' : 'AD') : 'MC';
+  if (x < 0.7) return wide ? (left ? 'AG' : 'AD') : 'MO';
+  return wide ? (left ? 'AG' : 'AD') : 'BU';
+}
 
 export const SQUAD_SIZE = 25;
 export const MAX_SUBS = 5;

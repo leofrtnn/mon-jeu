@@ -49,7 +49,7 @@ function selectionScore(p, pos) {
  * Retourne { lineup: [11 ids dans l'ordre des slots], bench: [ids] }.
  */
 export function autoLineup(players, formation) {
-  const slots = FORMATIONS[formation];
+  const slots = Array.isArray(formation) ? formation : FORMATIONS[formation];
   const avail = players.filter(isAvailable);
   const used = new Set();
   const lineup = new Array(slots.length).fill(null);
@@ -83,7 +83,7 @@ export function autoLineup(players, formation) {
 /** Force moyenne d'un onze (notes au poste). */
 export function lineupStrength(players, lineup, formation) {
   const byId = new Map(players.map((p) => [p.id, p]));
-  const slots = FORMATIONS[formation];
+  const slots = Array.isArray(formation) ? formation : FORMATIONS[formation];
   let sum = 0, n = 0;
   lineup.forEach((id, i) => {
     const p = byId.get(id);

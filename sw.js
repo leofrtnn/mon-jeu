@@ -3,7 +3,7 @@
  * Stratégie : cache d'abord, puis réseau (et mise à jour du cache en arrière-plan).
  * Pensez à incrémenter VERSION à chaque livraison.
  */
-const VERSION = 'cdp-v5';
+const VERSION = 'cdp-v6';
 const ASSETS = [
   './',
   './css/style.css',

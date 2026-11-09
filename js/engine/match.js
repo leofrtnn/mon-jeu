@@ -25,7 +25,7 @@
  *  summarize(m)     -> résumé (score, stats, notes, homme du match)
  */
 import { createRng, clamp } from '../core/rng.js';
-import { FORMATIONS, MAX_SUBS, positionFit } from '../data/constants.js';
+import { FORMATIONS, MAX_SUBS, positionFit, DEFAULT_TACTICS, slotsOf } from '../data/constants.js';
 import { conditionFactor, ratingAt } from './ratings.js';
 import { aiManage } from './ai.js';
 import { formationPos, pitchDist } from './positions.js';
@@ -55,7 +55,7 @@ function makeMatchPlayer(p, slot, onPitch) {
 
 function makeTeam(cfg, side) {
   const byId = new Map(cfg.players.map((p) => [p.id, p]));
-  const slots = FORMATIONS[cfg.tactics.formation].map((s) => ({ ...s }));
+  const slots = slotsOf(cfg.tactics).map((s) => ({ ...s }));
   const onPitch = cfg.lineup.map((id, i) => {
     const p = byId.get(id);
     return p ? makeMatchPlayer(p, i, true) : null;
@@ -67,7 +67,7 @@ function makeTeam(cfg, side) {
     const b = bench.shift(); b.slot = i; b.onPitch = true; b.minIn = 0; onPitch[i] = b;
   });
   return {
-    side, club: cfg.club, tactics: { ...cfg.tactics }, slots, onPitch, bench, out: [],
+    side, club: cfg.club, tactics: { ...DEFAULT_TACTICS, ...cfg.tactics }, slots, onPitch, bench, out: [], pi: (cfg.pi || []).slice(),
     subsUsed: 0, isAI: !!cfg.isAI, talk: 0,
     roles: (cfg.roles || []).slice(), setPieces: { ...(cfg.setPieces || {}) }, injuryMod: cfg.injuryMod ?? 1,
     stats: { poss: 0, shots: 0, onTarget: 0, xg: 0, passes: 0, passesOk: 0, fouls: 0, corners: 0,
@@ -158,6 +158,10 @@ function ballPos(m, side, zone, mp) {
 function addRating(mp, v) { if (mp) mp.rating = clamp(mp.rating + v, 3, 10); }
 
 const roleOf = (t, mp) => (mp && t.roles[mp.slot]) || 'std';
+/** Consigne individuelle d'un joueur (par poste). */
+const piOf = (t, mp, key, def) => (mp && t.pi[mp.slot] && t.pi[mp.slot][key]) || def;
+const TK = { soft: -1, normal: 0, hard: 1 };
+const SCALE3 = { low: 0.6, mid: 1, high: 1.6 };
 
 /** Calcule la position continue de tous les joueurs (une fois par action). */
 function computePositions(m) {
@@ -204,6 +208,15 @@ function pickReceiver(m, A, nz, exclude, long) {
     const d = depth - ZONE_CENTER[nz];
     let v = (Math.exp(-(d * d) / (2 * 0.12 * 0.12)) + 0.02) * (0.5 + clamp(opens[i], 0, 0.2) * 7);
     if (cp && !long) v *= Math.exp(-Math.max(0, pitchDist(cp, p) - 0.25) * 3);
+    // Couloir privilégié et consignes individuelles.
+    const fy = A.slots[mp.slot].y, foc = A.tactics.focus;
+    if (foc === 'left') v *= fy < 0.4 ? 1.45 : fy > 0.6 ? 0.75 : 1;
+    if (foc === 'right') v *= fy > 0.6 ? 1.45 : fy < 0.4 ? 0.75 : 1;
+    if (foc === 'center') v *= fy > 0.3 && fy < 0.7 ? 1.35 : 0.8;
+    if (nz >= 2) {
+      const du = piOf(A, mp, 'duty', 'sup'), ru = piOf(A, mp, 'runs', 'normal');
+      v *= (du === 'att' ? 1.3 : du === 'def' ? 0.7 : 1) * (ru === 'join' ? 1.35 : ru === 'stay' ? 0.65 : 1);
+    }
     const r = roleOf(A, mp);
     if (r === 'meneur' && (nz === 1 || nz === 2)) v *= 1.6;
     if (r === 'pivot') v *= nz <= 1 ? 1.5 : 0.6;
@@ -292,7 +305,10 @@ function chooseAction(m, A, c) {
   const shotK = 0.55 + tir / (m.level * 1.45);
   const driK = 0.5 + dri / 100;
   let w;
-  if (s.pos === 'GB') return m.rng.chance(0.55 + tv * 0.1) ? 'long' : 'short';
+  if (s.pos === 'GB') {
+    const gd = A.tactics.gkDist;
+    return m.rng.chance(gd === 'short' ? 0.22 : gd === 'long' ? 0.85 : 0.55 + tv * 0.1) ? 'long' : 'short';
+  }
   switch (z) {
     case 0: w = { short: 6, long: 2 + tv * 0.6, dribble: 0.6 * driK, cross: 0, shot: 0 }; break;
     case 1: w = { short: 5.5, long: 1.5 + tv * 0.4, dribble: 1.3 * driK + mv * 0.2, cross: 0, shot: (0.07 + mv * 0.03) * shotK }; break;
@@ -306,6 +322,19 @@ function chooseAction(m, A, c) {
   if (role === 'piston') w.cross *= 1.5;
   if (role === 'pivot') { w.dribble *= 0.6; w.shot *= 0.5; }
   if (role === 'meneur') w.long *= 1.2;
+  // Consignes d'équipe.
+  const T = A.tactics;
+  if (T.passing === 'short') { w.short *= 1.3; w.long *= 0.55; }
+  if (T.passing === 'direct') { w.short *= 0.75; w.long *= 1.7; }
+  w.cross *= SCALE3[T.crossing] || 1;
+  if (z <= 2) w.shot *= SCALE3[T.longShots] || 1;
+  if (T.focus === 'center') w.cross *= 0.7;
+  // Consignes individuelles.
+  const duty = piOf(A, c, 'duty', 'sup');
+  if (duty === 'att') { w.shot *= 1.2; w.dribble *= 1.1; }
+  if (duty === 'def') { w.shot *= 0.6; w.dribble *= 0.7; }
+  w.shot *= { less: 0.55, normal: 1, more: 1.55 }[piOf(A, c, 'shoot', 'normal')];
+  w.dribble *= { less: 0.55, normal: 1, more: 1.55 }[piOf(A, c, 'dribble', 'normal')];
   // Fin de match : l'équipe menée prend plus de risques.
   const diff = m.score[A.side] - m.score[1 - A.side];
   if (m.minute > 75 && diff < 0) { w.shot *= 1.25; w.long *= 1.3; w.cross *= 1.2; }
@@ -359,12 +388,17 @@ function resolveAction(m, out) {
     const { mp: target, open } = pickReceiver(m, A, nz, c, long);
     // Un receveur démarqué facilite la passe, un receveur marqué la complique.
     base += clamp((open - 0.085) * 6, -0.4, 0.4);
+    if (A.tactics.passing === 'short') base += 0.15;
+    if (A.tactics.passing === 'direct') base -= 0.1;
+    if (D.tactics.marking === 'zonal' && !long) base -= 0.05;
     const p = sigmoid(base + gap(skill - dskill) / 13 - ctx + counter);
     A.stats.passes++; c.passes++;
     if (m.rng.chance(p)) {
       A.stats.passesOk++; c.passesOk++;
       addRating(c, nz > z ? 0.03 : 0.008);
       m.lastPasser = c;
+      // Ballon dans le dos d'une ligne haute / d'un piège raté : l'attaquant s'échappe.
+      if (long && nz === 2 && (D.tactics.line === 'high' || D.tactics.offsideTrap === 'on') && m.rng.chance(0.22)) nz = 3;
       const pos = ballPos(m, A.side, nz, target);
       m.zone = nz; m.carrier = target;
       if (nz === 3) { c.keyPasses++; addRating(c, 0.04); }
@@ -373,7 +407,8 @@ function resolveAction(m, out) {
     }
     // Échec : hors-jeu possible sur les ballons en profondeur.
     addRating(c, -0.04);
-    if (nz >= 2 && nz > z && m.rng.chance(long ? 0.22 : 0.07)) {
+    const trap = (D.tactics.offsideTrap === 'on' ? 1.6 : 1) * (D.tactics.line === 'high' ? 1.3 : D.tactics.line === 'low' ? 0.7 : 1);
+    if (nz >= 2 && nz > z && m.rng.chance((long ? 0.22 : 0.07) * trap)) {
       A.stats.offsides++;
       const pos = ballPos(m, D.side, 0, def);
       changePossession(m, D.side, 0, pickNear(m, D, 0.2));
@@ -381,7 +416,7 @@ function resolveAction(m, out) {
       return;
     }
     // Faute "tactique" pour casser une relance ou un contre.
-    if (z <= 2 && m.rng.chance(0.1 * m.profile.fouls * (1 + LVL[D.tactics.pressing] * 0.3))) return foul(m, out, A, D, target, def, z);
+    if (z <= 2 && m.rng.chance(0.1 * m.profile.fouls * (1 + LVL[D.tactics.pressing] * 0.3) * (1 + TK[D.tactics.tackling] * 0.35))) return foul(m, out, A, D, target, def, z);
     return turnover(m, out, A, D, c, def, z, long ? 'header' : 'interception');
   }
 
@@ -389,7 +424,8 @@ function resolveAction(m, out) {
     const skill = eff(c, 'dri') * 0.55 + eff(c, 'vit') * 0.3 + eff(c, 'phy') * 0.15;
     const dskill = eff(def, 'def') * 0.55 + eff(def, 'vit') * 0.25 + eff(def, 'phy') * 0.2;
     const base = [0.3, 0.15, -0.15, -0.5][z];
-    const p = sigmoid(base + gap(skill - dskill) / 11 - ctx + counter);
+    const dtac = TK[D.tactics.tackling] * 0.2 + (D.tactics.marking === 'man' ? 0.12 : 0);
+    const p = sigmoid(base + gap(skill - dskill) / 11 - ctx - dtac + counter);
     A.stats.dribbles++;
     if (m.rng.chance(p)) {
       addRating(c, 0.07);
@@ -403,7 +439,7 @@ function resolveAction(m, out) {
     }
     // Tacle : faute possible.
     const aggr = 1 + LVL[D.tactics.pressing] * 0.18 + (m.minute > 70 ? 0.1 : 0);
-    const foulP = (z === 3 ? 0.1 : 0.56) * m.profile.fouls * aggr * (1.25 - eff(def, 'def') / 200);
+    const foulP = (z === 3 ? 0.1 : 0.56) * m.profile.fouls * aggr * (1.25 - eff(def, 'def') / 200) * (1 + TK[D.tactics.tackling] * 0.4);
     if (m.rng.chance(foulP)) return foul(m, out, A, D, c, def, z);
     addRating(c, -0.04);
     return turnover(m, out, A, D, c, def, z, 'tackle');
@@ -420,7 +456,7 @@ function turnover(m, out, A, D, c, def, z, how) {
   if (z === 2 && m.rng.chance(0.4)) dz = 1;
   if (z === 1 && m.rng.chance(0.3)) dz = 0;
   // Contre-attaque si l'adversaire est découvert.
-  if (dz >= 1 && (MENT[A.tactics.mentality] > 0 || m.rng.chance(0.15))) m.counter = 2;
+  if (dz >= 1 && (MENT[A.tactics.mentality] > 0 || m.rng.chance(D.tactics.counter === 'on' ? 0.45 : 0.15))) m.counter = D.tactics.counter === 'on' ? 3 : 2;
   const pos = ballPos(m, D.side, dz, def);
   changePossession(m, D.side, dz, def);
   emit(m, out, { type: how, side: D.side, pid: def.id, pid2: c.id, ...pos, zone: dz, counter: m.counter > 0 });
@@ -486,7 +522,7 @@ function foul(m, out, A, D, victim, offender, z) {
   // Cartons.
   let yP = 0.135 + (z === 1 || z === 2 ? 0.05 : 0) + (m.minute > 75 ? 0.04 : 0) + (m.counter ? 0.06 : 0) + (z === 3 ? 0.08 : 0);
   if (offender.yellow) yP *= 0.45; // un joueur averti se retient
-  yP *= m.profile.cards;
+  yP *= m.profile.cards * (1 + TK[D.tactics.tackling] * 0.3);
   if (m.rng.chance(0.003)) sendOff(m, out, D, offender, 'direct');
   else if (m.rng.chance(yP)) {
     offender.yellow++; D.stats.yellows++;
@@ -695,7 +731,7 @@ function decayEnergy(m) {
   for (const t of m.teams) {
     const pv = LVL[t.tactics.pressing], tv = LVL[t.tactics.tempo];
     for (const mp of activePlayers(t)) {
-      let d = 0.42 - mp.p.attrs.phy * 0.0022 + pv * 0.06 + tv * 0.03;
+      let d = 0.42 - mp.p.attrs.phy * 0.0022 + pv * 0.06 + tv * 0.03 + (t.tactics.marking === 'man' ? 0.03 : 0);
       if (t.slots[mp.slot].pos === 'GB') d *= 0.35;
       mp.energy = clamp(mp.energy - d * late * (1 + (mp.p.age > 31 ? 0.1 : 0)), 5, 100);
       // Blessure "sans contact", plus fréquente quand le joueur est épuisé.
@@ -739,7 +775,10 @@ export function stepMinute(m) {
   for (const t of m.teams) if (t.isAI) aiManage(m, t, out, { doSub, bestBenchFor });
 
   const tempo = (LVL[m.teams[0].tactics.tempo] + LVL[m.teams[1].tactics.tempo]) * 0.25;
-  const n = clamp(Math.round(4 + tempo + m.rng.normal(0, 0.8) - (m.minute > 80 ? 0.3 : 0)), 2, 6);
+  // Gagner du temps : l'équipe qui mène casse le rythme (et l'arbitre rallonge).
+  const waster = m.teams.find((t) => t.tactics.timeWasting === 'on' && m.score[t.side] > m.score[1 - t.side] && m.minute >= 60);
+  if (waster) m.stoppages += 0.15;
+  const n = clamp(Math.round(4 + tempo + m.rng.normal(0, 0.8) - (m.minute > 80 ? 0.3 : 0) - (waster ? 0.8 : 0)), 2, 6);
   for (let i = 0; i < n; i++) {
     const before = out.length;
     resolveAction(m, out);
@@ -819,7 +858,7 @@ export function makeSub(m, side, outId, inId) {
 /** Change la formation en réaffectant au mieux les joueurs présents. */
 export function changeFormation(m, side, formation) {
   const T = m.teams[side];
-  const slots = FORMATIONS[formation].map((s) => ({ ...s }));
+  const slots = (Array.isArray(formation) ? formation : FORMATIONS[formation]).map((s) => ({ ...s }));
   const players = T.onPitch.slice();
   const newOn = new Array(11).fill(null);
   const free = new Set(players.map((_, i) => i));
@@ -843,8 +882,19 @@ export function changeFormation(m, side, formation) {
   }
   T.onPitch = newOn;
   T.slots = slots;
-  T.tactics.formation = formation;
+  if (!Array.isArray(formation)) { T.tactics.formation = formation; delete T.tactics.custom; }
   refreshMultipliers(m);
+}
+
+/** Applique un plan tactique enregistré (formation, consignes, rôles) en cours de match. */
+export function applyPlan(m, side, plan) {
+  const T = m.teams[side];
+  const tac = { ...DEFAULT_TACTICS, ...plan.tactics };
+  changeFormation(m, side, tac.custom && tac.custom.length === 11 ? tac.custom : tac.formation);
+  T.tactics = { ...tac };
+  T.roles = (plan.roles || []).slice();
+  T.pi = (plan.pi || []).map((x) => ({ ...x }));
+  T.setPieces = { ...(plan.setPieces || {}) };
 }
 
 export function setTactic(m, side, key, value) {

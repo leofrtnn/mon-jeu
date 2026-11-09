@@ -16,7 +16,7 @@ import { aiTransferActivity, fillSquad, logFinance } from './transfers.js';
 import { gameRng, matchSeed, clubById, userClub, clubPlayers, pushMessage, SAVE_VERSION } from './state.js';
 import { initClubExtras, newCoach, coachRep, coachAfterMatch, staffEffects, staffWages, trainingParams, dailyFacilities, checkJobOffers, jobCandidates } from './career.js';
 import { scoutDaily, marketEvents, seeInMatch } from './scouting.js';
-import { FORMATIONS } from '../data/constants.js';
+import { slotsOf } from '../data/constants.js';
 
 export const CUP_ROUND_NAMES = ['16es de finale', '8es de finale', 'Quarts de finale', 'Demi-finales', 'Finale'];
 export const CONTI_ROUND_NAMES = ['Groupes · J1', 'Groupes · J2', 'Groupes · J3', 'Quarts de finale', 'Demi-finales', 'Finale'];
@@ -309,7 +309,7 @@ export function teamCfg(state, club, opponent, isHome, isUser) {
   if (isUser) {
     validateUserLineup(state);
     return { club, players, lineup: club.lineup.slice(), bench: club.bench.slice(), tactics: { ...club.tactics }, isAI: false,
-      roles: (club.roles || []).slice(), setPieces: { ...(club.setPieces || {}) }, injuryMod: staffEffects(club).injuryMod };
+      roles: (club.roles || []).slice(), setPieces: { ...(club.setPieces || {}) }, pi: (club.pi || []).map((x) => ({ ...x })), injuryMod: staffEffects(club).injuryMod };
   }
   const rng = createRng(hashSeed(`${state.seed}-${state.season}-${state.day}-${club.id}`));
   const prep = aiPrepare(players, opponent ? clubPlayers(state, opponent) : players, isHome, rng);
@@ -346,9 +346,9 @@ export function validateUserLineup(state) {
   const club = userClub(state);
   const players = clubPlayers(state, club);
   const byId = new Map(players.map((p) => [p.id, p]));
-  const slots = FORMATIONS[club.tactics.formation];
+  const slots = slotsOf(club.tactics);
   if (!club.lineup || club.lineup.length !== slots.length) {
-    const lu = autoLineup(players, club.tactics.formation);
+    const lu = autoLineup(players, slots);
     club.lineup = lu.lineup; club.bench = lu.bench;
     return [];
   }

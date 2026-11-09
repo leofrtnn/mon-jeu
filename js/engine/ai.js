@@ -21,8 +21,11 @@ export function aiPrepare(players, opponentPlayers, isHome, rng) {
   const diff = squadStrength(players) - squadStrength(opponentPlayers) + (isHome ? 1.5 : -1.5);
   const mentality = diff > 3 ? 'offensive' : diff < -4 ? 'defensive' : 'balanced';
   const pressing = diff > 5 ? 'high' : diff < -5 ? 'low' : 'mid';
+  // Style de jeu : les favoris confisquent le ballon, les petits jouent bas et en contre.
+  const style = diff > 4 ? { passing: 'short', line: 'high', crossing: 'mid' }
+    : diff < -4 ? { passing: 'direct', line: 'low', counter: 'on', tackling: 'hard' } : {};
   return {
-    tactics: { formation: best.f, mentality, pressing, tempo: 'mid', width: 'mid' },
+    tactics: { formation: best.f, mentality, pressing, tempo: 'mid', width: 'mid', ...style },
     lineup: best.lu.lineup, bench: best.lu.bench,
   };
 }

@@ -25,6 +25,13 @@ export function formationPos(t, mp, bx, by, inPoss, kickoff = false) {
   } else {
     depth = 0.07 + s.x * 0.66 + (bd - 0.5) * 0.42 + (inPoss ? 0.07 : -0.05) + (MENT_SHIFT[t.tactics.mentality] || 0);
     if (inPoss && role === 'piston') depth += 0.1;
+    // Ligne défensive (sans ballon) et consignes individuelles (avec ballon).
+    if (!inPoss) depth += { low: -0.05, mid: 0, high: 0.05 }[t.tactics.line] || 0;
+    const pi = t.pi?.[mp.slot];
+    if (inPoss && pi) {
+      depth += { def: -0.05, sup: 0, att: 0.05 }[pi.duty] || 0;
+      depth += { stay: -0.04, normal: 0, join: 0.04 }[pi.runs] || 0;
+    }
     if (role === 'pivot') depth -= 0.04;
     if (inPoss && role === 'renard') depth += 0.04;
     const pull = inPoss ? 0.12 : 0.3;

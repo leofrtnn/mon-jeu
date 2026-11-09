@@ -5,9 +5,9 @@
  * pause (changements, tactique), mi-temps (stats + causerie), fin de match.
  */
 import { userMatchCfg, completeDay, today } from '../../game/season.js';
-import { createMatch, stepMinute, makeSub, changeFormation, setTactic, teamTalk, summarize, penaltyShootout, clockLabel, activePlayers } from '../../engine/match.js';
+import { createMatch, stepMinute, makeSub, changeFormation, setTactic, applyPlan, teamTalk, summarize, penaltyShootout, clockLabel, activePlayers } from '../../engine/match.js';
 import { describe, iconFor } from '../../engine/commentary.js';
-import { FORMATION_NAMES, MENTALITIES, MENTALITY_LABELS, LEVELS, PRESSING_LABELS, TEMPO_LABELS, MAX_SUBS, POSITION_GROUP } from '../../data/constants.js';
+import { FORMATION_NAMES, MENTALITIES, MENTALITY_LABELS, LEVELS, PRESSING_LABELS, TEMPO_LABELS, MAX_SUBS, POSITION_GROUP, TEAM_INSTRUCTIONS, DEFAULT_TACTICS } from '../../data/constants.js';
 import { ratingAt } from '../../engine/ratings.js';
 import { MatchView } from '../matchView.js';
 import { esc, crest, cmpBar, ratingChip, posBadge, seg, scaleColor } from '../components.js';
@@ -270,7 +270,10 @@ export function openMatch(app, opts = {}) {
           <div class="chips">${FORMATION_NAMES.map((f) => `<button class="chip ${t.tactics.formation === f ? 'on' : ''}" data-act="form" data-v="${f}">${f}</button>`).join('')}</div>
           <div class="label">Mentalité</div>${seg('ment', MENTALITIES, t.tactics.mentality, MENTALITY_LABELS)}
           <div class="label">Pressing</div>${seg('press', LEVELS, t.tactics.pressing, PRESSING_LABELS)}
-          <div class="label">Tempo</div>${seg('tempo', LEVELS, t.tactics.tempo, TEMPO_LABELS)}`}
+          <div class="label">Tempo</div>${seg('tempo', LEVELS, t.tactics.tempo, TEMPO_LABELS)}
+          ${TEAM_INSTRUCTIONS.filter((ti) => ['line', 'passing', 'focus', 'counter', 'tackling', 'offsideTrap', 'timeWasting'].includes(ti.key)).map((ti) => `<div class="label">${ti.label}</div>
+            <div class="seg">${Object.entries(ti.opts).map(([v, l]) => `<button data-act="ti" data-k="${ti.key}" data-v="${v}" class="${(t.tactics[ti.key] || DEFAULT_TACTICS[ti.key]) === v ? 'on' : ''}">${l}</button>`).join('')}</div>`).join('')}
+          ${(userClub(s).presets || []).some(Boolean) ? `<div class="label">Plans enregistrés</div><div class="btns">${(userClub(s).presets || []).map((pl, i) => pl ? `<button class="btn sm" data-act="plan" data-v="${i}">Plan ${'ABC'[i]}</button>` : '').join('')}</div>` : ''}`}
         <button class="btn primary lg block" style="margin-top:14px" data-act="close">${isHT ? 'Retour au vestiaire' : '▶ Reprendre'}</button>`;
     };
     const h = app.sheet({
@@ -290,6 +293,13 @@ export function openMatch(app, opts = {}) {
         ment: (el) => { setTactic(m, userSide, 'mentality', el.dataset.v); h.update(html()); },
         press: (el) => { setTactic(m, userSide, 'pressing', el.dataset.v); h.update(html()); },
         tempo: (el) => { setTactic(m, userSide, 'tempo', el.dataset.v); h.update(html()); },
+        ti: (el) => { setTactic(m, userSide, el.dataset.k, el.dataset.v); h.update(html()); },
+        plan: (el) => {
+          const pl = (userClub(s).presets || [])[+el.dataset.v];
+          if (!pl) return;
+          applyPlan(m, userSide, pl); view.syncPlayers(false);
+          app.toast(`Plan ${'ABC'[+el.dataset.v]} appliqué`); h.update(html());
+        },
       },
     });
     return h;

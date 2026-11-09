@@ -293,6 +293,13 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; font-varian
 .drop-hover .shirt, .prow.drop-hover { box-shadow: 0 0 0 4px var(--info); }
 .drag-ghost { position: fixed; z-index: 200; pointer-events: none; transform: translate(-50%, -60%) scale(1.12); opacity: .92; }
 .benchrow { min-height: 52px; }
+.tpitch.editing { box-shadow: inset 0 0 0 3px var(--accent), inset 0 0 60px rgba(0, 0, 0, .35); }
+.slot.editable .shirt { background: #fff; color: #0a1310; cursor: move; }
+.slot .shirt small { font-size: 10px; font-weight: 800; color: inherit; }
+.pi-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin-top: 8px; }
+.pi-grid label { display: flex; flex-direction: column; gap: 2px; font-size: 11px; }
+.pi-grid select { min-height: 36px; font-size: 12.5px; padding: 0 4px; width: 100%; }
+.pi-card select[data-act=role] { min-height: 36px; font-size: 12.5px; }
 
 /* ---------- Écran de match ---------- */
 .match-screen {
