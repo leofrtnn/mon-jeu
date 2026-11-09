@@ -1,6 +1,6 @@
 # Big 5 — clubs et joueurs (saison 2026-27)
 
-`foot5.json` contient les **96 clubs** et environ **2 600 joueurs** des 5 grands championnats :
+`foot5.json` contient les **96 clubs**, environ **2 600 joueurs** et les **96 entraîneurs** des 5 grands championnats :
 Premier League, LaLiga, Serie A, Bundesliga et Ligue 1.
 
 ## Contenu
@@ -19,6 +19,12 @@ Premier League, LaLiga, Serie A, Bundesliga et Ligue 1.
   - statistiques au club actuel (matchs, buts, depuis quand) ;
   - sélection nationale A (matchs, buts) ;
   - **carrière complète** club par club (années, matchs, buts, prêts).
+- **coaches** (entraîneurs principaux, un par club) :
+  - nom, nom complet, club, nationalité(s), date et lieu de naissance, âge ;
+  - **photo** (`photo.url`) ;
+  - carrière d'entraîneur (années, équipes) et carrière de joueur ;
+  - liens Wikipédia et Wikidata.
+  - `vacant: true` quand le poste est vacant ou non renseigné.
 
 ## Images
 

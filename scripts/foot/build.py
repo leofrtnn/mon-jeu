@@ -112,7 +112,7 @@ def build():
     pages = {}
     for i in range(0, len(club_titles), 5):  # pages longues : petits lots
         pages.update(wiki.wikitexts(club_titles[i:i + 5]))
-    clubs, squads = [], {}
+    clubs, squads, manager_titles = [], {}, {}
     for lg in data_leagues:
         for title in lg['clubs']:
             if title not in pages:
@@ -141,6 +141,7 @@ def build():
                 'wikipedia': wiki_url(final), 'wikidata': qid,
             }
             clubs.append(club)
+            manager_titles[cid] = link_target(ib.get('manager', ''))
             squads[cid] = parse_squad(text)
             print(f'  {lg["id"]} {club["name"]}: {len(squads[cid])} joueurs', flush=True)
     for lg in data_leagues:
@@ -205,10 +206,11 @@ def build():
                 'career': career,
                 'wikipedia': wiki_url(final) if final else None, 'wikidata': qid,
             })
+    coaches = build_coaches(clubs, manager_titles)
     out = {
         'meta': {
             'title': 'Big 5 — clubs et joueurs', 'season': '2026–27', 'generated': TODAY.isoformat(),
-            'counts': {'leagues': len(data_leagues), 'clubs': len(clubs), 'players': len(players)},
+            'counts': {'leagues': len(data_leagues), 'clubs': len(clubs), 'players': len(players), 'coaches': len(coaches)},
             'sources': 'Wikipédia en anglais (texte sous licence CC BY-SA 4.0), Wikidata (CC0). Données extraites automatiquement : peuvent contenir des erreurs.',
             'images': "Logos et photos non inclus : les champs 'url' pointent vers les fichiers hébergés par Wikipédia/Wikimedia Commons, chacun soumis à ses propres droits (les logos sont des marques déposées).",
             'positions': POS_FR,
@@ -216,11 +218,79 @@ def build():
         'leagues': [{'id': lg['id'], 'name': lg['name'], 'country': lg['country'], 'clubs': lg['clubIds']} for lg in data_leagues],
         'clubs': clubs,
         'players': players,
+        'coaches': coaches,
     }
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     with open(OUT, 'w', encoding='utf-8') as f:
         json.dump(out, f, ensure_ascii=False, indent=1)
     print(f'OK -> {OUT} ({len(clubs)} clubs, {len(players)} joueurs)')
+
+def claim_ids(ent, prop):
+    out = []
+    for c in ent.get('claims', {}).get(prop, []):
+        v = c.get('mainsnak', {}).get('datavalue', {}).get('value')
+        if isinstance(v, dict) and 'id' in v:
+            out.append(v['id'])
+    return out
+
+def claim_time(ent, prop):
+    for c in ent.get('claims', {}).get(prop, []):
+        v = c.get('mainsnak', {}).get('datavalue', {}).get('value')
+        if isinstance(v, dict) and 'time' in v:
+            m = re.match(r'[+-](\d{4})-(\d{2})-(\d{2})', v['time'])
+            if m and m.group(2) != '00':
+                return f'{m.group(1)}-{m.group(2)}-{m.group(3)}'
+    return None
+
+def build_coaches(clubs, manager_titles):
+    """Entraîneurs principaux des clubs : infobox Wikipédia + nationalité (Wikidata)."""
+    titles = sorted({t for t in manager_titles.values() if t})
+    print(f'{len(titles)} entraîneurs', flush=True)
+    pages = wiki.lead_sections(titles)
+    ents = wiki.entities([pages[t][2] for t in titles if t in pages and pages[t][2]])
+    countries = sorted({c for e in ents.values() for c in claim_ids(e, 'P27')})
+    cents = wiki.entities(countries)
+    clabel = lambda q: (cents.get(q, {}).get('labels', {}).get('fr') or cents.get(q, {}).get('labels', {}).get('en') or {}).get('value')
+    coaches = []
+    for club in clubs:
+        t = manager_titles.get(club['id'])
+        final, text, qid = pages.get(t, (None, '', None)) if t else (None, '', None)
+        ib = first_infobox(text, 'football biography') if text else {}
+        ent = ents.get(qid, {}) if qid else {}
+        bd = clean(ib.get('birth_date', '')) or claim_time(ent, 'P569') or ''
+        bd = bd if re.fullmatch(r'\d{4}-\d{2}-\d{2}', bd) else None
+        age = None
+        if bd:
+            y, m, dd = map(int, bd.split('-'))
+            age = TODAY.year - y - ((TODAY.month, TODAY.day) < (m, dd))
+        career = []
+        for k in range(1, 40):
+            team = ib.get(f'manager_clubs{k}') or ib.get(f'managerclubs{k}')
+            if not team:
+                continue
+            career.append({'years': clean(ib.get(f'manager_years{k}', '') or ib.get(f'manageryears{k}', '')), 'team': clean(team)})
+        playing = []
+        for k in range(1, 40):
+            cl = ib.get(f'clubs{k}')
+            if cl:
+                playing.append({'years': clean(ib.get(f'years{k}', '')), 'club': clean(cl).replace('→', '').strip(),
+                                'apps': to_int(clean(ib.get(f'caps{k}', ''))), 'goals': to_int(clean(ib.get(f'goals{k}', '')))})
+        img = clean(ib.get('image', ''))
+        nats = [clabel(q) for q in claim_ids(ent, 'P27')]
+        coaches.append({
+            'id': qid or 'c-' + slug(club['manager'] or club['id']),
+            'name': (club['manager'] if (club['manager'] or '').lower() != 'vacant' else None) or (clean(ib.get('name', '')) or None),
+            'vacant': not club['manager'] or club['manager'].lower() == 'vacant',
+            'fullName': clean(ib.get('full_name', '') or ib.get('fullname', '')) or None,
+            'club': club['id'],
+            'nationality': [n for n in nats if n] or None,
+            'birthDate': bd, 'age': age, 'birthPlace': clean(ib.get('birth_place', '')) or None,
+            'photo': {'file': img or None, 'url': file_url(img)},
+            'managerCareer': career,
+            'playingCareer': playing,
+            'wikipedia': wiki_url(final) if final else None, 'wikidata': qid,
+        })
+    return coaches
 
 if __name__ == '__main__':
     build()
