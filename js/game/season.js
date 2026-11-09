@@ -19,6 +19,7 @@ import { scoutDaily, marketEvents, seeInMatch } from './scouting.js';
 import { coachMods, ensureCoachProfile, grantSeasonPoints } from './coach.js';
 import { ensureManagers, managerStyle, managersAfterRound, managersEndSeason, onUserLeaves, onUserArrives } from './managers.js';
 import { assignDates, windowInfo, fmtDate } from './dates.js';
+import { startPreseason } from './preseason.js';
 import { ensureBoard, setBoardSeason, updateBoardParts, checkMidSeasonSack, recordUserMatch, IDENTITIES } from './board.js';
 import { slotsOf } from '../data/constants.js';
 
@@ -120,6 +121,7 @@ export function createSeason(state) {
   state.seasonOver = false;
   state.lastResult = null;
   setObjectives(state);
+  if (state.userClubId) startPreseason(state);
 }
 
 /** Coupe continentale : qualification (classement final précédent ou réputation), tirage des groupes. */
@@ -399,6 +401,8 @@ export function userMatchCfg(state) {
  * met à jour joueurs, finances, IA, messages. Retourne un rapport.
  */
 export function completeDay(state, userMatch = null) {
+  // La saison démarre : fin de la préparation (réunion acceptée par défaut).
+  if (state.preseason?.active) { if (!state.preseason.meeting) state.preseason.meeting = true; state.preseason.active = false; }
   const rng = gameRng(state);
   const t = today(state);
   const uc = userClub(state);

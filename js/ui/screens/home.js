@@ -3,6 +3,7 @@
  */
 import { today, completeDay, tablePosition, DIV_NAMES, nationSquad, eligibleNations, changeClub } from '../../game/season.js';
 import { jobCandidates } from '../../game/career.js';
+import { preseasonCard, preseasonActions } from './preseasonUI.js';
 import { userClub, clubById, clubPlayers, topMessages } from '../../game/state.js';
 import { isAvailable } from '../../engine/ratings.js';
 import { esc, crest, formPills, gauge, scaleColor } from '../components.js';
@@ -26,6 +27,7 @@ export function render(app) {
         <div class="pname"><b>${esc(c.name)}</b><small>${DIV_NAMES[c.div]} · réputation ${c.rep}${c.vacantSince ? ' · poste vacant' : ''}</small></div><span class="btn sm primary">Signer</span></div>`).join('') || '<p class="muted">Aucune offre pour le moment.</p>'}
       </div>`;
   }
+  if (s.preseason?.active) return preseasonCard(app);
   if (s.seasonOver) {
     html += `<div class="card nextmatch"><h3>Saison ${s.season}-${s.season + 1} terminée</h3>
       <p>Classement final : <b>${tablePosition(s, uc.id)}e</b> de ${DIV_NAMES[uc.div]}</p>
@@ -115,6 +117,7 @@ function line(label, v) {
 }
 
 export const actions = {
+  ...preseasonActions,
   play(el, app) { openMatch(app); },
   tactics(el, app) { app.go('tactics'); },
   async simulate(el, app) { await runSim(app, 1, false); },

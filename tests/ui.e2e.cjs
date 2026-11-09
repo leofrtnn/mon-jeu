@@ -52,11 +52,19 @@ function serve() {
     await page.click('.sheet [data-act=dec][data-v=discipline]');
     await page.click('.sheet [data-act=inc][data-v=tactics]');
     await page.click('.sheet [data-act=ok]');
+    // Préparation estivale : réunion avec le CA, un amical simulé, lancement de la saison.
+    await page.waitForSelector('[data-act=psmeeting]');
+    await page.click('[data-act=psmeeting]');
+    await page.click('.sheet [data-act=ch][data-v=accept]');
+    await page.click('.sheet [data-act=ok]');
+    await page.click('[data-act=psadd] >> nth=0');
+    await page.click('[data-act=pssim] >> nth=0');
+    await page.click('[data-act=psstart]');
     await page.waitForSelector('[data-act=play]');
     const coach = await page.evaluate(() => window.__app.state.coach);
     assert.equal(coach.skills.tactics, 11);
     assert.ok(coach.created);
-    step('partie créée (Liga Ibérica) + coach personnalisé');
+    step('partie créée (Liga Ibérica) + coach personnalisé + préparation (réunion CA, amical)');
 
     for (const tab of ['squad', 'tactics', 'schedule', 'club', 'home']) {
       await page.click(`[data-tab=${tab}]`);
