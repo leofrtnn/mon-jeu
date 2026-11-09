@@ -39,6 +39,16 @@ const COUNTRY_WEIGHTS = {
   BEL: { fr: 30, waf: 14, ibe: 4, bra: 4, bal: 6, mag: 10, nor: 30, ita: 3, eng: 2 },
   TUR: { fr: 3, waf: 8, ibe: 4, bra: 8, bal: 30, mag: 30, nor: 6, ita: 3, eng: 2 },
   CZE: { fr: 2, waf: 6, ibe: 2, bra: 3, bal: 55, mag: 2, nor: 25, ita: 2, eng: 2 },
+  GRE: { fr: 3, waf: 8, ibe: 6, bra: 6, bal: 45, mag: 4, nor: 4, ita: 6, eng: 2 },
+  NOR: { fr: 2, waf: 8, ibe: 2, bra: 2, bal: 4, mag: 3, nor: 75, ita: 1, eng: 4 },
+  POL: { fr: 2, waf: 5, ibe: 4, bra: 3, bal: 60, mag: 2, nor: 20, ita: 2, eng: 2 },
+  DEN: { fr: 2, waf: 8, ibe: 2, bra: 2, bal: 6, mag: 4, nor: 70, ita: 1, eng: 4 },
+  AUT: { fr: 2, waf: 8, ibe: 2, bra: 3, bal: 25, mag: 4, nor: 50, ita: 3, eng: 2 },
+  SUI: { fr: 25, waf: 10, ibe: 4, bra: 3, bal: 14, mag: 4, nor: 30, ita: 10, eng: 2 },
+  SCO: { fr: 2, waf: 6, ibe: 2, bra: 1, bal: 3, mag: 1, nor: 8, ita: 1, eng: 75 },
+  SWE: { fr: 2, waf: 8, ibe: 2, bra: 2, bal: 10, mag: 5, nor: 68, ita: 1, eng: 3 },
+  CRO: { fr: 1, waf: 4, ibe: 2, bra: 3, bal: 80, mag: 1, nor: 4, ita: 3, eng: 1 },
+  SRB: { fr: 1, waf: 5, ibe: 1, bra: 3, bal: 82, mag: 1, nor: 3, ita: 2, eng: 1 },
 };
 
 /** Retourne { first, last, nat } crédible pour un club du pays donné. */

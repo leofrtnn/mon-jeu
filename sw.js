@@ -4,7 +4,7 @@
  * Pensez à incrémenter VERSION à chaque livraison.
  */
 const IMG_CACHE = 'cdp-img';
-const VERSION = 'cdp-v22';
+const VERSION = 'cdp-v25';
 const ASSETS = [
   './',
   './css/style.css',
@@ -36,6 +36,7 @@ const ASSETS = [
   './js/game/economy.js',
   './js/game/fans.js',
   './js/game/friends.js',
+  './js/game/humans.js',
   './js/game/inbox.js',
   './js/game/injuries.js',
   './js/game/life.js',
@@ -50,9 +51,13 @@ const ASSETS = [
   './js/game/scouting.js',
   './js/game/season.js',
   './js/game/state.js',
+  './js/game/store.js',
   './js/game/transfers.js',
   './js/game/worker.js',
   './js/main.js',
+  './js/online/backend.js',
+  './js/online/config.js',
+  './js/online/multi.js',
   './js/ui/app.js',
   './js/ui/audio.js',
   './js/ui/avatar.js',
@@ -62,6 +67,7 @@ const ASSETS = [
   './js/ui/images.js',
   './js/ui/match3d.js',
   './js/ui/matchView.js',
+  './js/ui/screens/auth.js',
   './js/ui/screens/club.js',
   './js/ui/screens/clubInfo.js',
   './js/ui/screens/coachEditor.js',
@@ -73,6 +79,7 @@ const ASSETS = [
   './js/ui/screens/inboxUI.js',
   './js/ui/screens/match.js',
   './js/ui/screens/negotiation.js',
+  './js/ui/screens/online.js',
   './js/ui/screens/playerSheet.js',
   './js/ui/screens/preseasonUI.js',
   './js/ui/screens/schedule.js',
@@ -83,6 +90,9 @@ const ASSETS = [
   './js/ui/sim.js',
   './js/ui/viewport.js',
   './js/vendor/THREE-LICENSE.txt',
+  './js/vendor/supabase/591.supabase.js',
+  './js/vendor/supabase/LICENSE.txt',
+  './js/vendor/supabase/supabase.js',
   './js/vendor/three.module.min.js',
   './js/version.js',
   './manifest.webmanifest',

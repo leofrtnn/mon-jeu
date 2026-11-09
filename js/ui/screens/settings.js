@@ -53,6 +53,7 @@ export const actions = {
   async quit(el, app) {
     if (!(await app.confirm('Quitter ?', 'La partie est sauvegardée automatiquement.', 'Menu principal'))) return;
     app.save(true);
+    if (app.online) { const m = await import('./online.js'); m.leaveOnline(app); }
     app.state = null; app.ui.start = { step: 'menu', div: 1 };
     app.render();
   },

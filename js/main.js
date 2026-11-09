@@ -6,14 +6,29 @@ import { app } from './ui/app.js';
 import { watchViewport } from './ui/viewport.js';
 
 watchViewport();
-import { load, setSlot, saveSync } from './game/state.js';
+import { load, setSlot, saveSync, setAccount, lastKey, setCloudHook } from './game/state.js';
+import { getBackend } from './online/backend.js';
 
 app.init();
 (async () => {
-  let last = 1;
-  try { last = +(localStorage.getItem('cdp-last') || 1); } catch { /* ignore */ }
-  const saved = await load(last);
-  if (saved && saved.userClubId) { setSlot(last); app.state = saved; }
+  // Compte obligatoire : on récupère la session (Supabase, ou comptes locaux en repli).
+  try { app.backend = await getBackend(); app.user = await app.backend.user(); } catch (e) { console.warn(e); app.user = null; }
+  // Compte en ligne : copie de chaque emplacement dans le cloud (au plus toutes les 3 minutes).
+  if (app.backend?.kind === 'supabase') {
+    const last = {};
+    setCloudHook((slot, meta, packed) => {
+      if (Date.now() - (last[slot] || 0) < 180000) return;
+      last[slot] = Date.now();
+      app.backend.putSave(slot, meta, packed).catch((e) => console.warn('Sauvegarde cloud', e));
+    });
+  }
+  if (app.user) {
+    setAccount(app.user.id);
+    let last = 1;
+    try { last = +(localStorage.getItem(lastKey()) || 1); } catch { /* ignore */ }
+    const saved = await load(last);
+    if (saved && saved.userClubId && !saved.online) { setSlot(last); app.state = saved; }
+  }
   app.render();
 })();
 

@@ -1,4 +1,4 @@
-"""Clubs actuels des 10 premiers championnats européens (modèles de navigation Wikipédia)."""
+"""Clubs actuels des 20 premiers championnats européens (modèles de navigation Wikipédia)."""
 import re, wiki
 
 LEAGUES = [
@@ -13,6 +13,17 @@ LEAGUES = [
     {'id': 'BEL1', 'size': 18, 'name': 'Pro League', 'country': 'Belgique', 'templates': ['Template:Belgian Pro League']},
     {'id': 'TUR1', 'size': 18, 'name': 'Süper Lig', 'country': 'Turquie', 'templates': ['Template:Süper Lig']},
     {'id': 'CZE1', 'size': 16, 'name': 'Chance Liga', 'country': 'Tchéquie', 'templates': ['Template:Czech First League']},
+    # Championnats 11 à 20.
+    {'id': 'GRE1', 'size': 14, 'name': 'Super League', 'country': 'Grèce', 'templates': ['Template:Superleague Greece teamlist']},
+    {'id': 'NOR1', 'size': 16, 'name': 'Eliteserien', 'country': 'Norvège', 'templates': ['Template:Eliteserien'], 'season': '2026'},
+    {'id': 'POL1', 'size': 18, 'name': 'Ekstraklasa', 'country': 'Pologne', 'templates': ['Template:Ekstraklasa teamlist']},
+    {'id': 'DEN1', 'size': 12, 'name': 'Superliga', 'country': 'Danemark', 'templates': ['Template:Danish Superliga teamlist']},
+    {'id': 'AUT1', 'size': 12, 'name': 'Bundesliga (AUT)', 'country': 'Autriche', 'templates': ['Template:Austrian Bundesliga teamlist']},
+    {'id': 'SUI1', 'size': 12, 'name': 'Super League (SUI)', 'country': 'Suisse', 'templates': ['Template:Swiss Super League teamlist']},
+    {'id': 'SCO1', 'size': 12, 'name': 'Premiership', 'country': 'Écosse', 'templates': ['Template:Scottish Premiership']},
+    {'id': 'SWE1', 'size': 16, 'name': 'Allsvenskan', 'country': 'Suède', 'templates': ['Template:Allsvenskan'], 'season': '2026'},
+    {'id': 'CRO1', 'size': 10, 'name': 'HNL', 'country': 'Croatie', 'templates': ['Template:Hrvatska nogometna liga']},
+    {'id': 'SRB1', 'size': 16, 'name': 'SuperLiga', 'country': 'Serbie', 'templates': ['Template:Serbian SuperLiga']},
 ]
 LINK = re.compile(r'\[\[([^\]|#]+)(?:\|[^\]]*)?\]\]')
 
@@ -40,16 +51,36 @@ def clubs_group(text, season='2026–27'):
             return clubs
     return []
 
+def season_links(text, season, size):
+    """Dernier recours (listes d'équipes) : les liens qui suivent le lien vers l'article de la saison."""
+    links = [l.strip() for l in LINK.findall(text)]
+    i = next((k for k, l in enumerate(links) if l.startswith(season)), None)
+    if i is None:
+        return []
+    out = []
+    for l in links[i + 1:]:
+        if l.startswith(('File:', 'Image:', 'Category:')) or re.match(r'^\d{4}', l):
+            break
+        out.append(l)
+        if len(out) >= size:
+            break
+    return out
+
 def all_leagues():
     for lg in LEAGUES:
         got = wiki.wikitexts(lg['templates'])
         for t in lg['templates']:
             if t in got:
-                clubs = current_clubs(got[t][1])
+                season = lg.get('season', '2026–27')
+                clubs = current_clubs(got[t][1], season)
                 clubs = [c for c in clubs if not re.match(r'^\d{4}', c)][:lg['size']]
                 if len(clubs) < lg['size'] - 2:
-                    alt = [c for c in clubs_group(got[t][1]) if not re.match(r'^\d{4}', c)][:lg['size']]
+                    alt = [c for c in clubs_group(got[t][1], season) if not re.match(r'^\d{4}', c)][:lg['size']]
                     if len(alt) > len(clubs): clubs = alt
+                if len(clubs) < lg['size'] - 2:
+                    alt = season_links(got[t][1], season, lg['size'])
+                    if len(alt) > len(clubs): clubs = alt
+                if len(clubs) % 2: clubs = clubs[:-1]  # calendrier aller-retour : nombre pair
                 if clubs:
                     lg['clubs'] = clubs
                     break

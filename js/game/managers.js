@@ -5,6 +5,7 @@
  * - Postes vacants : l'utilisateur peut postuler (entretien) avant que le club n'embauche.
  * - Pool d'entraîneurs sans club, carrousel de fin de saison, fil d'actualité.
  */
+import { isHumanClub } from './humans.js';
 import { COUNTRIES } from '../data/world.js';
 import { clamp, createRng, hashSeed } from '../core/rng.js';
 import { randomName } from '../data/names.js';
@@ -53,7 +54,7 @@ export function ensureManagers(state) {
 }
 
 /** Entraîneur d'un club (null pour le club de l'utilisateur). */
-export const managerOf = (state, club) => (club.id === state.userClubId ? null : state.managers?.[club.managerId] || null);
+export const managerOf = (state, club) => (isHumanClub(state, club.id) ? null : state.managers?.[club.managerId] || null);
 export const freeManagers = (state) => Object.values(state.managers || {}).filter((m) => !m.clubId);
 
 /** Préférences tactiques de l'entraîneur pour l'IA. */
@@ -78,14 +79,14 @@ export function managersAfterRound(state, round, tablePos) {
   const rng = gameRng(state);
   // 1) Postes vacants : le club embauche après 2 journées si personne ne l'a pris.
   for (const c of state.clubs) {
-    if (c.id === state.userClubId || !c.vacantSince) continue;
+    if (isHumanClub(state, c.id) || !c.vacantSince) continue;
     if (state.day - c.vacantSince >= 2) hireForClub(state, c, rng);
   }
   if (round < 7) return;
   // 2) Confiance des présidents selon le classement attendu.
   const cache = {};
   for (const c of state.clubs) {
-    if (c.id === state.userClubId || c.vacantSince) continue;
+    if (isHumanClub(state, c.id) || c.vacantSince) continue;
     const m = managerOf(state, c);
     if (!m) continue;
     cache[c.div] = cache[c.div] || {};
@@ -139,7 +140,7 @@ export function managersEndSeason(state, tables) {
   ensureManagers(state);
   const rng = gameRng(state);
   for (const c of state.clubs) {
-    if (c.id === state.userClubId) continue;
+    if (isHumanClub(state, c.id)) continue;
     if (c.vacantSince) { hireForClub(state, c, rng); continue; }
     const m = managerOf(state, c);
     if (!m) { c.vacantSince = state.day; hireForClub(state, c, rng); continue; }

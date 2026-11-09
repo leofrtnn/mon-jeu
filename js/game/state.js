@@ -4,6 +4,7 @@
  */
 import { createRng, hashSeed } from '../core/rng.js';
 import { getNextId, setNextId } from '../data/generator.js';
+import { kvGet, kvSet, kvDel } from './store.js';
 import { applyWorld } from '../data/world.js';
 
 export const SAVE_VERSION = 3;
@@ -52,8 +53,23 @@ export function topMessages(state, n = 3) {
 
 /* ---------------- Sauvegarde : 3 emplacements, compression gzip ---------------- */
 
-const SLOT_KEY = (n) => `cdp-slot-${n}`;
-const META_KEY = 'cdp-meta';
+/* Sauvegardes rangées par compte (plusieurs comptes possibles sur un même appareil). */
+let acct = '';
+const SLOT_KEY = (n) => (acct ? `cdp-${acct}-slot-${n}` : `cdp-slot-${n}`);
+const metaKey = () => (acct ? `cdp-${acct}-meta` : 'cdp-meta');
+export const lastKey = () => (acct ? `cdp-${acct}-last` : 'cdp-last');
+/** Compte connecté : ses emplacements. Le premier compte récupère les sauvegardes d'avant les comptes. */
+export function setAccount(id) {
+  acct = id ? String(id).replace(/[^a-zA-Z0-9-]/g, '') : '';
+  if (!acct || !hasLS()) return;
+  try {
+    if (!localStorage.getItem(metaKey()) && localStorage.getItem('cdp-meta') && !localStorage.getItem('cdp-legacy-claimed')) {
+      for (const n of [1, 2, 3]) { const v = localStorage.getItem(`cdp-slot-${n}`); if (v) localStorage.setItem(SLOT_KEY(n), v); }
+      localStorage.setItem(metaKey(), localStorage.getItem('cdp-meta'));
+      localStorage.setItem('cdp-legacy-claimed', acct);
+    }
+  } catch { /* ignore */ }
+}
 export const SLOTS = [1, 2, 3];
 let currentSlot = 1;
 export const setSlot = (n) => { currentSlot = n; };
@@ -84,14 +100,13 @@ export async function unpackState(raw) {
 }
 
 function readMeta() {
-  try { return JSON.parse(localStorage.getItem(META_KEY) || '{}'); } catch { return {}; }
+  try { return JSON.parse(localStorage.getItem(metaKey()) || '{}'); } catch { return {}; }
 }
 
 /** Résumé des emplacements pour l'écran d'accueil. */
 export function slotsInfo() {
   if (!hasLS()) return {};
   const meta = readMeta();
-  for (const n of SLOTS) if (!localStorage.getItem(SLOT_KEY(n))) delete meta[n];
   return meta;
 }
 
@@ -101,15 +116,17 @@ let saving = Promise.resolve();
 export function save(state, immediate = false) {
   if (!hasLS() || !state) return Promise.resolve();
   state.nextId = getNextId();
+  if (state.online) return saveOnline(state, immediate);
   const slot = currentSlot;
   const write = () => (saving = saving.then(async () => {
     try {
       const packed = await packState(state);
-      localStorage.setItem(SLOT_KEY(slot), packed);
+      await kvSet(SLOT_KEY(slot), packed);
       const meta = readMeta();
       const club = state.clubs.find((c) => c.id === state.userClubId);
       meta[slot] = { club: club?.name, color: club?.color, color2: club?.color2, short: club?.short, season: state.season, day: state.day, at: Date.now(), size: packed.length };
-      localStorage.setItem(META_KEY, JSON.stringify(meta));
+      localStorage.setItem(metaKey(), JSON.stringify(meta));
+      cloudHook?.(slot, meta[slot], packed);
     } catch (e) {
       console.warn('Sauvegarde impossible', e);
     }
@@ -135,6 +152,30 @@ export function migrate(s) {
   return s;
 }
 
+/** Copie de secours dans le cloud (compte en ligne) : branchée par l'interface. */
+let cloudHook = null;
+export const setCloudHook = (fn) => { cloudHook = fn; };
+/** Écrit une sauvegarde reçue du cloud dans un emplacement local. */
+export async function restoreSlot(slot, meta, packed) {
+  await kvSet(SLOT_KEY(slot), packed);
+  const m = readMeta(); m[slot] = meta; localStorage.setItem(metaKey(), JSON.stringify(m));
+}
+
+/** Carrière en ligne : copie locale de la dernière version (reprise rapide, hors emplacements). */
+const onlineKey = (gameId) => `cdp-online-${acct}-${gameId}`;
+function saveOnline(state, immediate) {
+  const write = () => (saving = saving.then(async () => {
+    try { await kvSet(onlineKey(state.online.gameId), await packState(state)); } catch (e) { console.warn('Copie locale impossible', e); }
+  }));
+  clearTimeout(saveTimer);
+  if (immediate) return write();
+  saveTimer = setTimeout(write, 600);
+  return Promise.resolve();
+}
+export async function loadOnlineCopy(gameId) {
+  try { return await unpackState(await kvGet(onlineKey(gameId))); } catch { return null; }
+}
+
 /** Valide et prépare un état chargé (version, compteur d'identifiants). */
 export function adoptState(s) {
   if (!s || !s.clubs || !s.players || !(s.version >= MIN_SAVE_VERSION && s.version <= SAVE_VERSION)) return null;
@@ -146,17 +187,17 @@ export function adoptState(s) {
 
 export async function load(slot = currentSlot) {
   if (!hasLS()) return null;
-  try { return adoptState(await unpackState(localStorage.getItem(SLOT_KEY(slot)))); } catch { return null; }
+  try { return adoptState(await unpackState(await kvGet(SLOT_KEY(slot)))); } catch { return null; }
 }
 
 export function hasSave(slot = currentSlot) {
-  try { return !!localStorage.getItem(SLOT_KEY(slot)); } catch { return false; }
+  try { return !!readMeta()[slot]; } catch { return false; }
 }
 
 export function deleteSave(slot = currentSlot) {
   try {
-    localStorage.removeItem(SLOT_KEY(slot));
-    const meta = readMeta(); delete meta[slot]; localStorage.setItem(META_KEY, JSON.stringify(meta));
+    kvDel(SLOT_KEY(slot));
+    const meta = readMeta(); delete meta[slot]; localStorage.setItem(metaKey(), JSON.stringify(meta));
   } catch { /* ignore */ }
 }
 
@@ -175,11 +216,8 @@ export function legacySave() {
 }
 export function dropLegacy() { try { localStorage.removeItem('fm-light-save-v1'); } catch { /* ignore */ } }
 
-/** Sauvegarde synchrone non compressée (fermeture de l'app : pas le temps de compresser). */
+/** Sauvegarde immédiate (l'app passe en arrière-plan) : écriture IndexedDB lancée tout de suite. */
 export function saveSync(state) {
   if (!hasLS() || !state) return;
-  try {
-    state.nextId = getNextId();
-    localStorage.setItem(SLOT_KEY(currentSlot), 'json:' + JSON.stringify(state));
-  } catch (e) { console.warn('Sauvegarde impossible', e); }
+  save(state, true);
 }

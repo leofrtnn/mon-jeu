@@ -8,7 +8,7 @@ import { BAL } from '../data/balance.js';
 import { userClub, clubById, pushMessage } from './state.js';
 import { logFinance } from './transfers.js';
 import { expireDecisions, pushDecision, registerDecision, openDecisions } from './inbox.js';
-import { dressingDaily, dressingEvents, requestsDaily, checkPersonalPromises, joined } from './people.js';
+import { dressingDaily, worldMoraleRevert, dressingEvents, requestsDaily, checkPersonalPromises, joined } from './people.js';
 import { createInterview, checkConsistency, viralsDaily, createConference } from './press.js';
 import { initRelations, relationsDaily, relationsAfterMatch, hostileNoise } from './relations.js';
 import { ensureOwners, crisisDaily, takeovers, ownerSeasonStart, speculatorPush } from './owners.js';
@@ -35,21 +35,34 @@ export function ensureLife(state) {
 
 /** Fin de chaque journée (avant la mise à jour du board). */
 export function lifeDaily(state, rng, t) {
+  lifeWorldDaily(state, rng, t);
+  lifeUserDaily(state, rng, t);
+}
+
+/** Partie « monde » (une seule fois par journée, même à plusieurs managers). */
+export function lifeWorldDaily(state, rng, t) {
+  ensureLife(state);
+  worldMoraleRevert(state);
+  relationsDaily(state, rng);
+  crisisDaily(state, rng);
+}
+
+/** Partie propre au manager courant (vestiaire, demandes, presse, sponsors…). */
+export function lifeUserDaily(state, rng, t) {
   ensureLife(state);
   const league = t.entry.type === 'league';
-  dressingDaily(state);
+  dressingDaily(state, false);
   requestsDaily(state, rng);
   checkPersonalPromises(state);
   viralsDaily(state);
-  relationsDaily(state, rng);
   hostileNoise(state, rng);
-  crisisDaily(state, rng);
   rumoursDaily(state, rng);
   rumourOffers(state, rng);
   injuriesDaily(state);
   if (league && t.entry.round % 3 === 2) sponsorsCheck(state, rng);
   if (league && (t.entry.round === 0 || t.entry.round === 19)) speculatorPush(state);
-  if (league && t.entry.round >= BAL.jobs.every && t.entry.round % BAL.jobs.every === 0) jobOffers(state, rng);
+  // Pas d'offres d'emploi en carrière en ligne : chaque manager garde son club.
+  if (!state.online && league && t.entry.round >= BAL.jobs.every && t.entry.round % BAL.jobs.every === 0) jobOffers(state, rng);
   const b = state.board;
   const P = BAL.press;
   state.coach.media += (50 - state.coach.media) * P.mediaRevert;
@@ -90,16 +103,27 @@ export function lifeNextDay(state, rng) {
   if (t?.userFixture) createConference(state, t.userFixture, t.entry, rng);
 }
 
-/** Fin de saison (après la création de la nouvelle saison). */
+/** Fin de saison (avant la création de la nouvelle saison). */
 export function lifeEndSeason(state, rng, goodSeason) {
+  const bought = lifeEndSeasonWorld(state, rng);
+  lifeEndSeasonUser(state, goodSeason);
+  return bought;
+}
+
+/** Monde : rachats de clubs, remise à zéro des pénalités. */
+export function lifeEndSeasonWorld(state, rng) {
+  const bought = takeovers(state, rng);
+  for (const c of state.clubs) c.penalized = null;
+  return bought;
+}
+
+/** Manager courant : blessures longues, sponsors, séries. */
+export function lifeEndSeasonUser(state, goodSeason) {
   ensureLife(state);
   injuriesEndSeason(state);
-  const bought = takeovers(state, rng);
   sponsorsEndSeason(state, goodSeason);
   state.life.streak = [];
   state.life.callbacks = [];
-  for (const c of state.clubs) c.penalized = null;
-  return bought;
 }
 
 /** Début de saison du club de l'utilisateur (enveloppes selon le propriétaire). */

@@ -3,6 +3,7 @@
  * Graphe creux : seules les paires ayant interagi sont stockées ; le score revient
  * lentement vers sa base (derby négatif, même propriétaire positif, sinon 0).
  */
+import { isHumanClub } from './humans.js';
 import { clamp, hashSeed } from '../core/rng.js';
 import { BAL } from '../data/balance.js';
 import { clubById, clubPlayers, pushMessage } from './state.js';
@@ -72,7 +73,7 @@ export function relationsDaily(state, rng) {
     if (Math.abs(v - base) < 0.5) delete state.rel[k]; else state.rel[k] = Math.round(v * 10) / 10;
   }
   if (rng.chance(R.aiClashChance)) {
-    const cands = Object.entries(state.rel || {}).filter(([k, v]) => v <= -25 && !k.split('-').map(Number).includes(state.userClubId));
+    const cands = Object.entries(state.rel || {}).filter(([k, v]) => v <= -25 && !k.split('-').map(Number).some((id) => isHumanClub(state, id)));
     if (cands.length) {
       const [k] = rng.pick(cands);
       const [a, b] = k.split('-').map(Number);

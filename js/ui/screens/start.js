@@ -3,7 +3,7 @@
  * importer, supprimer), puis choix du club.
  */
 import { newGame, startCareer } from '../../game/season.js';
-import { load, deleteSave, clubPlayers, slotsInfo, SLOTS, setSlot, importFile, legacySave, dropLegacy } from '../../game/state.js';
+import { load, deleteSave, clubPlayers, slotsInfo, SLOTS, setSlot, importFile, legacySave, dropLegacy, restoreSlot, lastKey } from '../../game/state.js';
 import { squadStrength } from '../../engine/ratings.js';
 import { money } from '../../game/economy.js';
 import { esc, crest, stars, starBar } from '../components.js';
@@ -15,6 +15,7 @@ import { autoLineup } from '../../engine/ratings.js';
 import { userClub } from '../../game/state.js';
 import { loadRealData } from '../../data/realWorld.js';
 import { busy } from '../sim.js';
+import { onlineSection, lobbyHtml, onlineActions, refreshGames } from './online.js';
 import { APP_VERSION } from '../../version.js';
 
 /** Applique la philosophie et la formation préférée du coach à son club. */
@@ -30,6 +31,7 @@ export function applyPhilosophy(state) {
 
 export function render(app) {
   const ui = app.ui.start || (app.ui.start = { step: 'menu', div: 1 });
+  if (ui.step === 'lobby') return lobbyHtml(app);
   if (ui.step === 'menu' || !app.state) {
     const info = slotsInfo();
     return `<div class="start-layout"><div class="hero">
@@ -37,6 +39,7 @@ export function render(app) {
       <h1>Coach<br><em>de Poche</em></h1>
       <p>Le manager de foot qui tient dans une main.</p>
       <p class="muted" style="font-size:11px">Version ${APP_VERSION}</p>
+      <p class="account-line">👤 <b>${esc(app.user?.username || '')}</b> <button class="btn sm ghost" data-act="logout">Se déconnecter</button></p>
       <p class="muted" style="font-size:12px">Les 10 premiers championnats européens · vrais clubs, joueurs et entraîneurs · coupes nationales et continentale</p>
     </div><div>
     ${legacySave() ? `<div class="card"><small>Une sauvegarde d'une ancienne version a été trouvée : elle n'est pas compatible avec le nouveau monde (3 pays, 80 clubs).</small>
@@ -50,10 +53,12 @@ export function render(app) {
           <button class="btn sm danger" data-act="delete" data-v="${n}">Effacer</button></div>`
         : `<div class="grow"><b>Emplacement ${n}</b><br><small>Vide</small></div>
           <div style="display:flex;flex-direction:column;gap:6px"><button class="btn sm primary" data-act="new" data-v="${n}">Nouvelle partie</button>
-          <label class="btn sm">Importer<input type="file" accept=".json,application/json" data-act="import" data-v="${n}" hidden></label></div>`}
+          <label class="btn sm">Importer<input type="file" accept=".json,application/json" data-act="import" data-v="${n}" hidden></label>
+          ${ui.cloud?.[n] ? `<button class="btn sm" data-act="cloudrestore" data-v="${n}">☁ Récupérer</button>` : ''}</div>`}
       </div>`;
     }).join('')}
-    <p class="muted center" style="font-size:12px">Sauvegarde automatique sur cet appareil</p></div></div>`;
+    <p class="muted center" style="font-size:12px">Sauvegarde automatique sur cet appareil</p>
+    ${onlineSection(app)}</div></div>`;
   }
   const clubs = app.state.clubs.filter((c) => c.div === ui.div)
     .map((c) => ({ c, s: squadStrength(clubPlayers(app.state, c)) }))
@@ -81,13 +86,34 @@ function startNew(app, slot, state) {
 
 function enter(app, slot, state) {
   setSlot(slot);
-  try { localStorage.setItem('cdp-last', String(slot)); } catch { /* ignore */ }
+  try { localStorage.setItem(lastKey(), String(slot)); } catch { /* ignore */ }
   app.state = state;
   app.tab = 'home';
   app.render();
 }
 
+/** Liste des parties en ligne (chargée à l'affichage du menu). */
+export function mount(app) {
+  if (app.ui.start?.step === 'menu' && !app.state && !app.ui.start.gamesLoaded) {
+    app.ui.start.gamesLoaded = true;
+    refreshGames(app);
+    // Sauvegardes du compte dans le cloud (pour reprendre sur un autre appareil).
+    if (app.backend?.kind === 'supabase') app.backend.listSaves().then((rows) => {
+      const info = slotsInfo();
+      app.ui.start.cloud = Object.fromEntries(rows.filter((r) => !info[r.slot] || new Date(r.updated_at) > new Date(info[r.slot].at + 60000)).map((r) => [r.slot, r]));
+      if (Object.keys(app.ui.start.cloud).length && !app.state) app.render();
+    }).catch(() => {});
+  }
+}
+
 export const actions = {
+  ...onlineActions,
+  async logout(el, app) {
+    if (!(await app.confirm('Se déconnecter ?', 'Vos parties restent enregistrées sur votre compte.', 'Se déconnecter'))) return;
+    await app.backend.signOut();
+    app.user = null; app.state = null; app.ui.start = { step: 'menu', div: 1 };
+    app.render();
+  },
   async continue(el, app) {
     const n = +el.dataset.v;
     const s = await load(n);
@@ -121,6 +147,19 @@ export const actions = {
     } catch { app.toast('Fichier de sauvegarde invalide ou incompatible.'); }
   },
   droplegacy(el, app) { dropLegacy(); app.render(); },
+  async cloudrestore(el, app) {
+    const n = +el.dataset.v;
+    busy(true, 'Récupération…');
+    try {
+      const row = await app.backend.getSave(n);
+      await restoreSlot(n, row.meta, row.data);
+      const s = await load(n);
+      if (!s) throw new Error('sauvegarde illisible');
+      app.ui.start.cloud = {};
+      enter(app, n, s);
+      app.toast('Partie récupérée depuis le cloud !');
+    } catch (e) { app.toast(`Récupération impossible : ${e.message}`, 4000); } finally { busy(false); }
+  },
   div(el, app) { app.ui.start.div = +el.dataset.v; app.render(); },
   back(el, app) { app.ui.start.step = 'menu'; app.state = null; app.render(); },
 

@@ -7,9 +7,10 @@ import { clubById } from '../../game/state.js';
 import { money } from '../../game/economy.js';
 import { esc, crest, scaleColor, gauge , starBar, abilityStars } from '../components.js';
 
-export function showEndSeason(app) {
+/** report : bilan déjà calculé (carrière en ligne : c'est l'hôte qui l'a calculé). */
+export function showEndSeason(app, report = null) {
   const s = app.state;
-  const r = endSeason(s);
+  const r = report || endSeason(s);
   app.save(true);
   const prog = r.progress.slice().sort((a, b) => Math.abs(b.after - b.before) - Math.abs(a.after - a.before)).slice(0, 10);
   const jobs = (r.jobs || []).map((id) => clubById(s, id));

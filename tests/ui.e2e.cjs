@@ -43,6 +43,15 @@ function serve() {
   const step = (name) => console.log('✓', name);
   try {
     await page.goto(base);
+    // Compte obligatoire : création d'un compte (serveur local de repli).
+    await page.click('[data-act=amode][data-v=signup]');
+    await page.fill('input[name=username]', 'Testeur');
+    await page.fill('input[name=email]', 'test@exemple.fr');
+    await page.fill('input[name=password]', 'motdepasse');
+    await page.click('[data-act=asubmit]');
+    await page.waitForSelector('[data-act=new][data-v="1"]');
+    assert.ok(await page.isVisible('text=Testeur'));
+    step('compte créé, connexion');
     await page.click('[data-act=new][data-v="1"]');
     await page.waitForSelector('[data-act=div][data-v="5"]');
     await page.click('[data-act=div][data-v="5"]');
@@ -168,7 +177,11 @@ function serve() {
     step('boîte de réception, décision, fiche club + relations, deadline day, billetterie');
 
     await page.waitForTimeout(800);
-    const raw = await page.evaluate(() => localStorage.getItem('cdp-slot-1'));
+    const raw = await page.evaluate(async () => {
+      const { kvGet } = await import('./js/game/store.js');
+      const id = window.__app.user.id.replace(/[^a-zA-Z0-9-]/g, '');
+      return kvGet(`cdp-${id}-slot-1`);
+    });
     assert.ok(raw && raw.startsWith('gz:'), 'sauvegarde compressée');
     await page.reload();
     await page.waitForSelector('[data-tab=home]');
@@ -202,10 +215,52 @@ function serve() {
     await page.waitForSelector('table.tbl');
     step('multijoueur : code, amical, ligue entre amis');
 
+    // Carrière en ligne (serveur local partagé) : l'hôte dans la page, un 2e manager simulé.
+    await page.click('[data-tab=club]'); await page.click('[data-act=ctab][data-v=settings]');
+    await page.click('[data-act=quit]'); await page.click('.sheet [data-act=ok], .sheet .btn.primary');
+    await page.evaluate(() => { window.__app.allowLocalOnline = true; window.__app.ui.start.gamesLoaded = false; window.__app.render(); });
+    await page.click('[data-act=ocreate]');
+    await page.fill('#ogname', 'Test en ligne');
+    await page.click('.sheet [data-act=go]');
+    await page.waitForSelector('.lobby-code');
+    const gameCode = (await page.textContent('.lobby-code')).trim();
+    await page.evaluate(async (code) => {
+      const { LocalBackend } = await import('./js/online/backend.js');
+      const bob = new LocalBackend(localStorage, new Map());
+      await bob.signUp('bob@exemple.fr', 'motdepasse', 'Bob');
+      const g = await bob.joinGame(code);
+      await bob.chooseClub(g.id, 21);
+      window.__bob = { bob, g };
+    }, gameCode);
+    await page.waitForSelector('text=Bob');
+    await page.click('[data-act=opick] >> nth=0');
+    await page.waitForSelector('[data-act=ostart]:not([disabled])');
+    await page.click('[data-act=ostart]');
+    await page.waitForSelector('.sheet [data-act=ok]', { timeout: 60000 });
+    await page.click('.sheet [data-act=ok]');
+    await page.waitForSelector('[data-act=oready]');
+    await page.click('[data-act=oready]');
+    await page.waitForSelector('[data-act=ounready]');
+    // Bob envoie sa tranche et se déclare prêt : l'hôte calcule la journée.
+    await page.evaluate(async () => {
+      const { adoptOnline, makeSlice } = await import('./js/online/multi.js');
+      const { unpackState, packState } = await import('./js/game/state.js');
+      const { bob, g } = window.__bob;
+      const me = await bob.user();
+      const st = await bob.loadState(g.id);
+      const mine = adoptOnline(await unpackState(st.data), me.id), base = adoptOnline(await unpackState(st.data), me.id);
+      await bob.setReady(g.id, st.version, await packState(makeSlice(mine, base)));
+    });
+    await page.waitForFunction(() => window.__app.state?.online?.version === 2, null, { timeout: 60000 });
+    const ver = await page.evaluate(() => ({ v: window.__app.state.online.version, humans: Object.keys(window.__app.state.online.humans).length }));
+    assert.equal(ver.humans, 2);
+    step('carrière en ligne : salon, code, choix des clubs, prêts, journée calculée par l\'hôte');
+
     assert.deepEqual(errors, [], 'aucune erreur console');
     console.log('\nTous les tests d\'interface sont passés.');
   } catch (e) {
     console.error('ÉCHEC :', e.message, '\nErreurs page :', errors);
+    try { console.error('Toast :', await page.textContent('#toast')); await page.screenshot({ path: require('path').join(require('os').tmpdir(), 'cdp-e2e-fail.png') }); } catch { /* ignore */ }
     process.exitCode = 1;
   } finally {
     await browser.close();

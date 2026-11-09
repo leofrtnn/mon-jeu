@@ -23,6 +23,7 @@ import * as tactics from './screens/tactics.js';
 import * as schedule from './screens/schedule.js';
 import * as club from './screens/club.js';
 import * as start from './screens/start.js';
+import * as auth from './screens/auth.js';
 
 const ICONS = {
   home: '<path d="M3 11.5 12 4l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>',
@@ -80,6 +81,7 @@ export const app = {
   },
 
   current() {
+    if (!this.user) return auth;
     if (!this.state || !this.state.userClubId) return start;
     return TABS.find((t) => t.id === this.tab)?.mod;
   },
@@ -93,7 +95,7 @@ export const app = {
 
   /** Rendu complet de l'écran courant. */
   render() {
-    const started = this.state && this.state.userClubId;
+    const started = this.user && this.state && this.state.userClubId;
     this.$tabs.classList.toggle('hidden', !started);
     document.body.classList.toggle('no-nav', !started);
     if (started) {
@@ -126,7 +128,7 @@ export const app = {
       this.$top.innerHTML = `
         <span class="crest" style="background:${c.color};color:${c.color2}">${esc(c.short)}</span>
         <span class="club"><b>${esc(c.name)}</b><small>${esc(fmtDate(currentDate(this.state)))} · ${esc(this.state.preseason?.active ? 'Préparation' : t ? t.label : 'Fin de saison')}</small></span>
-        <span class="budget">${money(c.budget)}</span>
+        ${this.state.online ? `<span class="tag online-tag">🌐 ${esc(this.online?.game?.code || 'En ligne')}</span>` : ''}<span class="budget">${money(c.budget)}</span>
         <button class="topcoach" id="topcoach" aria-label="Mon coach">${avatarSvg(this.state.coach?.look, 40)}</button>`;
       this.$top.classList.remove('hidden');
     } else {

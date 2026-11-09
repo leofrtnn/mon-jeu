@@ -40,8 +40,9 @@ Chaque championnat a son propre profil : style plus technique en Ibérie, plus p
 ## Fonctionnalités
 
 ### Monde
-- **Monde réel** (le seul mode de jeu) : les 10 premiers championnats européens, avec leur vrai format.
-  - Premier League, LaLiga et Serie A à 20 clubs (38 journées) ; Bundesliga, Ligue 1, Liga Portugal, Eredivisie, Pro League (Belgique) et Süper Lig à 18 clubs (34 journées) ; Chance Liga (Tchéquie) à 16 clubs (30 journées).
+- **Monde réel** (le seul mode de jeu) : les 20 premiers championnats européens, avec leur vrai format.
+  - Angleterre, Espagne, Italie, Allemagne, France, Portugal, Pays-Bas, Belgique, Turquie, Tchéquie, Grèce, Norvège, Pologne, Danemark, Autriche, Suisse, Écosse, Suède, Croatie, Serbie : 320 clubs, 9 000 joueurs.
+  - Nombre de clubs réel (10 à 20) ; les petits championnats se jouent en 3 ou 4 confrontations (Écosse 33 journées, Croatie 36).
   - Vrais clubs, joueurs (noms, postes, âges, nationalités, numéros, sélections) et entraîneurs de la saison 2026-27.
   - Le monde fictif d'origine reste dans le code (tests automatiques, anciennes sauvegardes) mais n'est plus proposé.
   - Une coupe nationale par pays ; 16 qualifiés pour la coupe continentale (3 pour l'Angleterre, 2 pour l'Espagne, l'Italie, l'Allemagne et la France, 1 pour les autres).
@@ -152,6 +153,17 @@ Chaque championnat a son propre profil : style plus technique en Ibérie, plus p
 - **Ligue entre amis** : un championnat aller-retour **déterministe**. Les mêmes codes donnent les mêmes résultats chez chacun, sans serveur. Un « code de ligue » permet d'inviter un ami avec toutes les équipes d'un coup.
 - **Limite** : sans serveur, un code peut être modifié à la main. La somme de contrôle détecte seulement les codes abîmés lors d'un copier-coller. Une vraie ligue en ligne avec anti-triche demanderait un backend.
 
+## Comptes et carrière en ligne
+
+- **Compte obligatoire** (e-mail, mot de passe, pseudo) : serveur Supabase (`js/online/config.js`, `supabase/schema.sql`). Sans serveur configuré, comptes locaux à l'appareil.
+- **Sauvegardes** : sur l'appareil (IndexedDB) et copie dans le cloud du compte, récupérable sur un autre téléphone.
+- **Carrière en ligne, 2 à 8 managers**, un club chacun, comme dans FM :
+  - l'hôte crée la partie et donne un code de 6 caractères, chacun choisit son club dans le salon ;
+  - chacun règle son équipe (tactique, mercato, décisions), puis clique « Prêt » ;
+  - quand tout le monde est prêt, le téléphone de l'hôte calcule la journée et l'envoie à tous (temps réel Supabase) ;
+  - technique : chaque manager envoie une « tranche » (ses données, son club, l'effet de ses transferts), fusionnée chez l'hôte ; les conflits (même joueur recruté par deux managers) sont annulés et remboursés.
+  - Limites : matchs simulés (pas de direct), pas de transfert entre managers humains, pas de changement de club ; l'hôte doit garder le jeu ouvert.
+
 ## Vie du club (boîte de réception unique)
 
 Tout passe par les **messages de l'Accueil** : 3 messages importants maximum, le reste dans « Voir tout ». Une décision s'ouvre en carte à 2 ou 3 choix, avec une échéance. Les effets ne s'affichent qu'**après** le choix. Aucun nouvel onglet.
@@ -226,6 +238,10 @@ js/game/fans.js             ambiance du stade, billetterie, sponsors
 js/game/injuries.js         blessures longues, retour anticipé, rechutes
 js/game/agents.js           agents, rumeurs, clauses
 js/game/deadline.js         événements du deadline day
+js/game/humans.js           plusieurs managers humains dans un même monde (perspectives)
+js/game/store.js            stockage des sauvegardes (IndexedDB)
+js/online/                  serveur (Supabase / repli local), carrière en ligne (tranches, fusion)
+supabase/schema.sql         base de données : tables, règles d'accès, temps réel, stockage
 js/game/dataImport.js       import/export des noms
 js/game/state.js            état, sauvegardes compressées multi-emplacements
 js/game/worker.js           Web Worker de simulation

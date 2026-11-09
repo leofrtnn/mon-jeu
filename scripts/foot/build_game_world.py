@@ -49,12 +49,41 @@ REP_KEY = [
   ('slavia', 72, 'SLA'), ('sparta prague', 70, 'SPA'), ('plzen', 67, 'PLZ'), ('banik', 62, 'BAN'), ('jablonec', 58, None), ('olomouc', 59, 'SIG'),
   ('liberec', 58, None), ('boleslav', 58, 'MBO'), ('hradec', 56, None), ('slovacko', 56, None), ('bohemians', 56, 'BOH'), ('teplice', 55, None),
   ('pardubice', 54, None), ('zbrojovka', 53, 'ZBR'), ('artis', 53, None), ('zlin', 53, None),
+  # Championnats 11 à 20.
+  ('olympiacos', 74, 'OLY'), ('panathinaikos', 70, 'PAO'), ('paok', 71, 'PAOK'), ('aek', 70, 'AEK'), ('aris', 62, 'ARI'), ('asteras', 56, 'AST'),
+  ('atromitos', 56, 'ATR'), ('ofi', 57, 'OFI'), ('volos', 54, 'VOL'), ('levadiakos', 55, 'LEV'), ('panetolikos', 54, 'PNT'), ('iraklis', 53, 'IRA'),
+  ('kalamata', 52, 'KAL'), ('kifisia', 53, 'KIF'),
+  ('bodo', 71, 'BOD'), ('molde', 66, 'MOL'), ('rosenborg', 64, 'RBK'), ('brann', 63, 'BRA'), ('viking', 62, 'VIK'), ('valerenga', 60, 'VIF'),
+  ('lillestrom', 59, 'LSK'), ('tromso', 58, 'TIL'), ('sarpsborg', 57, 'SAR'), ('fredrikstad', 57, 'FFK'), ('kfum', 56, 'KFU'), ('sandefjord', 55, 'SAN'),
+  ('aalesund', 54, 'AAL'), ('hamarkameratene', 54, 'HAM'), ('kristiansund', 54, 'KBK'), ('start', 53, 'IKS'),
+  ('legia', 66, 'LEG'), ('lech', 66, 'LPO'), ('rakow', 65, 'RAK'), ('jagiellonia', 63, 'JAG'), ('pogon', 61, 'POG'), ('gornik', 60, 'GOR'),
+  ('widzew', 59, 'WID'), ('cracovia', 58, 'CRA'), ('wisla krakow', 58, 'WKR'), ('slask', 58, 'SLA'), ('zaglebie', 57, 'ZAG'), ('piast', 57, 'PIA'),
+  ('korona', 56, 'KOR'), ('katowice', 56, 'GKS'), ('motor', 56, 'MOT'), ('radomiak', 55, 'RAD'), ('wisla plock', 55, 'WPL'), ('wieczysta', 54, 'WIE'),
+  ('copenhagen', 71, 'FCK'), ('midtjylland', 70, 'FCM'), ('brondby', 64, 'BIF'), ('nordsjaelland', 63, 'FCN'), ('agf', 62, 'AGF'), ('randers', 58, 'RFC'),
+  ('silkeborg', 58, 'SIF'), ('viborg', 57, 'VFF'), ('odense', 57, 'OB'), ('sonderjyske', 55, 'SJF'), ('lyngby', 55, 'LBK'), ('horsens', 54, 'ACH'),
+  ('salzburg', 72, 'RBS'), ('sturm', 67, 'STU'), ('rapid', 63, 'RAP'), ('austria wien', 62, 'FAK'), ('lask', 61, 'LASK'), ('wolfsberger', 58, 'WAC'),
+  ('hartberg', 55, 'TSV'), ('altach', 54, 'ALT'), ('tirol', 54, 'WSG'), ('ried', 54, 'RIE'), ('grazer', 54, 'GAK'), ('lustenau', 53, 'LUS'),
+  ('young boys', 69, 'YB'), ('basel', 67, 'FCB'), ('lugano', 63, 'LUG'), ('servette', 62, 'SFC'), ('zurich', 60, 'FCZ'), ('st. gallen', 59, 'FCSG'),
+  ('luzern', 59, 'FCL'), ('lausanne', 58, 'LS'), ('sion', 57, 'SIO'), ('grasshopper', 56, 'GCZ'), ('thun', 55, 'THU'), ('vaduz', 53, 'VAD'),
+  ('celtic', 74, 'CEL'), ('rangers', 71, 'RFC'), ('hearts', 60, 'HEA'), ('heart of midlothian', 60, 'HEA'), ('hibernian', 59, 'HIB'), ('aberdeen', 59, 'ABE'),
+  ('dundee united', 56, 'DUU'), ('dundee', 54, 'DUN'), ('motherwell', 56, 'MOT'), ('kilmarnock', 55, 'KIL'), ('st mirren', 55, 'STM'), ('st johnstone', 53, 'STJ'),
+  ('falkirk', 53, 'FAL'),
+  ('malmo', 68, 'MFF'), ('djurgarden', 64, 'DIF'), ('hammarby', 63, 'HIF'), ('aik', 63, 'AIK'), ('hacken', 62, 'BKH'), ('elfsborg', 62, 'IFE'),
+  ('mjallby', 58, 'MAI'), ('goteborg', 58, 'IFK'), ('sirius', 56, 'SIR'), ('gais', 56, 'GAIS'), ('brommapojkarna', 55, 'BP'), ('halmstad', 55, 'HBK'),
+  ('kalmar', 55, 'KFF'), ('degerfors', 54, 'DIF2'), ('vasteras', 54, 'VSK'), ('orgryte', 53, 'ORG'),
+  ('dinamo zagreb', 71, 'DIN'), ('hajduk', 66, 'HAJ'), ('rijeka', 64, 'RIJ'), ('osijek', 60, 'OSI'), ('lokomotiva', 57, 'LOK'), ('varazdin', 56, 'VAR'),
+  ('gorica', 56, 'GOR2'), ('istra', 56, 'IST'), ('slaven', 55, 'SLB'), ('rudes', 53, 'RUD'),
+  ('crvena', 72, 'CZV'), ('red star', 72, 'CZV'), ('partizan', 66, 'PAR'), ('vojvodina', 60, 'VOJ'), ('cukaricki', 58, 'CUK'), ('tsc', 58, 'TSC'),
+  ('radnicki nis', 55, 'RNI'), ('novi pazar', 55, 'NPA'), ('mladost', 54, 'MLA'), ('ofk beograd', 54, 'OFK'), ('imt', 53, 'IMT'), ('radnik', 53, 'RAS'),
+  ('zeleznicar', 53, 'ZEL'), ('radnicki 1923', 54, 'R23'), ('macva', 52, 'MAC'), ('zemun', 52, 'ZEM'),
 ]
-DEFAULT_REP = {'POR1': 57, 'NED1': 58, 'BEL1': 57, 'TUR1': 59, 'CZE1': 55}
+DEFAULT_REP = {'POR1': 57, 'NED1': 58, 'BEL1': 57, 'TUR1': 59, 'CZE1': 55, 'GRE1': 55, 'NOR1': 55, 'POL1': 56, 'DEN1': 56, 'AUT1': 55,
+               'SUI1': 56, 'SCO1': 54, 'SWE1': 55, 'CRO1': 54, 'SRB1': 53}
 PREFIX = {'fc', 'sc', 'sk', 'fk', 'ac', 'kv', 'k', 'r', 'rsc', 'sl', 'cd', 'cf', 'gd', 'ud', 'kaa', 'krc', 'kvc', 'rc', 'sv', 'afc', 'f', 'c', 's', 'a',
           'royal', 'royale', 'club', 'cs', 'pec', 'ado', 'sfk', '1', 'raal', 'fsv', 'ksv', 'vv', 'sint', 'oud'}
 
 def ascii_low(s):
+    s = s.translate(str.maketrans({'ø': 'o', 'Ø': 'O', 'æ': 'ae', 'Æ': 'AE', 'ł': 'l', 'Ł': 'L', 'đ': 'd', 'Đ': 'D', 'ß': 'ss', 'ı': 'i'}))
     return unicodedata.normalize('NFKD', s).encode('ascii', 'ignore').decode().lower()
 
 def rep_short(c, league):
@@ -65,7 +94,7 @@ def rep_short(c, league):
     return DEFAULT_REP.get(league, 58), None
 
 def auto_short(name, used):
-    words = [w for w in re.split(r'[^A-Za-zÀ-ÿ0-9]+', name) if w]
+    words = [w for w in re.split(r'[\W_]+', name) if w]
     core = [w for w in words if ascii_low(w) not in PREFIX] or words
     base = ascii_low(core[0]).upper()[:3] if core else 'CLB'
     s, k = base, 0

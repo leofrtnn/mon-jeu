@@ -14,6 +14,7 @@ import { sellPolicy, relationsAfterTransfer, loanAllowed, relAdd, squadOveralls 
 import { agentDemands, paySellOn, hypeMult } from './agents.js';
 import { favouriteLeaves } from './fans.js';
 import { BAL } from '../data/balance.js';
+import { isHumanClub } from './humans.js';
 import { DIVISIONS } from '../data/world.js';
 
 export const MAX_SQUAD = 32;
@@ -118,7 +119,7 @@ export function loanIn(state, pid) {
 /** Une offre d'un club IA pour un joueur de l'utilisateur. */
 export function findBuyer(state, p, rng) {
   const value = playerValue(p);
-  const cands = state.clubs.filter((c) => c.id !== state.userClubId && c.budget > value * 0.8 && c.playerIds.length < MAX_SQUAD - 2);
+  const cands = state.clubs.filter((c) => !isHumanClub(state, c.id) && c.budget > value * 0.8 && c.playerIds.length < MAX_SQUAD - 2);
   if (!cands.length) return null;
   // Les clubs dont le niveau correspond au joueur sont plus intéressés.
   const o = overall(p);
@@ -240,11 +241,11 @@ export function aiTransferActivity(state, rng) {
 function aiTransferRound(state, rng, deadline) {
   if (!windowOpen(state)) {
     // Hors fenêtre : les clubs IA complètent seulement leur effectif avec des libres.
-    for (const c of state.clubs) if (c.id !== state.userClubId) fillSquad(state, c, rng);
+    for (const c of state.clubs) if (!isHumanClub(state, c.id)) fillSquad(state, c, rng);
     return;
   }
   for (const c of state.clubs) {
-    if (c.id === state.userClubId) continue;
+    if (isHumanClub(state, c.id)) continue;
     fillSquad(state, c, rng);
     // Les grands clubs sont plus actifs sur le marché.
     if (!rng.chance((0.05 + c.rep / 900) * (deadline ? 1.6 : 1))) continue;
@@ -263,7 +264,7 @@ function aiTransferRound(state, rng, deadline) {
       pool = marketList(state, { pos: weakest[0], maxPrice: c.budget * 0.6, buyer: c })
         .filter((x) => x.p.clubId !== c.id && x.ovr > weakest[1] + 2 && x.ovr <= strength + 8);
     }
-    pool = pool.slice(0, 20).filter((x) => x.p.clubId !== state.userClubId && playerInterest(state, x.p, c).ok && sellerAccepts(state, x.p, c)).slice(0, 6);
+    pool = pool.slice(0, 20).filter((x) => !isHumanClub(state, x.p.clubId) && playerInterest(state, x.p, c).ok && sellerAccepts(state, x.p, c)).slice(0, 6);
     if (!pool.length) continue;
     const pick = rng.pick(pool);
     const p = pick.p;
@@ -277,7 +278,13 @@ function aiTransferRound(state, rng, deadline) {
     if (pick.price >= 3_000_000 || pick.ovr >= 74) news(state, 'transfer', `${p.first} ${p.last} (${pick.ovr}) quitte ${from ? from.name : 'les joueurs libres'} pour ${c.name}${pick.price ? ` · ${money(pick.price)}` : ''}.`, { pid: p.id });
     if (c.playerIds.length > 28) releaseWorst(state, c);
   }
-  // Offres pour les joueurs de l'utilisateur.
+}
+
+/** Offres des clubs IA pour les joueurs du manager humain courant (pendant le mercato). */
+export function userTransferOffers(state, rng) {
+  if (!windowOpen(state)) return;
+  const rounds = windowInfo(state).deadline ? 3 : 1;
+  for (let k = 0; k < rounds; k++) {
   const uc = userClub(state);
   if (rng.chance(0.3)) {
     const squad = clubPlayers(state, uc).filter((p) => !p.onLoanFrom);
@@ -294,6 +301,7 @@ function aiTransferRound(state, rng, deadline) {
         pushMessage(state, { prio: 1, icon: '€', title: `Offre pour ${p.name}`, text: `${buyer.name} propose ${money(offer.amount)}.`, action: { type: 'offer', pid: p.id } });
       }
     }
+  }
   }
 }
 
@@ -470,6 +478,7 @@ export function playerInterest(state, p, buyer) {
 /** Un club ne lâche pas ses titulaires à un rival moins prestigieux. */
 export function sellerAccepts(state, p, buyer) {
   if (!p.clubId) return true;
+  if (isHumanClub(state, p.clubId) && p.clubId !== buyer?.id) return false; // club d'un autre manager humain
   if (!sellPolicy(state, p, buyer).ok) return false;
   const from = clubById(state, p.clubId);
   const squad = clubPlayers(state, from).map(overall).sort((a, b) => b - a);

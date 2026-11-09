@@ -2,6 +2,7 @@
  * PROPRIÉTAIRES (rachats, politique, rencontre avec le nouveau patron)
  * et SANTÉ FINANCIÈRE (crise, soldes, retrait de points, faillite).
  */
+import { isHumanClub, humanOfClub, withHuman } from './humans.js';
 import { COUNTRIES } from '../data/world.js';
 import { clamp, createRng, hashSeed } from '../core/rng.js';
 import { BAL } from '../data/balance.js';
@@ -98,7 +99,7 @@ export function crisisSale(state, c, rng) {
   const p = clubPlayers(state, c).filter((x) => !x.onLoanFrom).sort((a, b) => overall(b) - overall(a))[rng.int(0, 3)];
   if (!p) return null;
   const price = Math.round((p.value || 0) * C.discount / 25000) * 25000;
-  const buyers = state.clubs.filter((b) => b.id !== c.id && b.id !== state.userClubId && b.budget > price * 1.3 && b.rep >= c.rep - 10 && b.playerIds.length < 28);
+  const buyers = state.clubs.filter((b) => b.id !== c.id && !isHumanClub(state, b.id) && b.budget > price * 1.3 && b.rep >= c.rep - 10 && b.playerIds.length < 28);
   if (!buyers.length) return null;
   const b = rng.pick(buyers);
   removeFromClub(state, p); addToClub(state, p, b);
@@ -134,12 +135,13 @@ export function takeovers(state, rng) {
     c.atmosphere = clamp((c.atmosphere ?? 60) + t.fans, 0, 100);
     c.crisis = false;
     if (c.owner.group) for (const o of state.clubs) if (o !== c && o.owner?.group === c.owner.group) relAdd(state, c.id, o.id, 20);
-    if (c.owner.type === 'speculator' && c.id !== state.userClubId) {
+    if (c.owner.type === 'speculator' && !isHumanClub(state, c.id)) {
       for (const p of clubPlayers(state, c).sort((a, b) => overall(b) - overall(a)).slice(0, 2)) p.listed = true;
     }
     news(state, 'owner', `${c.name} change de propriétaire : ${c.owner.name} (${t.label.toLowerCase()}) rachète le club.`);
     out.push(c.id);
-    if (c.id === state.userClubId) userTakeover(state, rng, inj);
+    const hu = humanOfClub(state, c.id);
+    if (hu !== undefined) withHuman(state, hu, () => userTakeover(state, rng, inj));
   }
   return out;
 }

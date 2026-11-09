@@ -81,13 +81,18 @@ export function dressingTarget(state) {
  * Une journée de vestiaire : retour progressif à l'équilibre, contagion de l'humeur
  * des leaders mécontents, apaisement par les leaders heureux.
  */
-export function dressingDaily(state) {
-  const B = BAL.morale, D = BAL.dressing;
-  // Retour à l'équilibre (tous les clubs : évite les dérives du monde).
+/** Retour progressif du moral à l'équilibre (tous les clubs : évite les dérives du monde). */
+export function worldMoraleRevert(state) {
+  const B = BAL.morale;
   for (const c of state.clubs) for (const id of c.playerIds) {
     const p = state.players[id];
-    if (p) p.morale = clamp(p.morale + (B.base - p.morale) * B.revert, B.min, B.max);
+    if (p) p.morale = Math.round(clamp(p.morale + (B.base - p.morale) * B.revert, B.min, B.max) * 10) / 10;
   }
+}
+
+export function dressingDaily(state, withWorld = true) {
+  const B = BAL.morale, D = BAL.dressing;
+  if (withWorld) worldMoraleRevert(state);
   const uc = userClub(state);
   const sq = clubPlayers(state, uc);
   for (const { p: L, infl } of core(state, uc)) {

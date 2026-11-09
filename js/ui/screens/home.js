@@ -14,6 +14,7 @@ import { simulateDays, busy } from '../sim.js';
 import { msgRow, openMessage } from './inboxUI.js';
 import { openDeadline } from './deadlineUI.js';
 import { windowInfo } from '../../game/dates.js';
+import { onlineCard, onlineActions } from './online.js';
 
 export function render(app) {
   const s = app.state;
@@ -30,8 +31,18 @@ export function render(app) {
         <div class="pname"><b>${esc(c.name)}</b><small>${DIV_NAMES[c.div]} · réputation ${c.rep}${c.vacantSince ? ' · poste vacant' : ''}</small></div><span class="btn sm primary">Signer</span></div>`).join('') || '<p class="muted">Aucune offre pour le moment.</p>'}
       </div>`;
   }
-  if (s.preseason?.active) return preseasonCard(app);
-  if (s.seasonOver) {
+  if (s.preseason?.active) return s.online ? onlineCard(app) + preseasonCard(app) : preseasonCard(app);
+  if (s.online) {
+    // Carrière en ligne : pas de match en direct ni de simulation libre, on passe « Prêt ».
+    if (s.seasonOver) html += `<div class="card nextmatch"><h3>Saison ${s.season}-${s.season + 1} terminée</h3><p>Classement final : <b>${tablePosition(s, uc.id)}e</b> de ${DIV_NAMES[uc.div]}</p></div>`;
+    else if (t && t.userFixture) {
+      const f = t.userFixture, h = clubById(s, f.h), a = clubById(s, f.a);
+      html += `<div class="card nextmatch"><h3>${esc(t.label)} · ${f.neutral ? 'Terrain neutre' : h.id === uc.id ? 'Domicile' : 'Extérieur'}</h3>
+        <div class="vs"><div class="team">${crest(h, 'lg')}<span>${esc(h.name)}</span></div><div class="mid">VS</div><div class="team">${crest(a, 'lg')}<span>${esc(a.name)}</span></div></div>
+        <button class="btn block" data-act="tactics">Tactique</button></div>`;
+    } else if (t) html += `<div class="card nextmatch"><h3>${esc(t.label)}</h3><p class="muted">Votre équipe ne joue pas cette journée.</p></div>`;
+    html += onlineCard(app);
+  } else if (s.seasonOver) {
     html += `<div class="card nextmatch"><h3>Saison ${s.season}-${s.season + 1} terminée</h3>
       <p>Classement final : <b>${tablePosition(s, uc.id)}e</b> de ${DIV_NAMES[uc.div]}</p>
       <button class="btn primary lg block" data-act="endseason">Voir le bilan</button></div>`;
@@ -126,6 +137,8 @@ function line(label, v) {
 
 export const actions = {
   ...preseasonActions,
+  oready: onlineActions.oready,
+  ounready: onlineActions.ounready,
   play(el, app) { openMatch(app); },
   tactics(el, app) { app.go('tactics'); },
   async simulate(el, app) { await runSim(app, 1, false); },

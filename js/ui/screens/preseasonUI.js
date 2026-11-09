@@ -90,5 +90,8 @@ export const preseasonActions = {
     const { cfg, userSide } = friendlyCfg(s, id);
     openMatch(app, { cfg, userSide, label: `Amical · ${clubById(s, id).name}`, onFinish: (sum, m) => { applyFriendly(s, id, sum, m, userSide); app.save(); app.render(); } });
   },
-  psstart(el, app) { endPreseason(app.state); app.save(true); app.render(); },
+  psstart(el, app) {
+    if (app.online) return import('./online.js').then((m) => m.setMeReady(app)); // en ligne : la saison démarre quand tout le monde est prêt
+    endPreseason(app.state); app.save(true); app.render();
+  },
 };

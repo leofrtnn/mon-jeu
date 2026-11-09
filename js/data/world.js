@@ -21,7 +21,7 @@ const FICTIONAL = {
   conti: { 1: 6, 3: 5, 4: 5 },
 };
 
-/** Les 10 premiers championnats européens (seules les élites sont dans les données : pas de relégation). */
+/** Les 20 premiers championnats européens (seules les élites sont dans les données : pas de relégation). */
 const REAL = {
   countries: {
     ENG: { name: 'Angleterre', flag: '🏴󠁧󠁢󠁥󠁮󠁧󠁿', cup: 'FA Cup' },
@@ -34,6 +34,16 @@ const REAL = {
     BEL: { name: 'Belgique', flag: '🇧🇪', cup: 'Coupe de Belgique' },
     TUR: { name: 'Turquie', flag: '🇹🇷', cup: 'Coupe de Turquie' },
     CZE: { name: 'Tchéquie', flag: '🇨🇿', cup: 'Coupe de Tchéquie' },
+    GRE: { name: 'Grèce', flag: '🇬🇷', cup: 'Coupe de Grèce' },
+    NOR: { name: 'Norvège', flag: '🇳🇴', cup: 'Coupe de Norvège' },
+    POL: { name: 'Pologne', flag: '🇵🇱', cup: 'Coupe de Pologne' },
+    DEN: { name: 'Danemark', flag: '🇩🇰', cup: 'Coupe du Danemark' },
+    AUT: { name: 'Autriche', flag: '🇦🇹', cup: 'Coupe d\'Autriche' },
+    SUI: { name: 'Suisse', flag: '🇨🇭', cup: 'Coupe de Suisse' },
+    SCO: { name: 'Écosse', flag: '🏴󠁧󠁢󠁳󠁣󠁴󠁿', cup: 'Scottish Cup' },
+    SWE: { name: 'Suède', flag: '🇸🇪', cup: 'Coupe de Suède' },
+    CRO: { name: 'Croatie', flag: '🇭🇷', cup: 'Coupe de Croatie' },
+    SRB: { name: 'Serbie', flag: '🇷🇸', cup: 'Coupe de Serbie' },
   },
   divisions: {
     1: { name: 'Premier League', short: 'PL', country: 'ENG', level: 1, source: 'ENG1', profile: { goals: 1.0, fouls: 0.85, cards: 0.8 } },
@@ -46,6 +56,16 @@ const REAL = {
     8: { name: 'Pro League', short: 'PRO', country: 'BEL', level: 1, source: 'BEL1', profile: { goals: 1.05, fouls: 0.95, cards: 1 } },
     9: { name: 'Süper Lig', short: 'SL', country: 'TUR', level: 1, source: 'TUR1', profile: { goals: 1.02, fouls: 1.1, cards: 1.2 } },
     10: { name: 'Chance Liga', short: 'CL', country: 'CZE', level: 1, source: 'CZE1', profile: { goals: 0.98, fouls: 1, cards: 1 } },
+    11: { name: 'Super League', short: 'GR', country: 'GRE', level: 1, source: 'GRE1', profile: { goals: 0.95, fouls: 1.1, cards: 1.2 } },
+    12: { name: 'Eliteserien', short: 'NO', country: 'NOR', level: 1, source: 'NOR1', profile: { goals: 1.1, fouls: 0.9, cards: 0.85 } },
+    13: { name: 'Ekstraklasa', short: 'PL', country: 'POL', level: 1, source: 'POL1', profile: { goals: 1, fouls: 1.05, cards: 1.1 } },
+    14: { name: 'Superliga', short: 'DK', country: 'DEN', level: 1, source: 'DEN1', profile: { goals: 1.05, fouls: 0.9, cards: 0.9 } },
+    15: { name: 'Bundesliga (AUT)', short: 'AT', country: 'AUT', level: 1, source: 'AUT1', profile: { goals: 1.1, fouls: 0.95, cards: 0.95 } },
+    16: { name: 'Super League (SUI)', short: 'CH', country: 'SUI', level: 1, source: 'SUI1', profile: { goals: 1.08, fouls: 0.95, cards: 0.9 } },
+    17: { name: 'Premiership', short: 'SC', country: 'SCO', level: 1, source: 'SCO1', profile: { goals: 1, fouls: 0.95, cards: 0.9 } },
+    18: { name: 'Allsvenskan', short: 'SE', country: 'SWE', level: 1, source: 'SWE1', profile: { goals: 1.05, fouls: 0.9, cards: 0.85 } },
+    19: { name: 'HNL', short: 'HR', country: 'CRO', level: 1, source: 'CRO1', profile: { goals: 0.98, fouls: 1.05, cards: 1.15 } },
+    20: { name: 'SuperLiga', short: 'RS', country: 'SRB', level: 1, source: 'SRB1', profile: { goals: 0.98, fouls: 1.1, cards: 1.2 } },
   },
   // 16 qualifiés pour la Ligue des Étoiles.
   conti: { 1: 3, 2: 2, 3: 2, 4: 2, 5: 2, 6: 1, 7: 1, 8: 1, 9: 1, 10: 1 },

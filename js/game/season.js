@@ -13,7 +13,8 @@ import { aiPrepare } from '../engine/ai.js';
 import { simulateMatch, summarize, penaltyShootout, allPlayers } from '../engine/match.js';
 import { wageBill, matchdayRevenue, sponsorIncome, prizeMoney, CUP_PRIZES, money, playerValue } from './economy.js';
 import { weeklyTraining, seasonDevelopment, shouldRetire, resetSeasonStats } from './progression.js';
-import { aiTransferActivity, fillSquad, logFinance, checkPromises } from './transfers.js';
+import { aiTransferActivity, userTransferOffers, fillSquad, logFinance, checkPromises } from './transfers.js';
+import { forEachHuman, withHuman, humanOfClub, isHumanClub, curHuman, humanIds, switchTo } from './humans.js';
 import { gameRng, matchSeed, clubById, userClub, clubPlayers, pushMessage, SAVE_VERSION } from './state.js';
 import { initClubExtras, newCoach, coachRep, coachAfterMatch, staffEffects, staffWages, trainingParams, dailyFacilities, checkJobOffers, jobCandidates, ensureStaff, resetClubStaff, refreshStaffPool, STAFF_ROLES, staffWageFor } from './career.js';
 import { scoutDaily, marketEvents, seeInMatch } from './scouting.js';
@@ -23,7 +24,7 @@ import { assignDates, windowInfo, fmtDate } from './dates.js';
 import { startPreseason } from './preseason.js';
 import { ensureBoard, setBoardSeason, updateBoardParts, checkMidSeasonSack, recordUserMatch, IDENTITIES } from './board.js';
 import { slotsOf } from '../data/constants.js';
-import { ensureLife, lifeDaily, lifeAfterFixture, lifeAfterUserMatch, lifeNextDay, lifeEndSeason, lifeSeasonStart } from './life.js';
+import { ensureLife, lifeWorldDaily, lifeUserDaily, lifeAfterFixture, lifeAfterUserMatch, lifeNextDay, lifeEndSeasonWorld, lifeEndSeasonUser, lifeSeasonStart } from './life.js';
 import { digestMatch, matchMods } from './press.js';
 import { homeAdvantage, gateMult, userSponsorIncome } from './fans.js';
 import { tension } from './relations.js';
@@ -109,7 +110,8 @@ export function roundRobin(ids, rng) {
 }
 
 /** Divisions du monde réel couvertes par les données (identifiants de championnat → divisions). */
-const REAL_SOURCES = { ENG1: 1, ESP1: 2, ITA1: 3, GER1: 4, FRA1: 5, POR1: 6, NED1: 7, BEL1: 8, TUR1: 9, CZE1: 10 };
+const REAL_SOURCES = { ENG1: 1, ESP1: 2, ITA1: 3, GER1: 4, FRA1: 5, POR1: 6, NED1: 7, BEL1: 8, TUR1: 9, CZE1: 10,
+  GRE1: 11, NOR1: 12, POL1: 13, DEN1: 14, AUT1: 15, SUI1: 16, SCO1: 17, SWE1: 18, CRO1: 19, SRB1: 20 };
 const REAL_DIVS = (data) => [...new Set(data.clubs.map((c) => REAL_SOURCES[c.league]).filter(Boolean))].sort((a, b) => a - b);
 
 const clubsOfDiv = (state, div) => state.clubs.filter((c) => c.div === div);
@@ -131,7 +133,11 @@ export function createSeason(state) {
   state.tables = {};
   for (const div of DIV_IDS) {
     const ids = clubsOfDiv(state, div).map((c) => c.id);
-    state.fixtures[div] = roundRobin(ids, rng);
+    // Petits championnats : 3 ou 4 confrontations par saison, comme en vrai (Écosse 33 journées, Croatie 36).
+    const cycles = ids.length <= 10 ? 4 : ids.length <= 12 ? 3 : 2;
+    let fx = roundRobin(ids, rng);
+    if (cycles > 2) fx = fx.concat(roundRobin(ids, rng).slice(0, (cycles - 2) * (ids.length - 1)));
+    state.fixtures[div] = fx;
     state.tables[div] = {};
     for (const id of ids) state.tables[div][id] = { p: 0, w: 0, d: 0, l: 0, gf: 0, ga: 0, pts: 0, form: [] };
   }
@@ -159,8 +165,12 @@ export function createSeason(state) {
   state.day = 0;
   state.seasonOver = false;
   state.lastResult = null;
-  setObjectives(state);
-  if (state.userClubId) { startPreseason(state); if (state.coach) lifeSeasonStart(state); }
+  forEachHuman(state, () => {
+    if (!state.userClubId) return;
+    setObjectives(state);
+    startPreseason(state);
+    if (state.coach) lifeSeasonStart(state);
+  });
 }
 
 /** Coupe continentale : qualification (classement final précédent ou réputation), tirage des groupes. */
@@ -450,21 +460,24 @@ export function userMatchCfg(state) {
  * met à jour joueurs, finances, IA, messages. Retourne un rapport.
  */
 export function completeDay(state, userMatch = null) {
-  // La saison démarre : fin de la préparation (réunion acceptée par défaut).
-  if (state.preseason?.active) { if (!state.preseason.meeting) state.preseason.meeting = true; state.preseason.active = false; }
-  ensureLife(state);
+  // La saison démarre : fin de la préparation (réunion acceptée par défaut), pour chaque manager.
+  forEachHuman(state, () => {
+    if (state.preseason?.active) { if (!state.preseason.meeting) state.preseason.meeting = true; state.preseason.active = false; }
+    ensureLife(state);
+  });
   const rng = gameRng(state);
   const t = today(state);
-  const uc = userClub(state);
+  const cur = curHuman(state);
   const report = { label: t.label, type: t.entry.type, results: [], injuries: [], suspensions: [], callups: [], finance: 0, userSummary: null, cupOut: false };
   const played = new Set();
-  const ctx = { newlyHurt: new Set(), newlySusp: new Set(), report, rng };
-  const budgetBefore = uc.budget;
+  const ctx = { newlyHurt: new Set(), newlySusp: new Set(), report, rng, cur };
+  const budgetBefore = {};
+  forEachHuman(state, (h) => { budgetBefore[h] = userClub(state).budget; });
 
   for (const f of t.fixtures) {
-    const isUser = f.comp !== 'intl' && (f.h === uc.id || f.a === uc.id);
+    const hh = f.comp === 'intl' ? [] : [humanOfClub(state, f.h), humanOfClub(state, f.a)].filter((h) => h !== undefined);
     let m;
-    if (isUser && userMatch) m = userMatch;
+    if (userMatch && hh.includes(cur)) m = userMatch;
     else m = simulateMatch(matchCfgFor(state, f));
     if ((f.comp === 'cup' || f.ko) && m.score[0] === m.score[1] && !m.shootout) penaltyShootout(m);
     const sum = summarize(m);
@@ -472,8 +485,10 @@ export function completeDay(state, userMatch = null) {
     lifeAfterFixture(state, f, sum);
     if (f.comp !== 'intl') { played.add(f.h); played.add(f.a); }
     report.results.push({ h: f.h, a: f.a, s: sum.score, pens: sum.shootout ? sum.shootout.score : null, div: f.div, comp: f.comp, key: f.key });
-    if (isUser) {
-      report.userSummary = sum;
+    // Match d'un manager humain (les deux, s'ils s'affrontent).
+    for (const h of hh) withHuman(state, h, () => {
+      const uc = userClub(state);
+      if (h === cur) report.userSummary = sum;
       const side = f.h === uc.id ? 0 : 1;
       coachAfterMatch(state, sum.score[side], sum.score[1 - side], clubById(state, side === 0 ? f.a : f.h));
       ensureBoard(state);
@@ -482,19 +497,19 @@ export function completeDay(state, userMatch = null) {
       lifeAfterUserMatch(state, digestMatch(state, sum, m, side, f), rng, f, t.entry);
       state.lastResult = { h: f.h, a: f.a, s: sum.score, pens: sum.shootout ? sum.shootout.score : null, label: t.label,
         scorers: sum.goals.map((g) => ({ side: g.side, name: g.name, minute: g.minute, pen: g.pen })), motm: sum.motm?.name };
-    }
+    });
   }
 
   if (t.entry.type === 'cup') finishCupRound(state, t, report);
   if (t.entry.type === 'conti') finishContiRound(state, t, report);
 
   // Mise à jour quotidienne des joueurs (blessures, suspensions, récupération, entraînement).
-  const eff = staffEffects(uc);
-  const cmod = coachMods(state.coach);
   for (const c of state.clubs) {
-    const isUser = c.id === uc.id;
-    const tp = trainingParams(c, isUser);
-    if (isUser) { tp.youthMult = cmod.youth; tp.gkMult = eff.gkMult; }
+    const hu = humanOfClub(state, c.id);
+    const isUser = hu !== undefined;
+    let tp, eff = null, cmod = null;
+    if (isUser) withHuman(state, hu, () => { eff = staffEffects(c); cmod = coachMods(state.coach); tp = trainingParams(c, true); tp.youthMult = cmod.youth; tp.gkMult = eff.gkMult; });
+    else tp = trainingParams(c, false);
     for (const id of c.playerIds) {
       const p = state.players[id];
       if (!p) continue;
@@ -506,7 +521,7 @@ export function completeDay(state, userMatch = null) {
       weeklyTraining(p, rng, p._mins || 0, tp);
       if (tp.injury && p.injury === 0 && rng.chance(tp.injury)) {
         p.injury = rng.int(1, 3); p.injuryName = 'Blessure à l\'entraînement';
-        pushMessage(state, { prio: 2, icon: '✚', title: `${p.name} blessé à l'entraînement`, text: `${p.injury} match(s). Entraînement intense…` });
+        withHuman(state, hu, () => pushMessage(state, { prio: 2, icon: '✚', title: `${p.name} blessé à l'entraînement`, text: `${p.injury} match(s). Entraînement intense…` }));
       }
       p._mins = 0;
     }
@@ -514,38 +529,47 @@ export function completeDay(state, userMatch = null) {
 
   applyDayFinances(state, t, report);
 
-  dailyFacilities(state);
+  // Monde : mercato de l'IA, entraîneurs, relations, finances des clubs…
   aiTransferActivity(state, rng);
-  marketEvents(state, rng);
-  scoutDaily(state);
-  state.pendingOffers = (state.pendingOffers || []).filter((o) => state.day - o.day <= 3 && state.players[o.pid]?.clubId === uc.id);
-
   if (t.entry.type === 'league') managersAfterRound(state, t.entry.round, (id) => tablePosition(state, id));
-  if (t.entry.type === 'league' && t.entry.round >= 6 && t.entry.round % 4 === 0) checkPromises(state);
-  if (t.entry.type === 'league' && t.entry.round === 19) {
-    const y = createYouth(rng, uc);
-    y.pot = clamp(Math.round(y.pot + coachMods(state.coach).youthPot + staffEffects(uc).youthPot), overall(y) + 3, 95);
-    state.players[y.id] = y;
-    uc.youthIds.push(y.id);
-    pushMessage(state, { prio: 2, icon: '🌱', title: `Un jeune prometteur : ${y.name}`, text: `${y.pos}, ${y.age} ans. Voir le centre de formation.` });
-    y.homegrown = true;
-  }
-  if (t.entry.type === 'league' && t.entry.round === 27) {
-    const ending = clubPlayers(state, uc).filter((p) => p.contract <= 1 && !p.onLoanFrom);
-    if (ending.length) pushMessage(state, { prio: 1, icon: '✎', title: `${ending.length} contrat(s) expirent en fin de saison`, text: ending.slice(0, 3).map((p) => p.name).join(', ') + (ending.length > 3 ? '…' : '') });
-  }
-  if (report.callups.length) pushMessage(state, { prio: 2, icon: '🌍', title: `${report.callups.length} joueur(s) en sélection`, text: report.callups.slice(0, 4).join(', ') });
-  if (uc.budget < 0 && budgetBefore >= 0) pushMessage(state, { prio: 1, icon: '⚠', title: 'Budget dans le rouge', text: 'Le board demande de vendre ou de réduire la masse salariale.' });
+  lifeWorldDaily(state, rng, t);
 
-  report.finance = uc.budget - budgetBefore;
-  lifeDaily(state, rng, t);
-  updateBoard(state, t, report);
+  // Chaque manager humain : son club, son vestiaire, son board, ses messages.
+  forEachHuman(state, (h) => {
+    const uc = userClub(state);
+    dailyFacilities(state);
+    userTransferOffers(state, rng);
+    marketEvents(state, rng);
+    scoutDaily(state);
+    state.pendingOffers = (state.pendingOffers || []).filter((o) => state.day - o.day <= 3 && state.players[o.pid]?.clubId === uc.id);
+    if (t.entry.type === 'league' && t.entry.round >= 6 && t.entry.round % 4 === 0) checkPromises(state);
+    if (t.entry.type === 'league' && t.entry.round === 19) {
+      const y = createYouth(rng, uc);
+      y.pot = clamp(Math.round(y.pot + coachMods(state.coach).youthPot + staffEffects(uc).youthPot), overall(y) + 3, 95);
+      state.players[y.id] = y;
+      uc.youthIds.push(y.id);
+      pushMessage(state, { prio: 2, icon: '🌱', title: `Un jeune prometteur : ${y.name}`, text: `${y.pos}, ${y.age} ans. Voir le centre de formation.` });
+      y.homegrown = true;
+    }
+    if (t.entry.type === 'league' && t.entry.round === 27) {
+      const ending = clubPlayers(state, uc).filter((p) => p.contract <= 1 && !p.onLoanFrom);
+      if (ending.length) pushMessage(state, { prio: 1, icon: '✎', title: `${ending.length} contrat(s) expirent en fin de saison`, text: ending.slice(0, 3).map((p) => p.name).join(', ') + (ending.length > 3 ? '…' : '') });
+    }
+    const callups = report.callupsBy?.[uc.id] || [];
+    if (callups.length) pushMessage(state, { prio: 2, icon: '🌍', title: `${callups.length} joueur(s) en sélection`, text: callups.slice(0, 4).join(', ') });
+    if (uc.budget < 0 && budgetBefore[h] >= 0) pushMessage(state, { prio: 1, icon: '⚠', title: 'Budget dans le rouge', text: 'Le board demande de vendre ou de réduire la masse salariale.' });
+    if (h === cur) report.finance = uc.budget - budgetBefore[h];
+    lifeUserDaily(state, rng, t);
+    updateBoard(state, t, report);
+  });
   state.day++;
   if (state.day >= state.calendar.length) state.seasonOver = true;
   else {
     const wi = windowInfo(state);
-    if (wi.deadline) pushMessage(state, { prio: 1, icon: '⏰', title: 'Dernier jour du mercato !', text: `Clôture le ${fmtDate(wi.closes, false)} : jouez le deadline day en direct depuis l'Accueil.` });
-    lifeNextDay(state, rng);
+    forEachHuman(state, () => {
+      if (wi.deadline) pushMessage(state, { prio: 1, icon: '⏰', title: 'Dernier jour du mercato !', text: `Clôture le ${fmtDate(wi.closes, false)} : jouez le deadline day en direct depuis l'Accueil.` });
+      lifeNextDay(state, rng);
+    });
   }
   return report;
 }
@@ -553,12 +577,16 @@ export function completeDay(state, userMatch = null) {
 
 /** Finances d'une journée : salaires (+ staff), sponsors, billetterie (ambiance du stade). */
 export function applyDayFinances(state, t, report = {}) {
-  const uc = userClub(state);
+  const cur = curHuman(state);
   for (const c of state.clubs) {
-    const wages = wageBill(clubPlayers(state, c)) + (c.id === uc.id ? staffWages(c) : 0);
-    const sponsor = c.id === uc.id ? userSponsorIncome(state) : sponsorIncome(c);
-    c.budget += sponsor - wages;
-    if (c.id === uc.id) { logFinance(state, -wages, 'Salaires'); logFinance(state, sponsor, 'Sponsors'); }
+    const hu = humanOfClub(state, c.id);
+    if (hu === undefined) { c.budget += sponsorIncome(c) - wageBill(clubPlayers(state, c)); continue; }
+    withHuman(state, hu, () => {
+      const wages = wageBill(clubPlayers(state, c)) + staffWages(c);
+      const sponsor = userSponsorIncome(state);
+      c.budget += sponsor - wages;
+      logFinance(state, -wages, 'Salaires'); logFinance(state, sponsor, 'Sponsors');
+    });
   }
   for (const f of t.fixtures) {
     if (f.neutral || f.comp === 'intl') continue;
@@ -569,7 +597,8 @@ export function applyDayFinances(state, t, report = {}) {
     const bonus = f.comp === 'conti' ? 1.6 : 1;
     const fansK = gateMult(h); // ambiance du stade et politique tarifaire
     h.budget += Math.round(revenue * bonus * fansK);
-    if (h.id === uc.id) { logFinance(state, Math.round(revenue * bonus * fansK), `Billetterie (${attendance.toLocaleString('fr-FR')} spect.)`); report.attendance = attendance; }
+    const hu = humanOfClub(state, h.id);
+    if (hu !== undefined) withHuman(state, hu, () => { logFinance(state, Math.round(revenue * bonus * fansK), `Billetterie (${attendance.toLocaleString('fr-FR')} spect.)`); if (hu === cur) report.attendance = attendance; });
   }
 
 }
@@ -669,6 +698,7 @@ function applyResult(state, f, sum, m, ctx) {
     for (const mp of allPlayers(t)) {
       const p = mp.p;
       if (intl && p.clubId === uc) report.callups.push(p.name);
+      if (intl && isHumanClub(state, p.clubId)) ((report.callupsBy ||= {})[p.clubId] ||= []).push(p.name);
       if (mp.minIn == null) continue;
       const mins = Math.max(1, (mp.minOut ?? 90) - mp.minIn);
       p.fatigue = clamp(Math.round(100 - mp.energy), 0, 80);
@@ -695,15 +725,16 @@ function applyResult(state, f, sum, m, ctx) {
       }
       if (mp.injured) {
         let days = injuryLength(rng);
-        if (p.clubId === uc) days = Math.max(1, Math.round(days * staffEffects(clubById(state, uc)).injuryDays));
+        const hu = humanOfClub(state, p.clubId);
+        if (hu !== undefined) days = Math.max(1, Math.round(days * staffEffects(clubById(state, p.clubId)).injuryDays));
         p.injury = days;
         p.injuryName = rng.pick(days <= 3 ? ['Contusion', 'Entorse légère', 'Douleur musculaire'] : days <= 8 ? ['Élongation', 'Entorse de la cheville', 'Lésion aux ischios'] : days <= 20 ? ['Déchirure musculaire', 'Fracture du pied', 'Ligaments du genou'] : SEVERE_NAMES);
-        if (p.clubId === uc) noteInjury(state, p);
         ctx.newlyHurt.add(p.id);
-        if (p.clubId === uc) {
-          report.injuries.push({ name: p.name, days, what: p.injuryName });
+        if (hu !== undefined) withHuman(state, hu, () => {
+          noteInjury(state, p);
+          if (p.clubId === uc) report.injuries.push({ name: p.name, days, what: p.injuryName });
           pushMessage(state, { prio: days > 5 ? 1 : 2, icon: '✚', title: `${p.name} blessé${intl ? ' en sélection' : ''}`, text: `${p.injuryName} · ${days} match(s)` });
-        }
+        });
       }
     }
   });
@@ -740,46 +771,50 @@ function updateBoard(state, t, report) {
  */
 export function endSeason(state) {
   const rng = gameRng(state);
-  const uc = userClub(state);
+  const cur = curHuman(state);
   const tables = Object.fromEntries(DIV_IDS.map((d) => [d, sortedTable(state, d)]));
-  const userDiv = uc.div;
-  const userPos = tablePosition(state, uc.id);
-  const report = {
-    season: state.season,
-    champions: DIV_IDS.map((d) => ({ div: d, name: tables[d][0].club.name })),
-    cups: Object.values(state.cups).map((c) => ({ name: c.name, winner: c.winner ? clubById(state, c.winner).name : '—' })),
-    conti: state.conti.winner ? clubById(state, state.conti.winner).name : '—',
-    relegated: [], promoted: [],
-    userDiv, userPos, objective: state.objectives.league, progress: [], retired: [], youth: [], left: [],
-    topScorer: topScorers(state, userDiv, 1)[0], prize: 0,
-  };
-  state.lastFinal = Object.fromEntries(DIV_IDS.map((d) => [d, tables[d].map((r) => r.id)]));
+  const relegated = [], promoted = [];
+  const R = {}; // bilan de chaque manager humain
 
-  // Objectif du board et réputation du coach.
-  const target = state.objectives.league.target;
-  report.met = userPos <= target;
-  state.board.confidence = clamp(state.board.confidence + (report.met ? 15 + (target - userPos) * 2 : -(userPos - target) * 5), 0, 100);
-  report.confidence = state.board.confidence;
-  report.sacked = state.board.confidence < 15;
-  coachRep(state, report.met ? 3 : -3);
-  if (userPos === 1) { state.coach.trophies.push(`${DIVISIONS[userDiv].name} ${state.season}`); coachRep(state, DIVISIONS[userDiv].level === 1 ? 10 : 5, 'Titre de champion !'); }
-  if (report.sacked) coachRep(state, -8, 'Limogeage');
-  state.coach.seasons++;
-  const trophiesNow = state.coach.trophies.filter((t) => t.endsWith(String(state.season))).length;
-  grantSeasonPoints(state.coach, trophiesNow);
-  report.coachPoints = 2 + trophiesNow;
-
-  // Staff : fins de contrat (pas de prolongation automatique : c'est à vous de négocier).
-  for (const m of (uc.staffMembers || []).slice()) {
-    m.contract--; m.age++;
-    if (m.contract > 0) {
-      if (m.contract === 1) pushMessage(state, { prio: 2, icon: '📝', title: `Contrat : ${m.first} ${m.last}`, text: `Dernière année de contrat (${STAFF_ROLES[m.role].label}). Prolongez-le dans Club → Staff, sinon il partira.` });
-      continue;
+  // Bilan de chaque manager : objectifs, board, réputation, staff.
+  forEachHuman(state, (h) => {
+    const uc = userClub(state);
+    const userDiv = uc.div;
+    const userPos = tablePosition(state, uc.id);
+    const report = R[h] = {
+      season: state.season,
+      champions: DIV_IDS.map((d) => ({ div: d, name: tables[d][0].club.name })),
+      cups: Object.values(state.cups).map((c) => ({ name: c.name, winner: c.winner ? clubById(state, c.winner).name : '—' })),
+      conti: state.conti.winner ? clubById(state, state.conti.winner).name : '—',
+      relegated, promoted,
+      userDiv, userPos, objective: state.objectives.league, progress: [], retired: [], youth: [], left: [],
+      topScorer: topScorers(state, userDiv, 1)[0], prize: 0,
+    };
+    const target = state.objectives.league.target;
+    report.met = userPos <= target;
+    state.board.confidence = clamp(state.board.confidence + (report.met ? 15 + (target - userPos) * 2 : -(userPos - target) * 5), 0, 100);
+    report.confidence = state.board.confidence;
+    report.sacked = !state.online && state.board.confidence < 15; // en ligne : pas de renvoi (chacun garde son club)
+    coachRep(state, report.met ? 3 : -3);
+    if (userPos === 1) { state.coach.trophies.push(`${DIVISIONS[userDiv].name} ${state.season}`); coachRep(state, DIVISIONS[userDiv].level === 1 ? 10 : 5, 'Titre de champion !'); }
+    if (report.sacked) coachRep(state, -8, 'Limogeage');
+    state.coach.seasons++;
+    const trophiesNow = state.coach.trophies.filter((t) => t.endsWith(String(state.season))).length;
+    grantSeasonPoints(state.coach, trophiesNow);
+    report.coachPoints = 2 + trophiesNow;
+    // Staff : fins de contrat (pas de prolongation automatique : c'est à vous de négocier).
+    for (const m of (uc.staffMembers || []).slice()) {
+      m.contract--; m.age++;
+      if (m.contract > 0) {
+        if (m.contract === 1) pushMessage(state, { prio: 2, icon: '📝', title: `Contrat : ${m.first} ${m.last}`, text: `Dernière année de contrat (${STAFF_ROLES[m.role].label}). Prolongez-le dans Club → Staff, sinon il partira.` });
+        continue;
+      }
+      uc.staffMembers = uc.staffMembers.filter((x) => x !== m);
+      state.staffPool.push({ ...m, contract: rng.int(1, 3), wage: staffWageFor(m.rating), tries: 3 });
+      pushMessage(state, { prio: 2, icon: '👋', title: `${m.first} ${m.last} quitte le staff`, text: 'Fin de contrat. Pensez à le remplacer (Club → Staff).' });
     }
-    uc.staffMembers = uc.staffMembers.filter((x) => x !== m);
-    state.staffPool.push({ ...m, contract: rng.int(1, 3), wage: staffWageFor(m.rating), tries: 3 });
-    pushMessage(state, { prio: 2, icon: '👋', title: `${m.first} ${m.last} quitte le staff`, text: 'Fin de contrat. Pensez à le remplacer (Club → Staff).' });
-  }
+  });
+  state.lastFinal = Object.fromEntries(DIV_IDS.map((d) => [d, tables[d].map((r) => r.id)]));
   refreshStaffPool(state, rng);
 
   // Carrousel des entraîneurs (avant les montées/descentes).
@@ -790,7 +825,8 @@ export function endSeason(state) {
     tables[d].forEach((r, i) => {
       const prize = prizeMoney(DIVISIONS[d].level, i + 1);
       r.club.budget += prize;
-      if (r.id === uc.id) { report.prize = prize; logFinance(state, prize, `Prime de classement (${i + 1}e)`); }
+      const hu = humanOfClub(state, r.id);
+      if (hu !== undefined) withHuman(state, hu, () => { R[hu].prize = prize; logFinance(state, prize, `Prime de classement (${i + 1}e)`); });
     });
   }
   // Réputation des clubs.
@@ -809,53 +845,57 @@ export function endSeason(state) {
       if (finHealth(state, r.club) >= BAL.crisis.bankrupt) continue;
       const saved = down.shift();
       down.push(r);
-      pushMessage(state, { prio: r.id === uc.id ? 1 : 2, icon: '⚖', title: `Relégation administrative : ${r.club.name}`, text: `Faute de garanties financières, ${r.club.name} est rétrogradé. ${saved.club.name} est repêché.` });
+      forEachHuman(state, () => pushMessage(state, { prio: r.id === state.userClubId ? 1 : 2, icon: '⚖', title: `Relégation administrative : ${r.club.name}`, text: `Faute de garanties financières, ${r.club.name} est rétrogradé. ${saved.club.name} est repêché.` }));
       break;
     }
     const up = tables[D.lower].slice(0, DIVISIONS[D.lower].up || D.down);
-    report.relegated.push(...down.map((r) => r.club.name));
-    report.promoted.push(...up.map((r) => r.club.name));
+    relegated.push(...down.map((r) => r.club.name));
+    promoted.push(...up.map((r) => r.club.name));
     for (const r of down) { r.club.div = D.lower; r.club.rep = clamp(r.club.rep - 2, 30, 95); }
     for (const r of up) r.club.div = d;
   }
-  report.userNewDiv = uc.div;
-  if (report.userNewDiv < userDiv) coachRep(state, 5, 'Promotion !');
-  if (report.userNewDiv > userDiv) coachRep(state, -6, 'Relégation');
-
-  state.history.push({ season: state.season, div: userDiv, pos: userPos, club: uc.name,
-    cup: state.cups[uc.country].winner === uc.id ? 'Coupe' : '', conti: state.conti.winner === uc.id ? CONTI_NAME : '' });
+  forEachHuman(state, (h) => {
+    const uc = userClub(state), report = R[h];
+    report.userNewDiv = uc.div;
+    if (report.userNewDiv < report.userDiv) coachRep(state, 5, 'Promotion !');
+    if (report.userNewDiv > report.userDiv) coachRep(state, -6, 'Relégation');
+    state.history.push({ season: state.season, div: report.userDiv, pos: report.userPos, club: uc.name,
+      cup: state.cups[uc.country].winner === uc.id ? 'Coupe' : '', conti: state.conti.winner === uc.id ? CONTI_NAME : '' });
+  });
 
   // Retour des prêts.
   for (const p of Object.values(state.players)) {
     if (!p.onLoanFrom) continue;
     const owner = clubById(state, p.onLoanFrom);
-    const cur = clubById(state, p.clubId);
-    if (cur) { cur.playerIds = cur.playerIds.filter((id) => id !== p.id); if (cur.lineup) cur.lineup = cur.lineup.map((id) => (id === p.id ? null : id)); }
+    const curClub = clubById(state, p.clubId);
+    if (curClub) { curClub.playerIds = curClub.playerIds.filter((id) => id !== p.id); if (curClub.lineup) curClub.lineup = curClub.lineup.map((id) => (id === p.id ? null : id)); }
     p.clubId = owner.id; owner.playerIds.push(p.id); p.onLoanFrom = null; p.number = 0;
   }
-  uc.loanedOut = [];
+  forEachHuman(state, () => { userClub(state).loanedOut = []; });
 
   // Évolution, retraites, contrats.
   for (const c of state.clubs) {
-    const mult = trainingParams(c, c.id === uc.id).mult;
+    const hu = humanOfClub(state, c.id);
+    const rep = hu !== undefined ? R[hu] : null;
+    const mult = trainingParams(c, !!rep).mult;
     for (const id of c.playerIds.slice()) {
       const p = state.players[id];
       const dev = seasonDevelopment(p, rng, mult);
-      if (c.id === uc.id && dev.after !== dev.before) report.progress.push({ name: p.name, pos: p.pos, before: dev.before, after: dev.after, age: p.age });
+      if (rep && dev.after !== dev.before) rep.progress.push({ name: p.name, pos: p.pos, before: dev.before, after: dev.after, age: p.age });
       if (shouldRetire(p, rng)) {
         c.playerIds = c.playerIds.filter((x) => x !== id);
-        if (c.id === uc.id) report.retired.push(p.name);
+        if (rep) rep.retired.push(p.name);
         delete state.players[id];
         continue;
       }
       p.contract--;
       if (p.contract <= 0) {
-        const keep = c.id !== uc.id && p.age < 33 && overall(p) >= squadStrength(clubPlayers(state, c)) - 6 && rng.chance(0.75);
+        const keep = !rep && p.age < 33 && overall(p) >= squadStrength(clubPlayers(state, c)) - 6 && rng.chance(0.75);
         if (keep) p.contract = rng.int(1, 3);
         else {
           c.playerIds = c.playerIds.filter((x) => x !== id);
           p.clubId = null; p.contract = 0; state.freeAgents.push(id);
-          if (c.id === uc.id) report.left.push(p.name);
+          if (rep) rep.left.push(p.name);
         }
       }
       resetSeasonStats(p);
@@ -874,40 +914,50 @@ export function endSeason(state) {
     return true;
   }).slice(-100);
   // Nettoyage des connaissances de scouting sur des joueurs disparus.
-  for (const id of Object.keys(state.scout || {})) if (!state.players[id]) delete state.scout[id];
+  forEachHuman(state, () => { for (const id of Object.keys(state.scout || {})) if (!state.players[id]) delete state.scout[id]; });
 
   // Centre de formation : recrues de l'été.
   for (const c of state.clubs) {
-    const n = c.id === uc.id ? 2 + (c.academy >= 4 ? 1 : 0) : 1;
+    const hu = humanOfClub(state, c.id);
+    const n = hu !== undefined ? 2 + (c.academy >= 4 ? 1 : 0) : 1;
     for (let i = 0; i < n; i++) {
       const y = createYouth(rng, c);
       state.players[y.id] = y;
-      if (c.id === uc.id) { y.pot = clamp(Math.round(y.pot + staffEffects(uc).youthPot + coachMods(state.coach).youthPot), overall(y) + 3, 95); c.youthIds.push(y.id); report.youth.push(`${y.name} (${y.pos}, ${y.age} ans)`); }
+      if (hu !== undefined) withHuman(state, hu, () => { y.pot = clamp(Math.round(y.pot + staffEffects(c).youthPot + coachMods(state.coach).youthPot), overall(y) + 3, 95); c.youthIds.push(y.id); R[hu].youth.push(`${y.name} (${y.pos}, ${y.age} ans)`); });
       else if (c.playerIds.length < 26) c.playerIds.push(y.id);
       else delete state.players[y.id];
     }
-    if (c.id !== uc.id) {
+    if (hu === undefined) {
       fillSquad(state, c, rng);
       c.budget = aiSeasonBudget(c, DIVISIONS[c.div].level === 1);
     }
     assignNumbers(clubPlayers(state, c));
   }
-  const signed = fillSquad(state, uc, rng, 18);
-  if (signed.length) {
-    report.emergency = signed.map((p) => p.name);
-    pushMessage(state, { prio: 1, icon: '⚠', title: `${signed.length} joueur(s) libre(s) signé(s) en urgence`, text: "L'effectif était trop court." });
-  }
+  forEachHuman(state, (h) => {
+    const signed = fillSquad(state, userClub(state), rng, 18);
+    if (signed.length) {
+      R[h].emergency = signed.map((p) => p.name);
+      pushMessage(state, { prio: 1, icon: '⚠', title: `${signed.length} joueur(s) libre(s) signé(s) en urgence`, text: "L'effectif était trop court." });
+    }
+  });
 
   state.season++;
-  state.messages = state.messages.filter((m) => m.prio === 1 && !m.read && m.action?.type !== 'offer').slice(0, 5);
-  state.pendingOffers = [];
-  lifeEndSeason(state, rng, report.met);
+  forEachHuman(state, () => {
+    state.messages = state.messages.filter((m) => m.prio === 1 && !m.read && m.action?.type !== 'offer').slice(0, 5);
+    state.pendingOffers = [];
+  });
+  lifeEndSeasonWorld(state, rng);
+  forEachHuman(state, (h) => lifeEndSeasonUser(state, R[h].met));
   createSeason(state);
-  validateUserLineup(state);
-  report.jobs = jobCandidates(state, report.sacked).map((c) => c.id);
-  pushMessage(state, { prio: 1, icon: '📅', title: `Saison ${state.season}-${state.season + 1}`, text: `Objectif : ${state.objectives.league.label}.` });
-  report.nextObjective = state.objectives.league.label;
-  return report;
+  forEachHuman(state, (h) => {
+    const report = R[h];
+    validateUserLineup(state);
+    report.jobs = state.online ? [] : jobCandidates(state, report.sacked).map((c) => c.id);
+    pushMessage(state, { prio: 1, icon: '📅', title: `Saison ${state.season}-${state.season + 1}`, text: `Objectif : ${state.objectives.league.label}.` });
+    report.nextObjective = state.objectives.league.label;
+  });
+  if (state.online) state.online.seasonReports = R;
+  return R[cur];
 }
 
 /** Changement de club (offre acceptée ou limogeage). */
