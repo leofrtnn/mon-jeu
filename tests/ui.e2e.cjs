@@ -42,7 +42,7 @@ function serve() {
   page.on('console', (m) => { if (m.type() === 'error' && !/Failed to load resource/.test(m.text())) errors.push(m.text()); });
   const step = (name) => console.log('✓', name);
   try {
-    await page.goto(base);
+    await page.goto(base + '?backend=local'); // serveur local : les tests ne touchent pas au vrai serveur
     // Compte obligatoire : création d'un compte (serveur local de repli).
     await page.click('[data-act=amode][data-v=signup]');
     await page.fill('input[name=username]', 'Testeur');

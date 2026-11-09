@@ -53,6 +53,34 @@ export function topMessages(state, n = 3) {
 
 /* ---------------- Sauvegarde : 3 emplacements, compression gzip ---------------- */
 
+/**
+ * Premier passage d'un compte sur cet appareil : il reprend les parties des comptes
+ * locaux (version sans serveur) dans ses emplacements libres.
+ */
+export async function claimDeviceSaves(id) {
+  if (!hasLS() || !id) return 0;
+  const me = String(id).replace(/[^a-zA-Z0-9-]/g, '');
+  const mine = (() => { try { return JSON.parse(localStorage.getItem(`cdp-${me}-meta`) || '{}'); } catch { return {}; } })();
+  let n = 0;
+  for (const k of Object.keys(localStorage)) {
+    const m = k.match(/^cdp-(.+)-meta$/);
+    if (!m || m[1] === me || localStorage.getItem(`cdp-claimed-${m[1]}`)) continue;
+    let other = {};
+    try { other = JSON.parse(localStorage.getItem(k) || '{}'); } catch { /* ignore */ }
+    for (const [slot, meta] of Object.entries(other)) {
+      const free = [1, 2, 3].find((s) => !mine[s]);
+      if (!free) break;
+      const data = await kvGet(`cdp-${m[1]}-slot-${slot}`);
+      if (!data) continue;
+      await kvSet(`cdp-${me}-slot-${free}`, data);
+      mine[free] = meta; n++;
+    }
+    localStorage.setItem(`cdp-claimed-${m[1]}`, me);
+  }
+  if (n) localStorage.setItem(`cdp-${me}-meta`, JSON.stringify(mine));
+  return n;
+}
+
 /* Sauvegardes rangées par compte (plusieurs comptes possibles sur un même appareil). */
 let acct = '';
 const SLOT_KEY = (n) => (acct ? `cdp-${acct}-slot-${n}` : `cdp-slot-${n}`);

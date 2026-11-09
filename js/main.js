@@ -6,7 +6,7 @@ import { app } from './ui/app.js';
 import { watchViewport } from './ui/viewport.js';
 
 watchViewport();
-import { load, setSlot, saveSync, setAccount, lastKey, setCloudHook } from './game/state.js';
+import { load, setSlot, saveSync, setAccount, lastKey, setCloudHook, claimDeviceSaves } from './game/state.js';
 import { getBackend } from './online/backend.js';
 
 app.init();
@@ -24,6 +24,7 @@ app.init();
   }
   if (app.user) {
     setAccount(app.user.id);
+    if (app.backend?.kind === 'supabase') await claimDeviceSaves(app.user.id);
     let last = 1;
     try { last = +(localStorage.getItem(lastKey()) || 1); } catch { /* ignore */ }
     const saved = await load(last);

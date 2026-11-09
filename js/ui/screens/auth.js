@@ -2,7 +2,7 @@
  * Connexion / création de compte (obligatoire pour jouer).
  */
 import { esc } from '../components.js';
-import { setAccount } from '../../game/state.js';
+import { setAccount, claimDeviceSaves } from '../../game/state.js';
 
 export function render(app) {
   const ui = app.ui.auth || (app.ui.auth = { mode: 'login' });
@@ -39,6 +39,10 @@ export const actions = {
         : await app.backend.signIn(v.email, v.password);
       app.user = me;
       setAccount(me.id);
+      if (app.backend?.kind === 'supabase') {
+        const n = await claimDeviceSaves(me.id);
+        if (n) setTimeout(() => app.toast(`${n} partie(s) de cet appareil récupérée(s) sur votre compte.`, 4000), 600);
+      }
       app.ui.auth = { mode: 'login' };
       app.state = null;
       app.ui.start = { step: 'menu', div: 1 };

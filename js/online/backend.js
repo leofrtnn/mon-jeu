@@ -279,7 +279,8 @@ let instance = null;
 /** Serveur actif (Supabase si configuré, sinon repli local). */
 export async function getBackend() {
   if (instance) return instance;
-  if (ONLINE_CONFIGURED) {
+  const forceLocal = typeof location !== 'undefined' && /[?&]backend=local\b/.test(location.search); // tests automatiques
+  if (ONLINE_CONFIGURED && !forceLocal) {
     try { instance = await SupabaseBackend.create(); return instance; } catch (e) { console.warn('Supabase indisponible', e); }
   }
   instance = new LocalBackend();
