@@ -75,6 +75,22 @@ function serve() {
     }
     step('onglets et sous-onglets');
 
+    // Mission de recrutement.
+    await page.click('[data-tab=club]'); await page.click('[data-act=ctab][data-v=market]');
+    await page.click('[data-act=mmode][data-v=scout]');
+    await page.click('[data-act=mission] >> nth=0');
+    await page.selectOption('.sheet select[data-act=mr]', 'FRA');
+    await page.click('.sheet [data-act=go]');
+    await page.waitForSelector('text=En mission');
+    // Négociation avec un membre du staff.
+    await page.click('[data-act=ctab][data-v=staff]');
+    await page.click('[data-act=hirestaff] >> nth=0');
+    await page.waitForSelector('.sheet [data-act=propose]');
+    await page.click('.sheet [data-act=propose]');
+    await page.waitForSelector('.sheet .msg');
+    await page.click('.sheet [data-act=close]');
+    step('mission de recrutement + négociation de staff');
+
     await page.click('[data-tab=tactics]');
     await page.click('[data-act=auto]');
     await page.click('.slot >> nth=10'); await page.click('.slot >> nth=9');

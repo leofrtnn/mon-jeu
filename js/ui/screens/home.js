@@ -132,6 +132,7 @@ export const actions = {
     if (m.action?.type === 'offer') showOffer(app, m.action.pid);
     else if (m.action?.type === 'player') import('./playerSheet.js').then((mod) => { app.render(); mod.showPlayer(app, m.action.pid); });
     else if (m.action?.type === 'job') jobSheet(app, m.action.clubId);
+    else if (m.action?.type === 'scouting') { app.ui.clubTab = 'market'; app.ui.mktMode = 'scout'; app.go('club'); }
     else if (m.action?.type === 'vacancy') { app.ui.schedTab = 'managers'; app.ui.schedDiv = app.state.clubs.find((c) => c.id === m.action.clubId)?.div; app.go('schedule'); }
     else app.render();
   },

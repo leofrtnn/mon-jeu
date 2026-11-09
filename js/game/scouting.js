@@ -57,6 +57,7 @@ export function observe(state, pid) {
 }
 
 export function scoutDaily(state) {
+  missionsDaily(state);
   const uc = userClub(state);
   const eff = staffEffects(uc);
   const q = state.scoutQueue || [];
@@ -116,6 +117,64 @@ export function marketEvents(state, rng) {
       logFinance(state, p.clause, `Clause levée : ${p.name}`);
       pushMessage(state, { prio: 1, icon: '💥', title: `${b.name} lève la clause de ${p.name}`, text: `${money(p.clause)} encaissés. Il part immédiatement.` });
       p.clause = 0;
+    }
+  }
+}
+
+/* ---------------- Missions de recrutement ---------------- */
+
+export const REGIONS = {
+  FRA: 'France', IBE: 'Ibérie', ALB: 'Albion', ALL: 'Monde (joueurs libres inclus)',
+};
+export const MISSION_DAYS = 6;
+
+/** Lance une mission pour un recruteur : région, poste (facultatif), âge maximum (facultatif). */
+export function startMission(state, scoutId, { region = 'ALL', pos = null, maxAge = null }) {
+  const uc = userClub(state);
+  const sc = (uc.staffMembers || []).find((m) => m.id === scoutId && m.role === 'scout');
+  if (!sc) return { ok: false, msg: 'Recruteur introuvable.' };
+  state.missions = state.missions || {};
+  state.missions[scoutId] = { region, pos, maxAge, daysLeft: MISSION_DAYS, found: [] };
+  return { ok: true, msg: `${sc.first} ${sc.last} part en mission : ${REGIONS[region]}${pos ? ` · ${pos}` : ''}${maxAge ? ` · ≤ ${maxAge} ans` : ''}.` };
+}
+
+/** Note de recommandation : niveau estimé, potentiel des jeunes, âge. */
+function recoScore(state, p) {
+  const e = estimate(state, p);
+  const o = (e.ovr[0] + e.ovr[1]) / 2, pot = (e.pot[0] + e.pot[1]) / 2;
+  return o + (p.age <= 23 ? (pot - o) * 0.5 : 0) - Math.max(0, p.age - 29) * 1.5;
+}
+
+/** Avancement quotidien des missions (appelé par scoutDaily). */
+export function missionsDaily(state) {
+  const uc = userClub(state);
+  const eff = staffEffects(uc);
+  const ms = state.missions || {};
+  for (const [sid, mi] of Object.entries(ms)) {
+    const sc = (uc.staffMembers || []).find((m) => m.id === sid);
+    if (!sc) { delete ms[sid]; continue; }
+    // Joueurs ciblés par la mission.
+    const pool = [];
+    for (const c of state.clubs) {
+      if (c.id === uc.id || (mi.region !== 'ALL' && c.country !== mi.region)) continue;
+      for (const id of c.playerIds) pool.push(state.players[id]);
+    }
+    if (mi.region === 'ALL') for (const id of state.freeAgents) pool.push(state.players[id]);
+    const cands = pool.filter((p) => p && (!mi.pos || p.pos === mi.pos) && (!mi.maxAge || p.age <= mi.maxAge) && !mi.found.includes(p.id));
+    // Le recruteur repère d'abord les profils prometteurs (son flair dépend de sa note).
+    cands.sort((a, b) => (overall(b) + (b.pot - overall(b)) * 0.4 + (hashSeed(`${sid}-${b.id}`) % 10) * (20 - sc.rating) / 10)
+      - (overall(a) + (a.pot - overall(a)) * 0.4 + (hashSeed(`${sid}-${a.id}`) % 10) * (20 - sc.rating) / 10));
+    for (const p of cands.slice(0, 2 + Math.floor(sc.rating / 8))) {
+      state.scout[p.id] = clamp(Math.max(state.scout[p.id] || 0, knowledge(state, p)) + eff.scoutGain, 0, 100);
+      mi.found.push(p.id);
+    }
+    mi.daysLeft--;
+    if (mi.daysLeft <= 0) {
+      const best = mi.found.map((id) => state.players[id]).filter(Boolean)
+        .map((p) => ({ pid: p.id, score: Math.round(recoScore(state, p)) })).sort((a, b) => b.score - a.score).slice(0, 6);
+      state.scoutReports = [...best.map((r) => ({ ...r, by: `${sc.first} ${sc.last}`, region: mi.region, day: state.day, season: state.season })), ...(state.scoutReports || [])].slice(0, 40);
+      pushMessage(state, { prio: 2, icon: '🔭', title: `Mission terminée : ${REGIONS[mi.region]}`, text: `${sc.first} ${sc.last} recommande ${best.length} joueur(s). Voir Club → Mercato → Recrutement.`, action: { type: 'scouting' } });
+      delete ms[sid];
     }
   }
 }

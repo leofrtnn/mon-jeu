@@ -6,10 +6,10 @@ import { userClub, clubPlayers, clubById } from '../../game/state.js';
 import { money, wageBill, sponsorIncome } from '../../game/economy.js';
 import { marketList, windowOpen, academyCost, upgradeAcademy, sellPlayer, counterIncoming } from '../../game/transfers.js';
 import { tablePosition, DIV_NAMES, CONTI_NAME } from '../../game/season.js';
-import { STAFF_ROLES, staffWages, hireStaff, fireStaff, bestStaff, staffEffects, trainingUpgradeCost, upgradeTraining, STADIUM_OPTIONS, stadiumCost, expandStadium, TRAINING_FOCUS, INTENSITY } from '../../game/career.js';
+import { STAFF_ROLES, staffWages, hireStaff, fireStaff, bestStaff, staffEffects, trainingUpgradeCost, upgradeTraining, STADIUM_OPTIONS, stadiumCost, expandStadium, TRAINING_FOCUS, INTENSITY, staffDemand, staffOffer } from '../../game/career.js';
 import { randomLook } from '../../game/coach.js';
 import { createRng, hashSeed } from '../../core/rng.js';
-import { estimate, rangeLabel, mid } from '../../game/scouting.js';
+import { estimate, rangeLabel, mid, REGIONS, MISSION_DAYS, startMission } from '../../game/scouting.js';
 import { gameRng } from '../../game/state.js';
 import { overall } from '../../engine/ratings.js';
 import { POSITIONS } from '../../data/constants.js';
@@ -118,7 +118,7 @@ function market(app) {
   const open = windowOpen(s);
   let html = `<div class="card row between" style="padding:10px 14px">
       <span>${open ? (windowInfo(s).deadline ? '⏰' : '🟢') : '🔴'} ${esc(windowInfo(s).label)}</span><small>Transferts <b>${money(ensureBoard(s).transferBudget)}</b> · marge salariale <b>${money(Math.max(0, wageRoom(s)))}</b>/sem</small></div>
-    ${seg('mmode', ['buy', 'loan', 'sell', 'scout'], mode, { buy: 'Acheter', loan: 'Prêts', sell: 'Ventes', scout: 'Observés' })}`;
+    ${seg('mmode', ['buy', 'loan', 'sell', 'scout'], mode, { buy: 'Acheter', loan: 'Prêts', sell: 'Ventes', scout: 'Recrutement' })}`;
   if (mode === 'sell') {
     const offers = (s.pendingOffers || []).filter((o) => s.players[o.pid]?.clubId === uc.id);
     const listed = clubPlayers(s, uc).filter((p) => p.listed);
@@ -132,7 +132,20 @@ function market(app) {
   }
   if (mode === 'scout') {
     const ids = [...new Set([...(s.scoutQueue || []), ...Object.keys(s.scout || {}).map(Number)])].filter((id) => s.players[id] && s.players[id].clubId !== uc.id);
-    html += `<p class="muted" style="font-size:12px;margin:8px 2px">${staffEffects(uc).scoutReports} recruteur(s) : ${staffEffects(uc).scoutReports} rapport(s) par journée. Ouvrez une fiche puis « Observer ».</p>
+    const scouts = uc.staffMembers.filter((m) => m.role === 'scout');
+    const ms = s.missions || {};
+    const reco = (s.scoutReports || []).filter((r) => s.players[r.pid] && s.players[r.pid].clubId !== uc.id).slice(0, 12);
+    html += `<div class="card"><h3 style="margin-top:0">🔭 Missions de recrutement</h3>
+      ${scouts.map((m) => {
+        const mi = ms[m.id];
+        return `<div class="row between" style="padding:6px 0;border-bottom:1px solid var(--line)"><div><b>${esc(m.first)} ${esc(m.last)}</b> <small>(${m.rating}/20)</small><br>
+          <small class="muted">${mi ? `En mission : ${esc(REGIONS[mi.region])}${mi.pos ? ` · ${mi.pos}` : ''}${mi.maxAge ? ` · ≤ ${mi.maxAge} ans` : ''} · ${mi.found.length} joueur(s) vus · retour dans ${mi.daysLeft} j.` : 'Disponible'}</small></div>
+          ${mi ? '' : `<button class="btn sm primary" data-act="mission" data-id="${m.id}">Envoyer</button>`}</div>`;
+      }).join('') || '<p class="muted">Aucun recruteur : embauchez-en un dans Club → Staff.</p>'}
+      <p class="muted" style="font-size:12px;margin:6px 0 0">Une mission dure ${MISSION_DAYS} journées : le recruteur observe les joueurs ciblés, puis rend ses recommandations.</p></div>
+      ${reco.length ? `<div class="label">Recommandations</div><div class="card list" style="padding:0 10px;margin-top:0">${reco.map((r) => marketRow(s, s.players[r.pid])).join('')}</div>` : ''}
+      <div class="label">Joueurs observés</div>
+      <p class="muted" style="font-size:12px;margin:0 2px 6px">${staffEffects(uc).scoutReports} rapport(s) individuel(s) par journée. Ouvrez une fiche puis « Observer ».</p>
       <div class="card list" style="padding:0 10px">${ids.slice(0, 40).map((id) => marketRow(s, s.players[id])).join('') || '<p class="muted">Aucun joueur observé.</p>'}</div>`;
     return html;
   }
@@ -166,7 +179,8 @@ function staff(app) {
       ${avatarSvg(randomLook(createRng(hashSeed(m.id)).next), 40)}
       <div class="pname"><b>${esc(m.first)} ${esc(m.last)}</b><small>${STAFF_ROLES[m.role].icon} ${STAFF_ROLES[m.role].label} · ${esc(m.nat)} · ${m.age} ans · ${money(m.wage)}/sem${act === 'fire' ? ` · ${m.contract} an(s)` : ''}</small></div>
       <b style="font-family:var(--display);font-size:22px;color:${rc(m.rating)};min-width:30px;text-align:center">${m.rating}</b>
-      <button class="btn sm ${act === 'hire' ? 'primary' : 'danger'}" data-act="${act}staff" data-id="${m.id}">${act === 'hire' ? 'Embaucher' : 'Licencier'}</button></div>`;
+      <div class="btns" style="flex-direction:column;gap:4px">${act === 'fire' && m.contract <= 1 ? `<button class="btn sm primary" data-act="renewstaff" data-id="${m.id}">Prolonger</button>` : ''}
+      <button class="btn sm ${act === 'hire' ? 'primary' : 'danger'}" data-act="${act}staff" data-id="${m.id}">${act === 'hire' ? 'Négocier' : 'Licencier'}</button></div></div>`;
   const byRole = Object.keys(STAFF_ROLES).map((r) => {
     const ms = uc.staffMembers.filter((m) => m.role === r);
     return `${ms.map((m) => member(m, 'fire')).join('')}${ms.length < STAFF_ROLES[r].max ? `<div class="prow" data-act="staffrole" data-v="${r}" style="color:var(--muted)">
@@ -174,7 +188,7 @@ function staff(app) {
   }).join('');
   return `<div class="card" style="padding:6px 12px"><div class="row between" style="padding:6px 0"><h3 style="margin:0">Mon staff</h3><small>${money(staffWages(uc))}/sem</small></div>
       <div class="list">${byRole}</div>
-      <p class="muted" style="font-size:12px;margin:6px 0">Notes de 1 à 20. Licencier coûte 8 semaines de salaire par année de contrat restante.</p></div>
+      <p class="muted" style="font-size:12px;margin:6px 0">Notes de 1 à 20. Les contrats ne sont pas prolongés automatiquement : « Prolonger » apparaît pendant la dernière année. Licencier coûte 8 semaines de salaire par année de contrat restante.</p></div>
     <div class="card" style="padding:6px 12px"><div class="row between" style="padding:6px 0"><h3 style="margin:0">Marché du staff</h3><small>Prime d'arrivée : 4 semaines</small></div>
       <div class="chips"><button class="chip ${!role ? 'on' : ''}" data-act="staffrole" data-v="">Tous</button>${Object.entries(STAFF_ROLES).map(([k, v]) => `<button class="chip ${role === k ? 'on' : ''}" data-act="staffrole" data-v="${k}">${v.icon} ${v.label}</button>`).join('')}</div>
       <div class="list">${pool.slice(0, 15).map((m) => member(m, 'hire')).join('') || '<p class="muted">Personne de disponible pour ce poste.</p>'}</div></div>
@@ -270,11 +284,9 @@ export const actions = {
   player(el, app) { showPlayer(app, +el.dataset.id); },
   upgrade(el, app) { done(app, upgradeAcademy(app.state)); },
   staffrole(el, app) { app.ui.staffRole = el.dataset.v || null; app.render(); },
-  async hirestaff(el, app) {
-    const m = app.state.staffPool.find((x) => x.id === el.dataset.id);
-    if (!(await app.confirm(`Embaucher ${m.first} ${m.last} ?`, `${STAFF_ROLES[m.role].label} · note ${m.rating}/20 · ${money(m.wage)}/sem<br>Prime d'arrivée : ${money(m.wage * 4)}`, 'Embaucher'))) return;
-    done(app, hireStaff(app.state, el.dataset.id));
-  },
+  hirestaff(el, app) { staffNegotiation(app, el.dataset.id, false); },
+  renewstaff(el, app) { staffNegotiation(app, el.dataset.id, true); },
+  mission(el, app) { missionSheet(app, el.dataset.id); },
   async firestaff(el, app) {
     const m = userClub(app.state).staffMembers.find((x) => x.id === el.dataset.id);
     if (!(await app.confirm(`Licencier ${m.first} ${m.last} ?`, `Indemnité : ${money(m.wage * 8 * Math.max(1, m.contract))}`, 'Licencier', true))) return;
@@ -300,3 +312,65 @@ export const actions = {
 };
 
 export { CONTI_NAME };
+
+/** Négociation d'un contrat de staff (embauche ou prolongation). */
+function staffNegotiation(app, id, renew) {
+  const s = app.state;
+  const m = renew ? userClub(s).staffMembers.find((x) => x.id === id) : s.staffPool.find((x) => x.id === id);
+  if (!m) return;
+  const d = staffDemand(s, m, renew);
+  const offer = { wage: Math.round(d.wage * 0.9 / 100) * 100, years: d.years };
+  const log = [];
+  let over = false;
+  const html = () => `<h2>${renew ? 'Prolongation' : 'Embauche'} · ${esc(m.first)} ${esc(m.last)}</h2>
+    <p class="muted" style="margin-top:0">${STAFF_ROLES[m.role].icon} ${STAFF_ROLES[m.role].label} · note <b>${m.rating}/20</b> · ${m.age} ans${renew ? ` · actuel ${money(m.wage)}/sem` : ''}</p>
+    <p class="muted">${d.refuses ? '⚠ Il juge votre club trop modeste pour lui.' : `Il souhaite environ <b>${money(d.wage)}/sem</b> sur <b>${d.years} an(s)</b>.`}${renew ? '' : ` Prime d'arrivée : 4 semaines de salaire.`}</p>
+    <div class="card" style="margin-top:0">
+      <div class="formrow"><span>Salaire / sem</span><b>${money(offer.wage)}</b></div>
+      <div class="btns"><button class="btn sm" data-act="w" data-v="-500">−500</button><button class="btn sm" data-act="w" data-v="-100">−100</button><button class="btn sm" data-act="w" data-v="100">+100</button><button class="btn sm" data-act="w" data-v="500">+500</button></div>
+      <div class="formrow"><span>Durée</span><select data-act="years">${[1, 2, 3, 4].map((y) => `<option value="${y}" ${y === offer.years ? 'selected' : ''}>${y} an(s)</option>`).join('')}</select></div>
+      <p class="muted" style="font-size:12px;margin:6px 0 0">Chaque année d'écart avec son souhait fait varier le salaire attendu de 4 %. 3 essais avant la rupture.</p>
+    </div>
+    ${log.map((l) => `<div class="msg"><span class="ic">${l.icon}</span><div class="grow">${esc(l.text)}</div></div>`).join('')}
+    ${over ? '<button class="btn primary block" data-act="close">Terminer</button>'
+      : '<div class="btns"><button class="btn" data-act="close">Abandonner</button><button class="btn primary" data-act="propose">Proposer</button></div>'}`;
+  const h = app.sheet({
+    html,
+    actions: {
+      w: (el) => { offer.wage = Math.max(300, offer.wage + +el.dataset.v); h.update(html()); },
+      years: (el) => { offer.years = +el.value; },
+      propose: () => {
+        const r = staffOffer(s, id, offer, renew);
+        log.push({ icon: r.kind === 'accept' ? '✍' : r.kind === 'counter' ? '↩' : '❌', text: r.msg });
+        if (r.kind === 'counter') offer.wage = r.counter;
+        if (r.kind === 'accept' || r.kind === 'end') over = true;
+        if (r.ok) { app.toast(r.msg); app.save(); app.render(); }
+        h.update(html());
+      },
+    },
+  });
+}
+
+/** Choix de la mission d'un recruteur. */
+function missionSheet(app, sid) {
+  const s = app.state;
+  const sel = { region: 'ALL', pos: '', maxAge: '' };
+  const h = app.sheet({
+    html: () => `<h2>🔭 Nouvelle mission</h2>
+      <div class="card" style="margin-top:0">
+        <div class="formrow"><span>Région</span><select data-act="mr">${Object.entries(REGIONS).map(([k, l]) => `<option value="${k}" ${k === sel.region ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+        <div class="formrow"><span>Poste</span><select data-act="mp"><option value="">Tous</option>${POSITIONS.map((p) => `<option value="${p}">${p}</option>`).join('')}</select></div>
+        <div class="formrow"><span>Âge maximum</span><select data-act="ma"><option value="">Aucun</option>${[19, 21, 23, 26, 29].map((a) => `<option value="${a}">${a} ans</option>`).join('')}</select></div>
+      </div>
+      <div class="btns"><button class="btn" data-act="close">Annuler</button><button class="btn primary" data-act="go">Lancer (${MISSION_DAYS} journées)</button></div>`,
+    actions: {
+      mr: (el) => { sel.region = el.value; },
+      mp: (el) => { sel.pos = el.value; },
+      ma: (el) => { sel.maxAge = el.value; },
+      go: () => {
+        const r = startMission(s, sid, { region: sel.region, pos: sel.pos || null, maxAge: sel.maxAge ? +sel.maxAge : null });
+        app.toast(r.msg, 3000); if (r.ok) app.save(); h.close(); app.render();
+      },
+    },
+  });
+}

@@ -14,7 +14,7 @@ import { wageBill, matchdayRevenue, sponsorIncome, prizeMoney, CUP_PRIZES, money
 import { weeklyTraining, seasonDevelopment, shouldRetire, resetSeasonStats } from './progression.js';
 import { aiTransferActivity, fillSquad, logFinance, checkPromises } from './transfers.js';
 import { gameRng, matchSeed, clubById, userClub, clubPlayers, pushMessage, SAVE_VERSION } from './state.js';
-import { initClubExtras, newCoach, coachRep, coachAfterMatch, staffEffects, staffWages, trainingParams, dailyFacilities, checkJobOffers, jobCandidates, ensureStaff, resetClubStaff, refreshStaffPool } from './career.js';
+import { initClubExtras, newCoach, coachRep, coachAfterMatch, staffEffects, staffWages, trainingParams, dailyFacilities, checkJobOffers, jobCandidates, ensureStaff, resetClubStaff, refreshStaffPool, STAFF_ROLES, staffWageFor } from './career.js';
 import { scoutDaily, marketEvents, seeInMatch } from './scouting.js';
 import { coachMods, ensureCoachProfile, grantSeasonPoints } from './coach.js';
 import { ensureManagers, managerStyle, managersAfterRound, managersEndSeason, onUserLeaves, onUserArrives } from './managers.js';
@@ -707,12 +707,16 @@ export function endSeason(state) {
   grantSeasonPoints(state.coach, trophiesNow);
   report.coachPoints = 2 + trophiesNow;
 
-  // Staff : fins de contrat (les bons sont prolongés), marché renouvelé.
+  // Staff : fins de contrat (pas de prolongation automatique : c'est à vous de négocier).
   for (const m of (uc.staffMembers || []).slice()) {
     m.contract--; m.age++;
-    if (m.contract > 0) continue;
-    if (m.rating >= 8 && rng.chance(0.75)) { m.contract = rng.int(1, 3); m.wage = Math.round(m.wage * 1.05 / 100) * 100; }
-    else { uc.staffMembers = uc.staffMembers.filter((x) => x !== m); pushMessage(state, { prio: 2, icon: '👋', title: `${m.first} ${m.last} quitte le staff`, text: 'Fin de contrat. Pensez à le remplacer (Club → Staff).' }); }
+    if (m.contract > 0) {
+      if (m.contract === 1) pushMessage(state, { prio: 2, icon: '📝', title: `Contrat : ${m.first} ${m.last}`, text: `Dernière année de contrat (${STAFF_ROLES[m.role].label}). Prolongez-le dans Club → Staff, sinon il partira.` });
+      continue;
+    }
+    uc.staffMembers = uc.staffMembers.filter((x) => x !== m);
+    state.staffPool.push({ ...m, contract: rng.int(1, 3), wage: staffWageFor(m.rating), tries: 3 });
+    pushMessage(state, { prio: 2, icon: '👋', title: `${m.first} ${m.last} quitte le staff`, text: 'Fin de contrat. Pensez à le remplacer (Club → Staff).' });
   }
   refreshStaffPool(state, rng);
 

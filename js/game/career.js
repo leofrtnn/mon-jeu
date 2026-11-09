@@ -244,3 +244,55 @@ export function checkJobOffers(state, rng) {
 }
 
 export { clubById, squadStrength, clubPlayers };
+
+/* ---------------- Contrats du staff négociés ---------------- */
+
+/**
+ * Exigences d'un membre du staff (embauche ou prolongation).
+ * Un bon technicien demande plus à un petit club ; les plus âgés veulent de la durée.
+ */
+export function staffDemand(state, m, renew = false) {
+  const club = userClub(state);
+  const base = staffWageFor(m.rating);
+  const gap = m.rating - club.rep / 6;                       // > 0 : il se sent au-dessus du club
+  const factor = clamp(1 + gap * 0.04, 0.85, 1.45) * (renew ? (m.rating >= 12 ? 1.08 : 1.02) : 1);
+  const years = m.age >= 55 ? 1 : m.age >= 45 ? 2 : 3;
+  const refuses = !renew && gap > 7;
+  return { wage: Math.round(base * factor / 100) * 100, years, refuses };
+}
+
+/** Évalue une offre { wage, years }. Retourne { kind: 'accept'|'counter'|'reject'|'end', msg }. */
+export function staffOffer(state, id, offer, renew = false) {
+  const club = userClub(state);
+  const m = renew ? club.staffMembers.find((x) => x.id === id) : state.staffPool.find((x) => x.id === id);
+  if (!m) return { kind: 'end', msg: 'Plus disponible.' };
+  if (m.blockedUntil != null && m.blockedSeason === state.season && state.day < m.blockedUntil) return { kind: 'end', msg: `${m.first} ${m.last} ne veut plus discuter pour le moment.` };
+  const d = staffDemand(state, m, renew);
+  if (d.refuses) return { kind: 'end', msg: `${m.first} ${m.last} ne se voit pas dans un club de ce niveau.` };
+  // La durée compte : chaque année d'écart avec son souhait change le salaire attendu de 4 %.
+  const required = Math.round(d.wage * (1 + (d.years - offer.years) * 0.04));
+  m.tries = (m.tries ?? 3);
+  if (offer.wage >= required) {
+    m.tries = 3;
+    if (renew) {
+      m.wage = offer.wage; m.contract = offer.years;
+      return { kind: 'accept', ok: true, msg: `${m.first} ${m.last} prolonge de ${offer.years} an(s) à ${money(offer.wage)}/sem.` };
+    }
+    const count = club.staffMembers.filter((x) => x.role === m.role).length;
+    if (count >= STAFF_ROLES[m.role].max) return { kind: 'end', msg: `Poste complet (${STAFF_ROLES[m.role].max} max) : libérez d'abord une place.` };
+    const fee = offer.wage * 4;
+    if (club.budget < fee) return { kind: 'end', msg: `Budget insuffisant pour la prime d'arrivée (${money(fee)}).` };
+    club.budget -= fee;
+    club.staffMembers.push({ ...m, wage: offer.wage, contract: offer.years, tries: 3 });
+    state.staffPool = state.staffPool.filter((x) => x.id !== id);
+    logFinance(state, -fee, `Prime d'arrivée staff : ${m.name}`);
+    return { kind: 'accept', ok: true, msg: `${m.first} ${m.last} signe ${offer.years} an(s) à ${money(offer.wage)}/sem (${STAFF_ROLES[m.role].label}).` };
+  }
+  m.tries--;
+  if (m.tries <= 0) {
+    m.blockedUntil = state.day + 8; m.blockedSeason = state.season; m.tries = 3;
+    return { kind: 'end', msg: `${m.first} ${m.last} met fin aux discussions${renew ? ' : il partira en fin de contrat si rien ne change' : ''}.` };
+  }
+  if (offer.wage >= required * 0.85) return { kind: 'counter', counter: required, msg: `Il demande ${money(required)}/sem pour ${offer.years} an(s). (${m.tries} essai(s) restant(s))` };
+  return { kind: 'reject', msg: `Offre jugée insultante. (${m.tries} essai(s) restant(s))` };
+}

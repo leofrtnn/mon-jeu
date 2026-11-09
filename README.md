@@ -90,6 +90,7 @@ Chaque championnat a son propre profil : style plus technique en Ibérie, plus p
 - **Votre staff, poste par poste** : adjoint, entraîneur des gardiens, préparateur physique, médecin, jusqu'à 3 recruteurs, responsable formation, analyste vidéo.
   - Chaque membre a une note de 1 à 20, un salaire et un contrat.
   - Un marché du staff permet d'embaucher et de licencier (avec indemnités).
+  - **Contrats négociés** : salaire et durée, contre-propositions, 3 essais. Un bon technicien boude les petits clubs. Pas de prolongation automatique : « Prolonger » apparaît pendant la dernière année.
   - Avant chaque match, l'analyste vidéo rédige un rapport sur l'adversaire.
 - **Conseil d'administration** :
   - budget transferts et masse salariale distincts et rééquilibrables ; achats, salaires et prolongations bloqués s'ils sortent des enveloppes ;
@@ -105,6 +106,10 @@ Chaque championnat a son propre profil : style plus technique en Ibérie, plus p
   - discussions individuelles avec les joueurs ;
   - l'humeur des supporters joue sur l'affluence.
 
+### Préparation estivale
+- **Réunion avec le CA** : accepter les objectifs, viser plus haut (budget +25 %) ou revoir à la baisse (budget −25 %), choisir l'identité de jeu.
+- **Jusqu'à 3 matchs amicaux**, en direct ou simulés : forme, moral et recette. La saison démarre quand vous le décidez.
+
 ### Carrière longue
 - **Réputation du coach** et trophées.
 - **Offres d'emploi** de clubs plus prestigieux, en cours ou en fin de saison. Le limogeage est possible.
@@ -116,6 +121,8 @@ Chaque championnat a son propre profil : style plus technique en Ibérie, plus p
 - **Négociation de l'indemnité** : offres, contre-propositions et patience du club.
 - **Négociation du contrat** : salaire, durée, prime à la signature, **clause libératoire**, commission d'agent.
 - **Brouillard sur les attributs** : les joueurs extérieurs sont vus sous forme de plages estimées. Le recruteur les affine en partant les **observer**.
+- **Missions de recrutement** : chaque recruteur part 6 journées sur une région (France, Ibérie, Albion ou monde), un poste et un âge maximum, puis rend ses recommandations (Club → Mercato → Recrutement).
+- **Dates réelles** : mercato d'été (15 juin – 1er septembre) et d'hiver (2 janvier – 1er février), frénésie de l'IA le dernier jour.
 - **Vie du mercato** : rumeurs, joueurs qui demandent à partir via leur agent, clauses levées par l'IA, contre-offres sur les ventes.
 
 ### Technique
