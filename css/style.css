@@ -509,3 +509,34 @@ textarea { width: 100%; min-height: 90px; border-radius: 12px; border: 1px solid
 .world-btn { display: block; width: 100%; text-align: left; padding: 14px 16px; margin-top: 10px; border-radius: 16px; border: 1px solid var(--line); background: var(--card2); color: inherit; cursor: pointer; font: inherit; }
 .world-btn.on { border-color: color-mix(in srgb, var(--accent) 60%, transparent); background: color-mix(in srgb, var(--accent) 14%, var(--card2)); }
 .world-btn b { font-size: 17px; display: block; } .world-btn small { display: block; color: var(--muted); margin-top: 4px; line-height: 1.3; }
+
+/* ---------- Logos, visages, notes façon FM ---------- */
+.crest { position: relative; overflow: hidden; }
+.crest > i { font-style: normal; }
+.crest.has-img { background: transparent !important; box-shadow: none; }
+.crest.has-img > i { visibility: hidden; }
+.crest > img { position: absolute; inset: 6%; width: 88%; height: 88%; object-fit: contain; }
+.face { position: relative; width: 34px; height: 34px; border-radius: 50%; overflow: hidden; flex: none; display: inline-flex; align-items: center; justify-content: center;
+  font-family: var(--display); font-weight: 700; font-size: 12px; box-shadow: inset 0 0 0 2px rgba(255, 255, 255, .15); }
+.face > i { font-style: normal; }
+.face.has-img { background: #1b2430 !important; }
+.face.has-img > i { visibility: hidden; }
+.face > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 20%; }
+.face.lg { width: 76px; height: 76px; font-size: 24px; }
+.face.sm { width: 26px; height: 26px; font-size: 10px; }
+.starbar { position: relative; display: inline-block; color: rgba(255, 255, 255, .16); letter-spacing: 1px; font-size: 13px; line-height: 1; white-space: nowrap; }
+.starbar .fill { position: absolute; left: 0; top: 0; overflow: hidden; color: #e3b341; }
+.stars-chip { display: inline-flex; align-items: center; min-width: 74px; justify-content: flex-end; }
+.attr20 { columns: 2; column-gap: 22px; }
+.attr20 .attr-group, .attr20 .a { break-inside: avoid; }
+@media (max-width: 520px) { .attr20 { columns: 1; } }
+.attr20 .a { display: flex; justify-content: space-between; align-items: center; padding: 5px 2px; border-bottom: 1px solid var(--line); font-size: 14px; }
+.attr20 .a b { font-family: var(--display); font-size: 17px; min-width: 42px; text-align: right; font-variant-numeric: tabular-nums; }
+.attr-group { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 10px 2px 2px; }
+/* Bandeau de commentaire sur le terrain (vue 2D façon FM). */
+.pitch-caption { position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); max-width: min(92%, 640px); padding: 7px 14px; border-radius: 12px;
+  background: rgba(8, 12, 18, .82); color: #fff; font-size: 14px; line-height: 1.3; text-align: center; pointer-events: none; transition: opacity .3s; backdrop-filter: blur(4px); }
+.pitch-caption b { color: #ffd166; font-family: var(--display); margin-right: 4px; }
+.pitch-caption.key { box-shadow: 0 0 0 1px rgba(255, 209, 102, .5); }
+.pitch-caption.goal { background: rgba(31, 140, 70, .92); font-weight: 700; font-size: 16px; }
+.pitch-caption.hidden { opacity: 0; }

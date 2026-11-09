@@ -9,7 +9,7 @@ import { BAL } from '../../data/balance.js';
 import { overall } from '../../engine/ratings.js';
 import { money } from '../../game/economy.js';
 import { askingPrice } from '../../game/transfers.js';
-import { esc, crest } from '../components.js';
+import { esc, crest, ovrChip } from '../components.js';
 
 /** Ligne de message (accueil ou « Voir tout »). */
 export function msgRow(m) {
@@ -114,7 +114,7 @@ function crisisSheet(app, clubId) {
   const ps = clubPlayers(s, c).filter((p) => !p.onLoanFrom).sort((a, b) => overall(b) - overall(a)).slice(0, 6);
   app.sheet({
     html: `<div class="row" style="gap:10px">${crest(c)}<div><h2 style="margin:0">${esc(c.name)} brade</h2><small class="muted">${c.crisis ? 'Club en crise financière' : 'La crise semble passée'}</small></div></div>
-      <div class="list" style="margin-top:8px">${ps.map((p) => `<div class="prow" data-act="pl" data-id="${p.id}"><span class="posb">${p.pos}</span><div class="pname"><b>${esc(p.name)}</b><small>${p.age} ans · note ${overall(p)}</small></div><b>${money(askingPrice(s, p))}</b></div>`).join('')}</div>`,
+      <div class="list" style="margin-top:8px">${ps.map((p) => `<div class="prow" data-act="pl" data-id="${p.id}"><span class="posb">${p.pos}</span><div class="pname"><b>${esc(p.name)}</b><small>${p.age} ans · ${ovrChip(overall(p))}</small></div><b>${money(askingPrice(s, p))}</b></div>`).join('')}</div>`,
     actions: { pl: (el) => import('./playerSheet.js').then((mod) => mod.showPlayer(app, +el.dataset.id)) },
   });
 }

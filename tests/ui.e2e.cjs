@@ -36,7 +36,10 @@ function serve() {
   const page = await ctx.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
-  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+  // Logos et photos viennent de Wikimedia : hors ligne dans les tests, on bloque ces requêtes
+  // (le jeu affiche alors les initiales / l'écusson de repli) et on ignore leurs erreurs.
+  await page.route(/wikipedia\.org|wikimedia\.org/, (r) => r.abort());
+  page.on('console', (m) => { if (m.type() === 'error' && !/Failed to load resource/.test(m.text())) errors.push(m.text()); });
   const step = (name) => console.log('✓', name);
   try {
     await page.goto(base);

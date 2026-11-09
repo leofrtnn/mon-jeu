@@ -6,7 +6,7 @@ import { clubById, userClub } from '../../game/state.js';
 import { money } from '../../game/economy.js';
 import { sellPlayer } from '../../game/transfers.js';
 import { overall } from '../../engine/ratings.js';
-import { esc, crest } from '../components.js';
+import { esc, crest , ovrChip } from '../components.js';
 
 export function showDayReport(app, report) {
   const s = app.state;
@@ -33,7 +33,7 @@ export function showDayReport(app, report) {
       <div class="row between" style="margin-top:6px"><span>Budget</span><b>${money(uc.budget)}</b></div></div>
     ${offers.length ? `<div class="card"><h3>Offres reçues</h3>${offers.map((o) => {
       const p = s.players[o.pid]; const c = clubById(s, o.clubId);
-      return `<div class="row" style="padding:6px 0"><div class="grow"><b>${esc(p.name)}</b> <small>(${overall(p)})</small><br><small>${esc(c.name)} · ${money(o.amount)}</small></div>
+      return `<div class="row" style="padding:6px 0"><div class="grow"><b>${esc(p.name)}</b> ${ovrChip(overall(p))}<br><small>${esc(c.name)} · ${money(o.amount)}</small></div>
         <button class="btn sm" data-act="decline" data-id="${p.id}">Refuser</button><button class="btn sm primary" data-act="accept" data-id="${p.id}">Accepter</button></div>`;
     }).join('')}</div>` : ''}
     ${report.callups.length ? `<div class="card"><h3>🌍 Vos internationaux</h3><small>${report.callups.map(esc).join(', ')}</small></div>` : ''}
@@ -64,7 +64,7 @@ export function showOffer(app, pid) {
   const c = clubById(s, o.clubId);
   const h = app.sheet({
     html: `<h2>Offre pour ${esc(p.name)}</h2>
-      <p>${esc(c.name)} propose <b>${money(o.amount)}</b>.<br><small>Valeur estimée : ${money(p.value)} · Note ${overall(p)} · ${p.age} ans</small></p>
+      <p>${esc(c.name)} propose <b>${money(o.amount)}</b>.<br><small>Valeur estimée : ${money(p.value)} · Niveau ${ovrChip(overall(p))} · ${p.age} ans</small></p>
       <div class="btns"><button class="btn" data-act="no">Refuser</button><button class="btn" data-act="yeson">Accepter −10 % avec 15 % à la revente</button><button class="btn primary" data-act="yes">Accepter</button></div>`,
     actions: {
       yes: () => { const r = sellPlayer(s, o); app.toast(r.msg); app.save(); h.close(); app.render(); },

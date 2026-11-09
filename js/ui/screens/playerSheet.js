@@ -8,7 +8,7 @@ import { money } from '../../game/economy.js';
 import { clubById, userClub, gameRng } from '../../game/state.js';
 import { askingPrice, loanIn, loanOut, findBuyer, sellPlayer, releasePlayer, promoteYouth, windowOpen } from '../../game/transfers.js';
 import { estimate, rangeLabel, observe } from '../../game/scouting.js';
-import { esc, posBadge, ovrChip, scaleColor, gauge, stars, statusTags } from '../components.js';
+import { esc, posBadge, ovrChip, scaleColor, gauge, stars, statusTags, a20, color20, abilityStars, starBar, face } from '../components.js';
 import { negotiateTransfer, negotiateContract } from './negotiation.js';
 import { TALKS, playerTalk } from '../../game/media.js';
 import { windowInfo } from '../../game/dates.js';
@@ -18,12 +18,14 @@ import { agentInfo, exerciseOption } from '../../game/agents.js';
 import { relapseRisk } from '../../game/injuries.js';
 import { showClub } from './clubInfo.js';
 
-/** Jauge d'attribut : valeur exacte ou plage estimée. */
+/** Attribut sur 20 (comme FM) : valeur exacte ou plage estimée par le recruteur. */
 function attrLine(label, [lo, hi]) {
-  if (lo === hi) return `<div class="attr"><span>${label}</span>${gauge(lo, scaleColor(lo))}<span class="v">${lo}</span></div>`;
-  return `<div class="attr"><span>${label}</span><div class="gauge" style="position:relative"><i style="width:${lo}%;background:${scaleColor(lo)}"></i>
-    <i style="position:absolute;left:${lo}%;top:0;width:${hi - lo}%;background:${scaleColor(hi)};opacity:.35"></i></div><span class="v" style="font-size:11px">${lo}-${hi}</span></div>`;
+  const a = a20(lo), b = a20(hi);
+  const v = a === b ? `<b style="color:${color20(a)}">${a}</b>` : `<b style="color:${color20(Math.round((a + b) / 2))};font-size:15px">${a}-${b}</b>`;
+  return `<div class="a"><span>${label}</span>${v}</div>`;
 }
+const GROUPS = [['Technique', ['tir', 'pas', 'dri']], ['Mental', ['vis', 'sf', 'def']], ['Physique', ['vit', 'phy']], ['Gardien', ['arr']]];
+const moodWord = (v) => (v >= 85 ? 'Superbe' : v >= 70 ? 'Très bon' : v >= 55 ? 'Bon' : v >= 40 ? 'Correct' : v >= 25 ? 'Faible' : 'Très faible');
 
 export function showPlayer(app, pid, onChange) {
   const s = app.state;
@@ -38,7 +40,8 @@ export function showPlayer(app, pid, onChange) {
     const attrs = ATTRS.filter((k) => k !== 'arr' || p.pos === 'GB');
     const apps = p.stats.apps;
     const avg = apps ? (p.stats.ratingSum / apps).toFixed(2) : '—';
-    const potStars = e.pot.map((v) => Math.max(1, Math.min(5, Math.round((v - 45) / 10))));
+    const potStars = e.pot.map((v) => abilityStars(v));
+    const caStars = e.ovr.map((v) => abilityStars(v));
     let actions = '';
     if (youth) {
       actions = `<button class="btn primary block" data-act="promote">Promouvoir en équipe première</button>`;
@@ -59,22 +62,22 @@ export function showPlayer(app, pid, onChange) {
         ${!e.exact ? `<button class="btn" data-act="observe" ${queued ? 'disabled' : ''}>${queued ? 'En observation…' : '🔭 Observer'}</button>` : ''}
       </div>${windowOpen(s) ? '' : `<p class="muted" style="font-size:12px">${esc(windowInfo(s).label)}</p>`}`;
     }
-    const ovrHtml = e.exact ? ovrChip(overall(p)) : `<span class="ovr t3" style="min-width:56px;font-size:13px">${rangeLabel(e.ovr)}</span>`;
+    const ovrHtml = `<div style="text-align:right;font-size:11px;color:var(--muted)">Niveau<br>${starBar(caStars[e.exact ? 0 : 1] === caStars[0] ? caStars[0] : (caStars[0] + caStars[1]) / 2)}<br>Potentiel<br>${starBar(e.exact ? potStars[0] : (potStars[0] + potStars[1]) / 2)}${e.exact ? '' : '<br><small>estimation</small>'}</div>`;
     return `<div class="row" style="gap:12px;margin-bottom:10px">
-        <div style="font-size:30px;font-weight:900;color:var(--muted);min-width:44px;text-align:center">${p.number || ''}</div>
+        ${p.photo || p.real ? face(p, club, 'lg') : ''}<div style="font-size:30px;font-weight:900;color:var(--muted);min-width:34px;text-align:center">${p.number || ''}</div>
         <div class="grow"><h2>${esc(p.first)} ${esc(p.last)}</h2>
           <div class="row" style="gap:6px;flex-wrap:wrap">${posBadge(p.pos)}<small>${POSITION_LABELS[p.pos]} · ${p.age} ans · ${esc(p.nat || '')}</small>${statusTags(p)}</div>
           <small>${club ? `<a data-act="club" style="text-decoration:underline;cursor:pointer">${esc(club.name)}</a>` : 'Libre'}${p.onLoanFrom ? ` (prêt de ${esc(clubById(s, p.onLoanFrom).short)})` : ''}</small></div>
-        <div class="center">${ovrHtml}<div style="font-size:11px;margin-top:4px">${stars(potStars[1])}</div></div>
+        <div class="center">${ovrHtml}</div>
       </div>
       ${p.requested ? '<div class="tag ok" style="display:block;margin-bottom:8px">🧑‍💼 Son agent réclame un transfert</div>' : ''}
       ${p.injury > 0 ? `<div class="tag bad" style="display:block;margin-bottom:8px">✚ ${esc(p.injuryName)} — indisponible ${p.injury} match(s)</div>` : ''}
       ${!e.exact ? `<p class="muted" style="font-size:12px;margin:0 2px 6px">🔭 Connaissance : ${e.k}% · les valeurs affichées sont des estimations du recruteur.</p>` : ''}
-      <div class="card" style="margin-top:0">${attrs.map((k) => attrLine(ATTR_LABELS[k], e.attrs[k])).join('')}</div>
+      <div class="card attr20" style="margin-top:0">${GROUPS.filter(([, ks]) => ks.some((k) => attrs.includes(k))).map(([g, ks]) => `<div class="attr-group">${g}</div>${ks.filter((k) => attrs.includes(k)).map((k) => attrLine(ATTR_LABELS[k], e.attrs[k])).join('')}`).join('')}</div>
       ${mine || youth ? `<div class="card">
-        <div class="attr"><span>Forme</span>${gauge(p.form)}<span class="v">${p.form}</span></div>
-        <div class="attr"><span>Moral</span>${gauge(p.morale)}<span class="v">${p.morale}</span></div>
-        <div class="attr"><span>Condition</span>${gauge(100 - p.fatigue)}<span class="v">${100 - Math.round(p.fatigue)}</span></div>
+        <div class="attr"><span>Forme</span>${gauge(p.form)}<span class="v" style="min-width:72px">${moodWord(p.form)}</span></div>
+        <div class="attr"><span>Moral</span>${gauge(p.morale)}<span class="v" style="min-width:72px">${moodWord(p.morale)}</span></div>
+        <div class="attr"><span>Condition</span>${gauge(100 - p.fatigue)}<span class="v" style="min-width:72px">${100 - Math.round(p.fatigue)} %</span></div>
       </div>` : ''}
       <div class="statgrid">
         <div><b>${apps}</b><small>Matchs</small></div><div><b>${p.stats.goals}</b><small>Buts</small></div>

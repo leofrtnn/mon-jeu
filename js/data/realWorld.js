@@ -41,7 +41,7 @@ export function createRealWorld(rng, data) {
     const rep = clamp(c.rep, 30, 95);
     const club = {
       id: i + 1, key: c.id, name: c.name, short: c.short, city: c.name, country: DIVISIONS[div].country,
-      color: c.colors[0], color2: c.colors[1], rep, div,
+      color: c.colors[0], color2: c.colors[1], rep, div, logo: c.logo || null,
       stadium: Math.max(8000, Math.round(c.stadium / 500) * 500),
       budget: Math.round(Math.pow(rep / 10, 2.6) * 120000 / 100000) * 100000,
       academy: clamp(Math.round(rep / 22), 1, 5),
@@ -62,6 +62,7 @@ export function createRealWorld(rng, data) {
     p.caps = rp.caps || 0; p.intGoals = rp.ig || 0;
     p.number = rp.num || 0;
     p.real = true;
+    if (rp.ph) p.photo = rp.ph;
     if (rp.apps >= 150) p.homegrown = rp.apps >= 200;           // figures historiques du club
     // Potentiel des jeunes : plus élevé dans les grands clubs.
     const o = overall(p);
@@ -94,4 +95,20 @@ export async function loadRealData() {
   }
   const { readFileSync } = await import('node:fs');
   return JSON.parse(readFileSync(new URL('../../data/real-world.json', import.meta.url), 'utf8'));
+}
+
+/**
+ * Sauvegardes « monde réel » créées avant l'ajout des logos et des photos :
+ * on complète les clubs (par identifiant) et les joueurs (par nom, dans le même club).
+ */
+export function enrichRealSave(state, data) {
+  if (state.world !== 'real' || state.mediaReady) return 0;
+  let n = 0;
+  const byKey = Object.fromEntries(state.clubs.filter((c) => c.key).map((c) => [c.key, c]));
+  for (const c of data.clubs) if (byKey[c.id] && c.logo) { byKey[c.id].logo = c.logo; n++; }
+  const idx = {};
+  for (const p of Object.values(state.players)) if (p.real) idx[`${p.first} ${p.last}`] = p;
+  for (const rp of data.players) { const p = idx[`${rp.f} ${rp.l}`]; if (p && rp.ph && !p.photo) { p.photo = rp.ph; n++; } }
+  state.mediaReady = true;
+  return n;
 }

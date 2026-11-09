@@ -1,7 +1,8 @@
 """
 Construit data/real-world.json : version compacte de data/foot5/foot5.json, prête pour le jeu
 (mode « Monde réel »). Seuls les faits nécessaires au jeu sont gardés (noms, postes, âges,
-nationalités, numéros, sélections, couleurs, stades). Aucun logo ni photo.
+nationalités, numéros, sélections, couleurs, stades) + le NOM des fichiers de logo et de photo
+sur Wikipédia/Wikimedia : les images ne sont pas copiées, le jeu les affiche depuis Wikimedia.
 La réputation des clubs (niveau sportif et financier) est une estimation du jeu.
 
 Usage : python3 scripts/foot/build_game_world.py
@@ -74,14 +75,15 @@ for lg in d['leagues']:
         c = next(x for x in d['clubs'] if x['id'] == cid)
         clubs.append({'id': cid, 'league': lg['id'], 'name': c.get('shortName') if c.get('shortName') and len(c['name']) > 22 else c['name'],
                       'short': SHORT.get(cid, c['name'][:3].upper()), 'colors': colors(c), 'stadium': c.get('capacity') or 20000,
-                      'rep': REP.get(cid, 65)})
+                      'rep': REP.get(cid, 65), 'logo': (c.get('logo') or {}).get('file')})
 players = []
 for p in d['players']:
     first, last = split(p['name'])
     intl = p.get('international') or {}
     players.append({'club': p['club'], 'f': first, 'l': last, 'pos': p['position']['game'], 'age': p.get('age') or 0,
                     'nat': (p.get('nationality') or {}).get('name') or '', 'num': p.get('number') or 0,
-                    'caps': intl.get('caps') or 0, 'ig': intl.get('goals') or 0, 'apps': (p.get('clubStats') or {}).get('apps') or 0})
+                    'caps': intl.get('caps') or 0, 'ig': intl.get('goals') or 0, 'apps': (p.get('clubStats') or {}).get('apps') or 0,
+                    'ph': (p.get('photo') or {}).get('file')})
 coaches = [{'club': c['club'], 'name': c['name'], 'nat': (c.get('nationality') or [''])[0], 'age': c.get('age') or 50} for c in d['coaches']]
 out = {'format': 'coach-de-poche-monde-reel-v1', 'season': d['meta']['season'], 'sources': d['meta']['sources'],
        'leagues': [{'id': lg['id'], 'name': lg['name'], 'country': lg['country']} for lg in d['leagues']],

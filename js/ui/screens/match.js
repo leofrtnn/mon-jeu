@@ -10,7 +10,7 @@ import { describe, iconFor } from '../../engine/commentary.js';
 import { FORMATION_NAMES, MENTALITIES, MENTALITY_LABELS, LEVELS, PRESSING_LABELS, TEMPO_LABELS, MAX_SUBS, POSITION_GROUP, TEAM_INSTRUCTIONS, DEFAULT_TACTICS } from '../../data/constants.js';
 import { ratingAt } from '../../engine/ratings.js';
 import { MatchView } from '../matchView.js';
-import { esc, crest, cmpBar, ratingChip, posBadge, seg, scaleColor } from '../components.js';
+import { esc, crest, cmpBar, ratingChip, posBadge, seg, scaleColor, face } from '../components.js';
 import { MatchAudio } from '../audio.js';
 import { xgChart, heatmap } from '../charts.js';
 import { userClub } from '../../game/state.js';
@@ -50,13 +50,14 @@ export function openMatch(app, opts = {}) {
       <div class="sb-scorers"><div id="sc-0"></div><div id="sc-1"></div></div>
       <div class="momentum" title="Momentum"><i id="mo-0" style="width:50%;background:${hc.color}"></i><i id="mo-1" style="width:50%;background:${ac.color}"></i></div>
     </div>
-    <div class="pitch-area"><canvas id="pitch"></canvas><div class="tapcard hidden" id="tapcard"></div></div>
+    <div class="pitch-area"><canvas id="pitch"></canvas><div class="tapcard hidden" id="tapcard"></div><div class="pitch-caption hidden" id="caption"></div></div>
     <div class="feed" id="feed"></div>
     <div class="controls">
       <button class="btn" data-c="pause">⏸ Pause</button>
       <button class="btn" data-c="speed">x${SPEEDS[0]}</button>
       <button class="btn" data-c="quick">⚡ Résumé</button>
       <button class="btn" data-c="skip">⏭ Fin</button>
+      <button class="btn" data-c="style" style="flex:.6" title="Vue">${(s.settings.matchStyle || 'fm') === 'fm' ? '2D' : '🎥'}</button>
       <button class="btn" data-c="labels" style="flex:.6" title="Étiquettes">${{ name: 'Aa', num: '#', none: '∅' }[s.settings.labels || 'name']}</button>
       <button class="btn" data-c="audio" style="flex:.6">${s.settings.audio ? '🔊' : '🔇'}</button>
     </div>`;
@@ -84,6 +85,15 @@ export function openMatch(app, opts = {}) {
     $('mo-0').style.width = v + '%'; $('mo-1').style.width = (100 - v) + '%';
   };
   const addLine = (ev, text) => {
+    // Bandeau de commentaire sur le terrain (comme FM), le fil ne garde que les temps forts en vue 2D.
+    if (!(ev.type === 'kickoff' && ev.minute === 0)) {
+      const cap = $('caption');
+      cap.innerHTML = `<b>${clockLabel(ev.minute, ev.extra)}</b> ${esc(text)}`;
+      cap.className = `pitch-caption ${ev.type === 'goal' ? 'goal' : ev.key ? 'key' : ''}`;
+      clearTimeout(ctrl.capT);
+      ctrl.capT = setTimeout(() => cap.classList.add('hidden'), 3500);
+    }
+    if ((s.settings.matchStyle || 'fm') === 'fm' && !ev.key && ev.type !== 'kickoff') return;
     const feed = $('feed');
     const d = document.createElement('div');
     d.className = `ln ${ev.key ? 'key' : ''} ${ev.type === 'goal' ? 'goal' : ''}`;
@@ -123,7 +133,7 @@ export function openMatch(app, opts = {}) {
     for (const tm of m.teams) for (const x of tm.onPitch) if (x && x.id === id) { mp = x; t = tm; }
     if (!mp) { card.classList.add('hidden'); return; }
     const pos = t.slots[mp.slot].pos;
-    card.innerHTML = `<div class="row" style="gap:10px"><span class="tc-num" style="background:${view.colors[t.side]};color:${view.textColors[t.side]}">${mp.number}</span>
+    card.innerHTML = `<div class="row" style="gap:10px">${mp.p.photo ? face(mp.p, t.club) : ''}<span class="tc-num" style="background:${view.colors[t.side]};color:${view.textColors[t.side]}">${mp.number}</span>
       <div class="grow"><b>${esc(mp.p.first || '')} ${esc(mp.p.last || mp.name)}</b><br><small>${pos} · ${esc(t.club.short)}${(t.roles[mp.slot] && t.roles[mp.slot] !== 'std') ? ' · ' + esc(t.roles[mp.slot]) : ''}</small></div>${ratingChip(mp.rating)}</div>
       <div class="row" style="gap:6px;margin-top:6px;font-size:12px"><span style="width:52px">Énergie</span><span class="mini" style="flex:1;width:auto"><i style="width:${mp.energy}%;background:${scaleColor(mp.energy)}"></i></span><b>${Math.round(mp.energy)}</b></div>
       <small>${mp.goals ? `⚽ ${mp.goals} ` : ''}${mp.assists ? `🅰 ${mp.assists} ` : ''}${mp.yellow ? '🟨 ' : ''}Passes ${mp.passesOk}/${mp.passes} · Tirs ${mp.shots} · Tacles ${mp.tackles}</small>`;
@@ -175,7 +185,7 @@ export function openMatch(app, opts = {}) {
     } while (view.queue.length === 0 && m.phase === 'live' && guard++ < 30);
   };
 
-  const view = new MatchView($('pitch'), m, { userSide, onEventStart, onIdle, labelMode: s.settings.labels || 'name', onPlayerTap: showTapCard });
+  const view = new MatchView($('pitch'), m, { userSide, onEventStart, onIdle, labelMode: s.settings.labels || ((s.settings.matchStyle || 'fm') === 'fm' ? 'num' : 'name'), style: s.settings.matchStyle || 'fm', onPlayerTap: showTapCard });
   window.__view = view; // débogage
   view.setSpeed(SPEEDS[ctrl.speedIdx]);
   root.querySelector('[data-c="speed"]').textContent = `x${SPEEDS[ctrl.speedIdx]}`;
@@ -199,12 +209,19 @@ export function openMatch(app, opts = {}) {
       app.toast(ctrl.quick ? 'Résumé rapide : seulement les temps forts' : 'Match en intégralité');
     }
     if (c === 'skip') skipToEnd();
+    if (c === 'style') {
+      const st = view.style === 'fm' ? 'anim' : 'fm';
+      view.setStyle(st);
+      s.settings.matchStyle = st; app.save();
+      b.textContent = st === 'fm' ? '2D' : '🎥';
+      app.toast(st === 'fm' ? 'Vue 2D (façon FM)' : 'Vue animée');
+    }
     if (c === 'labels') {
       const order = ['name', 'num', 'none'];
       view.labelMode = order[(order.indexOf(view.labelMode) + 1) % 3];
       s.settings.labels = view.labelMode; app.save();
       b.textContent = { name: 'Aa', num: '#', none: '∅' }[view.labelMode];
-      app.toast({ name: 'Noms des joueurs', num: 'Numéros', none: 'Sans étiquettes' }[view.labelMode]);
+      app.toast({ name: 'Tous les noms', num: view.style === 'fm' ? 'Nom du porteur du ballon' : 'Numéros', none: 'Sans étiquettes' }[view.labelMode]);
     }
     if (c === 'audio') {
       s.settings.audio = !s.settings.audio; app.save();

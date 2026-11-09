@@ -76,6 +76,8 @@ export class MatchView {
     this.shorts = [h, a].map((c, i) => (c.color2 && colorDist(c.color2, this.colors[i]) > 90 ? c.color2 : (luminance(this.colors[i]) > 0.5 ? '#1c2230' : '#f1f1f1')));
     this.referee = { x: 0.45, y: 0.3, vx: 0, vy: 0, tx: 0.45, ty: 0.3, face: 0, phase: 0, speed: 0 };
     this.labelMode = opts.labelMode || 'name'; // name | num | none
+    this.style = opts.style || 'fm'; // fm : vue 2D épurée façon FM ; anim : silhouettes animées
+    this.trail = [];
     this.selected = null;
     this._tap = (e) => {
       const id = this.playerAt(e.clientX, e.clientY);
@@ -90,6 +92,8 @@ export class MatchView {
     this._loop = (ts) => this.frame(ts);
     this.raf = requestAnimationFrame(this._loop);
   }
+
+  setStyle(st) { this.style = st; this.pitchCache = null; this.trail = []; }
 
   destroy() {
     this.canvas.removeEventListener('pointerup', this._tap);
@@ -459,12 +463,13 @@ export class MatchView {
     const g = c.getContext('2d');
     const s = this.scale;
     this._px = padX; this._py = padY;
-    // Fond et bandes de tonte.
-    g.fillStyle = '#1f6b3a';
+    const fm = this.style === 'fm';
+    // Fond et bandes de tonte (plus sobres en vue 2D).
+    g.fillStyle = fm ? '#2a7444' : '#1f6b3a';
     g.fillRect(0, 0, c.width, c.height);
     const stripes = 12;
     for (let i = 0; i < stripes; i++) {
-      g.fillStyle = i % 2 ? '#237a42' : '#1f703d';
+      g.fillStyle = fm ? (i % 2 ? '#2f7d4a' : '#2b7646') : i % 2 ? '#237a42' : '#1f703d';
       g.fillRect(padX, padY + (i * PITCH_L * s) / stripes, PITCH_W * s, (PITCH_L * s) / stripes + 1);
     }
     g.strokeStyle = 'rgba(255,255,255,0.82)';
@@ -501,6 +506,7 @@ export class MatchView {
   }
 
   draw() {
+    if (this.style === 'fm') return this.drawFM();
     const g = this.ctx, W = this.canvas.width, H = this.canvas.height;
     if (!this.pitchCache) this.drawPitch();
     g.setTransform(1, 0, 0, 1, 0, 0);
@@ -569,6 +575,98 @@ export class MatchView {
       g.fillStyle = '#fff'; g.font = `700 ${Math.round(H * 0.024)}px system-ui, sans-serif`; g.textAlign = 'left'; g.textBaseline = 'middle';
       g.fillText('RALENTI', W * 0.1, H * 0.026); g.textBaseline = 'alphabetic';
     }
+  }
+
+  /**
+   * Vue 2D façon Football Manager : terrain entier fixe, joueurs en pastilles
+   * numérotées, ballon avec traînée, seuls les noms utiles affichés.
+   */
+  drawFM() {
+    const g = this.ctx, W = this.canvas.width, H = this.canvas.height;
+    if (!this.pitchCache) this.drawPitch();
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.fillStyle = '#2a7444';
+    g.fillRect(0, 0, W, H);
+    g.drawImage(this.pitchCache, 0, 0);
+    this.view = { z: 1, tx: 0, ty: 0 };
+    const r = (this.landscape ? 2.05 : 1.9) * this.scale;
+    // Traînée du ballon.
+    const [bx, by] = this.toScreen(this.ball.x, this.ball.y);
+    this.trail.push([bx, by]);
+    if (this.trail.length > 12) this.trail.shift();
+    g.lineCap = 'round';
+    for (let i = 1; i < this.trail.length; i++) {
+      g.strokeStyle = `rgba(255,255,255,${(i / this.trail.length) * 0.35})`;
+      g.lineWidth = r * 0.35 * (i / this.trail.length);
+      g.beginPath(); g.moveTo(...this.trail[i - 1]); g.lineTo(...this.trail[i]); g.stroke();
+    }
+    const carrierId = this.cur ? this.cur.carrier : null;
+    for (const p of this.leaving) this.drawDisc(g, p, r, Math.max(0, p.life / 1.6), false, false);
+    for (const [id, p] of this.players) this.drawDisc(g, p, r, p.alpha ?? 1, id === carrierId, this.selected === id);
+    // Ballon.
+    const lift = this.ball.h * 40 * this.scale;
+    g.fillStyle = 'rgba(0,0,0,0.3)';
+    g.beginPath(); g.arc(bx + lift * 0.25, by + lift * 0.15, r * 0.38, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#fff';
+    g.beginPath(); g.arc(bx, by - lift, r * (0.42 + this.ball.h), 0, Math.PI * 2); g.fill();
+    g.strokeStyle = '#111'; g.lineWidth = r * 0.1; g.stroke();
+    // Noms : tous (petits), ou seulement le porteur du ballon et le joueur touché.
+    this.drawFMLabels(g, r, carrierId);
+    if (this.banner) this.drawBanner(g, W, H);
+    if (this.replaying) {
+      g.fillStyle = 'rgba(0,0,0,0.35)'; g.fillRect(0, 0, W, H * 0.05); g.fillRect(0, H * 0.95, W, H * 0.05);
+      g.fillStyle = '#fff'; g.font = `700 ${Math.round(H * 0.024)}px system-ui, sans-serif`; g.textAlign = 'left'; g.textBaseline = 'middle';
+      g.fillText('● RALENTI', W * 0.03, H * 0.026); g.textBaseline = 'alphabetic';
+    }
+  }
+
+  /** Pastille de joueur (vue 2D). */
+  drawDisc(g, p, r, alpha, isCarrier, selected) {
+    const [x, y] = this.toScreen(p.x, p.y);
+    const fill = p.gk ? this.gkColors[p.side] : this.colors[p.side];
+    g.globalAlpha = alpha;
+    g.fillStyle = 'rgba(0,0,0,0.25)';
+    g.beginPath(); g.arc(x + r * 0.12, y + r * 0.18, r, 0, Math.PI * 2); g.fill();
+    if (isCarrier || selected) {
+      g.strokeStyle = selected ? '#ffd166' : 'rgba(255,255,255,0.95)';
+      g.lineWidth = r * 0.22;
+      g.beginPath(); g.arc(x, y, r * 1.38, 0, Math.PI * 2); g.stroke();
+    }
+    g.fillStyle = fill;
+    g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
+    g.strokeStyle = luminance(fill) > 0.6 ? 'rgba(0,0,0,0.65)' : 'rgba(255,255,255,0.85)';
+    g.lineWidth = r * 0.14; g.stroke();
+    g.fillStyle = p.gk ? '#111' : this.textColors[p.side];
+    g.font = `800 ${Math.round(r * 1.05)}px "Barlow Condensed", system-ui, sans-serif`;
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillText(String(p.num ?? ''), x, y + r * 0.05);
+    g.textBaseline = 'alphabetic';
+    g.globalAlpha = 1;
+  }
+
+  drawFMLabels(g, r, carrierId) {
+    if (this.labelMode === 'none') return;
+    const fs = Math.max(9 * this.dpr, Math.round(r * 0.9));
+    g.font = `700 ${fs}px "Barlow Condensed", system-ui, sans-serif`;
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    const boxes = [];
+    const all = this.labelMode === 'name';
+    const list = [...this.players.entries()].sort((a, b) => (b[0] === carrierId) - (a[0] === carrierId) || (b[0] === this.selected) - (a[0] === this.selected));
+    for (const [id, p] of list) {
+      const hl = id === carrierId || id === this.selected;
+      if (!all && !hl) continue;
+      const [x, y] = this.toScreen(p.x, p.y);
+      const text = p.short;
+      const w = g.measureText(text).width + fs * 0.7, h = fs * 1.3;
+      const box = { x: x - w / 2, y: y + r * 1.25, w, h };
+      if (!hl && boxes.some((o) => box.x < o.x + o.w && box.x + box.w > o.x && box.y < o.y + o.h && box.y + box.h > o.y)) continue;
+      boxes.push(box);
+      g.fillStyle = hl ? 'rgba(10,14,20,0.9)' : 'rgba(10,14,20,0.55)';
+      g.beginPath(); g.roundRect ? g.roundRect(box.x, box.y, w, h, h / 2) : g.rect(box.x, box.y, w, h); g.fill();
+      g.fillStyle = hl ? '#ffd166' : 'rgba(255,255,255,0.85)';
+      g.fillText(text, x, box.y + h / 2 + fs * 0.04);
+    }
+    g.textBaseline = 'alphabetic';
   }
 
   /** Angle écran correspondant à une orientation terrain (radians, en mètres). */

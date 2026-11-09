@@ -6,7 +6,7 @@ import { newGame, startCareer } from '../../game/season.js';
 import { load, deleteSave, clubPlayers, slotsInfo, SLOTS, setSlot, importFile, legacySave, dropLegacy } from '../../game/state.js';
 import { squadStrength } from '../../engine/ratings.js';
 import { money } from '../../game/economy.js';
-import { esc, crest, stars } from '../components.js';
+import { esc, crest, stars, starBar } from '../components.js';
 import { DIVISIONS, DIV_IDS, COUNTRIES } from '../../data/world.js';
 import { readFileAsText } from '../files.js';
 import { openCoachEditor } from './coachEditor.js';
@@ -58,13 +58,14 @@ export function render(app) {
   const clubs = app.state.clubs.filter((c) => c.div === ui.div)
     .map((c) => ({ c, s: squadStrength(clubPlayers(app.state, c)) }))
     .sort((a, b) => b.c.rep - a.c.rep);
+  const avg = clubs.reduce((a, x) => a + x.s, 0) / Math.max(1, clubs.length);
   return `<h2 style="margin:16px 4px 10px">Choisissez votre club</h2>
     <div class="chips">${DIV_IDS.map((d) => `<button class="chip ${d === ui.div ? 'on' : ''}" data-act="div" data-v="${d}">${COUNTRIES[DIVISIONS[d].country].flag} ${DIVISIONS[d].name}</button>`).join('')}</div>
     <div class="card list" style="padding:4px 10px">
       ${clubs.map(({ c, s }) => `<div class="prow" data-act="pick" data-id="${c.id}">
         ${crest(c)}
-        <div class="pname"><b>${esc(c.name)}</b><small>${stars(Math.max(1, Math.min(5, Math.round((c.rep - 30) / 12))))} · Budget ${money(c.budget)}</small></div>
-        <span class="ovr ${s >= 75 ? 't1' : s >= 65 ? 't2' : 't3'}">${Math.round(s)}</span>
+        <div class="pname"><b>${esc(c.name)}</b><small>Réputation ${c.rep >= 85 ? 'mondiale' : c.rep >= 75 ? 'continentale' : c.rep >= 62 ? 'nationale' : 'régionale'} · Budget ${money(c.budget)}</small></div>
+        <span class="stars-chip">${starBar(Math.max(0.5, Math.min(5, Math.round((2.5 + (s - avg) / 3) * 2) / 2)))}</span>
       </div>`).join('')}
     </div>
     <button class="btn ghost block" data-act="back">Retour</button>`;

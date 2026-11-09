@@ -8,7 +8,7 @@ import { finHealth, ownerType } from '../../game/owners.js';
 import { DIV_NAMES } from '../../game/season.js';
 import { squadStrength } from '../../engine/ratings.js';
 import { money } from '../../game/economy.js';
-import { esc, crest, gauge, scaleColor } from '../components.js';
+import { esc, crest, gauge, scaleColor, starBar, abilityStars } from '../components.js';
 
 const line = (label, v) => `<div style="margin:6px 0"><div class="row between" style="font-size:13px"><span>${label}</span><b style="color:${scaleColor(v)}">${Math.round(v)}</b></div>${gauge(v)}</div>`;
 
@@ -31,7 +31,7 @@ export function showClub(app, clubId) {
     const md = moodOf(r);
     const ot = ownerType(c);
     const rivals = rivalsOf(s, c).slice(0, 4);
-    return `<div class="row" style="gap:12px">${crest(c, 'lg')}<div class="grow"><h2 style="margin:0">${esc(c.name)}</h2><small>${DIV_NAMES[c.div]} · réputation ${c.rep} · niveau ${squadStrength(clubPlayers(s, c))}</small></div>
+    return `<div class="row" style="gap:12px">${crest(c, 'lg')}<div class="grow"><h2 style="margin:0">${esc(c.name)}</h2><small>${DIV_NAMES[c.div]} · réputation ${c.rep} · niveau ${starBar(abilityStars(squadStrength(clubPlayers(s, c))))}</small></div>
         ${mine ? '' : `<span class="tag ${md.cls}" title="Relation avec votre club">${md.icon} ${md.label}</span>`}</div>
       <div class="card"><div class="row between"><span>🏛 Propriétaire</span><b>${esc(c.owner?.name || '—')}</b></div><small class="muted">${ot.label}${c.owner?.group ? ' · groupe multi-clubs' : ''}${c.owner?.since ? ` · depuis ${c.owner.since}` : ''}</small>
         ${line('Santé financière', finHealth(s, c))}${line('Ambiance du stade', c.atmosphere ?? 55)}${line('Image', c.image ?? 50)}

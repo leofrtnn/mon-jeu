@@ -13,7 +13,7 @@ import { estimate, rangeLabel, mid, REGIONS, MISSION_DAYS, startMission } from '
 import { gameRng } from '../../game/state.js';
 import { overall } from '../../engine/ratings.js';
 import { POSITIONS } from '../../data/constants.js';
-import { esc, seg, playerRow, gauge, stars, scaleColor } from '../components.js';
+import { esc, seg, playerRow, gauge, stars, scaleColor, ovrChip, starBar, abilityStars } from '../components.js';
 import { showPlayer } from './playerSheet.js';
 import * as settings from './settings.js';
 import { windowInfo } from '../../game/dates.js';
@@ -135,7 +135,7 @@ function market(app) {
     const listed = clubPlayers(s, uc).filter((p) => p.listed);
     html += `<div class="label">Offres reçues</div><div class="card" style="margin-top:0">${offers.map((o) => {
       const p = s.players[o.pid]; const c = clubById(s, o.clubId);
-      return `<div style="padding:6px 0;border-bottom:1px solid var(--line)"><b>${esc(p.name)}</b> <small>(${overall(p)}) · ${esc(c.name)} · <b>${money(o.amount)}</b></small>
+      return `<div style="padding:6px 0;border-bottom:1px solid var(--line)"><b>${esc(p.name)}</b> ${ovrChip(overall(p))} <small>${esc(c.name)} · <b>${money(o.amount)}</b></small>
         <div class="btns" style="margin-top:6px"><button class="btn sm" data-act="decline" data-id="${p.id}">Non</button><button class="btn sm" data-act="counter" data-id="${p.id}">+15 %</button><button class="btn sm primary" data-act="accept" data-id="${p.id}">Oui</button></div></div>`;
     }).join('') || '<p class="muted" style="margin:0">Aucune offre. Placez des joueurs sur la liste des transferts pour attirer les clubs.</p>'}</div>
     <div class="label">Sur la liste des transferts</div><div class="card list" style="padding:0 10px;margin-top:0">${listed.map((p) => playerRow(p)).join('') || '<p class="muted">Aucun joueur listé (fiche joueur → « Mettre sur la liste »).</p>'}</div>`;
@@ -175,7 +175,7 @@ function marketRow(s, p, price) {
   const ps = Math.max(1, Math.min(5, Math.round((mid(e.pot) - 45) / 10)));
   return playerRow(p, {
     extra: `· ${c ? esc(c.short) : 'Libre'} · ${esc(p.nat || '')} · ${stars(ps)}`,
-    right: `<div class="center" style="min-width:66px"><b style="color:${scaleColor(mid(e.ovr) + 5)}">${rangeLabel(e.ovr)}</b><br><small style="color:${(price ?? 0) <= uc.budget ? 'var(--muted)' : 'var(--bad)'}">${price ? money(price) : c ? '' : 'Libre'}</small></div>`,
+    right: `<div class="center" style="min-width:78px">${starBar(abilityStars(mid(e.ovr)))}${e.exact ? '' : '<small class="muted" style="font-size:10px"> ≈</small>'}<br><small style="color:${(price ?? 0) <= uc.budget ? 'var(--muted)' : 'var(--bad)'}">${price ? money(price) : c ? '' : 'Libre'}</small></div>`,
   });
 }
 
@@ -237,7 +237,7 @@ function youth(s) {
       ${uc.academy < 5 ? `<button class="btn block" style="margin-top:12px" data-act="upgrade">Améliorer · ${money(academyCost(uc))}</button>` : ''}
     </div>
     <div class="label">Jeunes du centre (${ys.length})</div>
-    <div class="card list" style="padding:0 10px;margin-top:0">${ys.map((p) => playerRow(p, { extra: `· pot. ${stars(Math.max(1, Math.min(5, Math.round((p.pot - 45) / 10))))}` })).join('') || '<p class="muted">Nouvelle promotion à la mi-saison et chaque été.</p>'}</div>`;
+    <div class="card list" style="padding:0 10px;margin-top:0">${ys.map((p) => playerRow(p, { extra: `· pot. ${starBar(abilityStars(p.pot))}` })).join('') || '<p class="muted">Nouvelle promotion à la mi-saison et chaque été.</p>'}</div>`;
 }
 
 function career(s) {

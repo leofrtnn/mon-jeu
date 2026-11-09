@@ -1,6 +1,7 @@
 /**
  * Petits composants d'interface (chaînes HTML) : badges, jauges, lignes de joueurs.
  */
+import { imgTag, face } from './images.js';
 import { POSITION_GROUP } from '../data/constants.js';
 import { overall } from '../engine/ratings.js';
 
@@ -26,16 +27,47 @@ export function clubAccent(club) {
 }
 
 export function crest(club, size = '') {
+  if (club?.logo) return `<span class="crest ${size} has-img" style="background:${club.color};color:${club.color2}">${imgTag(club.logo, size === 'lg' ? 160 : 80)}<i>${esc(club.short)}</i></span>`;
   return `<span class="crest ${size}" style="background:${club.color};color:${club.color2}">${esc(club.short)}</span>`;
+}
+
+/* ---------------- Échelle « façon FM » ---------------- */
+
+/** Attribut interne (0-100) → note sur 20. */
+export const a20 = (v) => Math.max(1, Math.min(20, Math.round(v / 5)));
+/** Couleur d'un attribut sur 20 (comme FM : gris, jaune, vert, vert vif). */
+export const color20 = (n) => (n >= 16 ? '#3ddc84' : n >= 13 ? '#9bd35a' : n >= 10 ? '#e3b341' : n >= 6 ? '#d0a060' : '#8b949e');
+
+let STAR_REF = 72;
+let starKey = '';
+/** Référence des étoiles : niveau moyen des titulaires du championnat de l'utilisateur. */
+export function refreshStarRef(state) {
+  const uc = state?.clubs?.find((c) => c.id === state.userClubId) || state?.clubs?.[0];
+  if (!uc) return;
+  const key = `${state.seed}-${state.season}-${state.day}-${uc.div}`;
+  if (key === starKey) return;
+  starKey = key;
+  const tops = state.clubs.filter((c) => c.div === uc.div).map((c) => {
+    const o = c.playerIds.map((id) => state.players[id]).filter(Boolean).map(overall).sort((a, b) => b - a).slice(0, 11);
+    return o.reduce((a, v) => a + v, 0) / Math.max(1, o.length);
+  });
+  STAR_REF = tops.reduce((a, v) => a + v, 0) / Math.max(1, tops.length);
+}
+/** Niveau (actuel ou potentiel) en étoiles, de 0,5 à 5, relatif au championnat (comme FM). */
+export const abilityStars = (v) => Math.max(0.5, Math.min(5, Math.round((2.5 + (v - STAR_REF) / 4) * 2) / 2));
+
+/** 5 étoiles avec remplissage partiel (demi-étoiles). */
+export function starBar(n, cls = '') {
+  return `<span class="starbar ${cls}" title="${String(n).replace('.', ',')} / 5"><span>★★★★★</span><span class="fill" style="width:${n / 5 * 100}%">★★★★★</span></span>`;
 }
 
 export function posBadge(pos) {
   return `<span class="posb pos-${POSITION_GROUP[pos]}">${pos}</span>`;
 }
 
+/** Niveau d'un joueur : étoiles (plus de note sur 100). */
 export function ovrChip(v) {
-  const t = v >= 75 ? 't1' : v >= 65 ? 't2' : 't3';
-  return `<span class="ovr ${t}">${v}</span>`;
+  return `<span class="stars-chip">${starBar(abilityStars(v))}</span>`;
 }
 
 /** Couleur d'une valeur 0-100 (rouge -> vert). */
@@ -80,10 +112,10 @@ export function statusTags(p) {
 }
 
 /** Ligne de joueur cliquable. */
-export function playerRow(p, { act = 'player', extra = '', right = null, dim = false } = {}) {
+export function playerRow(p, { act = 'player', extra = '', right = null, dim = false, club = null } = {}) {
   const o = overall(p);
   return `<div class="prow ${dim ? 'dim' : ''}" data-act="${act}" data-id="${p.id}">
-    ${posBadge(p.pos)}
+    ${p.photo || p.real ? face(p, club) : ''}${posBadge(p.pos)}
     <div class="pname"><b>${esc(p.name)}</b><small>${p.age} ans ${extra}</small></div>
     <div class="icons">${statusTags(p)}${formDot(p.form)}${moraleIcon(p.morale)}${condBar(p.fatigue)}</div>
     ${right ?? ovrChip(o)}
@@ -103,14 +135,17 @@ export function cmpBar(label, a, b, colors, fmt = (v) => v) {
 }
 
 export function stars(n, max = 5) {
-  return `<span style="color:#e3b341;letter-spacing:1px">${'★'.repeat(n)}<span style="color:var(--line)">${'★'.repeat(max - n)}</span></span>`;
+  if (max === 5) return starBar(n);
+  return `<span style="color:#e3b341;letter-spacing:1px">${'★'.repeat(Math.round(n))}<span style="color:var(--line)">${'★'.repeat(max - Math.round(n))}</span></span>`;
 }
 
 /** Potentiel estimé en étoiles (le recruteur n'est pas infaillible : arrondi). */
 export function potentialStars(p) {
-  return Math.max(1, Math.min(5, Math.round((p.pot - 45) / 10)));
+  return abilityStars(p.pot);
 }
 
 export function seg(name, options, current, labels) {
   return `<div class="seg">${options.map((o) => `<button data-act="${name}" data-v="${o}" class="${o === current ? 'on' : ''}">${esc(labels ? labels[o] : o)}</button>`).join('')}</div>`;
 }
+
+export { face };

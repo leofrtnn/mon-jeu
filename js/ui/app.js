@@ -5,7 +5,7 @@
  */
 import { save as saveState, userClub } from '../game/state.js';
 import { money } from '../game/economy.js';
-import { esc, accentInk, clubAccent } from './components.js';
+import { esc, accentInk, clubAccent, refreshStarRef } from './components.js';
 import { today } from '../game/season.js';
 import { currentDate, fmtDate } from '../game/dates.js';
 import { avatarSvg } from './avatar.js';
@@ -14,6 +14,7 @@ import { ensureManagers, onUserArrives } from '../game/managers.js';
 import { ensureStaff } from '../game/career.js';
 import { ensureBoard } from '../game/board.js';
 import { ensureLife } from '../game/life.js';
+import { loadRealData, enrichRealSave } from '../data/realWorld.js';
 import { openCoachEditor } from './screens/coachEditor.js';
 import * as home from './screens/home.js';
 import * as squad from './screens/squad.js';
@@ -103,6 +104,13 @@ export const app = {
       ensureStaff(this.state);
       ensureBoard(this.state);
       ensureLife(this.state);
+      refreshStarRef(this.state);
+      // Parties « monde réel » créées avant l'ajout des logos/photos : on les complète une fois.
+      if (this.state.world === 'real' && !this.state.mediaReady && !this._enriching) {
+        this._enriching = true;
+        const st = this.state;
+        loadRealData().then((d) => { if (enrichRealSave(st, d) && st === this.state) { this.save(); this.render(); } }).catch(() => {}).finally(() => { this._enriching = false; });
+      }
       const c = userClub(this.state);
       const accent = clubAccent(c);
       document.documentElement.style.setProperty('--accent', accent);

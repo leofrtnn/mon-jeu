@@ -32,7 +32,7 @@ export function render(app) {
       <div><b>${players.length}</b> <small>joueurs · ${avgAge.toFixed(1)} ans de moyenne</small></div>
       <small>${money(wageBill(players))}/sem</small>
     </div>
-    ${seg('sort', ['pos', 'ovr', 'form'], sort, { pos: 'Poste', ovr: 'Note', form: 'Forme' })}
+    ${seg('sort', ['pos', 'ovr', 'form'], sort, { pos: 'Poste', ovr: 'Niveau', form: 'Forme' })}
     <p class="muted" style="font-size:12px;margin:8px 2px 0">● forme · ▲ moral · barre = condition · ★ = titulaire</p>
     ${list}`;
 }

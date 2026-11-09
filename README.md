@@ -45,6 +45,7 @@ Chaque championnat a son propre profil : style plus technique en Ibérie, plus p
   - Vrais clubs, joueurs (noms, postes, âges, nationalités, numéros, sélections) et entraîneurs de la saison 2026-27.
   - FA Cup, Copa del Rey, Coppa Italia, DFB-Pokal, Coupe de France ; qualifiés pour la coupe continentale : 4/4/3/3/2.
   - Les notes des joueurs sont estimées par le jeu (niveau du club, statut international, âge). Pas de relégation : les données ne contiennent que l'élite.
+  - **Logos et visages** : affichés depuis Wikipédia / Wikimedia Commons (non copiés dans le jeu, connexion nécessaire). À défaut : écusson aux couleurs du club, initiales du joueur.
   - Données : `data/real-world.json`, généré depuis `data/foot5/foot5.json` par `scripts/foot/build_game_world.py`.
 - **80 clubs fictifs, 3 pays, 4 championnats** : France D1/D2 (promotions et relégations), Liga Ibérica, Albion Premier.
 - **Compétitions** : une coupe nationale par pays et une coupe continentale, la *Ligue des Étoiles* (4 groupes, puis quarts, demies et finale).
@@ -59,6 +60,7 @@ Chaque championnat a son propre profil : style plus technique en Ibérie, plus p
 - **Calibration** propre à chaque championnat (buts, fautes, cartons).
 
 ### Affichage du match
+- **Vue 2D façon FM** (par défaut) : terrain entier fixe, pastilles numérotées, nom du porteur du ballon, bandeau de commentaire sur le terrain, fil réduit aux temps forts. Le bouton « 2D / 🎥 » rebascule sur la vue animée.
 - **Joueurs dessinés et animés** : numéro sur le torse, tête orientée, bras et pieds qui bougent, maillot et short aux couleurs du club.
 - **Gestes** : frappe, tacle glissé, plongeon du gardien, jeu de tête, célébration.
 - **Mouvements** : les joueurs accélèrent et freinent selon leur vitesse et leur fatigue, et le dribbleur garde le ballon au pied. Un arbitre suit le jeu.
@@ -68,6 +70,10 @@ Chaque championnat a son propre profil : style plus technique en Ibérie, plus p
 - **Statistiques visuelles** : graphique des **xG minute par minute** et **cartes de chaleur**, à la mi-temps et en fin de match.
 - **Conseils de l'adjoint** à la mi-temps, bandeau de changement de côté.
 - **Commentaires** : 20 à 47 phrases par événement courant.
+
+### Notes façon FM
+- **Attributs sur 20**, regroupés (Technique, Mental, Physique, Gardien), couleurs FM ; plages estimées (ex. 12-15) pour les joueurs mal connus.
+- **Niveau et potentiel en étoiles** (demi-étoiles), relatifs à votre championnat ; forme et moral en mots. Le moteur garde une échelle interne fine.
 
 ### Votre coach
 - **Création** en début de partie :
