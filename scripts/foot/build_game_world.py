@@ -34,7 +34,7 @@ REP = {
 }
 # Championnats 6 à 10 : réputation et sigle par mot-clé du nom (le reste : valeurs par défaut).
 REP_KEY = [
-  ('benfica', 81, 'SLB'), ('porto', 80, 'FCP'), ('sporting', 82, 'SCP'), ('braga', 73, 'SCB'), ('vitoria', 66, 'VSC'), ('guimar', 66, 'VSC'),
+  ('benfica', 81, 'SLB'), ('porto', 80, 'FCP'), ('sporting cp', 82, 'SCP'), ('braga', 73, 'SCB'), ('vitoria', 66, 'VSC'), ('guimar', 66, 'VSC'),
   ('famalic', 62, None), ('gil vicente', 60, 'GVI'), ('rio ave', 58, None), ('moreirense', 58, None), ('santa clara', 59, None), ('estoril', 59, None),
   ('casa pia', 57, None), ('arouca', 58, None), ('nacional', 55, None), ('maritimo', 56, None), ('alverca', 54, None), ('estrela', 55, None), ('viseu', 53, None),
   ('ajax', 78, 'AJX'), ('psv', 79, 'PSV'), ('feyenoord', 77, 'FEY'), ('az', 71, 'AZ'), ('twente', 68, 'TWE'), ('utrecht', 66, 'UTR'),
