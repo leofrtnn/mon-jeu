@@ -257,8 +257,10 @@ export class MatchView {
     if (['sub', 'red', 'injury', 'kickoff'].includes(ev.type)) this.syncPlayers(false);
     this.dur = (DUR[ev.type] ?? 0.8) * (ev.replay && ev.type !== 'replaystart' && ev.type !== 'replayend' ? 2.3 : 1);
     this.replaying = ev.replay && ev.type !== 'replayend';
+    if (ev.poss != null && ev.poss >= 0) this.poss = ev.poss;
     if (ev.type === 'goal') this.celebrate(ev);
-    else this.computeTargets(ev);
+    else if (['kickoff', 'corner', 'freekick', 'penalty'].includes(ev.type)) this.computeTargets(ev);
+    else this.reshape(true);
     if (ev.type === 'replaystart') { this.banner = null; this.particles = []; this.cam.shake = 0; }
     if (ev.snap) {
       // Début du ralenti : tout le monde à sa place, ballon au pied de l'acteur.
@@ -270,8 +272,18 @@ export class MatchView {
     // Le ballon : frappe calculée physiquement, la durée de l'action suit son trajet.
     // Frappe : si l'acteur n'est pas au ballon, il va d'abord le chercher (pas de téléportation).
     this.approach = null;
+    // Coup de pied arrêté : le tireur est placé directement derrière le ballon (comme une
+    // coupure de réalisation), au lieu de traverser le terrain.
+    const taker = this.players.get(ev.pid);
+    if (this.setPiece && taker && ['pass', 'longpass', 'cross', 'cornerkick', 'clearance', 'shot'].includes(ev.type)) {
+      const P = this.phys, tx = (ev.x ?? 0.5) * PITCH_L, ty = (ev.y ?? 0.5) * PITCH_W;
+      const d = Math.hypot(tx - P.x, ty - P.y) || 1;
+      taker.x = (P.x - ((tx - P.x) / d) * 1.2) / PITCH_L; taker.y = (P.y - ((ty - P.y) / d) * 1.2) / PITCH_W;
+      taker.vx = taker.vy = 0; this.faceTo(taker, tx / PITCH_L, ty / PITCH_W);
+    }
+    if (!['corner', 'freekick', 'penalty'].includes(ev.type)) this.setPiece = false;
     if (this.needsApproach(ev)) { this.approach = { ev, t: 0 }; this.dur = 99; }
-    else this.doKick(ev);
+    else this.resolveEvent(ev);
     if (ev.type === 'shot' && ev.outcome === 'post') this.cam.shake = 0.4;
     this.animate(ev);
     // Étiquettes de noms sur les actions importantes.
@@ -290,7 +302,7 @@ export class MatchView {
     const actor = this.players.get(ev.pid);
     const other = this.players.get(ev.pid2);
     const b = this.ball;
-    if ((ev.type === 'tackle' || ev.type === 'foul') && actor) { actor.slide = 0.55; this.faceTo(actor, b.x, b.y); }
+
     if (ev.type === 'header' && actor) actor.jump = 0.45;
     if (ev.type === 'shot' && ev.kind === 'header' && actor) actor.jump = 0.45;
 
@@ -372,6 +384,9 @@ export class MatchView {
       else { this.opts.onIdle?.(); if (this.queue.length) this.startEvent(this.queue.shift()); }
     }
     if (this.approach) this.updateApproach(dt);
+    // Les 22 joueurs se replacent en continu selon la position réelle du ballon.
+    this.reshapeT = (this.reshapeT || 0) + dt;
+    if (this.reshapeT > 0.25 && !this.cur?.replay && !['corner', 'freekick', 'penalty', 'kickoff', 'goal'].includes(this.cur?.type)) this.reshape();
     if (this.cur) {
       this.curT += dt / this.dur;
       // L'action suivante attend que le receveur ait le ballon (au plus 2,5 s).
@@ -401,35 +416,108 @@ export class MatchView {
   place(x, y) {
     Object.assign(this.phys, { x, y, z: BALL_R, vx: 0, vy: 0, vz: 0, spin: 0, top: 0, inGoal: 0, hitPost: false });
     this.pending = null;
+    this.setPiece = true;
   }
 
-  /** Faut-il que l'acteur aille d'abord au ballon ? */
+  /**
+   * Faut-il que l'acteur aille d'abord au ballon ? Une frappe, une tête, un tacle, une
+   * interception ou une faute n'ont lieu qu'au contact : sinon, il court jusqu'au ballon.
+   */
   needsApproach(ev) {
-    if (!['pass', 'longpass', 'cross', 'cornerkick', 'clearance', 'shot'].includes(ev.type)) return false;
-    if (ev.type === 'shot' && ev.kind === 'header') return false;
     const a = this.players.get(ev.pid), P = this.phys;
     if (!a || this.inHands || P.inGoal || P.x < 0 || P.x > PITCH_L || P.y < 0 || P.y > PITCH_W) return false;
-    if (this.holder === ev.pid) return false;
-    const f = this.footOf(a);
-    return Math.hypot(f.x - P.x, f.y - P.y) > 1.3 && P.z < 1.5;
+    const f = this.footOf(a), d = Math.hypot(f.x - P.x, f.y - P.y);
+    const head = ev.type === 'header' || (ev.type === 'shot' && ev.kind === 'header');
+    if (head) return d > 2.2;
+    if (['tackle', 'interception', 'foul'].includes(ev.type)) return d > 1.2;
+    if (ev.type === 'dribble') return this.holder !== ev.pid && d > 1.2;
+    if (!['pass', 'longpass', 'cross', 'cornerkick', 'clearance', 'shot'].includes(ev.type)) return false;
+    if (this.holder === ev.pid && d < 1.2) return false;
+    return d > 1.3 && P.z < 1.5;
   }
 
-  /** L'acteur court au ballon (en se plaçant derrière lui, face à la cible), puis frappe. */
+  /** L'acteur court au ballon (derrière lui et face à la cible pour une frappe), puis agit. */
   updateApproach(dt) {
     const ap = this.approach, ev = ap.ev, a = this.players.get(ev.pid), P = this.phys;
     ap.t += dt;
+    const duel = ['tackle', 'interception', 'foul', 'header', 'dribble'].includes(ev.type) || ev.kind === 'header';
     if (a) {
-      const tx = (ev.x ?? 0.5) * PITCH_L, ty = (ev.y ?? 0.5) * PITCH_W;
-      const d = Math.hypot(tx - P.x, ty - P.y) || 1;
-      a.tx = (P.x - ((tx - P.x) / d) * 0.6) / PITCH_L; a.ty = (P.y - ((ty - P.y) / d) * 0.6) / PITCH_W;
+      if (duel) {
+        // Il va au ballon (en anticipant sa course s'il roule ou s'il est conduit).
+        const lead = 0.35;
+        a.tx = Math.max(0, Math.min(1, (P.x + P.vx * lead) / PITCH_L)); a.ty = Math.max(0, Math.min(1, (P.y + P.vy * lead) / PITCH_W));
+        // Le porteur pris au marquage ralentit (il protège le ballon) : le duel a bien lieu.
+        const vic = this.players.get(ev.pid2);
+        if (vic && ['tackle', 'foul'].includes(ev.type)) { vic.tx = vic.x + (vic.vx || 0) * 0.15 / PITCH_L; vic.ty = vic.y + (vic.vy || 0) * 0.15 / PITCH_W; }
+      } else {
+        const tx = (ev.x ?? 0.5) * PITCH_L, ty = (ev.y ?? 0.5) * PITCH_W;
+        const d = Math.hypot(tx - P.x, ty - P.y) || 1;
+        a.tx = (P.x - ((tx - P.x) / d) * 0.6) / PITCH_L; a.ty = (P.y - ((ty - P.y) / d) * 0.6) / PITCH_W;
+      }
     }
-    const f = a ? this.footOf(a) : null;
-    if (!a || Math.hypot(f.x - P.x, f.y - P.y) < 1.0 || ap.t > 1.6) {
+    if (!a || !this.needsApproach(ev) || ap.t > (duel ? 5.5 : 3)) {
       this.approach = null;
       this.curT = 0;
-      this.doKick(ev);
-      if (this.dur === 99) this.dur = DUR[ev.type] ?? 0.8;
+      this.dur = DUR[ev.type] ?? 0.8;
+      this.resolveEvent(ev);
     }
+  }
+
+  /** Exécute l'événement une fois les joueurs au contact. */
+  resolveEvent(ev) {
+    if (['tackle', 'interception', 'foul'].includes(ev.type)) return this.duel(ev);
+    this.doKick(ev);
+  }
+
+  /** Duel : tacle / interception (le défenseur repart avec le ballon) ou faute (jeu arrêté). */
+  duel(ev) {
+    const a = this.players.get(ev.pid), v = this.players.get(ev.pid2), P = this.phys;
+    this.pending = null;
+    if (a) this.faceTo(a, P.x / PITCH_L, P.y / PITCH_W);
+    if (ev.type === 'foul') {
+      if (a) a.slide = 0.55;
+      if (v) v.fall = 1.1;
+      this.holder = null;
+      P.vx *= 0.1; P.vy *= 0.1; P.vz = Math.min(0, P.vz); P.spin = 0;
+      this.foulAt = { x: P.x, y: P.y };
+      return;
+    }
+    if (ev.type === 'tackle' && a) a.slide = 0.55;
+    if (ev.type === 'tackle' && v) v.fall = 0.6;
+    if (ev.type === 'interception' && a) a.touch = 0.2;
+    if (a) { this.holder = ev.pid; this.inHands = false; }
+  }
+
+  /**
+   * Placement continu des 22 joueurs selon la position RÉELLE du ballon : bloc équipe,
+   * pressing du défenseur le plus proche (côté but), couverture du deuxième.
+   * Les joueurs qui ont un rôle dans l'action (porteur, receveur, acteur) ne sont pas touchés.
+   */
+  reshape(force = false) {
+    const P = this.phys;
+    const bx = Math.max(0, Math.min(1, P.x / PITCH_L)), by = Math.max(0, Math.min(1, P.y / PITCH_W));
+    const busy = new Set([this.holder, this.pending?.who, this.approach?.ev?.pid].filter((x) => x != null));
+    const poss = this.poss ?? 0;
+    for (const [id, pl] of this.players) {
+      if (busy.has(id) || pl.celeb > 0 || pl.dive > 0) continue;
+      const p = this.basePos(pl.team, pl.mp, bx, by, poss === pl.team.side, false);
+      const j = Math.sin(id * 12.9898) * 0.01;
+      pl.tx = p.x + j; pl.ty = p.y + Math.cos(id * 4.1) * 0.01;
+    }
+    // Pressing : le défenseur le plus proche va au porteur (en se plaçant entre lui et son but),
+    // le deuxième couvre derrière.
+    const defs = [...this.players.values()].filter((p) => p.team.side !== poss && !p.gk && !busy.has(p.mp.id))
+      .map((p) => ({ p, d: Math.hypot((p.x - bx) * PITCH_L, (p.y - by) * PITCH_W) })).sort((a, b) => a.d - b.d);
+    const ownGoal = poss === 0 ? 1 : 0; // but défendu par l'équipe qui n'a pas le ballon
+    const gx = ownGoal * PITCH_L, gy = PITCH_W / 2;
+    const toGoal = Math.hypot(gx - P.x, gy - P.y) || 1;
+    const ux = (gx - P.x) / toGoal, uy = (gy - P.y) / toGoal;
+    defs.slice(0, 2).forEach(({ p, d }, i) => {
+      if (d > 28) return;
+      const off = i === 0 ? 1.2 : 5;
+      p.tx = (P.x + ux * off) / PITCH_L; p.ty = (P.y + uy * off) / PITCH_W;
+    });
+    this.reshapeT = 0;
   }
 
   doKick(ev) {
@@ -450,8 +538,13 @@ export class MatchView {
     if (ev.type === 'kickoff') { this.holder = null; this.inHands = false; this.place(PITCH_L / 2, PITCH_W / 2); return null; }
     if (ev.type === 'corner') { this.holder = null; this.inHands = false; this.place(goalX - gdir * 0.4, ty < PITCH_W / 2 ? 0.4 : PITCH_W - 0.4); return null; }
     if (ev.type === 'penalty') { this.holder = null; this.inHands = false; this.place(goalX - gdir * 11, PITCH_W / 2); return null; }
-    if (ev.type === 'freekick') { this.holder = null; this.inHands = false; this.place(tx, ty); return null; }
-    const kicks = ['pass', 'longpass', 'cross', 'cornerkick', 'clearance', 'header', 'interception', 'tackle', 'shot', 'dribble'];
+    if (ev.type === 'freekick') {
+      // Coup franc à l'endroit de la faute (vue), pas à un point théorique.
+      const at = this.foulAt || { x: tx, y: ty };
+      this.foulAt = null;
+      this.holder = null; this.inHands = false; this.place(at.x, at.y); return null;
+    }
+    const kicks = ['pass', 'longpass', 'cross', 'cornerkick', 'clearance', 'header', 'shot', 'dribble'];
     if (!kicks.includes(ev.type)) {
       // Faute, carton, hors-jeu… : jeu arrêté, le ballon finit sa course sans être relancé.
       if (['foul', 'offside', 'yellow', 'red', 'injury'].includes(ev.type)) { this.holder = null; this.pending = null; P.vx *= 0.1; P.vy *= 0.1; P.vz = Math.min(P.vz, 0); P.spin = 0; }
@@ -483,7 +576,7 @@ export class MatchView {
         this.holder = ev.pid; if (actor) { actor.tx = tx / PITCH_L; actor.ty = ty / PITCH_W; }
         return null;
       case 'pass':
-        return receive(solveKick(P, { x: tx2, y: ty2 }, { mode: 'ground', arrive: Math.min(9, 4.5 + dist * 0.12) }));
+        return receive(solveKick(P, { x: tx2, y: ty2 }, { mode: 'ground', arrive: Math.min(12, 6 + dist * 0.16) }));
       case 'longpass':
         return receive(solveKick(P, { x: tx2, y: ty2, z: 0.3 + r1 * 1.3 }, { T: 1.0 + dist / 30, spin: (r2 - 0.5) * 8, top: 2 }));
       case 'cross': case 'cornerkick': {
@@ -496,10 +589,6 @@ export class MatchView {
         return receive(solveKick(P, { x: tx, y: ty, z: BALL_R }, { T: 1.6 + dist / 38, spin: (r1 - 0.5) * 6, top: 1.5 }));
       case 'header':
         return receive(solveKick(P, { x: tx2, y: ty2, z: 0.4 + r1 * 0.8 }, { T: 0.45 + dist / 22 }));
-      case 'interception': case 'tackle':
-        // Ballon contré : il repart vers le récupérateur.
-        if (recv) this.holder = null;
-        return receive(solveKick(P, { x: tx, y: ty }, { mode: 'ground', arrive: 2 }));
       case 'shot': return this.shot(ev, actor, r1, r2, r3, goalX, gdir);
     }
     return null;
@@ -558,7 +647,8 @@ export class MatchView {
       // un peu devant puis il revient (il ne part jamais seul).
       const sp = h.speed || 0;
       const f0 = this.footOf(h, 0.5);
-      const near = P.z < 0.6 && Math.hypot(f0.x - P.x, f0.y - P.y) < 2.2;
+      const near = P.z < 0.6 && Math.hypot(f0.x - P.x, f0.y - P.y) < (h.hasBall ? 1.6 : 1.0);
+      h.hasBall = near;
       if (near) {
         glued = true;
         h.dribT = (h.dribT || 0) + dt;
@@ -684,7 +774,7 @@ export class MatchView {
       // Les gestes durent un temps « d'affichage » (indépendant de l'accéléré).
       const gd = dt / this.TS;
       if (p.diveIn != null) { p.diveIn -= gd; if (p.diveIn <= 0) { p.diveIn = null; this.startDive(p); } }
-      for (const k of ['kick', 'slide', 'dive', 'jump', 'celeb', 'touch', 'saveFx']) if (p[k] > 0) p[k] = Math.max(0, p[k] - gd);
+      for (const k of ['kick', 'slide', 'dive', 'jump', 'celeb', 'touch', 'saveFx', 'fall', 'block']) if (p[k] > 0) p[k] = Math.max(0, p[k] - gd);
     }
     // Contacts : deux joueurs ne se traversent pas (ils se repoussent à moins de 1,1 m),
     // sauf le tacleur qui va au duel.

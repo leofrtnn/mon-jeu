@@ -272,6 +272,18 @@ class Player3D {
       for (const a of this.arms) { a.sh.rotation.x = -dir * 2.9 * k; a.sh.rotation.z = 0.1; a.el.rotation.z = 0.05; }
       lL.hip.rotation.z = 0.2 * k; lR.hip.rotation.z = -0.3 * k;
     }
+    // Fauché : il tombe en avant, reste au sol un instant, puis se relève.
+    if (p.fall > 0) {
+      const dur = p.fall > 0.6 || this._fallDur > 0.6 ? 1.1 : 0.6;
+      if (!this._fallDur || p.fall > this._lastFall) this._fallDur = Math.max(p.fall, 0.6);
+      this._lastFall = p.fall;
+      const t = 1 - p.fall / this._fallDur;
+      const k = t < 0.25 ? Math.sin((t / 0.25) * Math.PI / 2) : t > 0.75 ? Math.sin(((1 - t) / 0.25) * Math.PI / 2) : 1;
+      this.body.rotation.z = -1.4 * k;
+      this.body.position.y = -0.62 * k * K;
+      for (const a of this.arms) { a.sh.rotation.z = 1.6 * k; a.el.rotation.z = 0.4; }
+      lL.hip.rotation.z = lR.hip.rotation.z = -0.2 * k;
+    }
     // Ballon sur lui : il se couche / bloque, mains en avant.
     if (p.block > 0) { for (const a of this.arms) { a.sh.rotation.z = 1.3; a.el.rotation.z = 0.3; } this.body.position.y = -0.25; }
     // Saut (tête) : impulsion, bras qui montent, coup de tête.
