@@ -2,6 +2,7 @@
  * Accueil : prochain match, forme de l'équipe, messages importants (3 max).
  */
 import { today, completeDay, tablePosition, DIV_NAMES, nationSquad, eligibleNations, changeClub } from '../../game/season.js';
+import { jobCandidates } from '../../game/career.js';
 import { userClub, clubById, clubPlayers, topMessages } from '../../game/state.js';
 import { isAvailable } from '../../engine/ratings.js';
 import { esc, crest, formPills, gauge, scaleColor } from '../components.js';
@@ -16,6 +17,15 @@ export function render(app) {
   const t = today(s);
   let html = ''; let right = '';
 
+  if (s.sacked) {
+    const offers = jobCandidates(s, true);
+    const vac = s.clubs.filter((c) => c.vacantSince && c.id !== uc.id);
+    return `<div class="card nextmatch"><h3>🚪 Limogé par ${esc(s.sacked.club)}</h3>
+      <p>Le conseil d'administration a mis fin à votre contrat. Votre réputation : <b>${Math.round(s.coach.rep)}</b>.</p></div>
+      <div class="label">Clubs intéressés</div><div class="card" style="margin-top:0">${[...vac, ...offers.filter((c) => !vac.includes(c))].slice(0, 6).map((c) => `<div class="prow" data-act="takejob" data-id="${c.id}">${crest(c)}
+        <div class="pname"><b>${esc(c.name)}</b><small>${DIV_NAMES[c.div]} · réputation ${c.rep}${c.vacantSince ? ' · poste vacant' : ''}</small></div><span class="btn sm primary">Signer</span></div>`).join('') || '<p class="muted">Aucune offre pour le moment.</p>'}
+      </div>`;
+  }
   if (s.seasonOver) {
     html += `<div class="card nextmatch"><h3>Saison ${s.season}-${s.season + 1} terminée</h3>
       <p>Classement final : <b>${tablePosition(s, uc.id)}e</b> de ${DIV_NAMES[uc.div]}</p>
@@ -74,7 +84,7 @@ export function render(app) {
       <div>${row.form.length ? formPills(row.form) : '<small>Aucun match joué</small>'}</div>
       <div class="center"><div class="big" style="font-size:22px">${pos}<small style="font-size:12px">e</small></div><small>${row.pts} pts</small></div>
     </div>
-    ${line('Condition', cond)}${line('Moral', morale)}${line('Forme', form)}${line('Confiance du board', s.board.confidence)}${line('Réputation du coach', s.coach.rep)}
+    ${line('Condition', cond)}${line('Moral', morale)}${line('Forme', form)}${line('Confiance du board', s.board.confidence)}${line('Réputation du coach', s.coach.rep)}${line('Supporters', s.board.fans ?? 60)}
     ${unavailable ? `<p style="margin:10px 0 0"><span class="tag bad">${unavailable} indisponible(s)</span> <small>blessés, suspendus ou prêtés</small></p>` : ''}
   </div>`;
 
@@ -110,6 +120,7 @@ export const actions = {
   async simulate(el, app) { await runSim(app, 1, false); },
   async skipto(el, app) { await runSim(app, 12, true); },
   endseason(el, app) { showEndSeason(app); },
+  takejob(el, app) { const c = clubById(app.state, +el.dataset.id); changeClub(app.state, c.id); delete app.state.sacked; app.save(true); app.render(); app.toast(`Nouveau départ à ${c.name} !`); },
   msg(el, app) {
     const m = app.state.messages.find((x) => String(x.id) === el.dataset.id);
     if (!m) return;

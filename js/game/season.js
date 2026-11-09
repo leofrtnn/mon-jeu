@@ -18,6 +18,7 @@ import { initClubExtras, newCoach, coachRep, coachAfterMatch, staffEffects, staf
 import { scoutDaily, marketEvents, seeInMatch } from './scouting.js';
 import { coachMods, ensureCoachProfile, grantSeasonPoints } from './coach.js';
 import { ensureManagers, managerStyle, managersAfterRound, managersEndSeason, onUserLeaves, onUserArrives } from './managers.js';
+import { ensureBoard, setBoardSeason, updateBoardParts, checkMidSeasonSack, recordUserMatch, IDENTITIES } from './board.js';
 import { slotsOf } from '../data/constants.js';
 
 export const CUP_ROUND_NAMES = ['16es de finale', '8es de finale', 'Quarts de finale', 'Demi-finales', 'Finale'];
@@ -170,8 +171,11 @@ export function setObjectives(state) {
     league: { target, label, expected },
     cup: cupTarget == null ? null : { target: cupTarget, label: `${cup.name} : passer ${cupTarget + 1} tour(s)` },
     conti: inConti ? { target: expected <= 2 ? 4 : 3, label: `${CONTI_NAME} : ${expected <= 2 ? 'atteindre les demies' : 'sortir des poules'}` } : null,
-    finance: { label: 'Garder un budget positif' },
+    finance: { label: 'Respecter la masse salariale et garder un budget positif' },
   };
+  setBoardSeason(state, true);
+  state.objectives.identity = { label: `Identité : ${IDENTITIES[state.board.identity].label}`, key: state.board.identity };
+  state.objectives.youth = { label: `Jeunes (≤ 21 ans) : ${state.board.youthTarget} % du temps de jeu`, target: state.board.youthTarget };
 }
 
 /* ---------------- Classements ---------------- */
@@ -415,6 +419,8 @@ export function completeDay(state, userMatch = null) {
       report.userSummary = sum;
       const side = f.h === uc.id ? 0 : 1;
       coachAfterMatch(state, sum.score[side], sum.score[1 - side], clubById(state, side === 0 ? f.a : f.h));
+      ensureBoard(state);
+      recordUserMatch(state, sum, side, m);
       seeInMatch(state, m, 1 - side);
       state.lastResult = { h: f.h, a: f.a, s: sum.score, pens: sum.shootout ? sum.shootout.score : null, label: t.label,
         scorers: sum.goals.map((g) => ({ side: g.side, name: g.name, minute: g.minute, pen: g.pen })), motm: sum.motm?.name };
@@ -462,8 +468,9 @@ export function completeDay(state, userMatch = null) {
     const formPts = formRow && formRow.form.length ? formRow.form.reduce((s, r) => s + (r === 'V' ? 1 : r === 'N' ? 0.4 : 0), 0) / formRow.form.length : 0.5;
     const { attendance, revenue } = matchdayRevenue(h, a, formPts, f.comp !== 'league');
     const bonus = f.comp === 'conti' ? 1.6 : 1;
-    h.budget += Math.round(revenue * bonus);
-    if (h.id === uc.id) { logFinance(state, Math.round(revenue * bonus), `Billetterie (${attendance.toLocaleString('fr-FR')} spect.)`); report.attendance = attendance; }
+    const fansK = h.id === uc.id ? 0.85 + (state.board?.fans ?? 60) / 400 : 1; // l'humeur des supporters remplit (ou vide) le stade
+    h.budget += Math.round(revenue * bonus * fansK);
+    if (h.id === uc.id) { logFinance(state, Math.round(revenue * bonus * fansK), `Billetterie (${attendance.toLocaleString('fr-FR')} spect.)`); report.attendance = attendance; }
   }
 
   dailyFacilities(state);
@@ -642,20 +649,14 @@ function applyResult(state, f, sum, m, ctx) {
 /** Confiance du board : évolue selon les résultats et la position. */
 function updateBoard(state, t, report) {
   const uc = userClub(state);
-  const b = state.board;
+  let matchDiff = null;
   if (report.userSummary) {
-    const s = report.userSummary;
-    const side = state.lastResult.h === uc.id ? 0 : 1;
-    const diff = s.score[side] - s.score[1 - side];
-    b.confidence += diff > 0 ? 2 : diff < 0 ? -2 : 0;
+    const sd = state.lastResult.h === uc.id ? 0 : 1;
+    matchDiff = report.userSummary.score[sd] - report.userSummary.score[1 - sd];
   }
-  if (t.entry.type === 'league' && t.entry.round >= 5) {
-    const pos = tablePosition(state, uc.id);
-    const target = state.objectives.league.target;
-    b.confidence += pos <= target ? 0.6 : -Math.min(2, (pos - target) * 0.25);
-  }
-  if (uc.budget < 0) b.confidence -= 1;
-  b.confidence = clamp(Math.round(b.confidence * 10) / 10, 0, 100);
+  const league = t.entry.type === 'league';
+  updateBoardParts(state, { pos: tablePosition(state, uc.id), target: state.objectives.league.target, matchDiff, leagueRound: league ? t.entry.round : null });
+  if (league) checkMidSeasonSack(state, t.entry.round);
 }
 
 /* ---------------- Fin de saison ---------------- */

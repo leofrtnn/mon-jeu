@@ -11,6 +11,7 @@ import { userClub, clubById, clubPlayers, pushMessage } from './state.js';
 import { staffEffects } from './career.js';
 import { money, playerValue } from './economy.js';
 import { windowOpen, logFinance, removeFromClubPublic, addToClubPublic } from './transfers.js';
+import { creditSale } from './board.js';
 
 /** Connaissance (0-100) d'un joueur par le club de l'utilisateur. */
 export function knowledge(state, p) {
@@ -111,6 +112,7 @@ export function marketEvents(state, rng) {
       removeFromClubPublic(state, p);
       addToClubPublic(state, p, b);
       b.budget -= p.clause; uc.budget += p.clause;
+      creditSale(state, p.clause);
       logFinance(state, p.clause, `Clause levée : ${p.name}`);
       pushMessage(state, { prio: 1, icon: '💥', title: `${b.name} lève la clause de ${p.name}`, text: `${money(p.clause)} encaissés. Il part immédiatement.` });
       p.clause = 0;

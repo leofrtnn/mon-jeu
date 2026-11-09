@@ -7,6 +7,7 @@ import { playerValue, playerWage, money } from './economy.js';
 import { clubById, userClub, clubPlayers, pushMessage } from './state.js';
 import { assignNumbers, createPlayer } from '../data/generator.js';
 import { clamp } from '../core/rng.js';
+import { boardAllows, spendTransfer, creditSale } from './board.js';
 
 export const MAX_SQUAD = 32;
 const MIN_SQUAD = 20;
@@ -92,6 +93,9 @@ export function loanIn(state, pid) {
   if (club.playerIds.length >= MAX_SQUAD) return { ok: false, msg: 'Effectif complet.' };
   const fee = Math.round(playerValue(p) * 0.08 / 25000) * 25000;
   if (club.budget < fee) return { ok: false, msg: 'Budget insuffisant.' };
+  const chk = boardAllows(state, { fee, addWage: p.wage });
+  if (!chk.ok) return chk;
+  spendTransfer(state, fee);
   const from = clubById(state, p.clubId);
   from.budget += fee;
   removeFromClub(state, p);
@@ -127,6 +131,7 @@ export function sellPlayer(state, offer) {
   addToClub(state, p, buyer);
   buyer.budget -= offer.amount;
   club.budget += offer.amount;
+  creditSale(state, offer.amount);
   logFinance(state, offer.amount, `Vente : ${p.name}`);
   state.pendingOffers = (state.pendingOffers || []).filter((o) => o.pid !== p.id);
   pushMessage(state, { prio: 3, icon: '€', title: `${p.name} vendu à ${buyer.name}`, text: money(offer.amount) });
@@ -357,6 +362,9 @@ export function completeTransfer(state, pid, fee, offer, dem) {
   const agentFee = Math.round((fee ? fee * dem.agentFeeRate : offer.wage * 4) / 1000) * 1000;
   const cost = fee + (offer.bonus || 0) + agentFee;
   if (club.budget < cost) return { ok: false, msg: `Budget insuffisant (${money(cost)}).` };
+  const chk = boardAllows(state, { fee: cost, addWage: offer.wage });
+  if (!chk.ok) return chk;
+  spendTransfer(state, cost);
   if (p.clubId) clubById(state, p.clubId).budget += fee;
   removeFromClub(state, p);
   addToClub(state, p, club);
@@ -375,6 +383,8 @@ export function completeRenewal(state, pid, offer) {
   const p = state.players[pid];
   const club = userClub(state);
   if (offer.bonus && club.budget < offer.bonus) return { ok: false, msg: 'Budget insuffisant pour la prime.' };
+  const chk = boardAllows(state, { addWage: offer.wage - p.wage });
+  if (!chk.ok) return chk;
   club.budget -= offer.bonus || 0;
   if (offer.bonus) logFinance(state, -offer.bonus, `Prime de prolongation : ${p.name}`);
   Object.assign(p, { wage: offer.wage, contract: offer.years, clause: offer.clause || 0, requested: false });

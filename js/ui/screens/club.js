@@ -16,18 +16,20 @@ import { POSITIONS } from '../../data/constants.js';
 import { esc, seg, playerRow, gauge, stars, scaleColor } from '../components.js';
 import { showPlayer } from './playerSheet.js';
 import * as settings from './settings.js';
+import { ensureBoard, REQUESTS, boardRequest, shiftBudget, wageRoom, youthShare, SALE_SHARE, WAGE_RATE } from '../../game/board.js';
 import { avatarSvg } from '../avatar.js';
 import { COACH_SKILLS, SKILL_KEYS, PHILOSOPHIES, coachName, ensureCoachProfile } from '../../game/coach.js';
 import { openCoachEditor } from './coachEditor.js';
 import * as friends from './friends.js';
 
-const TABS = [['fin', 'Finances'], ['market', 'Mercato'], ['staff', 'Staff'], ['train', 'Entraînement'], ['youth', 'Formation'], ['obj', 'Carrière'], ['friends', 'Amis'], ['settings', 'Réglages']];
+const TABS = [['fin', 'Finances'], ['board', 'CA'], ['market', 'Mercato'], ['staff', 'Staff'], ['train', 'Entraînement'], ['youth', 'Formation'], ['obj', 'Carrière'], ['friends', 'Amis'], ['settings', 'Réglages']];
 
 export function render(app) {
   const tab = app.ui.clubTab || 'fin';
   const s = app.state;
   let body;
   if (tab === 'fin') body = finances(s);
+  else if (tab === 'board') body = boardView(s);
   else if (tab === 'market') body = market(app);
   else if (tab === 'staff') body = staff(app);
   else if (tab === 'train') body = training(s);
@@ -68,6 +70,45 @@ function finances(s) {
     </div>`;
 }
 
+function boardView(s) {
+  const b = ensureBoard(s);
+  const uc = userClub(s);
+  const bill = wageBill(clubPlayers(s, uc));
+  const parts = [['results', 'Résultats', 50], ['finances', 'Finances', 15], ['transfers', 'Mercato', 15], ['youth', 'Jeunes', 10], ['style', 'Style de jeu', 10]];
+  const o = s.objectives;
+  const st = s.seasonStats || {};
+  const styleNow = st.m ? { attack: `${(st.gf / st.m).toFixed(2)} buts/match (objectif ≥ 1,6)`, solid: `${(st.ga / st.m).toFixed(2)} encaissés/match (≤ 1,1)`, possession: `${Math.round(st.poss / st.m)} % de possession (≥ 52 %)`, youth: `${youthShare(s)} % du temps de jeu aux jeunes` }[b.identity] : 'Pas encore de match';
+  return `<div class="card"><h3>Confiance du CA</h3>
+      <div class="row between"><b class="big" style="color:${scaleColor(b.confidence)}">${Math.round(b.confidence)}%</b>
+        <small>${b.confidence < 20 ? '⚠ Votre poste est menacé' : b.confidence < 45 ? 'Le CA s\'impatiente' : 'Le CA vous soutient'}</small></div>
+      ${parts.map(([k, l, w]) => `<div class="attr"><span>${l} <small>(${w} %)</small></span>${gauge(b.parts[k], scaleColor(b.parts[k]))}<span class="v">${Math.round(b.parts[k])}</span></div>`).join('')}
+    </div>
+    <div class="card"><h3>Enveloppes</h3>
+      <div class="row between"><span>Budget transferts</span><b class="big" style="font-size:24px">${money(b.transferBudget)}</b></div>
+      <div class="row between" style="margin-top:6px"><span>Masse salariale</span><b>${money(bill)} / ${money(b.wageBudget)} par sem.</b></div>
+      ${gauge(Math.min(100, bill / b.wageBudget * 100), bill > b.wageBudget ? 'var(--bad)' : 'var(--good)')}
+      <small class="muted">Marge salariale : ${money(Math.max(0, b.wageBudget - bill))}/sem · ${Math.round(SALE_SHARE * 100)} % des ventes reviennent au budget transferts.</small>
+      <div class="btns" style="margin-top:10px">
+        <button class="btn sm" data-act="shift" data-v="1000000">1 M€ → +${money(1000000 / WAGE_RATE)}/sem</button>
+        <button class="btn sm" data-act="shift" data-v="-1000000">+${money(1000000 / WAGE_RATE)}/sem → 1 M€</button></div>
+    </div>
+    <div class="card"><h3>Attentes du CA</h3>
+      <div class="row" style="padding:5px 0"><span class="grow">🏁 ${esc(o.league.label)}</span><span class="tag ${tablePosition(s, uc.id) <= o.league.target ? 'good' : 'bad'}">${tablePosition(s, uc.id)}e</span></div>
+      ${o.cup ? `<div class="row" style="padding:5px 0"><span class="grow">🏆 ${esc(o.cup.label)}</span></div>` : ''}
+      ${o.conti ? `<div class="row" style="padding:5px 0"><span class="grow">⭐ ${esc(o.conti.label)}</span></div>` : ''}
+      <div class="row" style="padding:5px 0"><span class="grow">🎨 ${esc(o.identity?.label || '')}<br><small>${esc(styleNow)}</small></span></div>
+      <div class="row" style="padding:5px 0"><span class="grow">🌱 ${esc(o.youth?.label || '')}</span><span class="tag ${youthShare(s) >= b.youthTarget ? 'good' : 'ok'}">${youthShare(s)} %</span></div>
+      <div class="row" style="padding:5px 0"><span class="grow">💶 ${esc(o.finance.label)}</span><span class="tag ${uc.budget >= 0 && bill <= b.wageBudget ? 'good' : 'bad'}">${uc.budget >= 0 && bill <= b.wageBudget ? 'OK' : 'Hors cadre'}</span></div>
+    </div>
+    <div class="card"><h3>Supporters</h3>
+      <div class="row between"><span>Humeur</span><b style="color:${scaleColor(b.fans)}">${Math.round(b.fans)}%</b></div>${gauge(b.fans)}
+      <small class="muted">Des supporters heureux remplissent le stade (billetterie jusqu'à +10 %).</small></div>
+    <div class="card"><h3>Demandes au CA</h3>
+      ${Object.entries(REQUESTS).map(([k, r]) => `<div class="row" style="padding:6px 0;border-bottom:1px solid var(--line)"><span class="grow">${r.label}<br><small class="muted">Confiance requise : ${r.min} %</small></span>
+        <button class="btn sm" data-act="req" data-v="${k}">Demander</button></div>`).join('')}
+    </div>`;
+}
+
 function market(app) {
   const s = app.state;
   const uc = userClub(s);
@@ -75,7 +116,7 @@ function market(app) {
   const mode = app.ui.mktMode || 'buy';
   const open = windowOpen(s);
   let html = `<div class="card row between" style="padding:10px 14px">
-      <span>${open ? '🟢 Mercato ouvert' : '🔴 Mercato fermé'}</span><small>Budget ${money(uc.budget)}</small></div>
+      <span>${open ? '🟢 Mercato ouvert' : '🔴 Mercato fermé'}</span><small>Transferts <b>${money(ensureBoard(s).transferBudget)}</b> · marge salariale <b>${money(Math.max(0, wageRoom(s)))}</b>/sem</small></div>
     ${seg('mmode', ['buy', 'loan', 'sell', 'scout'], mode, { buy: 'Acheter', loan: 'Prêts', sell: 'Ventes', scout: 'Observés' })}`;
   if (mode === 'sell') {
     const offers = (s.pendingOffers || []).filter((o) => s.players[o.pid]?.clubId === uc.id);
@@ -220,6 +261,8 @@ export const actions = {
   ...settings.actions,
   ...friends.actions,
   ctab(el, app) { app.ui.clubTab = el.dataset.v; app.render(); },
+  shift(el, app) { done(app, shiftBudget(app.state, +el.dataset.v)); },
+  req(el, app) { const r = boardRequest(app.state, el.dataset.v); app.toast(r.msg, 3500); app.save(); app.render(); },
   editcoach(el, app) { openCoachEditor(app, { mode: 'edit' }); },
   mmode(el, app) { app.ui.mktMode = el.dataset.v; app.render(); },
   mpos(el, app) { app.ui.mktPos = el.dataset.v || null; app.render(); },

@@ -11,6 +11,7 @@ import { avatarSvg } from './avatar.js';
 import { ensureCoachProfile } from '../game/coach.js';
 import { ensureManagers, onUserArrives } from '../game/managers.js';
 import { ensureStaff } from '../game/career.js';
+import { ensureBoard } from '../game/board.js';
 import { openCoachEditor } from './screens/coachEditor.js';
 import * as home from './screens/home.js';
 import * as squad from './screens/squad.js';
@@ -98,6 +99,7 @@ export const app = {
       if (this.state.coach) ensureCoachProfile(this.state.coach);
       if (!this.state.managers) { ensureManagers(this.state); onUserArrives(this.state, userClub(this.state)); }
       ensureStaff(this.state);
+      ensureBoard(this.state);
       const c = userClub(this.state);
       const accent = clubAccent(c);
       document.documentElement.style.setProperty('--accent', accent);
