@@ -27,7 +27,7 @@ export function clubAccent(club) {
 }
 
 export function crest(club, size = '') {
-  if (club?.logo) return `<span class="crest ${size} has-img" style="background:${club.color};color:${club.color2}">${imgTag(club.logo, size === 'lg' ? 160 : 80)}<i>${esc(club.short)}</i></span>`;
+  if (club?.logo) return `<span class="crest ${size} has-img" style="background:${club.color};color:${club.color2}">${imgTag(club.logo, size === 'lg' ? 160 : 80, 'logo')}<i>${esc(club.short)}</i></span>`;
   return `<span class="crest ${size}" style="background:${club.color};color:${club.color2}">${esc(club.short)}</span>`;
 }
 

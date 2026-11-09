@@ -390,8 +390,8 @@ textarea { width: 100%; min-height: 90px; border-radius: 12px; border: 1px solid
 
 /* ---------- Invitation à tourner le téléphone ---------- */
 #rotate { display: none; }
-@media (orientation: portrait) and (max-width: 760px) {
-  body:not(.allow-portrait) #rotate {
+@media (orientation: portrait) and (max-width: 900px), (orientation: portrait) and (pointer: coarse) {
+  #rotate {
     display: flex; position: fixed; inset: 0; z-index: 1000; flex-direction: column; align-items: center; justify-content: center; gap: 18px;
     padding: 30px; text-align: center; background: radial-gradient(600px 400px at 50% 30%, color-mix(in srgb, var(--accent) 22%, transparent), transparent 70%), var(--bg);
   }
@@ -399,6 +399,8 @@ textarea { width: 100%; min-height: 90px; border-radius: 12px; border: 1px solid
   #rotate .phone::after { content: ""; position: absolute; left: 50%; bottom: 6px; width: 16px; height: 4px; margin-left: -8px; border-radius: 2px; background: var(--text); }
   #rotate h2 { font-size: 30px; text-transform: uppercase; }
   #rotate p { color: var(--muted); margin: 0; max-width: 300px; }
+  #rotate .rot-hint { font-size: 12px; opacity: .8; }
+  #app, #overlay-root { visibility: hidden; }
 }
 @keyframes rot { 0%, 25% { transform: rotate(0); } 55%, 85% { transform: rotate(-90deg); } 100% { transform: rotate(0); } }
 
@@ -513,15 +515,18 @@ textarea { width: 100%; min-height: 90px; border-radius: 12px; border: 1px solid
 /* ---------- Logos, visages, notes façon FM ---------- */
 .crest { position: relative; overflow: hidden; }
 .crest > i { font-style: normal; }
-.crest.has-img { background: transparent !important; box-shadow: none; }
-.crest.has-img > i { visibility: hidden; }
-.crest > img { position: absolute; inset: 6%; width: 88%; height: 88%; object-fit: contain; }
+/* L'écusson / les initiales restent visibles tant que l'image n'est pas chargée. */
+.crest.img-ok { background: transparent !important; box-shadow: none; }
+.crest.img-ok > i { visibility: hidden; }
+.crest > img { position: absolute; inset: 6%; width: 88%; height: 88%; object-fit: contain; opacity: 0; }
+.crest.img-ok > img { opacity: 1; }
 .face { position: relative; width: 34px; height: 34px; border-radius: 50%; overflow: hidden; flex: none; display: inline-flex; align-items: center; justify-content: center;
   font-family: var(--display); font-weight: 700; font-size: 12px; box-shadow: inset 0 0 0 2px rgba(255, 255, 255, .15); }
 .face > i { font-style: normal; }
-.face.has-img { background: #1b2430 !important; }
-.face.has-img > i { visibility: hidden; }
-.face > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 20%; }
+.face.img-ok { background: #1b2430 !important; }
+.face.img-ok > i { visibility: hidden; }
+.face > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 20%; opacity: 0; }
+.face.img-ok > img { opacity: 1; }
 .face.lg { width: 76px; height: 76px; font-size: 24px; }
 .face.sm { width: 26px; height: 26px; font-size: 10px; }
 .starbar { position: relative; display: inline-block; color: rgba(255, 255, 255, .16); letter-spacing: 1px; font-size: 13px; line-height: 1; white-space: nowrap; }

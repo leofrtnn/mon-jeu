@@ -15,6 +15,7 @@ import { ensureStaff } from '../game/career.js';
 import { ensureBoard } from '../game/board.js';
 import { ensureLife } from '../game/life.js';
 import { loadRealData, enrichRealSave } from '../data/realWorld.js';
+import { prefetchLogos } from './images.js';
 import { openCoachEditor } from './screens/coachEditor.js';
 import * as home from './screens/home.js';
 import * as squad from './screens/squad.js';
@@ -46,11 +47,8 @@ export const app = {
 
   init() {
     // Invitation à passer en paysage (on peut la refuser une fois pour toutes).
-    try { if (localStorage.getItem('cdp-portrait') === '1') document.body.classList.add('allow-portrait'); } catch { /* ignore */ }
-    document.getElementById('allow-portrait')?.addEventListener('click', () => {
-      document.body.classList.add('allow-portrait');
-      try { localStorage.setItem('cdp-portrait', '1'); } catch { /* ignore */ }
-    });
+    // Le jeu se joue uniquement à l'horizontale (l'ancien choix « continuer en portrait » est oublié).
+    try { localStorage.removeItem('cdp-portrait'); } catch { /* ignore */ }
     this.$screen = document.getElementById('screen');
     this.$top = document.getElementById('topbar');
     this.$tabs = document.getElementById('tabbar');
@@ -106,10 +104,19 @@ export const app = {
       ensureLife(this.state);
       refreshStarRef(this.state);
       // Parties « monde réel » créées avant l'ajout des logos/photos : on les complète une fois.
-      if (this.state.world === 'real' && !this.state.mediaReady && !this._enriching) {
+      if (this.state.world === 'real' && this.state.mediaV !== 2 && !this._enriching) {
         this._enriching = true;
         const st = this.state;
         loadRealData().then((d) => { if (enrichRealSave(st, d) && st === this.state) { this.save(); this.render(); } }).catch(() => {}).finally(() => { this._enriching = false; });
+      }
+      // Logos gardés sur l'appareil : téléchargés une fois, puis toujours affichés (même hors ligne).
+      if (this.state.world === 'real' && !this._logosQueued) {
+        let done = false;
+        try { done = localStorage.getItem('cdp-logos-v2') === '1'; } catch { /* ignore */ }
+        if (!done) {
+          this._logosQueued = true;
+          prefetchLogos(this.state.clubs).then((n) => { if (n > 40) try { localStorage.setItem('cdp-logos-v2', '1'); } catch { /* ignore */ } });
+        }
       }
       const c = userClub(this.state);
       const accent = clubAccent(c);

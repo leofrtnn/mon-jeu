@@ -51,6 +51,15 @@ SHORT = {
   'rc-strasbourg': 'RCSA', 'toulouse': 'TFC', 'troyes': 'ESTA',
 }
 
+# Noms de fichiers de logo mal extraits de Wikipédia.
+LOGO_FIX = {'tottenham-hotspur': 'Tottenham Hotspur.svg'}
+
+def clean_logo(cid, f):
+    if cid in LOGO_FIX: return LOGO_FIX[cid]
+    if not f: return None
+    f = f.split('|')[0].replace('class=skin-invert', '').strip()
+    return f if '.' in f else None
+
 def lum(h):
     h = h.lstrip('#'); r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
     return 0.299 * r + 0.587 * g + 0.114 * b
@@ -75,7 +84,7 @@ for lg in d['leagues']:
         c = next(x for x in d['clubs'] if x['id'] == cid)
         clubs.append({'id': cid, 'league': lg['id'], 'name': c.get('shortName') if c.get('shortName') and len(c['name']) > 22 else c['name'],
                       'short': SHORT.get(cid, c['name'][:3].upper()), 'colors': colors(c), 'stadium': c.get('capacity') or 20000,
-                      'rep': REP.get(cid, 65), 'logo': (c.get('logo') or {}).get('file')})
+                      'rep': REP.get(cid, 65), 'logo': clean_logo(cid, (c.get('logo') or {}).get('file'))})
 players = []
 for p in d['players']:
     first, last = split(p['name'])

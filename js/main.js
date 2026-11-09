@@ -3,6 +3,9 @@
  * enregistrement du service worker (hors ligne).
  */
 import { app } from './ui/app.js';
+import { watchViewport } from './ui/viewport.js';
+
+watchViewport();
 import { load, setSlot, saveSync } from './game/state.js';
 
 app.init();

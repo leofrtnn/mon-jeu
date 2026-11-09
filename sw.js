@@ -3,7 +3,8 @@
  * Stratégie : cache d'abord, puis réseau (et mise à jour du cache en arrière-plan).
  * Pensez à incrémenter VERSION à chaque livraison.
  */
-const VERSION = 'cdp-v18';
+const IMG_CACHE = 'cdp-img';
+const VERSION = 'cdp-v20';
 const ASSETS = [
   './',
   './css/style.css',
@@ -80,6 +81,7 @@ const ASSETS = [
   './js/ui/screens/start.js',
   './js/ui/screens/tactics.js',
   './js/ui/sim.js',
+  './js/ui/viewport.js',
   './js/vendor/THREE-LICENSE.txt',
   './js/vendor/three.module.min.js',
   './js/version.js',
@@ -92,12 +94,21 @@ self.addEventListener('install', (e) => {
 });
 
 self.addEventListener('activate', (e) => {
-  e.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== VERSION).map((k) => caches.delete(k))))
+  e.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== VERSION && k !== IMG_CACHE).map((k) => caches.delete(k))))
     .then(() => self.clients.claim()));
+  // NB : le cache des images (logos, photos) « cdp-img » est conservé d'une version à l'autre.
 });
 
 self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET') return;
+  // Logos et photos (Wikimedia) : cache d'abord, gardé sur l'appareil.
+  if (new URL(e.request.url).hostname === 'upload.wikimedia.org') {
+    e.respondWith(caches.open(IMG_CACHE).then((c) => c.match(e.request, { ignoreVary: true }).then((hit) => hit || fetch(e.request).then((res) => {
+      if (res && (res.ok || res.type === 'opaque')) c.put(e.request, res.clone());
+      return res;
+    }))));
+    return;
+  }
   e.respondWith(
     caches.match(e.request, { ignoreSearch: true }).then((hit) => {
       const net = fetch(e.request, { cache: 'no-cache' }).then((res) => {
