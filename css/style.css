@@ -327,6 +327,11 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; font-varian
 .controls .btn { flex: 1; padding: 0 6px; min-height: 48px; font-size: 13px; }
 .controls .btn.on { background: var(--accent); color: var(--accent-ink); }
 
+.tapcard { position: absolute; left: calc(10px + var(--safe-l)); top: 10px; z-index: 3; width: min(300px, 70%); padding: 10px 12px; border-radius: 14px;
+  background: rgba(8, 14, 11, .88); border: 1px solid var(--line2); backdrop-filter: blur(8px); font-size: 13px; animation: fadeIn .18s; }
+.tapcard b { font-family: var(--display); font-size: 17px; }
+.tc-num { width: 36px; height: 36px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-family: var(--display); font-weight: 800; font-size: 18px; flex: none; }
+
 /* Barres de stats comparées */
 .cmp { margin: 10px 0; }
 .cmp .lbl { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 5px; font-variant-numeric: tabular-nums; }

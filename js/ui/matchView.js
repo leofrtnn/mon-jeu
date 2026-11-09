@@ -34,6 +34,8 @@ function luminance(h) {
   return (0.299 * r + 0.587 * g + 0.114 * b) / 255;
 }
 const lerp = (a, b, t) => a + (b - a) * t;
+const SKINS = ['#f1c27d', '#e0ac69', '#c68642', '#8d5524', '#ffdbac', '#a0673b', '#5c3a21', '#d9a066'];
+const HAIRS = ['#2b1d14', '#120c08', '#5a3a1e', '#b07a3c', '#d9b26b', '#1a1a1a', '#7a4b2a', '#3d2a1a', '#e6d3a3'];
 const ease = (t) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2);
 
 export class MatchView {
@@ -57,7 +59,7 @@ export class MatchView {
     this.players = new Map(); // id -> {x,y,tx,ty,side,num,gk,alpha}
     this.leaving = [];
     this.period = 1;
-    this.cam = { y: 0.5, zoom: 1.08, shake: 0 };
+    this.cam = { y: 0.5, zoom: 1.04, shake: 0 };
     this.particles = [];
     this.banner = null; // { text, color, t, dur }
     this.tags = []; // étiquettes de noms
@@ -66,10 +68,21 @@ export class MatchView {
     // Couleurs : éviter que les deux équipes se ressemblent.
     const h = match.teams[0].club, a = match.teams[1].club;
     let ac = a.color;
-    if (colorDist(h.color, ac) < 120) ac = colorDist(h.color, a.color2) > 120 ? a.color2 : (luminance(h.color) > 0.5 ? '#1b1f2a' : '#f2f2f2');
+    if (colorDist(h.color, ac) < 150) ac = colorDist(h.color, a.color2) > 120 ? a.color2 : (luminance(h.color) > 0.5 ? '#1b1f2a' : '#f2f2f2');
     this.colors = [h.color, ac];
     this.textColors = this.colors.map((c) => (luminance(c) > 0.6 ? '#111' : '#fff'));
     this.gkColors = ['#d4e157', '#26c6da'];
+    // Shorts : couleur secondaire du club si elle se distingue du maillot.
+    this.shorts = [h, a].map((c, i) => (c.color2 && colorDist(c.color2, this.colors[i]) > 90 ? c.color2 : (luminance(this.colors[i]) > 0.5 ? '#1c2230' : '#f1f1f1')));
+    this.referee = { x: 0.45, y: 0.3, vx: 0, vy: 0, tx: 0.45, ty: 0.3, face: 0, phase: 0, speed: 0 };
+    this.labelMode = opts.labelMode || 'name'; // name | num | none
+    this.selected = null;
+    this._tap = (e) => {
+      const id = this.playerAt(e.clientX, e.clientY);
+      this.selected = id === this.selected ? null : id;
+      this.opts.onPlayerTap?.(this.selected);
+    };
+    canvas.addEventListener('pointerup', this._tap);
     this.syncPlayers(true);
     this.resize();
     this._ro = new ResizeObserver(() => this.resize());
@@ -79,6 +92,7 @@ export class MatchView {
   }
 
   destroy() {
+    this.canvas.removeEventListener('pointerup', this._tap);
     cancelAnimationFrame(this.raf);
     this._ro.disconnect();
   }
@@ -126,11 +140,14 @@ export class MatchView {
         let pl = this.players.get(mp.id);
         if (!pl) {
           // Nouvel entrant : arrive depuis la ligne de touche.
-          pl = { x: 0.5, y: t.side === 0 ? -0.04 : 1.04, tx: 0.5, ty: 0.5, side: t.side, alpha: reset ? 1 : 0 };
+          pl = { x: 0.5, y: t.side === 0 ? -0.04 : 1.04, tx: 0.5, ty: 0.5, side: t.side, alpha: reset ? 1 : 0,
+            vx: 0, vy: 0, face: t.side === 0 ? 0 : Math.PI, phase: Math.random() * 6, speed: 0, kick: 0, slide: 0, dive: 0, diveDir: 1, jump: 0, celeb: 0,
+            skin: SKINS[mp.id % SKINS.length], hair: HAIRS[(mp.id * 7) % HAIRS.length] };
           if (reset) { const p = this.basePos(t, mp, 0.5, 0.5, false, true); pl.x = p.x; pl.y = p.y; }
           this.players.set(mp.id, pl);
         }
         pl.num = mp.number; pl.gk = t.slots[mp.slot].pos === 'GB'; pl.mp = mp; pl.team = t;
+        pl.short = (mp.name || '').split(' ').slice(-1)[0];
       }
     }
     for (const [id, pl] of this.players) {
@@ -227,6 +244,7 @@ export class MatchView {
       b.x = b.fx = b.tx; b.y = b.fy = b.ty;
     }
     if (ev.type === 'shot' && ev.outcome === 'post') this.cam.shake = 0.4;
+    this.animate(ev);
     // Étiquettes de noms sur les actions importantes.
     if (['shot', 'goal', 'yellow', 'red', 'penalty', 'injury', 'dribble', 'sub'].includes(ev.type) && ev.pid) {
       this.tags.push({ id: ev.pid, text: this.nameOf(ev.pid), life: 1.6 });
@@ -236,6 +254,52 @@ export class MatchView {
     if (ev.type === 'var') this.banner = { text: ev.outcome === 'cancelled' ? 'VAR · REFUSÉ' : 'VAR · VALIDÉ', color: '#3a86ff', t: 0, dur: 2.2, small: true };
     if (ev.type === 'penalty') this.banner = { text: 'PENALTY', color: '#ffb703', t: 0, dur: 1.6, small: true };
     this.opts.onEventStart?.(ev);
+  }
+
+  /** Gestes des joueurs : frappe, tacle, plongeon, saut, conduite de balle. */
+  animate(ev) {
+    const actor = this.players.get(ev.pid);
+    const other = this.players.get(ev.pid2);
+    const b = this.ball;
+    b.attach = null;
+    if (['pass', 'longpass', 'cross', 'cornerkick', 'shot', 'clearance', 'interception'].includes(ev.type) && actor) {
+      actor.kick = 0.32;
+      this.faceTo(actor, ev.x, ev.y);
+    }
+    if (ev.type === 'dribble' && actor) b.attach = ev.pid; // le dribbleur garde le ballon au pied
+    if ((ev.type === 'tackle' || ev.type === 'foul') && actor) { actor.slide = 0.55; this.faceTo(actor, b.x, b.y); }
+    if (ev.type === 'header' && actor) actor.jump = 0.45;
+    if (ev.type === 'shot' && ev.kind === 'header' && actor) actor.jump = 0.45;
+    if (ev.type === 'shot' && (ev.outcome === 'saved' || ev.outcome === 'goal')) {
+      const gk = [...this.players.values()].find((p) => p.gk && p.team.side !== ev.side);
+      if (gk) {
+        gk.dive = 0.75;
+        const [, gy] = this.toScreen(gk.x, gk.y), [, by2] = this.toScreen(ev.x ?? 0.5, ev.y ?? 0.5);
+        gk.diveDir = by2 >= gy ? 1 : -1;
+      }
+    }
+    if (ev.type === 'goal') {
+      for (const p of this.players.values()) if (p.team.side === ev.side && !p.gk) p.celeb = p.mp.id === ev.pid ? 3.2 : 2.6;
+    }
+  }
+
+  faceTo(p, x, y) {
+    p.face = Math.atan2((y - p.y) * PITCH_W, (x - p.x) * PITCH_L);
+  }
+
+  /** Joueur sous un point écran (pour le toucher). */
+  playerAt(cx, cy) {
+    const rect = this.canvas.getBoundingClientRect();
+    const sx = (cx - rect.left) * this.dpr, sy = (cy - rect.top) * this.dpr;
+    const T = this.view || { z: 1, tx: 0, ty: 0 };
+    const wx = (sx - T.tx) / T.z, wy = (sy - T.ty) / T.z;
+    let best = null, bd = (2.6 * this.scale) ** 2 * 4;
+    for (const [id, p] of this.players) {
+      const [x, y] = this.toScreen(p.x, p.y);
+      const d = (x - wx) ** 2 + (y - wy) ** 2;
+      if (d < bd) { bd = d; best = id; }
+    }
+    return best;
   }
 
   nameOf(id) {
@@ -311,16 +375,49 @@ export class MatchView {
     this.updateFx(dt);
   }
 
+  /**
+   * Déplacements "physiques" : accélération limitée, vitesse max selon la vitesse
+   * du joueur et sa fatigue, freinage à l'approche de la cible.
+   */
   movePlayers(dt) {
-    const k = 1 - Math.exp(-dt * 2.6);
+    const L = PITCH_L, W = PITCH_W;
+    const step = (p, maxSp) => {
+      const dx = (p.tx - p.x) * L, dy = (p.ty - p.y) * W;
+      const dist = Math.hypot(dx, dy);
+      const want = Math.min(maxSp, dist * 2.6);
+      const dvx = dist > 0.01 ? (dx / dist) * want : 0, dvy = dist > 0.01 ? (dy / dist) * want : 0;
+      const acc = Math.min(1, dt * 5.5);
+      p.vx += (dvx - p.vx) * acc; p.vy += (dvy - p.vy) * acc;
+      p.x += (p.vx * dt) / L; p.y += (p.vy * dt) / W;
+      p.speed = Math.hypot(p.vx, p.vy);
+      // Orientation : vers où il court, sinon vers le ballon.
+      const target = p.speed > 1.2 ? Math.atan2(p.vy, p.vx) : Math.atan2((this.ball.y - p.y) * W, (this.ball.x - p.x) * L);
+      let d = target - p.face;
+      while (d > Math.PI) d -= Math.PI * 2;
+      while (d < -Math.PI) d += Math.PI * 2;
+      p.face += d * Math.min(1, dt * 7);
+      p.phase += p.speed * dt * 1.15;
+    };
     for (const p of this.players.values()) {
-      p.x += (p.tx - p.x) * k; p.y += (p.ty - p.y) * k;
+      const vit = p.mp?.p?.attrs?.vit ?? 60, en = p.mp?.energy ?? 100;
+      step(p, (6.4 + vit * 0.034) * 2.4 * (0.72 + 0.28 * en / 100) * (p.celeb > 0 ? 0.8 : 1));
       p.alpha = Math.min(1, (p.alpha ?? 1) + dt * 2);
+      for (const k of ['kick', 'slide', 'dive', 'jump', 'celeb']) if (p[k] > 0) p[k] = Math.max(0, p[k] - dt);
     }
-    for (const p of this.leaving) {
-      p.x += (p.tx - p.x) * k; p.y += (p.ty - p.y) * k; p.life -= dt;
-    }
+    for (const p of this.leaving) { step(p, 6); p.life -= dt; }
     this.leaving = this.leaving.filter((p) => p.life > 0);
+    // Arbitre : suit le jeu en diagonale, à distance.
+    const r = this.referee, b = this.ball;
+    r.tx = Math.max(0.08, Math.min(0.92, b.x - 0.1)); r.ty = Math.max(0.1, Math.min(0.9, b.y + (b.y < 0.5 ? 0.18 : -0.18)));
+    step(r, 14);
+    // Ballon au pied du dribbleur.
+    const att = b.attach != null ? this.players.get(b.attach) : null;
+    if (att) {
+      const k = Math.min(1, dt * 10);
+      b.x += (att.x + Math.cos(att.face) * 0.9 / L - b.x) * k;
+      b.y += (att.y + Math.sin(att.face) * 0.9 / W - b.y) * k;
+      b.h = 0;
+    }
   }
 
   updateFx(dt) {
@@ -422,9 +519,12 @@ export class MatchView {
     }
     g.drawImage(this.pitchCache, 0, 0);
 
-    const r = 1.55 * this.scale; // rayon d'un joueur (~1,5 m à l'échelle, lisible)
-    // Ombres + joueurs sortants.
+    const r = (this.landscape ? 2.15 : 2) * this.scale; // rayon d'un joueur : agrandi pour la lisibilité
+    const T = g.getTransform();
+    this.view = { z: T.a, tx: T.e, ty: T.f };
+    // Joueurs sortants, arbitre, puis les 22 joueurs.
     for (const p of this.leaving) this.drawPlayer(g, p, r, Math.max(0, p.life / 1.6));
+    this.drawPlayer(g, { ...this.referee, ref: true, side: 0 }, r * 0.85, 0.95, false);
     const carrierId = this.cur ? this.cur.carrier : null;
     const list = [...this.players.entries()].sort((a, b) => a[1].y - b[1].y);
     for (const [id, p] of list) this.drawPlayer(g, p, r, p.alpha ?? 1, id === carrierId);
@@ -436,7 +536,8 @@ export class MatchView {
     g.fillStyle = '#fff';
     g.beginPath(); g.arc(bx, by - lift, r * (0.48 + this.ball.h * 1.5), 0, Math.PI * 2); g.fill();
     g.strokeStyle = '#222'; g.lineWidth = r * 0.12; g.stroke();
-    // Étiquettes de noms.
+    this.drawLabels(g, r);
+    // Étiquettes d'action (au-dessus).
     g.font = `600 ${Math.round(r * 1.05)}px system-ui, sans-serif`;
     g.textAlign = 'center';
     for (const t of this.tags) {
@@ -470,27 +571,117 @@ export class MatchView {
     }
   }
 
+  /** Angle écran correspondant à une orientation terrain (radians, en mètres). */
+  screenAngle(p) {
+    const [x1, y1] = this.toScreen(p.x, p.y);
+    const [x2, y2] = this.toScreen(p.x + Math.cos(p.face) * 0.8 / PITCH_L, p.y + Math.sin(p.face) * 0.8 / PITCH_W);
+    return Math.atan2(y2 - y1, x2 - x1);
+  }
+
+  /** Silhouette vue de dessus : jambes et bras animés, maillot, short, tête, numéro dans le dos. */
   drawPlayer(g, p, r, alpha, isCarrier) {
     const [x, y] = this.toScreen(p.x, p.y);
+    const ang = this.screenAngle(p);
+    const shirt = p.ref ? '#14171c' : p.gk ? this.gkColors[p.side] : this.colors[p.side];
+    const shorts = p.ref ? '#14171c' : p.gk ? '#20242c' : this.shorts[p.side];
+    const run = Math.min(1, (p.speed || 0) / 7);
+    const swing = Math.sin(p.phase || 0) * r * 0.55 * run;
+    const jump = p.jump > 0 ? 1 + Math.sin((p.jump / 0.45) * Math.PI) * 0.28 : 1;
     g.globalAlpha = alpha;
-    g.fillStyle = 'rgba(0,0,0,0.3)';
-    g.beginPath(); g.ellipse(x + r * 0.25, y + r * 0.35, r, r * 0.7, 0, 0, Math.PI * 2); g.fill();
-    if (isCarrier) {
-      g.strokeStyle = 'rgba(255,255,255,0.9)'; g.lineWidth = r * 0.22;
-      g.beginPath(); g.arc(x, y, r * 1.45, 0, Math.PI * 2); g.stroke();
+    // Ombre (décalée quand le joueur saute).
+    g.fillStyle = 'rgba(0,0,0,0.28)';
+    g.beginPath(); g.ellipse(x + r * 0.2 * jump, y + r * 0.3 * jump, r * 0.95, r * 0.7, 0, 0, Math.PI * 2); g.fill();
+    if (isCarrier || this.selected === p.mp?.id) {
+      g.strokeStyle = this.selected === p.mp?.id ? '#ffd166' : 'rgba(255,255,255,0.85)';
+      g.lineWidth = r * 0.16;
+      g.beginPath(); g.arc(x, y, r * 1.55, 0, Math.PI * 2); g.stroke();
     }
-    g.fillStyle = p.gk ? this.gkColors[p.side] : this.colors[p.side];
-    g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
-    g.strokeStyle = p.side === 0 ? 'rgba(255,255,255,0.95)' : 'rgba(20,20,20,0.9)';
-    g.lineWidth = r * 0.18; g.stroke();
-    if (r > 5) {
+    g.save();
+    g.translate(x, y);
+    g.rotate(ang);
+    g.scale(jump, jump);
+    const sock = shorts;
+    if (p.dive > 0) {
+      // Plongeon du gardien : corps allongé sur le côté.
+      const k = Math.sin((p.dive / 0.75) * Math.PI);
+      g.rotate(p.diveDir * k * 1.2);
+      g.fillStyle = shirt;
+      g.beginPath(); g.ellipse(0, 0, r * 0.55, r * (0.8 + k * 0.9), 0, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#f5f5f5';
+      g.beginPath(); g.arc(0, -p.diveDir * r * (1.35 + k * 0.5), r * 0.26, 0, Math.PI * 2); g.fill();
+      g.beginPath(); g.arc(0, p.diveDir * -r * (1.0 + k * 0.4) + r * 0.3, r * 0.22, 0, Math.PI * 2); g.fill();
+    } else {
+      const slide = p.slide > 0 ? Math.sin((p.slide / 0.55) * Math.PI) : 0;
+      const kick = p.kick > 0 ? Math.sin((p.kick / 0.32) * Math.PI) : 0;
+      const stride = swing * 1.5;
+      // Pieds : dépassent du torse pendant la course, la frappe ou le tacle.
+      const feet = [[stride + slide * r * 1.2, r * 0.36], [-stride + kick * r * 1.15 + slide * r * 0.8, -r * 0.36]];
+      g.fillStyle = sock;
+      for (const [fx, fy] of feet) { g.beginPath(); g.ellipse(fx, fy, r * 0.3, r * 0.19, 0, 0, Math.PI * 2); g.fill(); }
+      g.fillStyle = '#111';
+      for (const [fx, fy] of feet) { g.beginPath(); g.ellipse(fx + r * 0.18, fy, r * 0.13, r * 0.13, 0, 0, Math.PI * 2); g.fill(); }
+      // Bras : opposés aux jambes, levés pendant la célébration.
+      const up = p.celeb > 0 ? 1 : 0;
+      for (const sgn of [1, -1]) {
+        const ax = up ? r * 0.55 : -swing * 0.9 * sgn;
+        const ay = sgn * r * (up ? 0.95 : 0.74);
+        g.fillStyle = shirt;
+        g.beginPath(); g.arc(ax, ay, r * 0.22, 0, Math.PI * 2); g.fill();
+        g.fillStyle = p.skin || '#c68642';
+        g.beginPath(); g.arc(ax + (up ? r * 0.28 : r * 0.12), ay * (up ? 1.08 : 1), r * 0.14, 0, Math.PI * 2); g.fill();
+      }
+      // Torse rond (porte le numéro) + liseré.
+      g.fillStyle = shirt;
+      g.beginPath(); g.arc(slide * r * 0.25, 0, r * 0.72, 0, Math.PI * 2); g.fill();
+      g.strokeStyle = p.side === 0 ? 'rgba(255,255,255,0.9)' : 'rgba(10,10,10,0.8)';
+      g.lineWidth = r * 0.11; g.stroke();
+      // Tête à l'avant : indique l'orientation.
+      g.fillStyle = p.skin || '#c68642';
+      g.beginPath(); g.arc(r * 0.66 + slide * r * 0.3, 0, r * 0.27, 0, Math.PI * 2); g.fill();
+      g.fillStyle = p.hair || '#2b1d14';
+      g.beginPath(); g.arc(r * 0.62 + slide * r * 0.3, 0, r * 0.26, Math.PI * 0.5, Math.PI * 1.5); g.fill();
+    }
+    g.restore();
+    // Numéro sur le torse (toujours à l'endroit).
+    if (!p.ref && p.dive <= 0 && r > 4) {
+      const bx = x - Math.cos(ang) * r * 0.06 * jump, by = y - Math.sin(ang) * r * 0.06 * jump;
       g.fillStyle = p.gk ? '#111' : this.textColors[p.side];
-      g.font = `700 ${Math.round(r * 1.05)}px system-ui, sans-serif`;
+      g.font = `800 ${Math.round(r * 0.92)}px "Barlow Condensed", system-ui, sans-serif`;
       g.textAlign = 'center'; g.textBaseline = 'middle';
-      g.fillText(String(p.num ?? ''), x, y + r * 0.05);
+      g.fillText(String(p.num ?? ''), bx, by + r * 0.04);
       g.textBaseline = 'alphabetic';
     }
     g.globalAlpha = 1;
+  }
+
+  /** Étiquettes sous les joueurs (nom ou numéro), en évitant les chevauchements. */
+  drawLabels(g, r) {
+    if (this.labelMode === 'none') return;
+    const fs = Math.max(9 * this.dpr, Math.round(r * 0.85));
+    g.font = `700 ${fs}px "Barlow Condensed", system-ui, sans-serif`;
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    const boxes = [];
+    const carrierId = this.cur ? this.cur.carrier : null;
+    const list = [...this.players.entries()].sort((a, b) => (b[0] === carrierId) - (a[0] === carrierId));
+    for (const [id, p] of list) {
+      const [x, y] = this.toScreen(p.x, p.y);
+      const text = this.labelMode === 'num' ? String(p.num ?? '') : p.short;
+      const w = g.measureText(text).width + fs * 0.6, h = fs * 1.25;
+      let ly = y + r * 1.2 + h / 2;
+      let box = { x: x - w / 2, y: ly - h / 2, w, h };
+      const hit = (b) => boxes.some((o) => b.x < o.x + o.w && b.x + b.w > o.x && b.y < o.y + o.h && b.y + b.h > o.y);
+      if (hit(box)) { ly = y - r * 1.5 - h / 2; box = { x: x - w / 2, y: ly - h / 2, w, h }; }
+      if (hit(box) && id !== carrierId && this.selected !== id) continue;
+      boxes.push(box);
+      const hl = id === carrierId || this.selected === id;
+      g.globalAlpha = hl ? 1 : 0.82;
+      g.fillStyle = hl ? this.colors[p.side] : 'rgba(6,12,9,0.72)';
+      g.beginPath(); g.roundRect ? g.roundRect(box.x, box.y, w, h, h / 2) : g.rect(box.x, box.y, w, h); g.fill();
+      g.fillStyle = hl ? this.textColors[p.side] : '#fff';
+      g.fillText(text, x, ly + fs * 0.04);
+    }
+    g.globalAlpha = 1;
+    g.textBaseline = 'alphabetic';
   }
 
   drawBanner(g, W, H) {

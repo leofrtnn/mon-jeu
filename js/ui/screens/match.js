@@ -45,13 +45,14 @@ export function openMatch(app, opts = {}) {
       <div class="sb-scorers"><div id="sc-0"></div><div id="sc-1"></div></div>
       <div class="momentum" title="Momentum"><i id="mo-0" style="width:50%;background:${hc.color}"></i><i id="mo-1" style="width:50%;background:${ac.color}"></i></div>
     </div>
-    <div class="pitch-area"><canvas id="pitch"></canvas></div>
+    <div class="pitch-area"><canvas id="pitch"></canvas><div class="tapcard hidden" id="tapcard"></div></div>
     <div class="feed" id="feed"></div>
     <div class="controls">
       <button class="btn" data-c="pause">⏸ Pause</button>
       <button class="btn" data-c="speed">x${SPEEDS[0]}</button>
       <button class="btn" data-c="quick">⚡ Résumé</button>
       <button class="btn" data-c="skip">⏭ Fin</button>
+      <button class="btn" data-c="labels" style="flex:.6" title="Étiquettes">${{ name: 'Aa', num: '#', none: '∅' }[s.settings.labels || 'name']}</button>
       <button class="btn" data-c="audio" style="flex:.6">${s.settings.audio ? '🔊' : '🔇'}</button>
     </div>`;
   app.$overlay.appendChild(root);
@@ -109,6 +110,23 @@ export function openMatch(app, opts = {}) {
     if (ev.type === 'ft') { view.pause(); setTimeout(fullTime, 500); }
   };
 
+  /** Fiche rapide d'un joueur touché sur le terrain. */
+  function showTapCard(id) {
+    const card = $('tapcard');
+    if (!id) { card.classList.add('hidden'); return; }
+    let mp = null, t = null;
+    for (const tm of m.teams) for (const x of tm.onPitch) if (x && x.id === id) { mp = x; t = tm; }
+    if (!mp) { card.classList.add('hidden'); return; }
+    const pos = t.slots[mp.slot].pos;
+    card.innerHTML = `<div class="row" style="gap:10px"><span class="tc-num" style="background:${view.colors[t.side]};color:${view.textColors[t.side]}">${mp.number}</span>
+      <div class="grow"><b>${esc(mp.p.first || '')} ${esc(mp.p.last || mp.name)}</b><br><small>${pos} · ${esc(t.club.short)}${(t.roles[mp.slot] && t.roles[mp.slot] !== 'std') ? ' · ' + esc(t.roles[mp.slot]) : ''}</small></div>${ratingChip(mp.rating)}</div>
+      <div class="row" style="gap:6px;margin-top:6px;font-size:12px"><span style="width:52px">Énergie</span><span class="mini" style="flex:1;width:auto"><i style="width:${mp.energy}%;background:${scaleColor(mp.energy)}"></i></span><b>${Math.round(mp.energy)}</b></div>
+      <small>${mp.goals ? `⚽ ${mp.goals} ` : ''}${mp.assists ? `🅰 ${mp.assists} ` : ''}${mp.yellow ? '🟨 ' : ''}Passes ${mp.passesOk}/${mp.passes} · Tirs ${mp.shots} · Tacles ${mp.tackles}</small>`;
+    card.classList.remove('hidden');
+    clearTimeout(ctrl.tapT);
+    ctrl.tapT = setTimeout(() => { card.classList.add('hidden'); view.selected = null; }, 5000);
+  }
+
   /** Indices sonores : sifflets, clameur, "oh !", rumeur selon la zone. */
   function sound(ev) {
     if (!audio.on) return;
@@ -152,7 +170,7 @@ export function openMatch(app, opts = {}) {
     } while (view.queue.length === 0 && m.phase === 'live' && guard++ < 30);
   };
 
-  const view = new MatchView($('pitch'), m, { userSide, onEventStart, onIdle });
+  const view = new MatchView($('pitch'), m, { userSide, onEventStart, onIdle, labelMode: s.settings.labels || 'name', onPlayerTap: showTapCard });
   window.__view = view; // débogage
   view.setSpeed(SPEEDS[ctrl.speedIdx]);
   root.querySelector('[data-c="speed"]').textContent = `x${SPEEDS[ctrl.speedIdx]}`;
@@ -176,6 +194,13 @@ export function openMatch(app, opts = {}) {
       app.toast(ctrl.quick ? 'Résumé rapide : seulement les temps forts' : 'Match en intégralité');
     }
     if (c === 'skip') skipToEnd();
+    if (c === 'labels') {
+      const order = ['name', 'num', 'none'];
+      view.labelMode = order[(order.indexOf(view.labelMode) + 1) % 3];
+      s.settings.labels = view.labelMode; app.save();
+      b.textContent = { name: 'Aa', num: '#', none: '∅' }[view.labelMode];
+      app.toast({ name: 'Noms des joueurs', num: 'Numéros', none: 'Sans étiquettes' }[view.labelMode]);
+    }
     if (c === 'audio') {
       s.settings.audio = !s.settings.audio; app.save();
       if (s.settings.audio) audio.start(); else audio.mute();
