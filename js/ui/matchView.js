@@ -13,6 +13,7 @@
 
 import { formationPos } from '../engine/positions.js';
 import { toLocal, localRect } from './viewport.js';
+import { createBall, stepBall, solveKick, R as BALL_R, GOAL_HALF } from './ballPhysics.js';
 
 const DUR = {
   pass: 0.75, longpass: 1.15, dribble: 0.9, tackle: 0.55, interception: 0.55, header: 0.6, cross: 1.0, cornerkick: 1.1,
@@ -57,6 +58,13 @@ export class MatchView {
     this.cur = null; // événement en cours
     this.curT = 0;
     this.ball = { x: 0.5, y: 0.5, fx: 0.5, fy: 0.5, tx: 0.5, ty: 0.5, h: 0, arc: 0 };
+    // Ballon physique (mètres) : la vue 2D/3D lit this.ball, recalculé à chaque image.
+    this.phys = createBall();
+    this.TS = 2.0;          // le match est rejoué en accéléré (×2) : ballon et joueurs au même rythme
+    this.holder = null;     // joueur qui a le ballon dans les pieds (ou dans les mains : inHands)
+    this.inHands = false;
+    this.pending = null;    // fin prévue d'une frappe : contrôle, arrêt, contre
+    this.physT = 0;
     this.players = new Map(); // id -> {x,y,tx,ty,side,num,gk,alpha}
     this.leaving = [];
     this.period = 1;
@@ -249,22 +257,19 @@ export class MatchView {
     if (['sub', 'red', 'injury', 'kickoff'].includes(ev.type)) this.syncPlayers(false);
     this.dur = (DUR[ev.type] ?? 0.8) * (ev.replay && ev.type !== 'replaystart' && ev.type !== 'replayend' ? 2.3 : 1);
     this.replaying = ev.replay && ev.type !== 'replayend';
-    const b = this.ball;
-    b.fx = b.x; b.fy = b.y;
-    b.tx = ev.x ?? b.x; b.ty = ev.y ?? b.y;
-    b.arc = ARC[ev.type] || (ev.type === 'shot' && ev.kind !== 'penalty' ? 0.03 : 0);
-    if (ev.type === 'kickoff') { b.fx = b.tx = 0.5; b.fy = b.ty = 0.5; b.x = b.y = 0.5; }
-    if (['foul', 'yellow', 'red', 'injury', 'sub', 'var', 'added', 'ht', 'ft', 'offside'].includes(ev.type)) {
-      b.tx = b.x; b.ty = b.y; // le ballon ne bouge pas
-    }
     if (ev.type === 'goal') this.celebrate(ev);
     else this.computeTargets(ev);
     if (ev.type === 'replaystart') { this.banner = null; this.particles = []; this.cam.shake = 0; }
     if (ev.snap) {
-      // Début du ralenti : tout le monde à sa place, ballon compris.
-      for (const p of this.players.values()) { p.x = p.tx; p.y = p.ty; }
-      b.x = b.fx = b.tx; b.y = b.fy = b.ty;
+      // Début du ralenti : tout le monde à sa place, ballon au pied de l'acteur.
+      for (const p of this.players.values()) { p.x = p.tx; p.y = p.ty; p.vx = p.vy = 0; }
+      const a = this.players.get(ev.pid);
+      const f = a ? this.footOf(a) : { x: (ev.x ?? 0.5) * PITCH_L, y: (ev.y ?? 0.5) * PITCH_W };
+      this.place(f.x, f.y);
     }
+    // Le ballon : frappe calculée physiquement, la durée de l'action suit son trajet.
+    const T = this.kick(ev);
+    if (T != null) this.dur = Math.max(0.35, T / (this.TS * (this.replaying ? 0.45 : 1)) + 0.12);
     if (ev.type === 'shot' && ev.outcome === 'post') this.cam.shake = 0.4;
     this.animate(ev);
     // Étiquettes de noms sur les actions importantes.
@@ -283,23 +288,10 @@ export class MatchView {
     const actor = this.players.get(ev.pid);
     const other = this.players.get(ev.pid2);
     const b = this.ball;
-    b.attach = null;
-    if (['pass', 'longpass', 'cross', 'cornerkick', 'shot', 'clearance', 'interception'].includes(ev.type) && actor) {
-      actor.kick = 0.32;
-      this.faceTo(actor, ev.x, ev.y);
-    }
-    if (ev.type === 'dribble' && actor) b.attach = ev.pid; // le dribbleur garde le ballon au pied
     if ((ev.type === 'tackle' || ev.type === 'foul') && actor) { actor.slide = 0.55; this.faceTo(actor, b.x, b.y); }
     if (ev.type === 'header' && actor) actor.jump = 0.45;
     if (ev.type === 'shot' && ev.kind === 'header' && actor) actor.jump = 0.45;
-    if (ev.type === 'shot' && (ev.outcome === 'saved' || ev.outcome === 'goal')) {
-      const gk = [...this.players.values()].find((p) => p.gk && p.team.side !== ev.side);
-      if (gk) {
-        gk.dive = 0.75;
-        const [, gy] = this.toScreen(gk.x, gk.y), [, by2] = this.toScreen(ev.x ?? 0.5, ev.y ?? 0.5);
-        gk.diveDir = by2 >= gy ? 1 : -1;
-      }
-    }
+
     if (ev.type === 'goal') {
       for (const p of this.players.values()) if (p.team.side === ev.side && !p.gk) p.celeb = p.mp.id === ev.pid ? 3.2 : 2.6;
     }
@@ -348,7 +340,6 @@ export class MatchView {
         p.tx = lerp(p.tx, side === 0 ? 0.6 : 0.4, 0.3);
       }
     }
-    this.ball.tx = side === 0 ? 1.012 : -0.012;
     this.banner = { text: 'BUT !', color: this.colors[side], t: 0, dur: 2.8 };
     this.cam.shake = 1;
     this.flash = 1;
@@ -380,19 +371,189 @@ export class MatchView {
     }
     if (this.cur) {
       this.curT += dt / this.dur;
-      const b = this.ball;
-      const k = Math.min(1, this.curT * (this.cur.type === 'goal' ? 3 : 1.25));
-      const e = ease(k);
-      b.x = lerp(b.fx, b.tx, e); b.y = lerp(b.fy, b.ty, e);
-      b.h = b.arc * Math.sin(Math.PI * k);
       if (this.curT >= 1) {
         const ev = this.cur;
         this.cur = null;
         this.opts.onEventEnd?.(ev);
       }
     }
-    this.movePlayers(dt);
+    const pdt = dt * this.TS * (this.replaying ? 0.45 : 1);
+    this.movePlayers(pdt);
+    this.stepPhysics(pdt);
     this.updateFx(realDt);
+  }
+
+  /* ---------------- Ballon physique ---------------- */
+
+  /** Nombre pseudo-aléatoire stable pour un événement (le ralenti rejoue la même frappe). */
+  rnd(ev, k = 0) {
+    const v = Math.sin(((ev.minute || 0) * 97 + (ev.pid || 0) * 31 + k * 17.3 + (ev.extra || 0) * 7 + (ev.x || 0) * 53) * 12.9898) * 43758.5453;
+    return v - Math.floor(v);
+  }
+  /** Pied du joueur (en mètres), devant lui. */
+  footOf(p, d = 0.6) { return { x: p.x * PITCH_L + Math.cos(p.face) * d, y: p.y * PITCH_W + Math.sin(p.face) * d }; }
+  place(x, y) {
+    Object.assign(this.phys, { x, y, z: BALL_R, vx: 0, vy: 0, vz: 0, spin: 0, top: 0, inGoal: 0, hitPost: false });
+    this.pending = null;
+  }
+
+  /** Règle la frappe correspondant à l'événement. Retourne la durée du trajet (s), ou null. */
+  kick(ev) {
+    const P = this.phys;
+    const actor = this.players.get(ev.pid);
+    const recv = this.players.get(ev.pid2) || this.players.get(ev.carrier);
+    const tx = (ev.x ?? 0.5) * PITCH_L, ty = (ev.y ?? 0.5) * PITCH_W;
+    const goalX = ev.side === 0 ? PITCH_L : 0, gdir = ev.side === 0 ? 1 : -1;
+    const r1 = this.rnd(ev, 1), r2 = this.rnd(ev, 2), r3 = this.rnd(ev, 3);
+    const out = P.x < -0.3 || P.x > PITCH_L + 0.3 || P.y < -0.3 || P.y > PITCH_W + 0.3 || P.inGoal;
+    // Coups de pied arrêtés : le ballon est posé.
+    if (ev.type === 'kickoff') { this.holder = null; this.inHands = false; this.place(PITCH_L / 2, PITCH_W / 2); return null; }
+    if (ev.type === 'corner') { this.holder = null; this.inHands = false; this.place(goalX - gdir * 0.4, ty < PITCH_W / 2 ? 0.4 : PITCH_W - 0.4); return null; }
+    if (ev.type === 'penalty') { this.holder = null; this.inHands = false; this.place(goalX - gdir * 11, PITCH_W / 2); return null; }
+    if (ev.type === 'freekick') { this.holder = null; this.inHands = false; this.place(tx, ty); return null; }
+    const kicks = ['pass', 'longpass', 'cross', 'cornerkick', 'clearance', 'header', 'interception', 'tackle', 'shot', 'dribble'];
+    if (!kicks.includes(ev.type)) {
+      // Faute, carton, hors-jeu… : jeu arrêté, le ballon finit sa course sans être relancé.
+      if (['foul', 'offside', 'yellow', 'red', 'injury'].includes(ev.type)) { this.holder = null; P.vx *= 0.4; P.vy *= 0.4; }
+      return null;
+    }
+    // Le ballon part du pied de l'acteur (s'il était sorti, ou un peu loin : remise en jeu, il est replacé).
+    if (actor) {
+      const f = this.footOf(actor);
+      const d = Math.hypot(f.x - P.x, f.y - P.y);
+      if (out || this.inHands || (d > 1.2 && d < 6 && P.z < 1.2) || (d >= 6 && Math.hypot(P.vx, P.vy) < 3)) {
+        Object.assign(P, { x: f.x, y: f.y, z: this.inHands && actor.gk ? 1.0 : BALL_R, vx: 0, vy: 0, vz: 0, inGoal: 0 });
+      }
+    }
+    this.inHands = false;
+    this.holder = null;
+    const head = ev.type === 'header' || (ev.type === 'shot' && ev.kind === 'header');
+    if (head && actor) { const f = this.footOf(actor, 0.25); Object.assign(P, { x: f.x, y: f.y, z: 2.1 }); }
+    const dist = Math.hypot(tx - P.x, ty - P.y);
+    if (actor) { actor.kick = 0.32; actor.kickPow = ev.type === 'shot' ? 1 : ev.type === 'pass' ? 0.45 : 0.75; this.faceTo(actor, tx / PITCH_L, ty / PITCH_W); }
+    const receive = (T) => { if (recv) { this.pending = { at: this.physT + T, kind: 'receive', who: recv.mp.id }; recv.tx = tx / PITCH_L; recv.ty = ty / PITCH_W; } return T; };
+    switch (ev.type) {
+      case 'dribble':
+        this.holder = ev.pid; if (actor) { actor.tx = tx / PITCH_L; actor.ty = ty / PITCH_W; }
+        return null;
+      case 'pass':
+        return receive(solveKick(P, { x: tx, y: ty }, { mode: 'ground', arrive: Math.min(9, 4.5 + dist * 0.12), spin: (r1 - 0.5) * 4 }));
+      case 'longpass':
+        return receive(solveKick(P, { x: tx, y: ty, z: 0.3 + r1 * 1.3 }, { T: 1.0 + dist / 30, spin: (r2 - 0.5) * 8, top: 2 }));
+      case 'cross': case 'cornerkick': {
+        // Centre rentrant ou sortant : l'effet fait tourner le ballon vers le but (ou l'en écarte).
+        const vy = ty - P.y, swing = r2 < 0.65 ? 1 : -1;
+        const spin = -Math.sign(vy || 1) * gdir * swing * (7 + r3 * 5);
+        return receive(solveKick(P, { x: tx, y: ty, z: 1.7 + r1 * 0.6 }, { T: (ev.type === 'cornerkick' ? 1.15 : 0.9) + dist / 32, spin }));
+      }
+      case 'clearance':
+        return receive(solveKick(P, { x: tx, y: ty, z: BALL_R }, { T: 1.6 + dist / 38, spin: (r1 - 0.5) * 6, top: 1.5 }));
+      case 'header':
+        return receive(solveKick(P, { x: tx, y: ty, z: 0.4 + r1 * 0.8 }, { T: 0.45 + dist / 22 }));
+      case 'interception': case 'tackle':
+        // Ballon contré : il repart vers le récupérateur.
+        if (recv) this.holder = null;
+        return receive(solveKick(P, { x: tx, y: ty }, { mode: 'ground', arrive: 2 }));
+      case 'shot': return this.shot(ev, actor, r1, r2, r3, goalX, gdir);
+    }
+    return null;
+  }
+
+  /** Tir : la cible dépend de l'issue décidée par le moteur (but, arrêt, poteau, à côté, contré). */
+  shot(ev, actor, r1, r2, r3, goalX, gdir) {
+    const P = this.phys, cy = PITCH_W / 2;
+    const kind = ev.kind;
+    const ySide = Math.max(-1, Math.min(1, ((ev.y ?? 0.5) - 0.5) * 68 / GOAL_HALF)) || (r2 < 0.5 ? -0.6 : 0.6);
+    let tgt, speed = kind === 'penalty' ? 24 : kind === 'header' ? 13 : kind === 'freekick' ? 23 : 25 + r1 * 7;
+    let spin = 0, top = 0;
+    if (kind === 'freekick') { spin = (r2 < 0.5 ? 1 : -1) * (8 + r3 * 4); top = -3; }
+    else if (kind !== 'penalty' && kind !== 'header') { spin = (r3 - 0.5) * 7; top = r2 < 0.35 ? -3 : 0; }
+    const gk = [...this.players.values()].find((p) => p.gk && p.team.side !== ev.side);
+    const o = ev.outcome;
+    if (o === 'goal') tgt = { x: goalX + gdir * 0.9, y: cy + ySide * (GOAL_HALF - 0.45), z: 0.2 + r1 * 1.95 };
+    else if (o === 'saved') tgt = { x: goalX - gdir * 0.7, y: cy + ySide * (GOAL_HALF - 1.2) * (0.3 + r3 * 0.7), z: 0.25 + r1 * 1.6 };
+    else if (o === 'post') tgt = r1 < 0.3 ? { x: goalX, y: cy + ySide * 2.5, z: 2.5 } : { x: goalX, y: cy + Math.sign(ySide || 1) * (GOAL_HALF + 0.12), z: 0.4 + r2 * 1.6 };
+    else if (o === 'blocked') tgt = { x: (ev.x ?? 0.84) * PITCH_L, y: (ev.y ?? 0.5) * PITCH_W, z: 0.3 + r1 * 0.6 };
+    else {
+      const yAbs = ((ev.y ?? 0.5) - 0.5) * PITCH_W;
+      tgt = Math.abs(yAbs) < GOAL_HALF + 0.5 ? { x: goalX + gdir * 0.6, y: cy + yAbs, z: 2.9 + r2 * 1.5 } : { x: goalX + gdir * 0.6, y: cy + yAbs, z: 0.3 + r2 * 1.4 };
+    }
+    const d = Math.hypot(tgt.x - P.x, tgt.y - P.y, (tgt.z ?? 0) - P.z);
+    const T = solveKick(P, tgt, { T: Math.max(0.25, d / speed), spin, top });
+    if (o === 'saved' && gk) {
+      const catchIt = speed < 27 && r2 < 0.55 && Math.abs(tgt.y - cy) < 2.2;
+      this.pending = { at: this.physT + T, kind: 'save', who: gk.mp.id, catch: catchIt, r: r3 };
+    } else if (o === 'blocked') {
+      this.pending = { at: this.physT + T, kind: 'block', r: r3 };
+    }
+    // Le gardien se place sur la trajectoire et plonge au bon moment (trop tard s'il y a but).
+    if (gk && o !== 'blocked') {
+      const reach = o === 'goal' ? 0.55 : 1;
+      gk.tx = (goalX - gdir * 0.8) / PITCH_L;
+      gk.ty = (cy + (tgt.y - cy) * (o === 'saved' ? 0.55 : 0.15)) / PITCH_W;
+      gk.diveIn = Math.max(0, T / this.TS - 0.32);
+      gk.diveDir = 0; gk.diveTo = { x: tgt.x, y: tgt.y, z: tgt.z, reach };
+    }
+    return T;
+  }
+
+  /** Avance le ballon : touches de balle du porteur, physique, contrôles et arrêts. */
+  stepPhysics(dt) {
+    const P = this.phys;
+    this.physT += dt;
+    const h = this.holder != null ? this.players.get(this.holder) : null;
+    if (h && this.inHands) {
+      const f = this.footOf(h, 0.35);
+      Object.assign(P, { x: f.x, y: f.y, z: 1.05, vx: 0, vy: 0, vz: 0 });
+    } else if (h) {
+      const f = this.footOf(h, 0.65);
+      const dx = f.x - P.x, dy = f.y - P.y, d = Math.hypot(dx, dy);
+      if (P.z < 0.5 && d < 3) {
+        const sp = h.speed || 0;
+        if (sp > 1.6) {
+          // Conduite de balle : quand le ballon revient au pied, une touche le pousse devant.
+          const ahead = (P.x - h.x * PITCH_L) * Math.cos(h.face) + (P.y - h.y * PITCH_W) * Math.sin(h.face);
+          if (ahead < 0.5) {
+            const push = sp * 1.32 + 1.0;
+            P.vx = Math.cos(h.face) * push; P.vy = Math.sin(h.face) * push; P.vz = 0; P.z = BALL_R;
+            h.touch = 0.16;
+          }
+        } else { P.vx = dx * 5; P.vy = dy * 5; } // à l'arrêt : sous la semelle
+      } else if (d >= 3) { h.tx = P.x / PITCH_L; h.ty = P.y / PITCH_W; } // le ballon s'est échappé : il court après
+    }
+    stepBall(P, dt);
+    if (P.hitPost && !this._postShake) { this.cam.shake = 0.5; this._postShake = true; }
+    if (!P.hitPost) this._postShake = false;
+    // Fin de trajectoire prévue : contrôle, arrêt ou contre.
+    const pd = this.pending;
+    if (pd && this.physT >= pd.at) {
+      this.pending = null;
+      if (pd.kind === 'receive') {
+        const r = this.players.get(pd.who);
+        if (r && P.z < 1.4) {
+          const f = this.footOf(r, 0.6);
+          if (Math.hypot(f.x - P.x, f.y - P.y) < 4) {
+            // Contrôle orienté : le ballon est amorti.
+            P.vx *= 0.15; P.vy *= 0.15; P.vz = Math.min(0, P.vz) * 0.2;
+            this.holder = pd.who; r.touch = 0.2;
+          }
+        }
+      } else if (pd.kind === 'save') {
+        const g = this.players.get(pd.who);
+        if (pd.catch) { this.holder = pd.who; this.inHands = true; P.vx = P.vy = P.vz = 0; P.spin = 0; }
+        else {
+          // Parade : le ballon est repoussé sur le côté.
+          const sx = Math.sign(P.y - PITCH_W / 2) || 1;
+          P.vx = -P.vx * 0.25; P.vy = sx * (5 + pd.r * 6); P.vz = 2 + pd.r * 4; P.spin = 0; P.top = 0;
+        }
+        if (g) g.saveFx = 0.4;
+      } else if (pd.kind === 'block') {
+        P.vx = -P.vx * 0.25; P.vy += (pd.r - 0.5) * 9; P.vz = 1.2 + pd.r * 2; P.spin = 0;
+      }
+    }
+    // Lecture par les rendus 2D / 3D.
+    const b = this.ball;
+    b.x = P.x / PITCH_L; b.y = P.y / PITCH_W; b.h = Math.max(0, P.z - BALL_R) / 26;
   }
 
   updateIdle(dt) {
@@ -409,40 +570,69 @@ export class MatchView {
     const step = (p, maxSp) => {
       const dx = (p.tx - p.x) * L, dy = (p.ty - p.y) * W;
       const dist = Math.hypot(dx, dy);
-      const want = Math.min(maxSp, dist * 2.6);
+      // Vitesse voulue : freinage naturel à l'approche (v = √(2·a·d)), plafonnée par la pointe.
+      const want = dist < 0.15 ? 0 : Math.min(maxSp, Math.sqrt(2 * 6 * dist));
       const dvx = dist > 0.01 ? (dx / dist) * want : 0, dvy = dist > 0.01 ? (dy / dist) * want : 0;
-      const acc = Math.min(1, dt * 5.5);
-      p.vx += (dvx - p.vx) * acc; p.vy += (dvy - p.vy) * acc;
+      // Accélération limitée (≈ 5 m/s² pour partir, 8 m/s² pour freiner) : pas de démarrage instantané.
+      const ax = dvx - p.vx, ay = dvy - p.vy, am = Math.hypot(ax, ay);
+      const lim = (want > (p.speed || 0) ? 5.2 : 8.5) * dt;
+      const before = p.speed || 0;
+      if (am > lim) { p.vx += (ax / am) * lim; p.vy += (ay / am) * lim; } else { p.vx = dvx; p.vy = dvy; }
       p.x += (p.vx * dt) / L; p.y += (p.vy * dt) / W;
       p.speed = Math.hypot(p.vx, p.vy);
+      p.acc = dt > 0 ? (p.speed - before) / dt : 0;
       // Orientation : vers où il court, sinon vers le ballon.
       const target = p.speed > 1.2 ? Math.atan2(p.vy, p.vx) : Math.atan2((this.ball.y - p.y) * W, (this.ball.x - p.x) * L);
       let d = target - p.face;
       while (d > Math.PI) d -= Math.PI * 2;
       while (d < -Math.PI) d += Math.PI * 2;
       p.face += d * Math.min(1, dt * 7);
-      p.phase += p.speed * dt * 1.15;
+      // Foulée : plus ample (moins de pas par mètre) quand il sprinte.
+      p.phase += p.speed * dt * (2.3 + 1.6 * (1 - Math.min(1, p.speed / 8)));
     };
     for (const p of this.players.values()) {
       const vit = p.mp?.p?.attrs?.vit ?? 60, en = p.mp?.energy ?? 100;
-      step(p, (6.4 + vit * 0.034) * 2.4 * (0.72 + 0.28 * en / 100) * (p.celeb > 0 ? 0.8 : 1));
+      // Pointe de vitesse réelle : 7,9 à 9,6 m/s selon l'attribut, moins en fin de match.
+      step(p, (6.6 + vit * 0.033) * (0.8 + 0.2 * en / 100) * (p.celeb > 0 ? 0.8 : 1));
       p.alpha = Math.min(1, (p.alpha ?? 1) + dt * 2);
-      for (const k of ['kick', 'slide', 'dive', 'jump', 'celeb']) if (p[k] > 0) p[k] = Math.max(0, p[k] - dt);
+      // Les gestes durent un temps « d'affichage » (indépendant de l'accéléré).
+      const gd = dt / this.TS;
+      if (p.diveIn != null) { p.diveIn -= gd; if (p.diveIn <= 0) { p.diveIn = null; this.startDive(p); } }
+      for (const k of ['kick', 'slide', 'dive', 'jump', 'celeb', 'touch', 'saveFx']) if (p[k] > 0) p[k] = Math.max(0, p[k] - gd);
     }
-    for (const p of this.leaving) { step(p, 6); p.life -= dt; }
+    // Contacts : deux joueurs ne se traversent pas (ils se repoussent à moins de 1,1 m),
+    // sauf le tacleur qui va au duel.
+    const arr = [...this.players.values()];
+    for (let i = 0; i < arr.length; i++) {
+      for (let j = i + 1; j < arr.length; j++) {
+        const a = arr[i], c = arr[j];
+        if (a.slide > 0 || c.slide > 0 || a.celeb > 0 || c.celeb > 0) continue;
+        const dx = (c.x - a.x) * L, dy = (c.y - a.y) * W, d = Math.hypot(dx, dy);
+        if (d > 1.1 || d < 1e-4) continue;
+        const push = (1.1 - d) * 0.5, ux = dx / d, uy = dy / d;
+        a.x -= (ux * push) / L; a.y -= (uy * push) / W;
+        c.x += (ux * push) / L; c.y += (uy * push) / W;
+      }
+    }
+    for (const p of this.leaving) { step(p, 3); p.life -= dt / this.TS; }
     this.leaving = this.leaving.filter((p) => p.life > 0);
     // Arbitre : suit le jeu en diagonale, à distance.
     const r = this.referee, b = this.ball;
     r.tx = Math.max(0.08, Math.min(0.92, b.x - 0.1)); r.ty = Math.max(0.1, Math.min(0.9, b.y + (b.y < 0.5 ? 0.18 : -0.18)));
-    step(r, 14);
-    // Ballon au pied du dribbleur.
-    const att = b.attach != null ? this.players.get(b.attach) : null;
-    if (att) {
-      const k = Math.min(1, dt * 10);
-      b.x += (att.x + Math.cos(att.face) * 0.9 / L - b.x) * k;
-      b.y += (att.y + Math.sin(att.face) * 0.9 / W - b.y) * k;
-      b.h = 0;
-    }
+    step(r, 7.5);
+  }
+
+  /** Plongeon du gardien vers le ballon (direction et hauteur selon la frappe). */
+  startDive(gk) {
+    const t = gk.diveTo;
+    if (!t) return;
+    const lateral = (t.y - gk.y * PITCH_W);
+    if (Math.abs(lateral) < 0.9 && t.z < 1.6) { gk.dive = 0; gk.block = 0.5; return; } // ballon sur lui : il se couche / bloque
+    gk.diveDir = Math.sign(lateral) || 1;
+    gk.diveH = Math.min(1, t.z / 2.2);
+    gk.dive = 0.75;
+    // Il se projette : déplacement latéral pendant le plongeon (moins s'il est battu).
+    gk.ty = (gk.y * PITCH_W + lateral * t.reach * 0.9) / PITCH_W;
   }
 
   updateFx(dt) {

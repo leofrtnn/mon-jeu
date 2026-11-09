@@ -195,49 +195,97 @@ class Player3D {
     this.root.add(this.ring);
   }
 
-  /** Pose à partir de l'état animé de MatchView. */
-  pose(p, flip) {
+  /**
+   * Pose à partir de l'état animé de MatchView (vitesse réelle, accélération, gestes).
+   * Course : foulée qui s'allonge avec la vitesse, genou qui remonte, bras opposés aux jambes,
+   * buste penché selon la vitesse et l'accélération, rebond vertical deux fois par cycle.
+   */
+  pose(p, flip, ctx = {}) {
     const face = flip ? p.face + Math.PI : p.face;
     this.root.rotation.y = -face;
-    const run = Math.min(1, (p.speed || 0) / 7);
+    const sp = p.speed || 0;
+    const run = Math.min(1, sp / 8.5);             // 0 arrêté → 1 sprint
+    const jog = Math.min(1, sp / 3);
     const ph = p.phase || 0;
-    const sw = Math.sin(ph) * 0.85 * run;
+    const amp = 0.25 + 0.75 * run;                  // amplitude de la foulée
+    const sw = Math.sin(ph) * amp * jog;
     const [lL, lR] = this.legs;
-    lL.hip.rotation.z = sw; lR.hip.rotation.z = -sw;
-    lL.knee.rotation.z = -(0.15 + 0.9 * Math.max(0, Math.sin(ph + 1.6))) * run;
-    lR.knee.rotation.z = -(0.15 + 0.9 * Math.max(0, Math.sin(ph + 1.6 + Math.PI))) * run;
-    for (const a of this.arms) { a.sh.rotation.set(0, 0, -a.sgn * 0 + (a.sgn < 0 ? -sw : sw) * 0.8); a.el.rotation.z = 0.5 + 0.5 * run; }
-    this.body.rotation.set(0, 0, -0.12 * run);
-    this.body.position.set(0, Math.abs(Math.sin(ph)) * 0.05 * run, 0);
-    // Frappe : armé puis jambe droite fouette vers l'avant.
-    if (p.kick > 0) {
-      const t = 1 - p.kick / 0.32;
-      lR.hip.rotation.z = t < 0.35 ? -0.9 * (t / 0.35) : -0.9 + 2.3 * ((t - 0.35) / 0.65);
-      lR.knee.rotation.z = t < 0.35 ? -1.2 * (t / 0.35) : -1.2 * (1 - (t - 0.35) / 0.65);
-      lL.hip.rotation.z = 0.15; lL.knee.rotation.z = -0.2;
-      this.body.rotation.z = -0.2;
+    lL.hip.rotation.set(0, 0, sw); lR.hip.rotation.set(0, 0, -sw);
+    // Genou : plié pendant le retour de la jambe (talon vers les fesses en sprint).
+    const kneeMax = 0.35 + 1.35 * run;
+    lL.knee.rotation.z = -(0.08 + kneeMax * Math.max(0, Math.sin(ph + 1.7))) * jog;
+    lR.knee.rotation.z = -(0.08 + kneeMax * Math.max(0, Math.sin(ph + 1.7 + Math.PI))) * jog;
+    for (const a of this.arms) {
+      a.sh.rotation.set(0, 0, (a.sgn < 0 ? -sw : sw) * (0.7 + 0.5 * run));
+      a.sh.rotation.x = -a.sgn * 0.12;
+      a.el.rotation.z = 0.35 + 1.0 * run;
     }
-    // Tacle glissé : corps basculé en arrière, jambes devant.
+    const lean = Math.max(-0.25, Math.min(0.32, 0.05 + 0.2 * run + (p.acc || 0) * 0.025));
+    this.body.rotation.set(0, 0, -lean);
+    this.body.position.set(0, Math.abs(Math.sin(ph)) * (0.03 + 0.06 * run) * jog, 0);
+    // À l'arrêt : genoux souples ; le gardien se met en position d'attente quand le jeu approche.
+    if (sp < 0.8) {
+      const ready = p.gk && ctx.ballNear ? 1 : 0.25;
+      lL.knee.rotation.z = lR.knee.rotation.z = -0.25 * ready - 0.08;
+      lL.hip.rotation.z = lR.hip.rotation.z = 0.15 * ready;
+      this.body.rotation.z = -0.18 * ready;
+      this.body.position.y = -0.06 * ready;
+      if (p.gk && ctx.ballNear) for (const a of this.arms) { a.sh.rotation.x = -a.sgn * 0.75; a.sh.rotation.z = -0.3; a.el.rotation.z = 0.5; }
+    }
+    // Touche de balle (conduite) : petit coup de pied rapide.
+    if (p.touch > 0) {
+      const k = Math.sin((1 - p.touch / 0.18) * Math.PI);
+      lR.hip.rotation.z = -0.15 + 0.55 * k; lR.knee.rotation.z = -0.35 * (1 - k);
+    }
+    // Frappe : appui de la jambe gauche, armé (talon en arrière), fouetté, accompagnement.
+    if (p.kick > 0) {
+      const pow = p.kickPow ?? 0.8;
+      const t = 1 - p.kick / 0.32;
+      let hip, knee;
+      if (t < 0.4) { const u = t / 0.4; hip = -0.6 * pow * u; knee = -(0.6 + 1.0 * pow) * u; }
+      else if (t < 0.6) { const u = (t - 0.4) / 0.2; hip = -0.6 * pow + (0.6 * pow + 1.1 * pow) * u; knee = -(0.6 + 1.0 * pow) * (1 - u); }
+      else { const u = (t - 0.6) / 0.4; hip = 1.1 * pow * (1 - 0.6 * u); knee = -0.1 - 0.3 * u; }
+      lR.hip.rotation.z = hip; lR.knee.rotation.z = knee;
+      lL.hip.rotation.z = 0.12; lL.knee.rotation.z = -0.25;
+      // Bras opposé écarté pour l'équilibre, buste qui accompagne.
+      this.arms[0].sh.rotation.x = 0.9 * pow; this.arms[1].sh.rotation.x = -0.4 * pow;
+      this.body.rotation.z = -0.1 - 0.25 * pow * Math.sin(t * Math.PI);
+      this.body.rotation.x = 0.12 * pow * Math.sin(t * Math.PI);
+    }
+    // Tacle glissé : corps basculé en arrière, jambe d'attaque tendue.
     if (p.slide > 0) {
       const k = Math.sin((p.slide / 0.55) * Math.PI);
       this.body.rotation.z = -1.25 * k;
       this.body.position.y = -0.55 * k * K;
-      lL.hip.rotation.z = 1.2 * k; lR.hip.rotation.z = 0.8 * k;
-      lL.knee.rotation.z = 0; lR.knee.rotation.z = -0.6 * k;
+      lL.hip.rotation.z = 1.25 * k; lR.hip.rotation.z = 0.7 * k;
+      lL.knee.rotation.z = 0; lR.knee.rotation.z = -0.8 * k;
+      this.arms[0].sh.rotation.x = 1.2 * k;
     }
-    // Plongeon du gardien : sur le côté.
+    // Plongeon du gardien : il se projette sur le côté, bras tendus vers le ballon.
     if (p.dive > 0) {
-      const k = Math.sin((p.dive / 0.75) * Math.PI);
-      this.body.rotation.x = (flip ? -1 : 1) * p.diveDir * 1.35 * k;
-      this.body.position.y = 0.35 * k;
-      for (const a of this.arms) { a.sh.rotation.x = -a.sgn * 2.6 * k; a.el.rotation.z = 0.1; }
+      const t = 1 - p.dive / 0.75;
+      const k = t < 0.45 ? Math.sin((t / 0.45) * Math.PI / 2) : 1 - Math.max(0, (t - 0.8) / 0.2) * 0.25;
+      const dir = (flip ? -1 : 1) * (p.diveDir || 1);
+      const hgt = p.diveH ?? 0.5;
+      this.body.rotation.x = dir * 1.45 * k;
+      this.body.position.y = (0.25 + 0.9 * hgt) * Math.sin(Math.min(1, t / 0.6) * Math.PI) * K;
+      for (const a of this.arms) { a.sh.rotation.x = -dir * 2.9 * k; a.sh.rotation.z = 0.1; a.el.rotation.z = 0.05; }
+      lL.hip.rotation.z = 0.2 * k; lR.hip.rotation.z = -0.3 * k;
     }
-    // Saut (tête).
-    if (p.jump > 0) this.body.position.y += Math.sin((p.jump / 0.45) * Math.PI) * 0.7;
-    // Célébration : bras levés, petits bonds.
+    // Ballon sur lui : il se couche / bloque, mains en avant.
+    if (p.block > 0) { for (const a of this.arms) { a.sh.rotation.z = 1.3; a.el.rotation.z = 0.3; } this.body.position.y = -0.25; }
+    // Saut (tête) : impulsion, bras qui montent, coup de tête.
+    if (p.jump > 0) {
+      const t = 1 - p.jump / 0.45;
+      this.body.position.y += Math.sin(t * Math.PI) * 0.75;
+      for (const a of this.arms) { a.sh.rotation.z = 1.4 * Math.sin(t * Math.PI); a.el.rotation.z = 0.9; }
+      this.body.rotation.z = -0.25 + 0.5 * Math.max(0, Math.sin((t - 0.4) * Math.PI));
+      lL.knee.rotation.z = lR.knee.rotation.z = -0.6 * Math.sin(t * Math.PI);
+    }
+    // Célébration : course bras écartés (« l'avion »), puis bonds bras levés.
     if (p.celeb > 0) {
-      for (const a of this.arms) { a.sh.rotation.x = -a.sgn * 2.5; a.sh.rotation.z = 0.2; a.el.rotation.z = 0.2; }
-      this.body.position.y += Math.abs(Math.sin(p.celeb * 7)) * 0.18;
+      if (sp > 2) for (const a of this.arms) { a.sh.rotation.x = -a.sgn * 1.45; a.sh.rotation.z = 0; a.el.rotation.z = 0.05; }
+      else { for (const a of this.arms) { a.sh.rotation.x = -a.sgn * 2.6; a.sh.rotation.z = 0.2; a.el.rotation.z = 0.2; } this.body.position.y += Math.abs(Math.sin(p.celeb * 7)) * 0.2; }
     }
     this.shadow.scale.setScalar(1 - Math.min(0.5, this.body.position.y * 0.4));
   }
@@ -419,7 +467,10 @@ export class Match3D {
 
   updateCamera(dt) {
     const v = this.v;
-    const [bx, bz] = this.toWorld(v.ball.x, v.ball.y);
+    // La caméra anticipe : elle regarde là où le ballon va (vitesse × 0,45 s).
+    const P = v.phys, lead = 0.45;
+    const lx = P ? (P.x + P.vx * lead) / L : v.ball.x, ly = P ? (P.y + P.vy * lead) / W : v.ball.y;
+    const [bx, bz] = this.toWorld(Math.max(-0.02, Math.min(1.02, lx)), Math.max(0, Math.min(1, ly)));
     let mode = this.camMode;
     const celebrating = v.banner && v.banner.text === 'BUT !';
     if (v.replaying || celebrating) mode = 'close';
@@ -440,12 +491,13 @@ export class Match3D {
     const v = this.v;
     this.syncPlayers();
     const flip = this.flip();
-    const carrier = v.cur ? v.cur.carrier : null;
+    const carrier = v.holder ?? (v.cur ? v.cur.carrier : null);
     for (const [id, e] of this.players) {
       const p = v.players.get(id);
       const [x, z] = this.toWorld(p.x, p.y, flip);
       e.p3.root.position.set(x, 0, z);
-      e.p3.pose(p, flip);
+      const ballNear = p.gk && Math.hypot((p.x - v.ball.x) * L, (p.y - v.ball.y) * W) < 30;
+      e.p3.pose(p, flip, { ballNear });
       const hl = id === carrier || id === v.selected;
       e.p3.ring.visible = hl;
       e.p3.ring.material = this.mats[p.side].ring;
@@ -454,8 +506,25 @@ export class Match3D {
     const [bx, bz] = this.toWorld(v.ball.x, v.ball.y, flip);
     const hgt = v.ball.h * 26;
     this.ball.position.set(bx, BALL_R + hgt, bz);
-    this.ball.rotation.z -= (v.cur ? 0.25 : 0.02);
-    this.ballShadow.position.set(bx + hgt * 0.15, 0.025, bz + hgt * 0.1);
+    // Rotation réelle : le ballon roule sur lui-même dans le sens de sa course.
+    const P = v.phys;
+    if (P) {
+      const da = P.rot.a - (this._rotA ?? P.rot.a);
+      this._rotA = P.rot.a;
+      if (da) {
+        const fx = flip ? -1 : 1;
+        this._axis = this._axis || new THREE.Vector3();
+        this._q = this._q || new THREE.Quaternion();
+        this._axis.set(Math.sin(P.rot.b) * fx, 0, -Math.cos(P.rot.b) * fx).normalize();
+        this._q.setFromAxisAngle(this._axis, -da);
+        this.ball.quaternion.premultiply(this._q);
+      }
+      if (P.spin) { this._q2 = this._q2 || new THREE.Quaternion(); this._q2.setFromAxisAngle(new THREE.Vector3(0, 1, 0), P.spin * 0.016); this.ball.quaternion.premultiply(this._q2); }
+    }
+    // Ombre au sol, plus petite et plus pâle quand le ballon est haut.
+    this.ballShadow.position.set(bx + hgt * 0.12, 0.025, bz + hgt * 0.08);
+    this.ballShadow.scale.setScalar(1 + hgt * 0.12);
+    this.ballShadow.material.opacity = Math.max(0.08, 0.38 - hgt * 0.05);
     this.updateCamera(dt);
     this.renderer.render(this.scene, this.camera);
   }
