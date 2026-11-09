@@ -32,8 +32,8 @@ import { formationPos, pitchDist } from './positions.js';
 
 const ZONE_DEPTH = [[0.1, 0.33], [0.33, 0.58], [0.58, 0.8], [0.81, 0.94]];
 const ZONE_CENTER = [0.2, 0.45, 0.68, 0.87];
-const LVL = { low: -1, mid: 0, high: 1 };
-const MENT = { defensive: -1, balanced: 0, offensive: 1 };
+const LVL = { low: -0.7, mid: 0, high: 0.7 };
+const MENT = { defensive: -0.7, balanced: 0, offensive: 0.7 };
 const sigmoid = (x) => 1 / (1 + Math.exp(-x));
 /** Écart d'attributs adouci : un grand écart de talent ne garantit pas tout. */
 const gap = (d) => 15 * Math.tanh(d / 15);
@@ -348,7 +348,7 @@ function defContext(D, zone) {
   const pv = LVL[D.tactics.pressing], dm = MENT[D.tactics.mentality];
   // zone = zone de l'attaquant. Pressing haut gêne la relance (zones 0/1),
   // bloc bas protège la surface (zones 2/3).
-  if (zone <= 1) return pv * 0.22 + dm * 0.1;
+  if (zone <= 1) return pv * 0.16 + dm * 0.1;
   return -pv * 0.06 - dm * 0.18;
 }
 
@@ -399,7 +399,7 @@ function resolveAction(m, out) {
       addRating(c, nz > z ? 0.03 : 0.008);
       m.lastPasser = c;
       // Ballon dans le dos d'une ligne haute / d'un piège raté : l'attaquant s'échappe.
-      if (long && nz === 2 && (D.tactics.line === 'high' || D.tactics.offsideTrap === 'on') && m.rng.chance(0.22)) nz = 3;
+      if (long && nz === 2 && (D.tactics.line === 'high' || D.tactics.offsideTrap === 'on') && m.rng.chance(0.12)) nz = 3;
       const pos = ballPos(m, A.side, nz, target);
       m.zone = nz; m.carrier = target;
       if (nz === 3) { c.keyPasses++; addRating(c, 0.04); }
@@ -440,7 +440,7 @@ function resolveAction(m, out) {
     }
     // Tacle : faute possible.
     const aggr = 1 + LVL[D.tactics.pressing] * 0.18 + (m.minute > 70 ? 0.1 : 0);
-    const foulP = (z === 3 ? 0.1 : 0.56) * m.profile.fouls * aggr * (1.25 - eff(def, 'def') / 200) * (1 + TK[D.tactics.tackling] * 0.4);
+    const foulP = (z === 3 ? 0.1 : 0.56) * m.profile.fouls * aggr * (1.25 - eff(def, 'def') / 200) * (1 + TK[D.tactics.tackling] * 0.3);
     if (m.rng.chance(foulP)) return foul(m, out, A, D, c, def, z);
     addRating(c, -0.04);
     return turnover(m, out, A, D, c, def, z, 'tackle');
@@ -523,7 +523,7 @@ function foul(m, out, A, D, victim, offender, z) {
   // Cartons.
   let yP = 0.135 + (z === 1 || z === 2 ? 0.05 : 0) + (m.minute > 75 ? 0.04 : 0) + (m.counter ? 0.06 : 0) + (z === 3 ? 0.08 : 0);
   if (offender.yellow) yP *= 0.45; // un joueur averti se retient
-  yP *= m.profile.cards * (1 + TK[D.tactics.tackling] * 0.3) * (D.cm ? D.cm.cards : 1);
+  yP *= m.profile.cards * (1 + TK[D.tactics.tackling] * 0.18) * (D.cm ? D.cm.cards : 1);
   if (m.rng.chance(0.003)) sendOff(m, out, D, offender, 'direct');
   else if (m.rng.chance(yP)) {
     offender.yellow++; D.stats.yellows++;
@@ -775,7 +775,7 @@ export function stepMinute(m) {
   refreshMultipliers(m);
   for (const t of m.teams) if (t.isAI) aiManage(m, t, out, { doSub, bestBenchFor });
 
-  const tempo = (LVL[m.teams[0].tactics.tempo] + LVL[m.teams[1].tactics.tempo]) * 0.25;
+  const tempo = (LVL[m.teams[0].tactics.tempo] + LVL[m.teams[1].tactics.tempo]) * 0.14;
   // Gagner du temps : l'équipe qui mène casse le rythme (et l'arbitre rallonge).
   const waster = m.teams.find((t) => t.tactics.timeWasting === 'on' && m.score[t.side] > m.score[1 - t.side] && m.minute >= 60);
   if (waster) m.stoppages += 0.15;

@@ -3,7 +3,8 @@
  * installations (centre d'entraînement, stade) et plan d'entraînement.
  */
 import { clamp } from '../core/rng.js';
-import { userClub, clubById, pushMessage } from './state.js';
+import { userClub, clubById, pushMessage, gameRng } from './state.js';
+import { randomName } from '../data/names.js';
 import { money } from './economy.js';
 import { logFinance } from './transfers.js';
 import { squadStrength } from '../engine/ratings.js';
@@ -45,39 +46,108 @@ export function coachAfterMatch(state, myGoals, theirGoals, oppClub) {
   coachRep(state, delta);
 }
 
-/* ---------------- Staff ---------------- */
+/* ---------------- Staff (membres nommés) ---------------- */
 
-export const STAFF = {
-  assistant: { label: 'Entraîneur adjoint', icon: '📋', desc: 'Accélère la progression et conseille à la mi-temps.' },
-  scout: { label: 'Recruteur', icon: '🔭', desc: 'Révèle les vrais attributs et le potentiel des joueurs.' },
-  fitness: { label: 'Préparateur physique', icon: '💪', desc: 'Meilleure récupération, moins de blessures, retours plus rapides.' },
+export const STAFF_ROLES = {
+  assistant: { label: 'Entraîneur adjoint', icon: '📋', max: 1, desc: 'Progression des joueurs, conseils à la mi-temps.' },
+  gk: { label: 'Entraîneur des gardiens', icon: '🧤', max: 1, desc: 'Progression des gardiens.' },
+  fitness: { label: 'Préparateur physique', icon: '💪', max: 1, desc: 'Récupération, moins de blessures.' },
+  physio: { label: 'Médecin / kiné', icon: '✚', max: 1, desc: 'Retours de blessure plus rapides.' },
+  scout: { label: 'Recruteur', icon: '🔭', max: 3, desc: 'Connaissance des joueurs, rapports par journée.' },
+  youth: { label: 'Responsable formation', icon: '🌱', max: 1, desc: 'Qualité des jeunes du centre.' },
+  analyst: { label: 'Analyste vidéo', icon: '🎥', max: 1, desc: "Rapport sur l'adversaire, léger bonus en match." },
 };
-export const staffHireCost = (lvl) => 250000 * lvl * lvl;
-export const staffWage = (lvl) => 1500 * lvl * lvl;
-export const staffWages = (club) => Object.values(club.staff || {}).reduce((a, l) => a + staffWage(l), 0);
+// Compatibilité : ancien nom utilisé par certains écrans.
+export const STAFF = STAFF_ROLES;
+export const staffWageFor = (r) => Math.round(600 * Math.pow(1.17, r) / 100) * 100;
 
-export function upgradeStaff(state, role) {
+let staffSeq = 0;
+function makeStaff(rng, role, rating) {
+  const { first, last, nat } = randomName(rng, rng.pick(['FRA', 'IBE', 'ALB']));
+  const r = clamp(Math.round(rating), 1, 20);
+  return { id: `S${Date.now().toString(36)}${(staffSeq++).toString(36)}${rng.int(0, 999)}`, role, first, last, name: `${first[0]}. ${last}`, nat,
+    age: rng.int(28, 64), rating: r, wage: staffWageFor(r), contract: rng.int(1, 3) };
+}
+
+/** Staff du club de l'utilisateur et marché du staff (rétrocompatible avec les anciens niveaux). */
+export function ensureStaff(state) {
   const club = userClub(state);
-  const lvl = club.staff[role];
-  if (lvl >= 5) return { ok: false, msg: 'Déjà au niveau maximum.' };
-  const cost = staffHireCost(lvl + 1);
-  if (club.budget < cost) return { ok: false, msg: `Budget insuffisant (${money(cost)}).` };
+  if (!club) return;
+  const rng = gameRng(state);
+  if (!club.staffMembers) {
+    const old = club.staff || {};
+    const base = clamp(club.rep / 7, 4, 13);
+    club.staffMembers = Object.keys(STAFF_ROLES).map((role) => makeStaff(rng, role, old[role] ? old[role] * 3 + 3 : base + rng.normal(-1, 2)));
+  }
+  if (!state.staffPool || state.staffPool.length < 12) refreshStaffPool(state, rng);
+}
+
+export function refreshStaffPool(state, rng = gameRng(state)) {
+  const pool = (state.staffPool || []).filter(() => rng.chance(0.5));
+  while (pool.length < 28) {
+    const role = rng.pick(Object.keys(STAFF_ROLES));
+    pool.push(makeStaff(rng, role, clamp(rng.normal(10, 3.5), 2, 20)));
+  }
+  state.staffPool = pool;
+}
+
+/** Le staff change avec le club : nouveau club, nouveau staff (selon sa réputation). */
+export function resetClubStaff(state, club) {
+  const rng = gameRng(state);
+  const base = clamp(club.rep / 7, 4, 13);
+  club.staffMembers = Object.keys(STAFF_ROLES).map((role) => makeStaff(rng, role, base + rng.normal(0, 2)));
+}
+
+export const staffWages = (club) => (club.staffMembers || []).reduce((a, m) => a + m.wage, 0);
+export const bestStaff = (club, role) => Math.max(0, ...(club?.staffMembers || []).filter((m) => m.role === role).map((m) => m.rating));
+
+export function hireStaff(state, id) {
+  const club = userClub(state);
+  const m = state.staffPool.find((x) => x.id === id);
+  if (!m) return { ok: false, msg: 'Ce membre du staff n\'est plus disponible.' };
+  const count = club.staffMembers.filter((x) => x.role === m.role).length;
+  if (count >= STAFF_ROLES[m.role].max) return { ok: false, msg: `Poste complet (${STAFF_ROLES[m.role].max} max) : libérez d'abord une place.` };
+  const fee = m.wage * 4;
+  if (club.budget < fee) return { ok: false, msg: `Budget insuffisant (${money(fee)}).` };
+  club.budget -= fee;
+  club.staffMembers.push({ ...m, contract: Math.max(2, m.contract) });
+  state.staffPool = state.staffPool.filter((x) => x.id !== id);
+  logFinance(state, -fee, `Prime d'arrivée staff : ${m.name}`);
+  return { ok: true, msg: `${m.first} ${m.last} rejoint le staff (${STAFF_ROLES[m.role].label}).` };
+}
+
+export function fireStaff(state, id) {
+  const club = userClub(state);
+  const m = club.staffMembers.find((x) => x.id === id);
+  if (!m) return { ok: false, msg: 'Introuvable.' };
+  const cost = Math.round(m.wage * 8 * Math.max(1, m.contract));
+  if (club.budget < cost) return { ok: false, msg: `Indemnité de départ trop élevée (${money(cost)}).` };
   club.budget -= cost;
-  club.staff[role] = lvl + 1;
-  logFinance(state, -cost, `Recrutement staff (${STAFF[role].label})`);
-  return { ok: true, msg: `${STAFF[role].label} niveau ${lvl + 1} recruté !` };
+  club.staffMembers = club.staffMembers.filter((x) => x.id !== id);
+  state.staffPool.push({ ...m, wage: staffWageFor(m.rating) });
+  logFinance(state, -cost, `Indemnité staff : ${m.name}`);
+  return { ok: true, msg: `${m.first} ${m.last} quitte le club.` };
 }
 
 /** Effets du staff utilisés par la saison et le moteur. */
 export function staffEffects(club) {
-  const s = club?.staff || { assistant: 1, scout: 1, fitness: 1 };
+  const ai = !club?.staffMembers;
+  const def = clamp((club?.rep ?? 60) / 6, 4, 16);
+  const r = (role) => (ai ? def : bestStaff(club, role));
+  const scouts = ai ? 1 : club.staffMembers.filter((m) => m.role === 'scout').length;
   return {
-    progression: 1 + 0.08 * s.assistant,
-    recovery: 3 * s.fitness,
-    injuryMod: 1 - 0.07 * s.fitness,
-    injuryDays: 1 - 0.06 * s.fitness,
-    scoutBase: 20 + 12 * s.scout,
-    scoutGain: 25 + 5 * s.scout,
+    progression: 1 + (Math.max(4, r('assistant')) - 4) * 0.02,
+    recovery: r('fitness') * 0.3,
+    injuryMod: 1 - r('fitness') * 0.018,
+    injuryDays: 1 - r('physio') * 0.025,
+    scoutBase: 10 + r('scout') * 2.5,
+    scoutGain: 15 + r('scout') * 1.8,
+    scoutReports: Math.max(1, scouts),
+    youthPot: (r('youth') - 8) * 0.5,
+    gkMult: 0.85 + r('gk') * 0.02,
+    analyst: r('analyst'),
+    perf: 1 + (r('analyst') - 8) * 0.0006,
+    assistant: r('assistant'),
   };
 }
 

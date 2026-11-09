@@ -14,6 +14,8 @@ import { esc, crest, cmpBar, ratingChip, posBadge, seg, scaleColor } from '../co
 import { MatchAudio } from '../audio.js';
 import { xgChart, heatmap } from '../charts.js';
 import { userClub } from '../../game/state.js';
+import { staffEffects } from '../../game/career.js';
+import { managerOf } from '../../game/managers.js';
 import { showDayReport } from './dayReport.js';
 
 const SPEEDS = [1, 2, 4];
@@ -227,6 +229,23 @@ export function openMatch(app, opts = {}) {
     fullTime();
   }
 
+  /** Rapport de l'analyste vidéo : plus il est bon, plus le rapport est détaillé. */
+  function scoutReport() {
+    const lvl = staffEffects(userClub(s)).analyst;
+    const opp = O.onPitch.filter(Boolean);
+    const key = opp.slice().sort((a, b) => ratingAt(b.p, O.slots[b.slot].pos) - ratingAt(a.p, O.slots[a.slot].pos))[0];
+    const lines = { DEF: [], MID: [], ATT: [] };
+    for (const mp of opp) { const g = POSITION_GROUP[O.slots[mp.slot].pos]; const k = g === 'D' || g === 'G' ? 'DEF' : g === 'M' ? 'MID' : 'ATT'; lines[k].push(ratingAt(mp.p, O.slots[mp.slot].pos)); }
+    const avg = (a) => a.reduce((x, y) => x + y, 0) / Math.max(1, a.length);
+    const weak = Object.entries(lines).sort((a, b) => avg(a[1]) - avg(b[1]))[0][0];
+    const om = managerOf(s, O.club);
+    const items = [`Système : <b>${O.tactics.formation}</b>, mentalité ${MENTALITY_LABELS[O.tactics.mentality].toLowerCase()}${om ? ` · coach ${esc(om.first + ' ' + om.last)}` : ''}`];
+    if (lvl >= 6 && key) items.push(`Joueur clé : <b>${esc(key.name)}</b> (${O.slots[key.slot].pos})`);
+    if (lvl >= 10) items.push(`Point faible : <b>${{ DEF: 'la défense', MID: 'le milieu', ATT: "l'attaque" }[weak]}</b>`);
+    if (lvl >= 14) items.push(`Style : passes ${{ short: 'courtes', mixed: 'mixtes', direct: 'directes' }[O.tactics.passing] || 'mixtes'}, ligne ${{ low: 'basse', mid: 'normale', high: 'haute' }[O.tactics.line] || 'normale'}`);
+    return `<div class="card" style="margin:6px 0 12px;font-size:13px"><b>🎥 Rapport de l'analyste</b> <small class="muted">(note ${lvl || '—'}/20)</small><br>${items.join('<br>')}</div>`;
+  }
+
   /* ---------- Pré-match ---------- */
   const T = m.teams[userSide], O = m.teams[1 - userSide];
   app.sheet({
@@ -239,7 +258,7 @@ export function openMatch(app, opts = {}) {
         <div class="center grow">${crest(ac, 'lg')}<br><b>${esc(ac.name)}</b><br><small>${m.teams[1].tactics.formation}</small></div>
       </div>
       <p class="muted center" style="margin:0 0 12px">Votre onze : ${T.onPitch.filter(Boolean).map((mp) => esc(mp.name.split(' ').slice(-1)[0])).join(', ')}</p>
-      <p class="muted center" style="font-size:12px">Adversaire en ${O.tactics.formation}, mentalité ${MENTALITY_LABELS[O.tactics.mentality].toLowerCase()}.</p>
+      ${scoutReport()}
       <div class="btns"><button class="btn" data-act="back">Retour</button><button class="btn primary lg" data-act="go">Coup d'envoi</button></div>`,
     actions: {
       go: (el, a, h) => { h.close(); if (s.settings.audio) audio.start(); view.play(); },
@@ -316,7 +335,7 @@ export function openMatch(app, opts = {}) {
 
   /** Conseils de l'adjoint (plus précis avec un adjoint de bon niveau). */
   function adviceHtml() {
-    const lvl = userClub(s).staff?.assistant ?? 1;
+    const lvl = Math.max(1, Math.round(staffEffects(userClub(s)).assistant / 4));
     const sum = summarize(m);
     const me = sum.stats[userSide], th = sum.stats[1 - userSide];
     const tips = [];

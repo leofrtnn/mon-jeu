@@ -59,7 +59,7 @@ export function scoutDaily(state) {
   const uc = userClub(state);
   const eff = staffEffects(uc);
   const q = state.scoutQueue || [];
-  const done = q.splice(0, 3);
+  const done = q.splice(0, eff.scoutReports || 1);
   for (const pid of done) {
     const p = state.players[pid];
     if (!p) continue;

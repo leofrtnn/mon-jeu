@@ -14,9 +14,10 @@ import { wageBill, matchdayRevenue, sponsorIncome, prizeMoney, CUP_PRIZES, money
 import { weeklyTraining, seasonDevelopment, shouldRetire, resetSeasonStats } from './progression.js';
 import { aiTransferActivity, fillSquad, logFinance } from './transfers.js';
 import { gameRng, matchSeed, clubById, userClub, clubPlayers, pushMessage, SAVE_VERSION } from './state.js';
-import { initClubExtras, newCoach, coachRep, coachAfterMatch, staffEffects, staffWages, trainingParams, dailyFacilities, checkJobOffers, jobCandidates } from './career.js';
+import { initClubExtras, newCoach, coachRep, coachAfterMatch, staffEffects, staffWages, trainingParams, dailyFacilities, checkJobOffers, jobCandidates, ensureStaff, resetClubStaff, refreshStaffPool } from './career.js';
 import { scoutDaily, marketEvents, seeInMatch } from './scouting.js';
 import { coachMods, ensureCoachProfile, grantSeasonPoints } from './coach.js';
+import { ensureManagers, managerStyle, managersAfterRound, managersEndSeason, onUserLeaves, onUserArrives } from './managers.js';
 import { slotsOf } from '../data/constants.js';
 
 export const CUP_ROUND_NAMES = ['16es de finale', '8es de finale', 'Quarts de finale', 'Demi-finales', 'Finale'];
@@ -35,13 +36,15 @@ export function newGame(seed = (Date.now() >>> 0)) {
   const rng = createRng(seed);
   const world = createWorld(rng);
   world.clubs.forEach(initClubExtras);
-  return {
+  const state = {
     version: SAVE_VERSION, seed, season: 2026, day: 0, userClubId: null, rngState: rng.getState(),
     clubs: world.clubs, players: world.players, freeAgents: world.freeAgents, nextId: getNextId(),
     messages: [], pendingOffers: [], history: [], settings: { var: true, speed: 1, replays: true, audio: true },
     board: { confidence: 60 }, lastResult: null, seasonOver: false,
-    coach: null, scout: {}, scoutQueue: [], nations: {}, lastFinal: null, friends: { teams: [] },
+    coach: null, scout: {}, scoutQueue: [], nations: {}, lastFinal: null, friends: { teams: [] }, news: [],
   };
+  ensureManagers(state);
+  return state;
 }
 
 /** Le joueur choisit son club : on prépare la saison. */
@@ -50,6 +53,8 @@ export function startCareer(state, clubId) {
   const club = userClub(state);
   initClubExtras(club);
   state.coach = ensureCoachProfile(newCoach(club));
+  onUserArrives(state, club);
+  ensureStaff(state);
   const squad = clubPlayers(state, club);
   const best = aiPrepare(squad, squad, true, null);
   club.tactics = { ...best.tactics, mentality: 'balanced', pressing: 'mid' };
@@ -310,11 +315,14 @@ export function teamCfg(state, club, opponent, isHome, isUser) {
   if (isUser) {
     validateUserLineup(state);
     return { club, players, lineup: club.lineup.slice(), bench: club.bench.slice(), tactics: { ...club.tactics }, isAI: false,
-      roles: (club.roles || []).slice(), setPieces: { ...(club.setPieces || {}) }, pi: (club.pi || []).map((x) => ({ ...x })), injuryMod: staffEffects(club).injuryMod, coachMods: coachMods(state.coach) };
+      roles: (club.roles || []).slice(), setPieces: { ...(club.setPieces || {}) }, pi: (club.pi || []).map((x) => ({ ...x })), injuryMod: staffEffects(club).injuryMod,
+      coachMods: (() => { const cm = coachMods(state.coach); return { ...cm, perf: cm.perf * staffEffects(club).perf }; })() };
   }
   const rng = createRng(hashSeed(`${state.seed}-${state.season}-${state.day}-${club.id}`));
-  const prep = aiPrepare(players, opponent ? clubPlayers(state, opponent) : players, isHome, rng);
-  return { club, players, lineup: prep.lineup, bench: prep.bench, tactics: prep.tactics, isAI: true };
+  const style = managerStyle(state, club);
+  const prep = aiPrepare(players, opponent ? clubPlayers(state, opponent) : players, isHome, rng, style);
+  return { club, players, lineup: prep.lineup, bench: prep.bench, tactics: prep.tactics, isAI: true,
+    coachMods: style ? { perf: style.perf, talk: 1, cards: 1, fatigue: 1 } : null };
 }
 
 function nationCfg(state, nation, oppSquad, isHome) {
@@ -422,7 +430,7 @@ export function completeDay(state, userMatch = null) {
   for (const c of state.clubs) {
     const isUser = c.id === uc.id;
     const tp = trainingParams(c, isUser);
-    if (isUser) tp.youthMult = cmod.youth;
+    if (isUser) { tp.youthMult = cmod.youth; tp.gkMult = eff.gkMult; }
     for (const id of c.playerIds) {
       const p = state.players[id];
       if (!p) continue;
@@ -464,9 +472,10 @@ export function completeDay(state, userMatch = null) {
   scoutDaily(state);
   state.pendingOffers = (state.pendingOffers || []).filter((o) => state.day - o.day <= 3 && state.players[o.pid]?.clubId === uc.id);
 
+  if (t.entry.type === 'league') managersAfterRound(state, t.entry.round, (id) => tablePosition(state, id));
   if (t.entry.type === 'league' && t.entry.round === 19) {
     const y = createYouth(rng, uc);
-    y.pot = clamp(Math.round(y.pot + coachMods(state.coach).youthPot), overall(y) + 3, 95);
+    y.pot = clamp(Math.round(y.pot + coachMods(state.coach).youthPot + staffEffects(uc).youthPot), overall(y) + 3, 95);
     state.players[y.id] = y;
     uc.youthIds.push(y.id);
     pushMessage(state, { prio: 2, icon: '🌱', title: `Un jeune prometteur : ${y.name}`, text: `${y.pos}, ${y.age} ans. Voir le centre de formation.` });
@@ -686,6 +695,18 @@ export function endSeason(state) {
   grantSeasonPoints(state.coach, trophiesNow);
   report.coachPoints = 2 + trophiesNow;
 
+  // Staff : fins de contrat (les bons sont prolongés), marché renouvelé.
+  for (const m of (uc.staffMembers || []).slice()) {
+    m.contract--; m.age++;
+    if (m.contract > 0) continue;
+    if (m.rating >= 8 && rng.chance(0.75)) { m.contract = rng.int(1, 3); m.wage = Math.round(m.wage * 1.05 / 100) * 100; }
+    else { uc.staffMembers = uc.staffMembers.filter((x) => x !== m); pushMessage(state, { prio: 2, icon: '👋', title: `${m.first} ${m.last} quitte le staff`, text: 'Fin de contrat. Pensez à le remplacer (Club → Staff).' }); }
+  }
+  refreshStaffPool(state, rng);
+
+  // Carrousel des entraîneurs (avant les montées/descentes).
+  managersEndSeason(state, tables);
+
   // Primes de classement.
   for (const d of DIV_IDS) {
     tables[d].forEach((r, i) => {
@@ -766,7 +787,7 @@ export function endSeason(state) {
     for (let i = 0; i < n; i++) {
       const y = createYouth(rng, c);
       state.players[y.id] = y;
-      if (c.id === uc.id) { c.youthIds.push(y.id); report.youth.push(`${y.name} (${y.pos}, ${y.age} ans)`); }
+      if (c.id === uc.id) { y.pot = clamp(Math.round(y.pot + staffEffects(uc).youthPot + coachMods(state.coach).youthPot), overall(y) + 3, 95); c.youthIds.push(y.id); report.youth.push(`${y.name} (${y.pos}, ${y.age} ans)`); }
       else if (c.playerIds.length < 26) c.playerIds.push(y.id);
       else delete state.players[y.id];
     }
@@ -798,7 +819,11 @@ export function endSeason(state) {
 /** Changement de club (offre acceptée ou limogeage). */
 export function changeClub(state, clubId) {
   const old = userClub(state);
+  onUserLeaves(state, old);
   state.userClubId = clubId;
+  onUserArrives(state, userClub(state));
+  resetClubStaff(state, userClub(state));
+  ensureStaff(state);
   state.board.confidence = 55;
   const club = initClubExtras(userClub(state));
   state.coach.clubs.push(club.name);

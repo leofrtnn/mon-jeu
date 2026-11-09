@@ -5,6 +5,11 @@
 import { sortedTable, topScorers, CUP_ROUND_NAMES, CONTI_ROUND_NAMES, contiGroupTable, nationRanking, DIVISIONS, DIV_IDS, COUNTRIES, CONTI_NAME } from '../../game/season.js';
 import { userClub, clubById } from '../../game/state.js';
 import { esc, crest, seg, posBadge } from '../components.js';
+import { ensureManagers, freeManagers, applyForJob } from '../../game/managers.js';
+import { changeClub } from '../../game/season.js';
+import { PHILOSOPHIES, randomLook, coachName } from '../../game/coach.js';
+import { avatarSvg } from '../avatar.js';
+import { createRng, hashSeed } from '../../core/rng.js';
 
 export function render(app) {
   const s = app.state;
@@ -16,10 +21,12 @@ export function render(app) {
   else if (tab === 'fixtures') body = fixtures(s, uc);
   else if (tab === 'scorers') body = scorers(s, div);
   else if (tab === 'cup') body = cups(app, s, uc);
+  else if (tab === 'managers') body = managersView(s, uc, div);
+  else if (tab === 'news') body = newsView(s);
   else body = nations(s, uc);
-  return `<div class="chips" style="margin-top:6px">${[['table', 'Classement'], ['fixtures', 'Matchs'], ['scorers', 'Buteurs'], ['cup', 'Coupes'], ['nations', 'Sélections']]
+  return `<div class="chips" style="margin-top:6px">${[['table', 'Classement'], ['fixtures', 'Matchs'], ['scorers', 'Buteurs'], ['cup', 'Coupes'], ['managers', 'Entraîneurs'], ['news', 'Actus'], ['nations', 'Sélections']]
     .map(([k, l]) => `<button class="chip ${tab === k ? 'on' : ''}" data-act="stab" data-v="${k}">${l}</button>`).join('')}</div>
-    ${tab === 'table' || tab === 'scorers' ? `<div class="chips" style="margin-top:4px">${DIV_IDS.map((d) => `<button class="chip ${d === div ? 'on' : ''}" data-act="sdiv" data-v="${d}">${COUNTRIES[DIVISIONS[d].country].flag} ${DIVISIONS[d].short}</button>`).join('')}</div>` : ''}
+    ${tab === 'table' || tab === 'scorers' || tab === 'managers' ? `<div class="chips" style="margin-top:4px">${DIV_IDS.map((d) => `<button class="chip ${d === div ? 'on' : ''}" data-act="sdiv" data-v="${d}">${COUNTRIES[DIVISIONS[d].country].flag} ${DIVISIONS[d].short}</button>`).join('')}</div>` : ''}
     ${body}`;
 }
 
@@ -134,6 +141,33 @@ function nations(s, uc) {
     </tbody></table><p class="muted" style="font-size:11px;margin:6px 4px 0">★ nation d'au moins un de vos internationaux</p></div>`;
 }
 
+function managersView(s, uc, div) {
+  ensureManagers(s);
+  const vac = s.clubs.filter((c) => c.vacantSince && c.id !== uc.id);
+  const look = (m) => randomLook(createRng(hashSeed(m.id)).next);
+  const confC = (v) => (v >= 55 ? 'var(--good)' : v >= 30 ? 'var(--ok)' : 'var(--bad)');
+  const row = (c, m) => `<div class="prow" style="cursor:default">${m ? avatarSvg(look(m), 44) : avatarSvg(s.coach.look, 44)}
+      <div class="pname"><b>${m ? esc(m.first + ' ' + m.last) : esc(coachName(s.coach)) + ' <small>(vous)</small>'}</b>
+        <small>${c ? esc(c.name) + ' · ' : ''}${esc(m ? m.nat : s.coach.nationality)} · ${m ? m.age : s.coach.age} ans · ${esc(PHILOSOPHIES[m ? m.philosophy : s.coach.philosophy].label)} · ${esc(m ? m.formation : s.coach.formation)}</small></div>
+      <div class="center" style="min-width:58px"><b style="font-family:var(--display);font-size:18px">${Math.round(m ? m.rep : s.coach.rep)}</b><br>
+        ${m && c ? `<span class="mini" style="width:46px"><i style="width:${m.conf}%;background:${confC(m.conf)}"></i></span>` : '<small>rép.</small>'}</div></div>`;
+  return `${vac.length ? `<div class="label">Postes vacants</div><div class="card" style="margin-top:0">${vac.map((c) => `<div class="row" style="padding:6px 0">${crest(c)}
+      <div class="grow"><b>${esc(c.name)}</b><br><small>${DIVISIONS[c.div].name} · réputation ${c.rep}</small></div>
+      <button class="btn sm primary" data-act="apply" data-id="${c.id}" ${c.rejected ? 'disabled' : ''}>${c.rejected ? 'Refusé' : 'Postuler'}</button></div>`).join('')}</div>` : ''}
+    <div class="label">${esc(DIVISIONS[div].name)} · réputation et confiance du président</div>
+    <div class="card list cols2" style="padding:0 10px;margin-top:0">${s.clubs.filter((c) => c.div === div).sort((a, b) => b.rep - a.rep)
+      .map((c) => (c.id === uc.id ? row(c, null) : row(c, s.managers[c.managerId]))).join('')}</div>
+    <div class="label">Sans club</div>
+    <div class="card list cols2" style="padding:0 10px;margin-top:0">${freeManagers(s).sort((a, b) => b.rep - a.rep).slice(0, 12).map((m) => row(null, m)).join('')}</div>`;
+}
+
+function newsView(s) {
+  const n = (s.news || []).slice(0, 80);
+  const ic = { manager: '🪑', transfer: '✍', loan: '⇆' };
+  return `<div class="card" style="padding:4px 12px">${n.map((x) => `<div class="msg" style="cursor:default"><span class="ic">${ic[x.type] || '•'}</span>
+    <div class="grow">${esc(x.text)}<br><small>${x.season}-${String(x.season + 1).slice(2)} · journée ${x.day + 1}</small></div></div>`).join('') || '<p class="muted">Pas encore d\'actualité.</p>'}</div>`;
+}
+
 export function mount(app, root) {
   if ((app.ui.schedTab || 'table') === 'fixtures') root.querySelector('#nextfx')?.scrollIntoView({ block: 'center' });
 }
@@ -142,5 +176,15 @@ export const actions = {
   stab(el, app) { app.ui.schedTab = el.dataset.v; app.render(); },
   sdiv(el, app) { app.ui.schedDiv = +el.dataset.v; app.render(); },
   cupw(el, app) { app.ui.cupWhich = el.dataset.v; app.render(); },
+  async apply(el, app) {
+    const c = clubById(app.state, +el.dataset.id);
+    if (!(await app.confirm(`Postuler à ${c.name} ?`, 'Un entretien avec le président décidera. Si vous êtes retenu, vous quittez votre club actuel.', 'Passer l\'entretien'))) return;
+    const r = applyForJob(app.state, c.id);
+    app.save();
+    if (!r.ok) { app.toast(r.msg, 3000); app.render(); return; }
+    if (await app.confirm('Offre reçue', `${r.msg} Acceptez-vous de rejoindre ${c.name} ?`, 'Signer')) {
+      changeClub(app.state, c.id); app.save(true); app.go('home'); app.toast(`Bienvenue à ${c.name} !`);
+    } else app.render();
+  },
   async player(el, app) { (await import('./playerSheet.js')).showPlayer(app, +el.dataset.id); },
 };

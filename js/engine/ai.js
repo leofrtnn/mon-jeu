@@ -9,13 +9,14 @@ import { autoLineup, lineupStrength, squadStrength } from './ratings.js';
  * Choisit la meilleure formation selon les joueurs disponibles,
  * et une mentalité selon le rapport de force avec l'adversaire.
  */
-export function aiPrepare(players, opponentPlayers, isHome, rng) {
+export function aiPrepare(players, opponentPlayers, isHome, rng, pref = null) {
   let best = null;
+  const prefOf = pref;
   for (const f of FORMATION_NAMES) {
     const lu = autoLineup(players, f);
     // Petite préférence pour les systèmes "standard" + bruit pour la variété.
     const pref = f === '4-4-2' || f === '4-3-3' || f === '4-2-3-1' ? 0.6 : 0;
-    const sc = lineupStrength(players, lu.lineup, f) + pref + (rng ? rng.normal(0, 0.5) : 0);
+    const sc = lineupStrength(players, lu.lineup, f) + pref + (rng ? rng.normal(0, 0.5) : 0) + (prefOf && prefOf.formation === f ? 1.4 : 0);
     if (!best || sc > best.sc) best = { sc, f, lu };
   }
   const diff = squadStrength(players) - squadStrength(opponentPlayers) + (isHome ? 1.5 : -1.5);
@@ -25,7 +26,8 @@ export function aiPrepare(players, opponentPlayers, isHome, rng) {
   const style = diff > 4 ? { passing: 'short', line: 'high', crossing: 'mid' }
     : diff < -4 ? { passing: 'direct', line: 'low', counter: 'on', tackling: 'hard' } : {};
   return {
-    tactics: { formation: best.f, mentality, pressing, tempo: 'mid', width: 'mid', ...style },
+    // La philosophie de l'entraîneur prime sur le style par défaut (la mentalité reste adaptée à l'adversaire).
+    tactics: { formation: best.f, mentality, pressing, tempo: 'mid', width: 'mid', ...style, ...(pref ? { ...pref.tactics, mentality } : {}) },
     lineup: best.lu.lineup, bench: best.lu.bench,
   };
 }

@@ -6,7 +6,9 @@ import { userClub, clubPlayers, clubById } from '../../game/state.js';
 import { money, wageBill, sponsorIncome } from '../../game/economy.js';
 import { marketList, windowOpen, academyCost, upgradeAcademy, sellPlayer, counterIncoming } from '../../game/transfers.js';
 import { tablePosition, DIV_NAMES, CONTI_NAME } from '../../game/season.js';
-import { STAFF, staffHireCost, staffWage, staffWages, upgradeStaff, trainingUpgradeCost, upgradeTraining, STADIUM_OPTIONS, stadiumCost, expandStadium, TRAINING_FOCUS, INTENSITY } from '../../game/career.js';
+import { STAFF_ROLES, staffWages, hireStaff, fireStaff, bestStaff, staffEffects, trainingUpgradeCost, upgradeTraining, STADIUM_OPTIONS, stadiumCost, expandStadium, TRAINING_FOCUS, INTENSITY } from '../../game/career.js';
+import { randomLook } from '../../game/coach.js';
+import { createRng, hashSeed } from '../../core/rng.js';
 import { estimate, rangeLabel, mid } from '../../game/scouting.js';
 import { gameRng } from '../../game/state.js';
 import { overall } from '../../engine/ratings.js';
@@ -27,7 +29,7 @@ export function render(app) {
   let body;
   if (tab === 'fin') body = finances(s);
   else if (tab === 'market') body = market(app);
-  else if (tab === 'staff') body = staff(s);
+  else if (tab === 'staff') body = staff(app);
   else if (tab === 'train') body = training(s);
   else if (tab === 'youth') body = youth(s);
   else if (tab === 'friends') body = friends.render(app);
@@ -88,7 +90,7 @@ function market(app) {
   }
   if (mode === 'scout') {
     const ids = [...new Set([...(s.scoutQueue || []), ...Object.keys(s.scout || {}).map(Number)])].filter((id) => s.players[id] && s.players[id].clubId !== uc.id);
-    html += `<p class="muted" style="font-size:12px;margin:8px 2px">Recruteur niveau ${uc.staff.scout} : 3 rapports par journée. Ouvrez une fiche puis « Observer ».</p>
+    html += `<p class="muted" style="font-size:12px;margin:8px 2px">${staffEffects(uc).scoutReports} recruteur(s) : ${staffEffects(uc).scoutReports} rapport(s) par journée. Ouvrez une fiche puis « Observer ».</p>
       <div class="card list" style="padding:0 10px">${ids.slice(0, 40).map((id) => marketRow(s, s.players[id])).join('') || '<p class="muted">Aucun joueur observé.</p>'}</div>`;
     return html;
   }
@@ -111,23 +113,34 @@ function marketRow(s, p, price) {
   });
 }
 
-function staff(s) {
+function staff(app) {
+  const s = app.state;
   const uc = userClub(s);
   const fac = uc.facilities;
-  return `<div class="label">Staff</div>
-    ${Object.entries(STAFF).map(([k, st]) => {
-      const lvl = uc.staff[k];
-      return `<div class="card" style="margin-top:0">
-        <div class="row between"><b>${st.icon} ${st.label}</b>${stars(lvl)}</div>
-        <small class="muted">${st.desc}</small>
-        <div class="row between" style="margin-top:8px"><small>Salaire ${money(staffWage(lvl))}/sem</small>
-        ${lvl < 5 ? `<button class="btn sm" data-act="staff" data-v="${k}">Niveau ${lvl + 1} · ${money(staffHireCost(lvl + 1))}</button>` : '<span class="tag good">Max</span>'}</div></div>`;
-    }).join('')}
-    <div class="label">Installations</div>
-    <div class="card" style="margin-top:0"><div class="row between"><b>🏋️ Centre d'entraînement</b>${stars(fac.training)}</div>
+  const role = app.ui.staffRole || null;
+  const pool = (s.staffPool || []).filter((m) => !role || m.role === role).sort((a, b) => b.rating - a.rating);
+  const rc = (r) => (r >= 15 ? 'var(--good)' : r >= 10 ? 'var(--ok)' : 'var(--muted)');
+  const member = (m, act) => `<div class="prow" style="cursor:default">
+      ${avatarSvg(randomLook(createRng(hashSeed(m.id)).next), 40)}
+      <div class="pname"><b>${esc(m.first)} ${esc(m.last)}</b><small>${STAFF_ROLES[m.role].icon} ${STAFF_ROLES[m.role].label} · ${esc(m.nat)} · ${m.age} ans · ${money(m.wage)}/sem${act === 'fire' ? ` · ${m.contract} an(s)` : ''}</small></div>
+      <b style="font-family:var(--display);font-size:22px;color:${rc(m.rating)};min-width:30px;text-align:center">${m.rating}</b>
+      <button class="btn sm ${act === 'hire' ? 'primary' : 'danger'}" data-act="${act}staff" data-id="${m.id}">${act === 'hire' ? 'Embaucher' : 'Licencier'}</button></div>`;
+  const byRole = Object.keys(STAFF_ROLES).map((r) => {
+    const ms = uc.staffMembers.filter((m) => m.role === r);
+    return `${ms.map((m) => member(m, 'fire')).join('')}${ms.length < STAFF_ROLES[r].max ? `<div class="prow" data-act="staffrole" data-v="${r}" style="color:var(--muted)">
+      <span class="ic" style="width:40px;text-align:center;font-size:20px">${STAFF_ROLES[r].icon}</span><div class="pname"><b>${STAFF_ROLES[r].label}</b><small>Poste libre${STAFF_ROLES[r].max > 1 ? ` (${ms.length}/${STAFF_ROLES[r].max})` : ''} · ${STAFF_ROLES[r].desc}</small></div><span class="btn sm">Chercher</span></div>` : ''}`;
+  }).join('');
+  return `<div class="card" style="padding:6px 12px"><div class="row between" style="padding:6px 0"><h3 style="margin:0">Mon staff</h3><small>${money(staffWages(uc))}/sem</small></div>
+      <div class="list">${byRole}</div>
+      <p class="muted" style="font-size:12px;margin:6px 0">Notes de 1 à 20. Licencier coûte 8 semaines de salaire par année de contrat restante.</p></div>
+    <div class="card" style="padding:6px 12px"><div class="row between" style="padding:6px 0"><h3 style="margin:0">Marché du staff</h3><small>Prime d'arrivée : 4 semaines</small></div>
+      <div class="chips"><button class="chip ${!role ? 'on' : ''}" data-act="staffrole" data-v="">Tous</button>${Object.entries(STAFF_ROLES).map(([k, v]) => `<button class="chip ${role === k ? 'on' : ''}" data-act="staffrole" data-v="${k}">${v.icon} ${v.label}</button>`).join('')}</div>
+      <div class="list">${pool.slice(0, 15).map((m) => member(m, 'hire')).join('') || '<p class="muted">Personne de disponible pour ce poste.</p>'}</div></div>
+    <div class="card"><h3>Installations</h3>
+      <div class="row between"><b>🏋️ Centre d'entraînement</b>${stars(fac.training)}</div>
       <small class="muted">Accélère la progression de tous les joueurs.</small>
-      ${fac.training < 5 ? `<button class="btn block" style="margin-top:8px" data-act="trainfac">Améliorer · ${money(trainingUpgradeCost(fac.training))}</button>` : ''}</div>
-    <div class="card"><div class="row between"><b>🏟 Stade</b><b>${uc.stadium.toLocaleString('fr-FR')} places</b></div>
+      ${fac.training < 5 ? `<button class="btn block" style="margin-top:8px" data-act="trainfac">Améliorer · ${money(trainingUpgradeCost(fac.training))}</button>` : ''}
+      <div class="row between" style="margin-top:14px"><b>🏟 Stade</b><b>${uc.stadium.toLocaleString('fr-FR')} places</b></div>
       ${fac.works ? `<p>🚧 Travaux : +${fac.works.seats.toLocaleString('fr-FR')} places, livraison dans ${fac.works.daysLeft} journée(s).</p>`
         : `<small class="muted">Plus de places = plus de recettes, si le public suit.</small>
         <div class="btns" style="margin-top:8px">${STADIUM_OPTIONS.map((o) => `<button class="btn sm" data-act="stadium" data-v="${o.seats}">+${o.seats / 1000}k · ${money(stadiumCost(o.seats))}</button>`).join('')}</div>`}</div>`;
@@ -145,8 +158,8 @@ function training(s) {
     </div>
     <div class="card"><h3>Effets actuels</h3>
       <div class="row between"><span>Centre d'entraînement</span>${stars(uc.facilities.training)}</div>
-      <div class="row between"><span>Entraîneur adjoint</span>${stars(uc.staff.assistant)}</div>
-      <div class="row between"><span>Préparateur physique</span>${stars(uc.staff.fitness)}</div></div>`;
+      <div class="row between"><span>Entraîneur adjoint</span><b>${bestStaff(uc, 'assistant') || '—'}/20</b></div>
+      <div class="row between"><span>Préparateur physique</span><b>${bestStaff(uc, 'fitness') || '—'}/20</b></div></div>`;
 }
 
 function youth(s) {
@@ -212,7 +225,17 @@ export const actions = {
   mpos(el, app) { app.ui.mktPos = el.dataset.v || null; app.render(); },
   player(el, app) { showPlayer(app, +el.dataset.id); },
   upgrade(el, app) { done(app, upgradeAcademy(app.state)); },
-  staff(el, app) { done(app, upgradeStaff(app.state, el.dataset.v)); },
+  staffrole(el, app) { app.ui.staffRole = el.dataset.v || null; app.render(); },
+  async hirestaff(el, app) {
+    const m = app.state.staffPool.find((x) => x.id === el.dataset.id);
+    if (!(await app.confirm(`Embaucher ${m.first} ${m.last} ?`, `${STAFF_ROLES[m.role].label} · note ${m.rating}/20 · ${money(m.wage)}/sem<br>Prime d'arrivée : ${money(m.wage * 4)}`, 'Embaucher'))) return;
+    done(app, hireStaff(app.state, el.dataset.id));
+  },
+  async firestaff(el, app) {
+    const m = userClub(app.state).staffMembers.find((x) => x.id === el.dataset.id);
+    if (!(await app.confirm(`Licencier ${m.first} ${m.last} ?`, `Indemnité : ${money(m.wage * 8 * Math.max(1, m.contract))}`, 'Licencier', true))) return;
+    done(app, fireStaff(app.state, el.dataset.id));
+  },
   trainfac(el, app) { done(app, upgradeTraining(app.state)); },
   async stadium(el, app) {
     const seats = +el.dataset.v;
