@@ -60,7 +60,7 @@ export class MatchView {
     this.ball = { x: 0.5, y: 0.5, fx: 0.5, fy: 0.5, tx: 0.5, ty: 0.5, h: 0, arc: 0 };
     // Ballon physique (mètres) : la vue 2D/3D lit this.ball, recalculé à chaque image.
     this.phys = createBall();
-    this.TS = 1.3;          // le match est rejoué légèrement accéléré (×1,3) : ballon et joueurs au même rythme
+    this.TS = 1.6;          // le match est rejoué légèrement accéléré (×1,6) : ballon et joueurs au même rythme
     this.holder = null;     // joueur qui a le ballon dans les pieds (ou dans les mains : inHands)
     this.inHands = false;
     this.pending = null;    // fin prévue d'une frappe : contrôle, arrêt, contre
@@ -204,7 +204,21 @@ export class MatchView {
       const j = Math.sin(id * 12.9898 + this.m.minute * 0.7) * 0.012;
       pl.tx = p.x + j; pl.ty = p.y + Math.cos(id * 4.1 + this.m.minute) * 0.012;
     }
-    if (kickoff) return;
+    if (kickoff) {
+      // Engagement : chacun dans sa moitié, l'adversaire hors du rond central (9,15 m),
+      // le joueur qui engage au point central.
+      for (const pl of this.players.values()) {
+        const own = pl.team.side === 0;
+        pl.tx = own ? Math.min(pl.tx, 0.488) : Math.max(pl.tx, 0.512);
+        if (pl.team.side !== ev.side) {
+          const dx = (pl.tx - 0.5) * PITCH_L, dy = (pl.ty - 0.5) * PITCH_W, d = Math.hypot(dx, dy);
+          if (d < 10) { const k = 10 / Math.max(0.1, d); pl.tx = 0.5 + (dx * k) / PITCH_L; pl.ty = 0.5 + (dy * k) / PITCH_W; if (Math.abs(dx) < 0.5) pl.tx = own ? 0.4 : 0.6; }
+        }
+      }
+      const kicker = this.players.get(ev.carrier) || this.players.get(ev.pid);
+      if (kicker) { kicker.tx = kicker.team.side === 0 ? 0.495 : 0.505; kicker.ty = 0.5; }
+      return;
+    }
     // Porteur du ballon (après l'action) : va au ballon.
     const carrier = this.players.get(ev.carrier);
     if (carrier && !['goal', 'shot'].includes(ev.type)) { carrier.tx = bx; carrier.ty = by; }
@@ -248,6 +262,7 @@ export class MatchView {
   startEvent(ev) {
     this.cur = ev;
     this.curT = 0;
+    this.koWait = null;
     if (ev.period && ev.period !== this.period) {
       this.period = ev.period;
       // Changement de côté : on repositionne et on l'annonce.
@@ -284,6 +299,14 @@ export class MatchView {
     if (!['corner', 'freekick', 'penalty'].includes(ev.type)) this.setPiece = false;
     if (this.needsApproach(ev)) { this.approach = { ev, t: 0 }; this.dur = 99; }
     else this.resolveEvent(ev);
+  }
+
+
+  /**
+   * Annonce de l'action (commentaire, sifflet, cartons, noms) : au moment où elle a
+   * VRAIMENT lieu (après la course au contact, ou une fois les joueurs placés à l'engagement).
+   */
+  announce(ev) {
     if (ev.type === 'shot' && ev.outcome === 'post') this.cam.shake = 0.4;
     this.animate(ev);
     // Étiquettes de noms sur les actions importantes.
@@ -387,6 +410,16 @@ export class MatchView {
     // Les 22 joueurs se replacent en continu selon la position réelle du ballon.
     this.reshapeT = (this.reshapeT || 0) + dt;
     if (this.reshapeT > 0.25 && !this.cur?.replay && !['corner', 'freekick', 'penalty', 'kickoff', 'goal'].includes(this.cur?.type)) this.reshape();
+    if (this.cur && this.koWait != null) {
+      // Engagement : on attend que les 22 joueurs soient revenus dans leur moitié.
+      this.koWait += dt;
+      const off = [...this.players.values()].some((p) => Math.hypot((p.tx - p.x) * PITCH_L, (p.ty - p.y) * PITCH_W) > 2.5);
+      if (off && this.koWait < 6) { this.movePlayers(dt * this.TS); this.updateFx(realDt); return; }
+      if (off) for (const p of this.players.values()) { p.x = p.tx; p.y = p.ty; p.vx = p.vy = 0; }
+      this.koWait = null;
+      this.curT = 0;
+      this.announce(this.cur);
+    }
     if (this.cur) {
       this.curT += dt / this.dur;
       // L'action suivante attend que le receveur ait le ballon (au plus 2,5 s).
@@ -465,8 +498,11 @@ export class MatchView {
 
   /** Exécute l'événement une fois les joueurs au contact. */
   resolveEvent(ev) {
-    if (['tackle', 'interception', 'foul'].includes(ev.type)) return this.duel(ev);
-    this.doKick(ev);
+    if (['tackle', 'interception', 'foul'].includes(ev.type)) this.duel(ev);
+    else this.doKick(ev);
+    // Engagement : annoncé quand tout le monde est dans sa moitié (voir update).
+    if (ev.type === 'kickoff' && !ev.replay) { this.koWait = 0; return; }
+    this.announce(ev);
   }
 
   /** Duel : tacle / interception (le défenseur repart avec le ballon) ou faute (jeu arrêté). */
@@ -517,6 +553,26 @@ export class MatchView {
       const off = i === 0 ? 1.2 : 5;
       p.tx = (P.x + ux * off) / PITCH_L; p.ty = (P.y + uy * off) / PITCH_W;
     });
+    // Soutien : les deux coéquipiers les plus proches du porteur se démarquent (une solution
+    // courte de chaque côté, légèrement devant), l'attaquant le plus avancé prend la profondeur.
+    const h = this.holder != null ? this.players.get(this.holder) : null;
+    if (h && !this.inHands) {
+      const dir = h.team.side === 0 ? 1 : -1;
+      const mates = [...this.players.values()].filter((p) => p.team === h.team && p !== h && !p.gk && !busy.has(p.mp.id))
+        .map((p) => ({ p, d: Math.hypot((p.x - h.x) * PITCH_L, (p.y - h.y) * PITCH_W) })).sort((a, b) => a.d - b.d);
+      mates.slice(0, 2).forEach(({ p }, i) => {
+        const side = i === 0 ? (p.y < h.y ? -1 : 1) : (p.y < h.y ? -1 : 1) * -1 || 1;
+        p.tx = Math.max(0.03, Math.min(0.97, h.x + (dir * 9) / PITCH_L));
+        p.ty = Math.max(0.05, Math.min(0.95, h.y + (side * 12) / PITCH_W));
+      });
+      const fwd = mates.map((m) => m.p).filter((p) => ['BU', 'AG', 'AD'].includes(p.team.slots[p.mp.slot].pos))
+        .sort((a, b) => (b.x - a.x) * dir)[0];
+      const lastDef = [...this.players.values()].filter((p) => p.team !== h.team && !p.gk).map((p) => p.x * dir).sort((a, b) => b - a)[0];
+      if (fwd && lastDef != null && (h.x * dir) > (dir > 0 ? 0.35 : -0.65)) {
+        // Appel en profondeur : à la limite du hors-jeu, dans le dos de la défense.
+        fwd.tx = Math.max(0.03, Math.min(0.97, (lastDef - 0.01) * dir));
+      }
+    }
     this.reshapeT = 0;
   }
 

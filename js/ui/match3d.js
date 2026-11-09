@@ -256,7 +256,7 @@ class Player3D {
     if (p.slide > 0) {
       const k = Math.sin((p.slide / 0.55) * Math.PI);
       this.body.rotation.z = -1.25 * k;
-      this.body.position.y = -0.55 * k * K;
+      this.body.position.y = 0.06 * k;
       lL.hip.rotation.z = 1.25 * k; lR.hip.rotation.z = 0.7 * k;
       lL.knee.rotation.z = 0; lR.knee.rotation.z = -0.8 * k;
       this.arms[0].sh.rotation.x = 1.2 * k;
@@ -280,12 +280,12 @@ class Player3D {
       const t = 1 - p.fall / this._fallDur;
       const k = t < 0.25 ? Math.sin((t / 0.25) * Math.PI / 2) : t > 0.75 ? Math.sin(((1 - t) / 0.25) * Math.PI / 2) : 1;
       this.body.rotation.z = -1.4 * k;
-      this.body.position.y = -0.62 * k * K;
+      this.body.position.y = 0.1 * k;
       for (const a of this.arms) { a.sh.rotation.z = 1.6 * k; a.el.rotation.z = 0.4; }
       lL.hip.rotation.z = lR.hip.rotation.z = -0.2 * k;
     }
     // Ballon sur lui : il se couche / bloque, mains en avant.
-    if (p.block > 0) { for (const a of this.arms) { a.sh.rotation.z = 1.3; a.el.rotation.z = 0.3; } this.body.position.y = -0.25; }
+    if (p.block > 0) { for (const a of this.arms) { a.sh.rotation.z = 1.3; a.el.rotation.z = 0.3; } lL.knee.rotation.z = lR.knee.rotation.z = -0.5; }
     // Saut (tête) : impulsion, bras qui montent, coup de tête.
     if (p.jump > 0) {
       const t = 1 - p.jump / 0.45;
