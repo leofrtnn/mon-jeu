@@ -25,7 +25,7 @@
  *  summarize(m)     -> résumé (score, stats, notes, homme du match)
  */
 import { createRng, clamp } from '../core/rng.js';
-import { FORMATIONS, MAX_SUBS, positionFit, DEFAULT_TACTICS, slotsOf } from '../data/constants.js';
+import { FORMATIONS, MAX_SUBS, positionFit, playerFit, DEFAULT_TACTICS, slotsOf } from '../data/constants.js';
 import { conditionFactor, ratingAt } from './ratings.js';
 import { aiManage } from './ai.js';
 import { formationPos, pitchDist } from './positions.js';
@@ -258,7 +258,7 @@ function refreshMultipliers(m) {
     const numbers = 1 - 0.055 * (11 - n);
     for (const mp of t.onPitch) {
       if (!mp) continue;
-      const fit = positionFit(mp.p.pos, t.slots[mp.slot].pos);
+      const fit = playerFit(mp.p, t.slots[mp.slot].pos);
       const pm = { form: mp.p.form, morale: clamp(mp.morale + t.talk, 0, 100) };
       mp.mult = conditionFactor(pm, mp.energy) * fit * home * numbers * (t.cm ? t.cm.perf : 1);
     }

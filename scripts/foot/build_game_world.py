@@ -95,11 +95,28 @@ REP_KEY = [
   ('fcsb', 66, 'FCSB'), ('cfr cluj', 64, 'CFR'), ('universitatea craiova', 64, 'UCV'), ('rapid', 63, 'RAP'), ('dinamo bucuresti', 61, 'DIN2'), ('farul', 61, 'FAR'),
   ('ferencvaros', 69, 'FTC'), ('puskas', 61, 'PAFC'), ('paksi', 60, 'PAK'), ('gyor', 60, 'ETO'), ('debreceni', 58, 'DVSC'), ('ujpest', 57, 'UTE'),
   ('apoel', 63, 'APO'), ('pafos', 65, 'PAF'), ('omonia', 63, 'OMO'), ('aek larnaca', 62, 'AEK2'), ('aris limassol', 60, 'ARI'), ('apollon', 60, 'APL'),
+  # Deuxièmes divisions des 5 grands championnats.
+  ('west ham', 72, 'WHU'), ('wolverhampton', 71, 'WOL'), ('southampton', 68, 'SOU'), ('burnley', 67, 'BUR'), ('sheffield united', 66, 'SHU'),
+  ('middlesbrough', 65, 'MID'), ('norwich', 65, 'NOR2'), ('west bromwich', 65, 'WBA'), ('watford', 63, 'WAT'), ('stoke', 63, 'STK'),
+  ('swansea', 63, 'SWA'), ('birmingham', 64, 'BIR'), ('derby', 62, 'DER'), ('millwall', 62, 'MIL2'), ('bristol city', 62, 'BRC'),
+  ('queens park', 61, 'QPR'), ('blackburn', 61, 'BLB'), ('preston', 61, 'PNE'), ('portsmouth', 60, 'POR3'), ('wrexham', 61, 'WRE'),
+  ('cardiff', 60, 'CAR'), ('charlton', 59, 'CHA2'), ('bolton', 59, 'BOL2'), ('lincoln', 57, 'LIN'),
+  ('girona', 70, 'GIR'), ('mallorca', 68, 'MLL'), ('las palmas', 64, 'LPA'), ('valladolid', 63, 'VLL'), ('granada', 63, 'GRA'),
+  ('leganes', 62, 'LEG'), ('real oviedo', 62, 'OVI'), ('sporting de gijon', 62, 'SPG'), ('eibar', 61, 'EIB'), ('almeria', 62, 'ALM'),
+  ('cadiz', 61, 'CAD'), ('tenerife', 59, 'TEN'), ('real sociedad b', 55, 'RSB'), ('celta fortuna', 55, 'CEB'),
+  ('verona', 64, 'HVE'), ('empoli', 63, 'EMP'), ('sampdoria', 63, 'SAM'), ('palermo', 63, 'PAL2'), ('pisa', 62, 'PIS'), ('cremonese', 61, 'CRE'),
+  ('modena', 60, 'MOD'), ('padova', 58, 'PAD'), ('cesena', 59, 'CES'), ('catanzaro', 59, 'CAT'), ('sudtirol', 58, 'SUD'),
+  ('wolfsburg', 70, 'WOB'), ('st. pauli', 67, 'STP'), ('heidenheim', 65, 'FCH'), ('hertha', 64, 'BSC'), ('bochum', 63, 'BOC'),
+  ('hannover', 63, 'H96'), ('kaiserslautern', 63, 'FCK'), ('nurnberg', 62, 'FCN'), ('holstein kiel', 62, 'KSV'), ('darmstadt', 61, 'D98'),
+  ('magdeburg', 60, 'FCM'), ('greuther', 60, 'SGF'), ('karlsruher', 60, 'KSC'), ('bielefeld', 60, 'DSC'), ('braunschweig', 59, 'EBS'),
+  ('nantes', 66, 'FCN2'), ('montpellier', 64, 'MHSC'), ('reims', 64, 'SDR'), ('saint-etienne', 64, 'ASSE'), ('saint etienne', 64, 'ASSE'),
+  ('metz', 62, 'FCM2'), ('guingamp', 58, 'EAG'), ('clermont', 58, 'CF63'), ('dijon', 57, 'DFCO'),
   ('maccabi tel aviv', 66, 'MTA'), ('maccabi haifa', 64, 'MHA'), ('hapoel be', 64, 'HBS'), ('beitar', 63, 'BEI'), ('hapoel tel aviv', 60, 'HTA'),
 ]
 DEFAULT_REP = {'POR1': 57, 'NED1': 58, 'BEL1': 57, 'TUR1': 59, 'CZE1': 55, 'GRE1': 55, 'NOR1': 55, 'POL1': 56, 'DEN1': 56, 'AUT1': 55,
                'SUI1': 56, 'SCO1': 54, 'SWE1': 55, 'CRO1': 54, 'SRB1': 53,
-               'BRA1': 64, 'KSA1': 58, 'MEX1': 62, 'JPN1': 61, 'RUS1': 60, 'UKR1': 56, 'ROU1': 56, 'HUN1': 54, 'CYP1': 54, 'ISR1': 55}
+               'BRA1': 64, 'KSA1': 58, 'MEX1': 62, 'JPN1': 61, 'RUS1': 60, 'UKR1': 56, 'ROU1': 56, 'HUN1': 54, 'CYP1': 54, 'ISR1': 55,
+               'ENG2': 62, 'ESP2': 59, 'ITA2': 59, 'GER2': 60, 'FRA2': 57}
 PREFIX = {'fc', 'sc', 'sk', 'fk', 'ac', 'kv', 'k', 'r', 'rsc', 'sl', 'cd', 'cf', 'gd', 'ud', 'kaa', 'krc', 'kvc', 'rc', 'sv', 'afc', 'f', 'c', 's', 'a',
           'royal', 'royale', 'club', 'cs', 'pec', 'ado', 'sfk', '1', 'raal', 'fsv', 'ksv', 'vv', 'sint', 'oud'}
 
@@ -107,8 +124,11 @@ def ascii_low(s):
     s = s.translate(str.maketrans({'ø': 'o', 'Ø': 'O', 'æ': 'ae', 'Æ': 'AE', 'ł': 'l', 'Ł': 'L', 'đ': 'd', 'Đ': 'D', 'ß': 'ss', 'ı': 'i'}))
     return unicodedata.normalize('NFKD', s).encode('ascii', 'ignore').decode().lower()
 
+LEAGUE_KEY = {('FRA2', 'red star'): (57, 'RSFC')}   # homonymes (Red Star de Paris ≠ Étoile rouge de Belgrade)
 def rep_short(c, league):
     n = ascii_low(c['name'] + ' ' + c['id'].replace('-', ' '))
+    for (lg, key), v in LEAGUE_KEY.items():
+        if lg == league and re.search(r'\b' + re.escape(key), n): return v
     for key, rep, short in REP_KEY:
         if re.search(r'\b' + re.escape(key), n):   # début de mot : « az » ne capte pas « Gaziantep »
             return rep, short
@@ -223,14 +243,17 @@ def player_score(p, rep_club, rep_of):
             r = rep_of.get(norm_club(name))
             if r: best = max(best, r)
     age = p.get('age') or 26
-    age_k = -7 if age <= 17 else -5 if age <= 19 else -3 if age <= 21 else -1 if age <= 23 else 0 if age <= 30 else -1 if age <= 32 else -2.5 if age <= 34 else -4
+    fame = lead_bonus(p.get('leadLen') or 0)
+    age_k = -7 if age <= 17 else -5 if age <= 19 else -3 if age <= 21 else -1 if age <= 23 else 0 if age <= 30 else -1 if age <= 32 else -2.5 if age <= 34 else -5 if age <= 36 else -8
+    if age >= 30 and fame > 0: fame *= max(.25, 1 - (age - 29) * .14)   # une longue carrière allonge l'article : la notoriété compte moins
+    if age_k < 0 and age <= 23: age_k *= max(0, 1 - max(0, fame) / 3.5)   # les jeunes déjà reconnus (Yamal…) ne sont pas pénalisés
     exp = min(2.5, senior / 160) - (2.5 if senior < 15 else 0)
-    pedigree = max(0, best - rep_club) * .16
+    pedigree = max(0, best - rep_club) * (.16 if age < 30 else .08)
     gp = (p.get('position') or {}).get('game')
     scorer = 0
     if gp in ('BU', 'AG', 'AD', 'MO') and senior >= 40:
         scorer = max(-1, min(3.5, (goals / senior - .25) * 9 if gp == 'BU' else (goals / senior - .15) * 9))
-    return intl + exp + pedigree + age_k + scorer + lead_bonus(p.get('leadLen') or 0)
+    return intl + exp + pedigree + age_k + scorer + fame
 
 def stable_noise(key):
     import hashlib
@@ -256,11 +279,97 @@ for cid, ps in by_club.items():
     for p in ps:
         levels[p['id']] = max(40, min(93, round(target + (raw[p['id']] - mean) * 1.1)))
 
+# ---------- Postes (comme FM : un poste principal + postes secondaires) ----------
+# Le PREMIER poste cité par Wikipédia est le principal (« Defensive midfielder, right-back » :
+# milieu défensif, et latéral droit en secondaire). Les mentions vagues (« Midfielder »,
+# « Forward »…) sont tranchées selon le profil du joueur et les besoins de l'effectif.
+POS_RULES = [
+  (r'goal ?keeper', 'GB'),
+  (r'cent(?:re|er)[- ]backs?|sweeper|central defender', 'DC'),
+  (r'left[- ]wing[- ]backs?|left[- ]backs?|left full[- ]backs?', 'DG'),
+  (r'right[- ]wing[- ]backs?|right[- ]backs?|right full[- ]backs?', 'DD'),
+  (r'full[- ]backs?|wing[- ]backs?', 'G_FB'),
+  (r'defensive midfielder|holding midfielder|anchor', 'MDC'),
+  (r'attacking midfielder|playmaker|second striker|number 10', 'MO'),
+  (r'cent(?:re|ral|er)(?:al)? midfielder|box-to-box', 'MC'),
+  (r'left winger|left wing|left midfielder', 'AG'),
+  (r'right winger|right wing|right midfielder', 'AD'),
+  (r'wide midfielder|winger', 'G_W'),
+  (r'striker|cent(?:re|er)[- ]forward', 'BU'),
+  (r'forward|attacker', 'G_FW'),
+  (r'midfielder', 'G_MF'),
+  (r'defender', 'G_DF'),
+]
+CODE_GEN = {'GK': 'GB', 'DF': 'G_DF', 'MF': 'G_MF', 'FW': 'G_FW'}
+def parse_positions(p):
+    det = ((p.get('position') or {}).get('detail') or '').lower()
+    found, taken = [], []
+    for rx, pos in POS_RULES:
+        for m in re.finditer(rx, det):
+            if any(a < m.end() and m.start() < b for a, b in taken): continue
+            taken.append((m.start(), m.end())); found.append((m.start(), pos))
+    out = []
+    for _, pos in sorted(found):
+        if pos not in out: out.append(pos)
+    if not out:
+        out = [CODE_GEN.get((p.get('position') or {}).get('code') or '', (p.get('position') or {}).get('game') or 'G_MF')]
+    return out
+
+def goal_ratio(p):
+    a = g = 0
+    for c in p.get('career') or []:
+        if re.search(r'\b(U-?\d\d|II|B|reserves?|youth|academy|Jong|Castilla|Primavera)\b', c.get('club') or '', re.I): continue
+        a += c.get('apps') or 0; g += c.get('goals') or 0
+    return (g / a) if a >= 30 else None
+
+POSITIONS = {}
+for cid, ps in by_club.items():
+    raw = {p['id']: parse_positions(p) for p in ps}
+    cnt = {}
+    for lst in raw.values():
+        if not lst[0].startswith('G_'): cnt[lst[0]] = cnt.get(lst[0], 0) + 1
+    def take(pos):
+        cnt[pos] = cnt.get(pos, 0) + 1
+        return pos
+    # Les joueurs au poste vague, du mieux renseigné au moins renseigné.
+    for p in sorted(ps, key=lambda q: -(len(((q.get('position') or {}).get('detail') or '')))):
+        lst = raw[p['id']]
+        gen = lst[0]
+        if not gen.startswith('G_'): continue
+        gr = goal_ratio(p)
+        if gen == 'G_FB': pos = take('DG' if cnt.get('DG', 0) < cnt.get('DD', 0) else 'DD')
+        elif gen == 'G_W': pos = take('AG' if cnt.get('AG', 0) < cnt.get('AD', 0) else 'AD')
+        elif gen == 'G_DF':
+            pos = take('DG' if cnt.get('DG', 0) < 2 else 'DD' if cnt.get('DD', 0) < 2 else 'DC')
+        elif gen == 'G_MF':
+            if gr is not None and gr >= .18: pos = take('MO')
+            elif gr is not None and gr <= .04 and cnt.get('MDC', 0) < 2: pos = take('MDC')
+            elif cnt.get('MDC', 0) < 1: pos = take('MDC')
+            elif cnt.get('MO', 0) < 1 and (gr or 0) >= .1: pos = take('MO')
+            else: pos = take('MC')
+        else:  # G_FW
+            if (gr is not None and gr >= .33) or cnt.get('BU', 0) < 2: pos = take('BU')
+            else: pos = take('AG' if cnt.get('AG', 0) < cnt.get('AD', 0) else 'AD')
+        lst[0] = pos
+    for p in ps:
+        lst = raw[p['id']]
+        prim = lst[0]
+        sec = []
+        for x in lst[1:]:
+            if x == 'G_FB': x = 'DD' if prim == 'DG' else 'DG' if prim == 'DD' else 'DD'
+            elif x == 'G_W': x = 'AD' if prim == 'AG' else 'AG'
+            elif x == 'G_FW': x = 'BU' if prim != 'BU' else 'AG'
+            elif x == 'G_MF': x = 'MC' if prim != 'MC' else 'MO'
+            elif x == 'G_DF': x = 'DC' if prim != 'DC' else 'DD'
+            if x != prim and x not in sec: sec.append(x)
+        POSITIONS[p['id']] = (prim, sec[:3])
+
 players = []
 for p in d['players']:
     first, last = split(p['name'])
     intl = p.get('international') or {}
-    players.append({'club': p['club'], 'f': first, 'l': last, 'pos': p['position']['game'], 'age': p.get('age') or 0,
+    prim, sec = POSITIONS.get(p['id'], (p['position']['game'], []))
+    players.append({'club': p['club'], 'f': first, 'l': last, 'pos': prim, 'p2': sec, 'h': p.get('heightCm'), 'gr': (round(goal_ratio(p), 3) if goal_ratio(p) is not None else None), 'age': p.get('age') or 0,
                     'nat': (p.get('nationality') or {}).get('name') or '', 'num': p.get('number') or 0,
                     'caps': intl.get('caps') or 0, 'ig': intl.get('goals') or 0, 'apps': (p.get('clubStats') or {}).get('apps') or 0,
                     'ph': (p.get('photo') or {}).get('file'), 'lv': levels.get(p['id'])})

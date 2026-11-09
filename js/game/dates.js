@@ -12,9 +12,11 @@ export function assignDates(calendar, season) {
   while (new Date(cur).getUTCDay() !== 6) cur += DAY; // premier samedi
   let lastLeague = cur;
   for (const e of calendar) {
-    if (e.type === 'league') {
+    if (e.type === 'league' && e.mid) {
+      e.date = iso(lastLeague + 3 * DAY); // journée de championnat en semaine
+    } else if (e.type === 'league') {
       e.date = iso(cur); lastLeague = cur; cur += 7 * DAY;
-      if (e.round === 18) cur += 7 * DAY; // trêve hivernale
+      if (e.wb ?? e.round === 18) cur += 7 * DAY; // trêve hivernale
     } else if (e.type === 'intl') {
       e.date = iso(cur); cur += 7 * DAY;
     } else {

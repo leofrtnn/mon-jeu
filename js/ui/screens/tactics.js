@@ -2,7 +2,7 @@
  * Tactique : formation, consignes, compo en glisser-déposer (ou tap-tap), compo auto.
  */
 import { userClub, clubPlayers } from '../../game/state.js';
-import { FORMATIONS, FORMATION_NAMES, MENTALITIES, MENTALITY_LABELS, LEVELS, PRESSING_LABELS, TEMPO_LABELS, WIDTH_LABELS, positionFit, BENCH_SIZE, ROLES, rolesFor, DEFAULT_TACTICS, TEAM_INSTRUCTIONS, PLAYER_INSTRUCTIONS, slotsOf, posFromXY } from '../../data/constants.js';
+import { FORMATIONS, FORMATION_NAMES, MENTALITIES, MENTALITY_LABELS, LEVELS, PRESSING_LABELS, TEMPO_LABELS, WIDTH_LABELS, positionFit, playerFit, BENCH_SIZE, ROLES, rolesFor, DEFAULT_TACTICS, TEAM_INSTRUCTIONS, PLAYER_INSTRUCTIONS, slotsOf, posFromXY } from '../../data/constants.js';
 import { autoLineup, ratingAt, isAvailable, overall, lineupStrength } from '../../engine/ratings.js';
 import { esc, playerRow, seg, posBadge, abilityStars } from '../components.js';
 import { face } from '../images.js';
@@ -25,7 +25,7 @@ export function render(app) {
   const edit = !!app.ui.tEdit;
   const pitch = slots.map((sl, i) => {
     const p = byId.get(uc.lineup[i]);
-    const fit = p ? positionFit(p.pos, sl.pos) : 0;
+    const fit = p ? playerFit(p, sl.pos) : 0;
     const fc = fit >= 1 ? 'var(--good)' : fit >= 0.85 ? 'var(--ok)' : 'var(--bad)';
     return `<div class="slot ${p ? '' : 'empty'} ${edit && sl.pos !== 'GB' ? 'editable' : ''}" data-drag="slot" data-drop="slot" data-v="${i}"
       style="--x:${sl.x.toFixed(3)};--y:${sl.y.toFixed(3)}">

@@ -2,7 +2,7 @@
  * Calculs de notes : note globale par poste, condition du jour, compo automatique.
  * Module pur (pas d'accès au DOM ni à l'état global) : utilisable dans les tests Node.
  */
-import { POSITION_WEIGHTS, positionFit, FORMATIONS, BENCH_SIZE } from '../data/constants.js';
+import { POSITION_WEIGHTS, playerFit, FORMATIONS, BENCH_SIZE } from '../data/constants.js';
 
 /** Note brute d'un joueur à un poste (sans pénalité de placement). */
 export function rawRatingAt(p, pos) {
@@ -14,7 +14,7 @@ export function rawRatingAt(p, pos) {
 
 /** Note d'un joueur à un poste, avec pénalité s'il n'est pas à son poste naturel. */
 export function ratingAt(p, pos) {
-  return rawRatingAt(p, pos) * positionFit(p.pos, pos);
+  return rawRatingAt(p, pos) * playerFit(p, pos);
 }
 
 /** Note globale (poste naturel), arrondie. */

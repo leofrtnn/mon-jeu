@@ -6,7 +6,7 @@
  * Les notes (attributs) sont estimées par le jeu : niveau du club (réputation) +
  * statut international, âge et place dans l'effectif. Tout est déterministe (graine).
  */
-import { createPlayer, setNextId, getNextId, assignNumbers } from './generator.js';
+import { createPlayer, setNextId, getNextId, assignNumbers, fitToLevel } from './generator.js';
 import { DIVISIONS, DIV_IDS, LEAGUE_WEALTH } from './world.js';
 import { DEFAULT_TACTICS } from './constants.js';
 import { clamp, createRng } from '../core/rng.js';
@@ -23,6 +23,26 @@ export function realLevel(club, p, rng) {
   const exp = Math.min(2, (p.apps || 0) / 100);               // cadre du club
   const starBoost = club.rep >= 85 && caps >= 40 ? 1.5 : 0;    // les vedettes des grands clubs
   return clamp(Math.round(base + intl + ageK + exp + starBoost + rng.normal(0, 2.2)), 45, 91);
+}
+
+/**
+ * Profil d'attributs tiré des données réelles : taille (physique, vitesse, dribble), âge
+ * (vitesse en baisse, vision et sang-froid en hausse) et ratio de buts en carrière (tir).
+ */
+function profile(p, rp, age) {
+  const a = p.attrs;
+  const h = rp.h || 0;
+  if (h >= 190) { a.phy += 6; a.vit -= 4; a.dri -= 3; } else if (h >= 185) { a.phy += 3; a.vit -= 1; } else if (h && h <= 172) { a.phy -= 5; a.dri += 3; a.vit += 3; }
+  if (age >= 31) { a.vit -= (age - 30) * 2.2; a.vis += 3; a.sf += 3; } else if (age <= 21) { a.vit += 2; a.sf -= 4; a.vis -= 3; }
+  if (rp.gr != null && ['BU', 'AG', 'AD', 'MO'].includes(p.pos)) {
+    const base = p.pos === 'BU' ? 0.32 : 0.16;
+    a.tir += Math.max(-7, Math.min(9, (rp.gr - base) * 28));
+  }
+  // Attributs hors rôle bas, comme dans FM (un avant-centre ne sait pas tacler).
+  if (['BU', 'AG', 'AD', 'MO'].includes(p.pos)) a.def -= p.pos === 'MO' ? 12 : 20;
+  if (p.pos === 'DC' || p.pos === 'MDC') { a.tir -= 14; a.dri -= p.pos === 'DC' ? 10 : 4; }
+  if (p.pos === 'DC') a.vis -= 6;
+  for (const k in a) a[k] = Math.max(1, Math.min(97, Math.round(a[k])));
 }
 
 /** Graine stable tirée d'un texte (le même joueur a les mêmes notes dans toutes les parties). */
@@ -69,7 +89,10 @@ export function createRealWorld(rng, data) {
     const prng = createRng(hashSeed(`${rp.f} ${rp.l} ${rp.club}`));
     const level = rp.lv || realLevel(club, rp, prng);
     const age = rp.age || prng.int(20, 30);
-    const p = createPlayer(prng, { pos: rp.pos, level, age, clubId: club.id, country: club.country });
+    const p = createPlayer(prng, { pos: rp.pos, level, age, clubId: club.id, country: club.country, noise: 3.5 });
+    if (rp.p2?.length) p.pos2 = rp.p2.slice();
+    profile(p, rp, age);
+    fitToLevel(p, level);
     p.first = rp.f; p.last = rp.l;
     p.name = rp.f ? `${rp.f[0]}. ${rp.l}` : rp.l;
     p.nat = rp.nat || p.nat;

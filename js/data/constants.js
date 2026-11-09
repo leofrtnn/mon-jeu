@@ -50,6 +50,13 @@ const RELATED = {
   AD: { AG: 0.92, MO: 0.88, BU: 0.85, DD: 0.78 },
   BU: { MO: 0.85, AG: 0.85, AD: 0.85 },
 };
+/** Aptitude d'un JOUEUR à un poste : poste principal, ou postes secondaires (comme FM, ≈ 0,96). */
+export function playerFit(p, played) {
+  let f = positionFit(p.pos, played);
+  if (f < 1 && p.pos2) for (const x of p.pos2) f = Math.max(f, x === played ? 0.96 : positionFit(x, played) * 0.95);
+  return f;
+}
+
 export function positionFit(natural, played) {
   if (natural === played) return 1;
   if (natural === 'GB' || played === 'GB') return 0.4;

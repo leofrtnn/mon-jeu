@@ -37,6 +37,12 @@ LEAGUES = [
     {'id': 'ROU1', 'size': 16, 'name': 'SuperLiga (ROU)', 'country': 'Roumanie', 'templates': ['Template:Liga I teamlist']},
     {'id': 'HUN1', 'size': 12, 'name': 'NB I', 'country': 'Hongrie', 'templates': ['Template:Nemzeti Bajnokság I']},
     {'id': 'CYP1', 'size': 14, 'name': 'First Division', 'country': 'Chypre', 'templates': ['Template:Cypriot First Division']},
+    # Deuxièmes divisions des 5 grands championnats (montées et descentes).
+    {'id': 'ENG2', 'size': 24, 'name': 'Championship', 'country': 'Angleterre', 'templates': ['Template:EFL Championship']},
+    {'id': 'ESP2', 'size': 22, 'name': 'LaLiga 2', 'country': 'Espagne', 'templates': ['Template:Segunda División']},
+    {'id': 'ITA2', 'size': 20, 'name': 'Serie B', 'country': 'Italie', 'templates': ['Template:Serie B teamlist']},
+    {'id': 'GER2', 'size': 18, 'name': '2. Bundesliga', 'country': 'Allemagne', 'templates': ['Template:2. Bundesliga']},
+    {'id': 'FRA2', 'size': 18, 'name': 'Ligue 2', 'country': 'France', 'templates': ['Template:Ligue 2 teamlist']},
     {'id': 'ISR1', 'size': 14, 'name': 'Ligat HaAl', 'country': 'Israël', 'templates': ['Template:Ligat HaAl'], 'season': '|Clubs]]'},
 ]
 CLUB_BOX = re.compile(r'\{\{\s*Infobox football club', re.I)

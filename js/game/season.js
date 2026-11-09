@@ -112,7 +112,8 @@ export function roundRobin(ids, rng) {
 /** Divisions du monde réel couvertes par les données (identifiants de championnat → divisions). */
 const REAL_SOURCES = { ENG1: 1, ESP1: 2, ITA1: 3, GER1: 4, FRA1: 5, POR1: 6, NED1: 7, BEL1: 8, TUR1: 9, CZE1: 10,
   GRE1: 11, NOR1: 12, POL1: 13, DEN1: 14, AUT1: 15, SUI1: 16, SCO1: 17, SWE1: 18, CRO1: 19, SRB1: 20,
-  BRA1: 21, KSA1: 22, MEX1: 23, JPN1: 24, RUS1: 25, UKR1: 26, ROU1: 27, HUN1: 28, CYP1: 29, ISR1: 30 };
+  BRA1: 21, KSA1: 22, MEX1: 23, JPN1: 24, RUS1: 25, UKR1: 26, ROU1: 27, HUN1: 28, CYP1: 29, ISR1: 30,
+  ENG2: 31, ESP2: 32, ITA2: 33, GER2: 34, FRA2: 35 };
 const REAL_DIVS = (data) => [...new Set(data.clubs.map((c) => REAL_SOURCES[c.league]).filter(Boolean))].sort((a, b) => a - b);
 
 const clubsOfDiv = (state, div) => state.clubs.filter((c) => c.div === div);
@@ -121,10 +122,13 @@ const clubsOfDiv = (state, div) => state.clubs.filter((c) => c.div === div);
  * Journée de championnat jouée par une division au créneau r (0-37) du calendrier.
  * Les championnats à 18 clubs (34 journées) sautent 4 créneaux, répartis sur la saison.
  */
+let SLOTS = 38; // créneaux de championnat de la saison (46 avec le Championship : matchs en semaine)
+/** Nombre de créneaux de championnat de la saison en cours (à appeler avec l'état chargé). */
+export function syncLeagueSlots(state) { SLOTS = state?.leagueSlots || 38; return SLOTS; }
 export function leagueRoundOf(nRounds, r) {
-  if (nRounds >= 38) return r < nRounds ? r : null;
-  const idx = Math.floor(r * nRounds / 38);
-  const prev = r > 0 ? Math.floor((r - 1) * nRounds / 38) : -1;
+  if (nRounds >= SLOTS) return r < nRounds ? r : null;
+  const idx = Math.floor(r * nRounds / SLOTS);
+  const prev = r > 0 ? Math.floor((r - 1) * nRounds / SLOTS) : -1;
   return idx !== prev ? idx : null;
 }
 
@@ -142,15 +146,21 @@ export function createSeason(state) {
     state.tables[div] = {};
     for (const id of ids) state.tables[div][id] = { p: 0, w: 0, d: 0, l: 0, gf: 0, ga: 0, pts: 0, form: [] };
   }
-  // Calendrier : 38 journées + coupes + coupe continentale + trêves internationales.
+  // Calendrier : créneaux de championnat (38, ou plus si un championnat en compte davantage :
+  // 46 journées en Championship, jouées en partie en semaine) + coupes + coupe continentale + trêves.
+  const L = Math.max(38, ...DIV_IDS.map((d) => state.fixtures[d].length));
+  state.leagueSlots = L;
+  syncLeagueSlots(state);
+  const at = (r38) => Math.round(r38 * L / 38);
+  const mid = new Set(Array.from({ length: L - 38 }, (_, k) => Math.round((k + 1) * L / (L - 38 + 1))));
   state.calendar = [];
-  for (let r = 0; r < 38; r++) {
-    state.calendar.push({ type: 'league', round: r, lr: r });
-    const k = CUP_AFTER.indexOf(r);
+  for (let r = 0; r < L; r++) {
+    state.calendar.push({ type: 'league', round: r, lr: r, mid: mid.has(r), wb: r === at(18) });
+    const k = CUP_AFTER.findIndex((x) => at(x) === r);
     if (k >= 0) state.calendar.push({ type: 'cup', round: k, lr: r + 1 });
-    const c = CONTI_AFTER.indexOf(r);
+    const c = CONTI_AFTER.findIndex((x) => at(x) === r);
     if (c >= 0) state.calendar.push({ type: 'conti', round: c, lr: r + 1 });
-    const i = INTL_AFTER.indexOf(r);
+    const i = INTL_AFTER.findIndex((x) => at(x) === r);
     if (i >= 0) state.calendar.push({ type: 'intl', round: i, lr: r + 1 });
   }
   // Coupes nationales : France 32 clubs (5 tours), Ibérie et Albion 16 clubs (4 tours).
@@ -215,7 +225,7 @@ export function setObjectives(state) {
     else if (expected <= 10) { target = 10; label = 'Finir dans la 1re moitié'; }
     else { target = hasRelegation ? nClubs - nDown : Math.min(15, nClubs - 2); label = hasRelegation ? 'Assurer le maintien' : `Finir dans le top ${Math.min(15, nClubs - 2)}`; }
   } else {
-    if (expected <= 4) { target = 3; label = 'Monter en Division 1'; }
+    if (expected <= 4) { target = DIVISIONS[club.div].up || 3; label = `Monter en ${DIVISIONS[DIVISIONS[club.div].upper]?.name || 'Division 1'}`; }
     else if (expected <= 10) { target = 8; label = 'Finir dans le top 8'; }
     else { target = 15; label = 'Finir dans le top 15'; }
   }
@@ -335,6 +345,7 @@ function ensureContiDraw(state, k) {
 
 /** Description de la journée courante et du match de l'utilisateur. */
 export function today(state) {
+  syncLeagueSlots(state);
   const entry = state.calendar[state.day];
   if (!entry) return null;
   let fixtures = [], label;
@@ -343,7 +354,9 @@ export function today(state) {
       const rr = leagueRoundOf(state.fixtures[div].length, entry.round);
       if (rr != null) fixtures.push(...state.fixtures[div][rr].map((f) => ({ h: f.h, a: f.a, s: f.s, comp: 'league', div, ref: f })));
     }
-    label = `Journée ${entry.round + 1}`;
+    const uc0 = state.userClubId ? userClub(state) : null;
+    const ur = uc0 ? leagueRoundOf(state.fixtures[uc0.div].length, entry.round) : entry.round;
+    label = ur != null ? `Journée ${ur + 1}` : 'Championnat (semaine)';
   } else if (entry.type === 'cup') {
     for (const key of Object.keys(state.cups)) {
       const cup = state.cups[key];
@@ -840,7 +853,7 @@ export function endSeason(state) {
   // dont les données ne contiennent que l'élite). Relégation administrative d'un club en faillite.
   for (const d of DIV_IDS) {
     const D = DIVISIONS[d];
-    if (!D.down || !D.lower) continue;
+    if (!D.down || !D.lower || !DIV_IDS.includes(D.lower) || !tables[D.lower]) continue;
     const down = tables[d].slice(-D.down);
     for (const r of tables[d].slice(0, -D.down)) {
       if (finHealth(state, r.club) >= BAL.crisis.bankrupt) continue;

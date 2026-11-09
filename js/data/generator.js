@@ -21,13 +21,13 @@ export function getNextId() { return nextId; }
  * Crée un joueur dont la note globale vise `level`.
  * Les attributs clés du poste sont proches de la cible, les autres plus bas.
  */
-export function createPlayer(rng, { pos, level, age, clubId = null, country = 'FRA' }) {
+export function createPlayer(rng, { pos, level, age, clubId = null, country = 'FRA', noise = 6 }) {
   const { first, last, nat } = randomName(rng, country);
   const w = POSITION_WEIGHTS[pos];
   const attrs = {};
   for (const k of ATTRS) {
     if (k === 'arr') attrs[k] = pos === 'GB' ? 0 : rng.int(5, 20);
-    else if (w[k]) attrs[k] = level + rng.normal(0, 6) + w[k] * 8;
+    else if (w[k]) attrs[k] = level + rng.normal(0, noise) + w[k] * 8;
     else if (pos === 'GB') attrs[k] = level - rng.range(20, 40);
     else attrs[k] = level - rng.range(6, 24);
   }
@@ -52,6 +52,21 @@ export function createPlayer(rng, { pos, level, age, clubId = null, country = 'F
   p.wage = playerWage(p);
   p.value = playerValue(p);
   return p;
+}
+
+/**
+ * Ajuste les attributs d'un joueur pour que sa note globale (poste principal) vaille level,
+ * en conservant son profil (on décale seulement les attributs utiles au poste).
+ */
+export function fitToLevel(p, level) {
+  const w = POSITION_WEIGHTS[p.pos];
+  const attrs = { ...p.attrs };
+  for (let it = 0; it < 4; it++) {
+    const diff = level - overall({ attrs: roundAttrs(attrs), pos: p.pos });
+    if (!diff) break;
+    for (const k in w) attrs[k] += diff;
+  }
+  p.attrs = roundAttrs(attrs);
 }
 
 function roundAttrs(attrs) {
