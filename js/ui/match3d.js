@@ -129,7 +129,7 @@ function textSprite(text, { color = '#fff', bg = 'rgba(8,12,18,.78)', h = 64 } =
 
 function numberTexture(num, shirt, ink) {
   return canvasTex(128, 128, (g, w, h) => {
-    g.fillStyle = shirt; g.fillRect(0, 0, w, h);
+    g.clearRect(0, 0, w, h); // fond transparent : seuls les chiffres sont imprimés sur le maillot
     g.fillStyle = ink; g.font = '800 92px "Barlow Condensed", system-ui, sans-serif';
     g.textAlign = 'center'; g.textBaseline = 'middle';
     g.fillText(String(num ?? ''), w / 2, h / 2 + 6);
@@ -141,17 +141,27 @@ function numberTexture(num, shirt, ink) {
 const GEO = {};
 function geo() {
   if (GEO.torso) return GEO;
-  GEO.torso = new THREE.CylinderGeometry(0.21, 0.17, 0.6, 12);
-  GEO.shorts = new THREE.CylinderGeometry(0.19, 0.21, 0.26, 12);
-  GEO.thigh = new THREE.CylinderGeometry(0.075, 0.062, 0.42, 8);
-  GEO.shin = new THREE.CylinderGeometry(0.06, 0.045, 0.42, 8);
-  GEO.boot = new THREE.BoxGeometry(0.24, 0.08, 0.1);
-  GEO.upper = new THREE.CylinderGeometry(0.058, 0.05, 0.28, 8);
-  GEO.fore = new THREE.CylinderGeometry(0.045, 0.036, 0.3, 8);
-  GEO.head = new THREE.SphereGeometry(0.12, 14, 12);
-  GEO.hair = new THREE.SphereGeometry(0.128, 14, 12, 0, Math.PI * 2, 0, Math.PI * 0.55);
-  GEO.neck = new THREE.CylinderGeometry(0.05, 0.055, 0.1, 8);
-  GEO.back = new THREE.PlaneGeometry(0.26, 0.3);
+  const cap = (r, l, rs = 10) => new THREE.CapsuleGeometry(r, l, 4, rs);
+  GEO.torso = cap(0.165, 0.34, 14);                 // buste arrondi (épaules, poitrine)
+  GEO.chest = new THREE.SphereGeometry(0.2, 14, 10);
+  GEO.pelvis = new THREE.CylinderGeometry(0.17, 0.19, 0.22, 14);
+  GEO.shortLeg = new THREE.CylinderGeometry(0.095, 0.11, 0.2, 10);
+  GEO.thigh = cap(0.07, 0.3);
+  GEO.shin = cap(0.055, 0.32);
+  GEO.knee = new THREE.SphereGeometry(0.066, 10, 8);
+  GEO.boot = cap(0.052, 0.16, 8);
+  GEO.sleeve = cap(0.058, 0.08);
+  GEO.upper = cap(0.05, 0.16);
+  GEO.fore = cap(0.043, 0.2);
+  GEO.hand = new THREE.SphereGeometry(0.045, 8, 6);
+  GEO.elbow = new THREE.SphereGeometry(0.047, 8, 6);
+  GEO.head = new THREE.SphereGeometry(0.118, 18, 14);
+  GEO.hair = new THREE.SphereGeometry(0.126, 18, 14, 0, Math.PI * 2, 0, Math.PI * 0.52);
+  GEO.ear = new THREE.SphereGeometry(0.03, 8, 6);
+  GEO.face = new THREE.CircleGeometry(0.088, 24);
+  GEO.neck = new THREE.CylinderGeometry(0.05, 0.058, 0.12, 10);
+  GEO.back = new THREE.PlaneGeometry(0.24, 0.28);
+  GEO.front = new THREE.PlaneGeometry(0.1, 0.1);
   GEO.shadow = new THREE.CircleGeometry(0.55, 20);
   GEO.ring = new THREE.RingGeometry(0.62, 0.78, 28);
   return GEO;
@@ -164,42 +174,111 @@ function limb(parent, g, mat, y) {
   return m;
 }
 
+/**
+ * Visages : la photo du joueur (Wikimedia) est posée sur le visage ; la couleur de peau et
+ * celle des cheveux sont relevées sur la photo, pour qu'il ressemble au vrai joueur.
+ */
+const FACE_CACHE = new Map();
+function loadFace(file) {
+  if (FACE_CACHE.has(file)) return FACE_CACHE.get(file);
+  const pr = new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.referrerPolicy = 'no-referrer';
+    img.onload = () => {
+      try {
+        // Recadrage sur le visage (photos de joueurs : visage en haut, au centre).
+        const c = document.createElement('canvas'); c.width = 128; c.height = 128;
+        const g = c.getContext('2d');
+        const sw = img.width * 0.5, sx = img.width * 0.25, sy = img.height * 0.08;
+        g.drawImage(img, sx, sy, sw, sw, 0, 0, 128, 128);
+        const px = (x, y, w, h) => {
+          const d = g.getImageData(x, y, w, h).data;
+          let r = 0, gg = 0, b = 0, n = 0;
+          for (let i = 0; i < d.length; i += 4) { r += d[i]; gg += d[i + 1]; b += d[i + 2]; n++; }
+          return [r / n, gg / n, b / n];
+        };
+        const skin = px(48, 62, 32, 24), hair = px(44, 4, 40, 12);
+        const hex = (c3) => '#' + c3.map((v) => Math.round(Math.max(0, Math.min(255, v))).toString(16).padStart(2, '0')).join('');
+        const lum = (c3) => 0.3 * c3[0] + 0.59 * c3[1] + 0.11 * c3[2];
+        // Bords fondus : le fond de la photo disparaît, le visage se fond dans la tête.
+        g.globalCompositeOperation = 'destination-in';
+        const grd = g.createRadialGradient(64, 60, 34, 64, 64, 64);
+        grd.addColorStop(0, 'rgba(0,0,0,1)'); grd.addColorStop(1, 'rgba(0,0,0,0)');
+        g.fillStyle = grd; g.fillRect(0, 0, 128, 128);
+        const tex = new THREE.CanvasTexture(c);
+        tex.colorSpace = THREE.SRGBColorSpace;
+        resolve({ tex, skin: hex(skin), hair: lum(hair) < 170 && Math.abs(lum(hair) - lum(skin)) > 12 ? hex(hair) : null });
+      } catch { resolve(null); } // image sans autorisation CORS : pas de photo
+    };
+    img.onerror = () => resolve(null);
+    import('./images.js').then((m) => { img.src = m.thumbUrl(file, 120, 'commons'); }).catch(() => resolve(null));
+  });
+  FACE_CACHE.set(file, pr);
+  return pr;
+}
+
 class Player3D {
-  constructor(mats, skin, hair, num, shirtHex, inkHex) {
+  constructor(mats, skin, hair, num, shirtHex, inkHex, photo = null) {
     const G = geo();
     this.root = new THREE.Group();
     this.body = new THREE.Group();          // inclinaisons (tacle, plongeon)
     this.root.add(this.body);
     this.body.scale.setScalar(K);
-    const skinM = new THREE.MeshLambertMaterial({ color: skin });
-    const hairM = new THREE.MeshLambertMaterial({ color: hair });
-    const torso = limb(this.body, G.torso, mats.shirt, 1.22);
-    torso.scale.set(0.78, 1, 1.25);
-    limb(this.body, G.shorts, mats.shorts, 0.86).scale.set(0.85, 1, 1.25);
+    const skinM = this.skinM = new THREE.MeshLambertMaterial({ color: skin });
+    const hairM = this.hairM = new THREE.MeshLambertMaterial({ color: hair });
+    // Buste : capsule aplatie + poitrine, aux couleurs du maillot.
+    const torso = limb(this.body, G.torso, mats.shirt, 1.2);
+    torso.scale.set(0.82, 1, 1.32);
+    // Short et bassin.
+    limb(this.body, G.pelvis, mats.shorts, 0.86).scale.set(0.85, 1, 1.25);
     limb(this.body, G.neck, skinM, 1.56);
     const head = limb(this.body, G.head, skinM, 1.7);
+    head.scale.set(0.96, 1.1, 0.9);
     const hairMesh = limb(this.body, G.hair, hairM, 1.72);
-    hairMesh.position.x = -0.015;
-    head.scale.set(1, 1.08, 0.95);
-    // Numéro dans le dos (le joueur regarde vers +X).
-    const back = new THREE.Mesh(G.back, new THREE.MeshLambertMaterial({ map: numberTexture(num, shirtHex, inkHex) }));
-    back.position.set(-0.168, 1.24, 0); back.rotation.y = -Math.PI / 2;
+    hairMesh.position.x = -0.012; hairMesh.scale.set(0.98, 1.08, 0.94);
+    for (const z of [-0.105, 0.105]) { const e = limb(this.body, G.ear, skinM, 1.69); e.position.z = z; e.scale.set(0.6, 1, 0.5); }
+    // Visage : photo du joueur (si disponible), posée face à l'avant (+X).
+    if (photo) {
+      loadFace(photo).then((f) => {
+        if (!f) return;
+        skinM.color.set(f.skin);
+        if (f.hair) hairM.color.set(f.hair);
+        const face = new THREE.Mesh(G.face, new THREE.MeshLambertMaterial({ map: f.tex, transparent: true }));
+        face.position.set(0.119, 1.69, 0); face.rotation.y = Math.PI / 2; // juste devant la tête (sinon caché dedans)
+        face.scale.set(0.95, 1.12, 1);
+        this.body.add(face);
+      });
+    }
+    // Numéros (dos et poitrine).
+    const numTex = numberTexture(num, shirtHex, inkHex);
+    const back = new THREE.Mesh(G.back, new THREE.MeshLambertMaterial({ map: numTex, transparent: true }));
+    back.position.set(-0.137, 1.24, 0); back.rotation.y = -Math.PI / 2;
     this.body.add(back);
-    // Jambes : hanche → genou → pied.
+    const front = new THREE.Mesh(G.front, new THREE.MeshLambertMaterial({ map: numTex, transparent: true }));
+    front.position.set(0.137, 1.36, 0.07); front.rotation.y = Math.PI / 2;
+    this.body.add(front);
+    // Jambes : hanche → (short, cuisse) → genou → (chaussette) → crampon.
     this.legs = [-1, 1].map((sgn) => {
       const hip = new THREE.Group(); hip.position.set(0, 0.8, sgn * 0.1); this.body.add(hip);
+      limb(hip, G.shortLeg, mats.shorts, -0.06);
       limb(hip, G.thigh, skinM, -0.21);
       const knee = new THREE.Group(); knee.position.y = -0.42; hip.add(knee);
-      limb(knee, G.shin, mats.socks, -0.21);
-      const boot = limb(knee, G.boot, mats.boot, -0.43); boot.position.x = 0.05;
+      limb(knee, G.knee, mats.socks, 0);
+      limb(knee, G.shin, mats.socks, -0.2);
+      const boot = limb(knee, G.boot, mats.boot, -0.42);
+      boot.rotation.z = Math.PI / 2; boot.position.x = 0.05;
       return { hip, knee };
     });
-    // Bras : épaule → coude.
+    // Bras : épaule → (manche, bras) → coude → avant-bras → main.
     this.arms = [-1, 1].map((sgn) => {
-      const sh = new THREE.Group(); sh.position.set(0, 1.47, sgn * 0.27); this.body.add(sh);
-      limb(sh, G.upper, mats.shirt, -0.14);
-      const el = new THREE.Group(); el.position.y = -0.28; sh.add(el);
-      limb(el, G.fore, skinM, -0.15);
+      const sh = new THREE.Group(); sh.position.set(0, 1.44, sgn * 0.25); this.body.add(sh);
+      limb(sh, G.sleeve, mats.shirt, -0.08);
+      limb(sh, G.upper, skinM, -0.15);
+      const el = new THREE.Group(); el.position.y = -0.27; sh.add(el);
+      limb(el, G.elbow, skinM, 0);
+      limb(el, G.fore, skinM, -0.13);
+      limb(el, G.hand, skinM, -0.28);
       return { sh, el, sgn };
     });
     this.shadow = new THREE.Mesh(G.shadow, mats.shadow);
@@ -475,7 +554,7 @@ export class Match3D {
         const mats = p.gk ? { ...base, shirt: base.gk, socks: base.gk } : base;
         const shirtHex = p.gk ? v.gkColors[side] : v.colors[side];
         const ink = p.gk ? '#111' : v.textColors[side];
-        const p3 = new Player3D(mats, p.skin || '#c68642', p.hair || '#2b1d14', p.num, shirtHex, ink);
+        const p3 = new Player3D(mats, p.skin || '#c68642', p.hair || '#2b1d14', p.num, shirtHex, ink, p.mp?.p?.photo || null);
         const label = textSprite(p.short || '');
         label.position.y = 2.75 * K;
         p3.root.add(label);

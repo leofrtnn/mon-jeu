@@ -42,7 +42,8 @@ export const TUNE = {
   lossW: 2.2,         // coût de la perte de balle dans le choix des passes
   tackleRate: 1.6,    // fréquence des tentatives de tacle
   foulP: 0.36,        // part des tentatives de tacle qui finissent en faute
-  xg: 0.4,            // échelle du modèle d'xG géométrique
+  xg: 0.35,           // échelle du modèle d'xG géométrique
+  takeonW: 1.0,       // attrait du crochet / débordement
 };
 
 export class LiveSim {
@@ -203,6 +204,8 @@ export class LiveSim {
     }
     if (poss < 0) return;
     const A = m.teams[poss], D = m.teams[1 - poss];
+    this.buildUpShape(A, busy);
+    this.defensiveLine(D, busy);
     const dirA = this.dir(poss);
     const ref = h || null;
     const rx = ref ? this.X(ref) : P.x, ry = ref ? this.Y(ref) : P.y;
@@ -226,7 +229,7 @@ export class LiveSim {
         const d = Math.hypot(this.X(a) - zx, this.Y(a) - zy);
         if (d < bd) { bd = d; best = a; }
       }
-      const inOwnHalf = (this.X(p) - ownGoalX) * -dirA < L * 0.55;
+      const inOwnHalf = Math.abs(this.P.x - ownGoalX) < L * 0.4; // marquage serré près de son but
       if (best && inOwnHalf) {
         taken.add(best);
         const ax = this.X(best), ay = this.Y(best);
@@ -234,7 +237,9 @@ export class LiveSim {
         p.tx = (ax + ((ownGoalX - ax) / g) * 1.6) / L; p.ty = (ay + ((W / 2 - ay) / g) * 1.6) / W; p.role = 'mark';
       }
     }
-    // Attaque : deux solutions courtes autour du porteur, un appel en profondeur.
+    // Attaque : chacun se rend disponible (loin des marqueurs, ligne de passe ouverte).
+    if (h && !this.inHands) this.findSpace(A, h, busy);
+    // Deux solutions courtes autour du porteur, un appel en profondeur.
     if (h && !this.inHands) {
       const mates = attackers.map((p) => ({ p, d: this.dist(p, rx, ry) })).sort((a, b) => a.d - b.d);
       mates.slice(0, 2).forEach(({ p }, i) => {
@@ -249,10 +254,71 @@ export class LiveSim {
         const runT = (this.now + fwd.mp.id) % 7;
         // Appel : il attend à la limite du hors-jeu puis part dans le dos (cycle de quelques secondes).
         // Appel parfois mal synchronisé (hors-jeu).
-        const early = ((fwd.mp.id * 7 + Math.floor(this.now / 7)) % 4) === 0;
+        const early = ((fwd.mp.id * 7 + Math.floor(this.now / 7)) % 3) === 0;
         fwd.tx = clamp((lastDef + (runT < 3 ? (early ? 1.2 : -0.8) : 6)) * dirA, 2, L - 2) / L;
         fwd.role = runT < 3 && !early ? 'hold' : 'run';
       }
+    }
+  }
+
+  /**
+   * Relance depuis l'arrière : les centraux s'écartent, les latéraux montent, le milieu
+   * défensif décroche entre les centraux (l'équipe s'étire pour faire circuler le ballon).
+   */
+  buildUpShape(A, busy) {
+    const dir = this.dir(A.side), own = this.goalX(1 - A.side);
+    const depth = (this.P.x - own) * dir;
+    if (depth > L * 0.4) return;
+    for (const p of this.list(A.side)) {
+      if (busy.has(p) || p.gk) continue;
+      const pos = A.slots[p.mp.slot].pos;
+      const y = p.ty * W;
+      if (pos === 'DC') { p.ty = clamp(W / 2 + Math.sign(y - W / 2 || 1) * 13, 3, W - 3) / W; p.tx = (own + dir * (8 + depth * 0.25)) / L; }
+      else if (pos === 'DG' || pos === 'DD') { p.ty = (pos === 'DG' ? (A.side === 0 ? 4 : W - 4) : (A.side === 0 ? W - 4 : 4)) / W; p.tx = clamp(p.tx * L + dir * 10, 2, L - 2) / L; }
+      else if (pos === 'MDC') { p.tx = (own + dir * (14 + depth * 0.3)) / L; p.ty = 0.5; }
+    }
+  }
+
+  /** Ligne défensive : les défenseurs restent alignés et montent / reculent ensemble. */
+  defensiveLine(D, busy) {
+    const dir = this.dir(D.side); // sens d'attaque de D
+    const backs = this.list(D.side).filter((p) => !busy.has(p) && ['DC', 'DG', 'DD'].includes(D.slots[p.mp.slot].pos));
+    if (backs.length < 2) return;
+    // Hauteur commune : la moyenne de leurs positions de formation, sans dépasser le ballon.
+    let line = backs.reduce((a, p) => a + p.tx * L * dir, 0) / backs.length;
+    line = Math.min(line, this.P.x * dir - 4);
+    for (const p of backs) p.tx = clamp(line * dir, 1, L - 1) / L;
+  }
+
+  /**
+   * Se rendre disponible : autour de sa position, le joueur cherche le point le plus loin des
+   * adversaires, avec une ligne de passe ouverte depuis le porteur, sans être hors-jeu.
+   */
+  findSpace(A, h, busy) {
+    const dir = this.dir(A.side);
+    const hx = this.X(h), hy = this.Y(h);
+    const opps = this.list(1 - A.side);
+    const secondLast = opps.map((p) => this.X(p) * dir).sort((a, b) => b - a)[1] ?? L;
+    for (const p of this.list(A.side)) {
+      if (busy.has(p) || p.gk || p === h || p.role) continue;
+      const bx = p.tx * L, by = p.ty * W;
+      let best = null, bs = -1e9;
+      for (let k = 0; k < 13; k++) {
+        const ang = (k / 12) * Math.PI * 2, rr = k === 12 ? 0 : (k % 2 ? 4 : 8);
+        const x = clamp(bx + Math.cos(ang) * rr, 2, L - 2), y = clamp(by + Math.sin(ang) * rr, 2, W - 2);
+        if (x * dir > secondLast && (x - L / 2) * dir > 0) continue; // hors-jeu
+        let free = 12, lane = 6;
+        const vx = x - hx, vy = y - hy, len2 = vx * vx + vy * vy || 1;
+        for (const o of opps) {
+          const ox = this.X(o), oy = this.Y(o);
+          free = Math.min(free, Math.hypot(ox - x, oy - y));
+          const t = clamp(((ox - hx) * vx + (oy - hy) * vy) / len2, 0, 1);
+          lane = Math.min(lane, Math.hypot(ox - (hx + vx * t), oy - (hy + vy * t)));
+        }
+        const sc = free + lane * 0.7 - rr * 0.12;
+        if (sc > bs) { bs = sc; best = { x, y }; }
+      }
+      if (best) { p.tx = best.x / L; p.ty = best.y / W; }
     }
   }
 
@@ -273,7 +339,7 @@ export class LiveSim {
     if (h.carry) {
       h.tx = h.carry.x / L; h.ty = h.carry.y / W;
       const pressed = this.pressure(h) < 2.2;
-      if (this.dist(h, h.carry.x, h.carry.y) < 1.5 || this.now > h.carry.until || (pressed && this.now > h.carry.t0 + 0.4)) { h.carry = null; h.next = Math.min(h.next, this.now); }
+      if (this.dist(h, h.carry.x, h.carry.y) < 1.5 || this.now > h.carry.until || (pressed && !h.carry.takeon && this.now > h.carry.t0 + 0.4)) { h.carry = null; h.next = Math.min(h.next, this.now); }
     } else {
       // Sans consigne : il protège le ballon s'il est pressé, sinon il avance tranquillement.
       const dir = this.dir(h.side);
@@ -294,7 +360,7 @@ export class LiveSim {
   threat(side, x, y) {
     const gx = this.goalX(side);
     const d = Math.hypot(gx - x, W / 2 - y);
-    return 0.008 + 0.36 * Math.exp(-d / 15.5);
+    return 0.02 + 0.36 * Math.exp(-d / 15.5);
   }
 
   /** Choix du porteur : passe, conduite, frappe, centre, dégagement. */
@@ -331,6 +397,17 @@ export class LiveSim {
       const w = TUNE.carryW * ({ less: 0.6, normal: 1, more: 1.5 }[piOf(A, h.mp, 'dribble', 'normal')]) * (1 + ment * 0.1);
       opts.push({ k: 'carry', u: keep * this.threat(A.side, cx, cy) * w + 0.004, x: cx, y: cy });
     }
+    // Crochet / débordement : un défenseur devant, de l'espace derrière lui.
+    const opp = this.frontOpponent(h);
+    if (opp && opp.d > 1.8 && opp.d < 7) {
+      const ox = this.X(opp.p), oy = this.Y(opp.p);
+      const side = oy > hy ? -1 : 1; // on passe du côté opposé à son appui
+      const tx2 = clamp(ox + dir * 4.5, 2, L - 2), ty2 = clamp(oy + side * 2.6, 2, W - 2);
+      const dri = eff(h.mp, 'dri') * 0.8 + eff(h.mp, 'vit') * 0.2, def = eff(opp.p.mp, 'def') * 0.75 + eff(opp.p.mp, 'vit') * 0.25;
+      const pWin = sig((dri - def) / 11 + 0.15);
+      const w = TUNE.takeonW * ({ less: 0.5, normal: 1, more: 1.7 }[piOf(A, h.mp, 'dribble', 'normal')]);
+      opts.push({ k: 'takeon', u: (pWin * this.threat(A.side, tx2, ty2) - (1 - pWin) * this.threat(A.side, hx, hy) * TUNE.lossW) * w, x: tx2, y: ty2, opp: opp.p, pWin });
+    }
     // Centre : couloir, dernier tiers, coéquipiers dans la surface.
     const wide = Math.abs(hy - W / 2) > 15, deep = (gx - hx) * dir < 30;
     if (wide && deep) {
@@ -355,8 +432,27 @@ export class LiveSim {
     if (pick.k === 'shot') this.doShot(h, 'open', out);
     else if (pick.k === 'pass') this.doPass(h, pick, out);
     else if (pick.k === 'carry') { h.carry = { x: pick.x, y: pick.y, t0: this.now, until: this.now + 1.2 + this.rand() * 1.4 }; h.next = h.carry.until; }
+    else if (pick.k === 'takeon') {
+      // Le crochet est joué : réussi, le défenseur se jette dans le vide ; raté, il gagne le duel.
+      h.carry = { x: pick.x, y: pick.y, t0: this.now, until: this.now + 2.2, takeon: { def: pick.opp, win: this.rand() < pick.pWin } };
+      h.next = h.carry.until;
+    }
     else if (pick.k === 'cross') this.doCross(h, pick.r, out);
     else if (pick.k === 'clear') this.doClear(h, out);
+  }
+
+  /** Adversaire le plus proche devant le porteur (dans un cône de 70°). */
+  frontOpponent(h) {
+    const dir = this.dir(h.side);
+    let best = null;
+    for (const p of this.players.values()) {
+      if (p.side === h.side || p.gk) continue;
+      const dx = (p.x - h.x) * L * dir, dy = (p.y - h.y) * W;
+      if (dx <= 0) continue;
+      const d = Math.hypot(dx, dy);
+      if (Math.abs(dy) < dx * 1.4 && (!best || d < best.d)) best = { p, d };
+    }
+    return best;
   }
 
   /** Espace libre devant le joueur (distance au premier adversaire dans un cône de 50°). */
@@ -382,7 +478,10 @@ export class LiveSim {
   passOption(h, r) {
     const A = h.team, dir = this.dir(A.side);
     const sx = this.X(h), sy = this.Y(h);
-    let tx = this.X(r) + (r.vx || 0) * 0.3, ty = this.Y(r) + (r.vy || 0) * 0.3;
+    // Passe dans la course : on vise là où le receveur sera à l'arrivée du ballon.
+    const d0 = Math.hypot(this.X(r) - sx, this.Y(r) - sy);
+    const lead = (r.speed || 0) > 2 ? Math.min(1.2, d0 / 16) * 0.9 : 0.2;
+    let tx = this.X(r) + (r.vx || 0) * lead, ty = this.Y(r) + (r.vy || 0) * lead;
     let through = false;
     if (r.role === 'run') { tx += dir * 6; through = true; }
     tx = clamp(tx, 1.5, L - 1.5); ty = clamp(ty, 1.5, W - 1.5);
@@ -659,6 +758,24 @@ export class LiveSim {
       const d = Math.hypot((o.x - h.x) * L, (o.y - h.y) * W);
       if (d > 1.4) continue;
       const press = LVL[D.tactics.pressing] || 0;
+      const to = h.carry?.takeon;
+      if (to && to.def === o) {
+        o.cd = 1.2;
+        if (to.win) {
+          // Crochet réussi : le défenseur se jette dans le vide.
+          o.slide = 0.55; o.cd = 1.8; h.carry.takeon = null;
+          h.team.stats.dribbles = (h.team.stats.dribbles || 0) + 1; addRating(h.mp, 0.06);
+          if (this.rand() < 0.5) emit(m, out, { type: 'dribble', side: h.side, pid: h.mp.id, pid2: o.mp.id, x: this.P.x / L, y: this.P.y / W, zone: m.zone });
+          continue;
+        }
+        // Raté : le défenseur lit l'action et récupère le ballon (ou commet une faute).
+        if (this.rand() < TUNE.foulP * 0.5 * (m.profile.fouls || 1)) { this.foul(h, o, out); return; }
+        o.slide = 0.45; h.fall = 0.5;
+        D.stats.tackles++; o.mp.tackles++; addRating(o.mp, 0.06);
+        emit(m, out, { type: 'tackle', side: D.side, pid: o.mp.id, pid2: h.mp.id, x: this.P.x / L, y: this.P.y / W, zone: m.zone });
+        this.gain(o, out);
+        return;
+      }
       o.cd = 0.55 + this.rand() * 0.5 - press * 0.1;
       if (this.rand() > (0.5 + press * 0.12) * TUNE.tackleRate) continue;
       // Tentative de tacle : faute, ballon récupéré, ou dribble réussi du porteur.
@@ -1071,7 +1188,7 @@ export class LiveSim {
     };
     for (const p of this.players.values()) {
       const vit = p.mp?.p?.attrs?.vit ?? 60, en = p.mp?.energy ?? 100;
-      const withBall = p === this.holder && !this.inHands ? 0.86 : 1;
+      const withBall = p === this.holder && !this.inHands ? (p.carry?.takeon ? 1.0 : 0.86) : 1;
       if (p.fall > 0.3 || p.slide > 0.2) { p.tx = p.x; p.ty = p.y; }
       step(p, (6.6 + vit * 0.033) * (0.8 + 0.2 * en / 100) * withBall * (p.celeb > 0 ? 0.8 : 1));
       const gd = dt / GS;
