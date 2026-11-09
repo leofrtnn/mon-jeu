@@ -54,7 +54,7 @@ export function newGame(seed = (Date.now() >>> 0), { real = null } = {}) {
   const state = {
     version: SAVE_VERSION, seed, season: 2026, day: 0, userClubId: null, rngState: rng.getState(),
     clubs: world.clubs, players: world.players, freeAgents: world.freeAgents, nextId: getNextId(),
-    messages: [], pendingOffers: [], history: [], settings: { var: true, speed: 1, replays: true, audio: true },
+    messages: [], pendingOffers: [], history: [], settings: { var: true, speed: 1, replays: false, audio: false, v2: 1 },
     board: { confidence: 60 }, lastResult: null, seasonOver: false,
     coach: null, scout: {}, scoutQueue: [], nations: {}, lastFinal: null, friends: { teams: [] }, news: [],
     world: real ? 'real' : 'fictional', worldDivs: divs, dataSeason: real?.season || null,

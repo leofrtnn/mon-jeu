@@ -55,16 +55,31 @@ function pitchTexture(maxAniso) {
 }
 
 /** Foule : points colorés (couleurs des deux clubs dominantes). */
+/**
+ * Tribunes : rangées de sièges et de spectateurs (têtes et maillots, majorité aux couleurs du
+ * club qui reçoit), au lieu d'un nuage de pixels aléatoires.
+ */
 function crowdTexture(c1, c2) {
-  return canvasTex(512, 256, (g, w, h) => {
-    g.fillStyle = '#1b2230'; g.fillRect(0, 0, w, h);
-    const cols = [c1, c1, c2, '#d8d8d8', '#2a2f3a', '#8a6a4a', '#f2c9a0', '#3b3f4c'];
-    for (let i = 0; i < 5200; i++) {
-      g.fillStyle = cols[(Math.random() * cols.length) | 0];
-      g.fillRect(Math.random() * w, Math.random() * h, 2.2, 3);
+  return canvasTex(1024, 256, (g, w, h) => {
+    const rowH = 16;
+    for (let y = 0, r = 0; y < h; y += rowH, r++) {
+      // Marche de béton + rangée de sièges.
+      g.fillStyle = r % 2 ? '#262c38' : '#2b3240'; g.fillRect(0, y, w, rowH);
+      g.fillStyle = 'rgba(0,0,0,.35)'; g.fillRect(0, y + rowH - 3, w, 3);
+      for (let x = (r % 2) * 5; x < w; x += 10) {
+        const seated = Math.random() < 0.86;
+        if (!seated) { g.fillStyle = r % 3 ? c1 : '#3a4252'; g.globalAlpha = 0.55; g.fillRect(x + 1, y + 7, 8, 6); g.globalAlpha = 1; continue; }
+        const shirt = Math.random() < 0.62 ? c1 : Math.random() < 0.5 ? c2 : ['#e8e8e8', '#20242c', '#5d6b85', '#8b2d2d'][(Math.random() * 4) | 0];
+        g.fillStyle = shirt; g.fillRect(x + 1, y + 7, 8, 7);
+        g.fillStyle = ['#f1c9a5', '#d9a77f', '#a8714a', '#6e4429', '#e6bfa0'][(Math.random() * 5) | 0];
+        g.beginPath(); g.arc(x + 5, y + 5, 2.6, 0, Math.PI * 2); g.fill();
+        if (Math.random() < 0.5) { g.fillStyle = ['#2a1c12', '#5a3a22', '#111', '#c8a060'][(Math.random() * 4) | 0]; g.fillRect(x + 2.6, y + 2, 4.8, 1.8); }
+      }
     }
-    g.fillStyle = 'rgba(0,0,0,.22)';
-    for (let y = 0; y < h; y += 8) g.fillRect(0, y, w, 1.5);
+    // Léger dégradé : le haut des tribunes est plus sombre (toit).
+    const grd = g.createLinearGradient(0, 0, 0, h);
+    grd.addColorStop(0, 'rgba(0,0,0,.35)'); grd.addColorStop(0.5, 'rgba(0,0,0,0)'); grd.addColorStop(1, 'rgba(0,0,0,.1)');
+    g.fillStyle = grd; g.fillRect(0, 0, w, h);
   });
 }
 
@@ -368,6 +383,7 @@ export class Match3D {
     // Tribunes en gradins (3 étages), toit.
     const crowd = new THREE.MeshLambertMaterial({ map: crowdTexture(h.color, a.color) });
     crowd.map.wrapS = crowd.map.wrapT = THREE.RepeatWrapping;
+    crowd.map.repeat.set(2.6, 0.5); // sièges d'environ 50 cm, 8 rangées par étage
     const concrete = new THREE.MeshLambertMaterial({ color: '#2a3140' });
     const stand = (len, depthAxis, sign, dist) => {
       for (let k = 0; k < 4; k++) {

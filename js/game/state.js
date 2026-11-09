@@ -171,6 +171,8 @@ export function save(state, immediate = false) {
  * paresseusement par ensureLife() ; on marque seulement la version ici.
  */
 export function migrate(s) {
+  // Réglages v2 : ralentis automatiques et ambiance sonore désactivés par défaut (réactivables).
+  if (s.settings && !s.settings.v2) { s.settings.replays = false; s.settings.audio = false; s.settings.v2 = 1; }
   if (s.version === 2) {
     s.life = s.life || null;      // créé par ensureLife au premier chargement
     s.ownersReady = false;        // propriétaires, ambiance, relations initiales

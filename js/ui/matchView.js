@@ -94,6 +94,12 @@ export class MatchView {
       this.opts.onPlayerTap?.(this.selected);
     };
     canvas.addEventListener('pointerup', this._tap);
+    // Voile noir pour les transitions (ralenti) : on comprend qu'on change de séquence.
+    const par = canvas.parentElement;
+    if (par && getComputedStyle(par).position === 'static') par.style.position = 'relative';
+    this.veil = document.createElement('div');
+    this.veil.style.cssText = 'position:absolute;inset:0;background:#000;opacity:0;pointer-events:none;transition:opacity .35s;z-index:4';
+    par?.appendChild(this.veil);
     this.syncPlayers(true);
     this.resize();
     if (this.style === '3d') this.setStyle('3d');
@@ -276,7 +282,10 @@ export class MatchView {
     if (ev.type === 'goal') this.celebrate(ev);
     else if (['kickoff', 'corner', 'freekick', 'penalty'].includes(ev.type)) this.computeTargets(ev);
     else this.reshape(true);
-    if (ev.type === 'replaystart') { this.banner = null; this.particles = []; this.cam.shake = 0; }
+    if (ev.type === 'replaystart' || ev.type === 'replayend') {
+      this.banner = null; this.particles = []; this.cam.shake = 0;
+      if (this.veil) { this.veil.style.opacity = '1'; setTimeout(() => { if (this.veil) this.veil.style.opacity = '0'; }, 380); }
+    }
     if (ev.snap) {
       // Début du ralenti : tout le monde à sa place, ballon au pied de l'acteur.
       for (const p of this.players.values()) { p.x = p.tx; p.y = p.ty; p.vx = p.vy = 0; }
@@ -287,6 +296,18 @@ export class MatchView {
     // Le ballon : frappe calculée physiquement, la durée de l'action suit son trajet.
     // Frappe : si l'acteur n'est pas au ballon, il va d'abord le chercher (pas de téléportation).
     this.approach = null;
+    // Le moteur fait agir un coéquipier du porteur (passe, tir, dribble…) : à l'écran, le porteur
+    // lui donne d'abord le ballon (passe courte), au lieu de l'attendre sans bouger.
+    const hold = this.holder != null ? this.players.get(this.holder) : null;
+    const actor0 = this.players.get(ev.pid);
+    if (!ev.replay && !ev.synthetic && hold && actor0 && hold !== actor0 && hold.team === actor0.team && !this.inHands && !this.setPiece
+      && ['pass', 'longpass', 'cross', 'cornerkick', 'clearance', 'shot', 'dribble'].includes(ev.type) && ev.kind !== 'header'
+      && Math.hypot((hold.x - actor0.x) * PITCH_L, (hold.y - actor0.y) * PITCH_W) > 3) {
+      this.queue.unshift(ev);
+      const relay = { type: 'pass', synthetic: true, side: ev.side, poss: ev.poss, pid: hold.mp.id, pid2: actor0.mp.id, carrier: actor0.mp.id,
+        x: actor0.x, y: actor0.y, minute: ev.minute, extra: ev.extra, period: ev.period, score: ev.score };
+      return this.startEvent(relay);
+    }
     // Coup de pied arrêté : le tireur est placé directement derrière le ballon (comme une
     // coupure de réalisation), au lieu de traverser le terrain.
     const taker = this.players.get(ev.pid);
@@ -309,6 +330,7 @@ export class MatchView {
    * VRAIMENT lieu (après la course au contact, ou une fois les joueurs placés à l'engagement).
    */
   announce(ev) {
+    if (ev.synthetic) return; // passe de liaison ajoutée par l'affichage : pas de commentaire
     if (ev.type === 'shot' && ev.outcome === 'post') this.cam.shake = 0.4;
     this.animate(ev);
     // Étiquettes de noms sur les actions importantes.
@@ -619,6 +641,14 @@ export class MatchView {
       const off = i === 0 ? 1.2 : 5;
       p.tx = (P.x + ux * off) / PITCH_L; p.ty = (P.y + uy * off) / PITCH_W;
     });
+    // Porteur sans consigne : il avance dans l'espace (ou protège le ballon s'il est pressé),
+    // au lieu de rester planté.
+    const hd = this.holder != null ? this.players.get(this.holder) : null;
+    if (hd && !this.inHands && !this.carry && this.approach?.ev?.pid !== this.holder && !hd.gk) {
+      const dir = hd.team.side === 0 ? 1 : -1;
+      if (this.pressedAhead(hd, 3)) { hd.tx = hd.x - (dir * 1.5) / PITCH_L; hd.ty = hd.y + (hd.y < 0.5 ? 2 : -2) / PITCH_W; }
+      else { hd.tx = Math.max(0.03, Math.min(0.97, hd.x + (dir * 7) / PITCH_L)); hd.ty = hd.y + (0.5 - hd.y) * 0.08; }
+    }
     // Soutien : les deux coéquipiers les plus proches du porteur se démarquent (une solution
     // courte de chaque côté, légèrement devant), l'attaquant le plus avancé prend la profondeur.
     const h = this.holder != null ? this.players.get(this.holder) : null;
@@ -809,7 +839,10 @@ export class MatchView {
         this.pending = { ...pd, kind: 'chase' };
       } else if (pd.kind === 'save') {
         const g = this.players.get(pd.who);
-        if (pd.catch) { this.holder = pd.who; this.inHands = true; P.vx = P.vy = P.vz = 0; P.spin = 0; }
+        // Il ne capte que s'il est vraiment au ballon (sinon le ballon « sauterait » dans ses mains).
+        const gf = g ? this.footOf(g, 0.3) : null;
+        const reach = gf ? Math.hypot(gf.x - P.x, gf.y - P.y) : 99;
+        if (pd.catch && reach < 1.8) { this.holder = pd.who; this.inHands = true; P.vx = P.vy = P.vz = 0; P.spin = 0; }
         else {
           // Parade : le ballon est repoussé sur le côté.
           const sx = Math.sign(P.y - PITCH_W / 2) || 1;
