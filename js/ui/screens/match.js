@@ -16,6 +16,7 @@ import { xgChart, heatmap } from '../charts.js';
 import { userClub } from '../../game/state.js';
 import { staffEffects } from '../../game/career.js';
 import { managerOf } from '../../game/managers.js';
+import { pressQuestion, pressAnswer } from '../../game/media.js';
 import { showDayReport } from './dayReport.js';
 
 const SPEEDS = [1, 2, 4];
@@ -259,9 +260,28 @@ export function openMatch(app, opts = {}) {
       </div>
       <p class="muted center" style="margin:0 0 12px">Votre onze : ${T.onPitch.filter(Boolean).map((mp) => esc(mp.name.split(' ').slice(-1)[0])).join(', ')}</p>
       ${scoutReport()}
-      <div class="btns"><button class="btn" data-act="back">Retour</button><button class="btn primary lg" data-act="go">Coup d'envoi</button></div>`,
+      <div class="btns"><button class="btn" data-act="back">Retour</button>${!opts.cfg ? '<button class="btn" data-act="press" id="pressbtn">🎤 Conférence de presse</button>' : ''}<button class="btn primary lg" data-act="go">Coup d'envoi</button></div>`,
     actions: {
       go: (el, a, h) => { h.close(); if (s.settings.audio) audio.start(); view.play(); },
+      press: (el) => {
+        if (ctrl.pressDone) return;
+        const qa = pressQuestion(s, O.club.id);
+        const ps = app.sheet({
+          root,
+          html: `<h2>🎤 Conférence de presse</h2><p style="font-size:16px">« ${esc(qa.q)} »</p>
+            <div class="btns" style="flex-direction:column">${qa.a.map((x, i) => `<button class="btn block" data-act="ans" data-v="${i}">${esc(x.text)}</button>`).join('')}</div>`,
+          actions: {
+            ans: (b) => {
+              const r = pressAnswer(s, qa.a[+b.dataset.v]);
+              m.teams[userSide].talk = Math.max(-15, Math.min(15, m.teams[userSide].talk + r.me));
+              m.teams[1 - userSide].talk = Math.max(-15, Math.min(15, m.teams[1 - userSide].talk + r.opp));
+              ctrl.pressDone = true;
+              el.disabled = true; el.textContent = '🎤 Conférence faite';
+              app.save(); ps.close(); app.toast(r.text, 3500);
+            },
+          },
+        });
+      },
       back: (el, a, h) => { h.close(); closeScreen(); },
     },
   });

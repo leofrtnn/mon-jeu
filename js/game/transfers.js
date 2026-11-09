@@ -6,7 +6,8 @@ import { overall, squadStrength } from '../engine/ratings.js';
 import { playerValue, playerWage, money } from './economy.js';
 import { clubById, userClub, clubPlayers, pushMessage } from './state.js';
 import { assignNumbers, createPlayer } from '../data/generator.js';
-import { clamp } from '../core/rng.js';
+import { clamp, hashSeed } from '../core/rng.js';
+import { news } from './managers.js';
 import { boardAllows, spendTransfer, creditSale } from './board.js';
 
 export const MAX_SQUAD = 32;
@@ -135,6 +136,7 @@ export function sellPlayer(state, offer) {
   logFinance(state, offer.amount, `Vente : ${p.name}`);
   state.pendingOffers = (state.pendingOffers || []).filter((o) => o.pid !== p.id);
   pushMessage(state, { prio: 3, icon: '€', title: `${p.name} vendu à ${buyer.name}`, text: money(offer.amount) });
+  news(state, 'transfer', `${p.first} ${p.last} quitte ${club.name} pour ${buyer.name} · ${money(offer.amount)}.`, { pid: p.id });
   return { ok: true, msg: `${p.name} vendu ${money(offer.amount)}.` };
 }
 
@@ -226,26 +228,34 @@ export function aiTransferActivity(state, rng) {
   for (const c of state.clubs) {
     if (c.id === state.userClubId) continue;
     fillSquad(state, c, rng);
-    if (!rng.chance(0.12)) continue;
-    // Cherche à renforcer le poste le plus faible.
+    // Les grands clubs sont plus actifs sur le marché.
+    if (!rng.chance(0.05 + c.rep / 900)) continue;
     const squad = clubPlayers(state, c);
     const strength = squadStrength(squad);
-    const byPos = {};
-    for (const p of squad) byPos[p.pos] = Math.max(byPos[p.pos] || 0, overall(p));
-    const weakest = Object.entries(byPos).sort((a, b) => a[1] - b[1])[0];
-    if (!weakest) continue;
-    const pos = weakest[0];
-    const target = marketList(state, { pos, maxPrice: c.budget * 0.6 })
-      .filter((x) => x.p.clubId !== c.id && x.ovr > weakest[1] + 2 && x.ovr <= strength + 8 && x.p.clubId !== state.userClubId)
-      .slice(0, 6);
-    if (!target.length) continue;
-    const pick = rng.pick(target);
+    let pool;
+    if (c.rep >= 72 && rng.chance(0.35)) {
+      // Recrutement « vedette » : le meilleur joueur d'un club moins prestigieux.
+      pool = marketList(state, { maxPrice: c.budget * 0.75 })
+        .filter((x) => x.p.clubId && x.p.clubId !== c.id && x.ovr >= strength + 1 && clubById(state, x.p.clubId).rep < c.rep);
+    } else {
+      const byPos = {};
+      for (const p of squad) byPos[p.pos] = Math.max(byPos[p.pos] || 0, overall(p));
+      const weakest = Object.entries(byPos).sort((a, b) => a[1] - b[1])[0];
+      if (!weakest) continue;
+      pool = marketList(state, { pos: weakest[0], maxPrice: c.budget * 0.6 })
+        .filter((x) => x.p.clubId !== c.id && x.ovr > weakest[1] + 2 && x.ovr <= strength + 8);
+    }
+    pool = pool.filter((x) => x.p.clubId !== state.userClubId && playerInterest(state, x.p, c).ok && sellerAccepts(state, x.p, c)).slice(0, 6);
+    if (!pool.length) continue;
+    const pick = rng.pick(pool);
     const p = pick.p;
-    if (p.clubId) clubById(state, p.clubId).budget += pick.price;
+    const from = p.clubId ? clubById(state, p.clubId) : null;
+    if (from) from.budget += pick.price;
     removeFromClub(state, p);
     addToClub(state, p, c);
     c.budget -= pick.price;
     p.contract = Math.max(p.contract, 2);
+    if (pick.price >= 3_000_000 || pick.ovr >= 74) news(state, 'transfer', `${p.first} ${p.last} (${pick.ovr}) quitte ${from ? from.name : 'les joueurs libres'} pour ${c.name}${pick.price ? ` · ${money(pick.price)}` : ''}.`, { pid: p.id });
     if (c.playerIds.length > 28) releaseWorst(state, c);
   }
   // Offres pour les joueurs de l'utilisateur.
@@ -339,7 +349,7 @@ export function playerDemands(state, p, rng) {
  * offer : { wage, years, bonus (prime à la signature), clause (0 = aucune) }
  */
 export function evaluateContract(p, dem, offer) {
-  let v = offer.wage;
+  let v = offer.wage / (PROMISE_ROLES[offer.role || 'rotation']?.wage || 1);
   v *= 1 + (offer.bonus || 0) / (Math.max(1, dem.wage) * 40); // prime : vaut ~1/40e par semaine
   if (offer.clause) v *= offer.clause < playerValue(p) * 1.6 ? 1.1 : 1.05; // une clause basse = liberté
   const wantsLong = p.age >= 29;
@@ -369,8 +379,9 @@ export function completeTransfer(state, pid, fee, offer, dem) {
   removeFromClub(state, p);
   addToClub(state, p, club);
   club.budget -= cost;
-  Object.assign(p, { wage: offer.wage, contract: offer.years, clause: offer.clause || 0, requested: false });
+  Object.assign(p, { wage: offer.wage, contract: offer.years, clause: offer.clause || 0, requested: false, promise: { role: offer.role || 'rotation', season: state.season } });
   p.morale = clamp(p.morale + 12, 0, 100);
+  news(state, 'transfer', `${p.first} ${p.last} rejoint ${club.name}${fee ? ` · ${money(fee)}` : ' (libre)'}.`, { pid: p.id });
   logFinance(state, -fee, `Transfert : ${p.name}`);
   if (offer.bonus) logFinance(state, -offer.bonus, `Prime à la signature : ${p.name}`);
   logFinance(state, -agentFee, `Commission d'agent : ${p.name}`);
@@ -387,7 +398,7 @@ export function completeRenewal(state, pid, offer) {
   if (!chk.ok) return chk;
   club.budget -= offer.bonus || 0;
   if (offer.bonus) logFinance(state, -offer.bonus, `Prime de prolongation : ${p.name}`);
-  Object.assign(p, { wage: offer.wage, contract: offer.years, clause: offer.clause || 0, requested: false });
+  Object.assign(p, { wage: offer.wage, contract: offer.years, clause: offer.clause || 0, requested: false, promise: { role: offer.role || p.promise?.role || 'rotation', season: state.season } });
   p.morale = clamp(p.morale + 8, 0, 100);
   p.value = playerValue(p);
   return { ok: true, msg: `${p.name} prolonge ${offer.years} an(s) à ${money(offer.wage)}/sem.` };
@@ -401,4 +412,75 @@ export function counterIncoming(state, offer, ratio, rng) {
   if (accept) { offer.amount = asked; return { ok: true, msg: `${buyer.name} accepte ${money(asked)} !` }; }
   state.pendingOffers = state.pendingOffers.filter((o) => o !== offer);
   return { ok: false, msg: `${buyer.name} retire son offre.` };
+}
+
+
+/* ---------------- Réalisme : intérêt du joueur, club vendeur, statut promis ---------------- */
+
+/** Ambition du joueur (1-20), stable. */
+export const ambition = (p) => (p.amb ??= 1 + (hashSeed(String(p.id)) % 20));
+
+/** Le joueur accepte-t-il de rejoindre ce club ? */
+export function playerInterest(state, p, buyer) {
+  if (!p.clubId) return buyer.rep < 35 && overall(p) > 72 ? { ok: false, reason: `${p.name} attend un club plus ambitieux.` } : { ok: true };
+  const from = clubById(state, p.clubId);
+  const gap = from.rep - buyer.rep;
+  const squad = clubPlayers(state, from).map(overall).sort((a, b) => b - a);
+  const key = squad.indexOf(overall(p)) < 11;
+  const amb = ambition(p);
+  const star = buyer.id === state.userClubId && (state.coach?.rep ?? 0) >= 70;
+  if (gap > 20 && !star) return { ok: false, reason: `${p.name} ne souhaite pas rejoindre un club de ce standing.` };
+  if (gap > 8 && (key || amb >= 14) && !star) return { ok: false, reason: `${p.name} (ambitieux, titulaire à ${from.short}) refuse de descendre d'un cran.` };
+  if (p.age >= 32 && buyer.div === 2 && amb >= 10) return { ok: false, reason: `${p.name} veut finir sa carrière au plus haut niveau.` };
+  return { ok: true };
+}
+
+/** Un club ne lâche pas ses titulaires à un rival moins prestigieux. */
+export function sellerAccepts(state, p, buyer) {
+  if (!p.clubId) return true;
+  const from = clubById(state, p.clubId);
+  const squad = clubPlayers(state, from).map(overall).sort((a, b) => b - a);
+  const key = squad.indexOf(overall(p)) < 11;
+  return !(key && from.rep > buyer.rep + 3) || p.listed || p.requested;
+}
+
+export const PROMISE_ROLES = {
+  star: { label: 'Star', share: 0.75, wage: 1.25 },
+  key: { label: 'Titulaire', share: 0.55, wage: 1.1 },
+  rotation: { label: 'Rotation', share: 0.3, wage: 1 },
+  backup: { label: 'Remplaçant', share: 0.08, wage: 0.9 },
+  youth: { label: 'Espoir', share: 0.12, wage: 0.8 },
+};
+
+/** Statut acceptable pour le joueur dans ce club ? */
+export function roleAcceptable(state, p, role) {
+  const club = userClub(state);
+  const sq = clubPlayers(state, club).filter((x) => x.id !== p.id).map(overall).sort((a, b) => b - a);
+  const median = sq[Math.floor(sq.length / 2)] || 60;
+  const o = overall(p);
+  if (role === 'youth' && p.age > 21) return { ok: false, msg: 'Le statut « Espoir » est réservé aux moins de 21 ans.' };
+  if ((role === 'backup' || role === 'youth') && o >= median + 3) return { ok: false, msg: `${p.name} refuse un statut de ${PROMISE_ROLES[role].label.toLowerCase()} : il vise une place de titulaire.` };
+  if (role === 'rotation' && o >= (sq[2] || 70) + 2 && ambition(p) >= 12) return { ok: false, msg: `${p.name} veut être un titulaire indiscutable.` };
+  return { ok: true };
+}
+
+/** Suivi des promesses de temps de jeu (toutes les 4 journées). */
+export function checkPromises(state) {
+  const club = userClub(state);
+  const played = state.seasonStats?.m || 0;
+  if (played < 5) return;
+  for (const p of clubPlayers(state, club)) {
+    if (!p.promise || p.injury > 0) continue;
+    const exp = PROMISE_ROLES[p.promise.role]?.share ?? 0;
+    const share = (p.stats.minutes || 0) / (played * 90);
+    if (share >= exp * 0.75) { p.promise.strikes = 0; continue; }
+    p.promise.strikes = (p.promise.strikes || 0) + 1;
+    p.morale = clamp(p.morale - 8, 5, 99);
+    if (p.promise.strikes >= 2 && !p.requested) {
+      p.requested = true; p.listed = true;
+      pushMessage(state, { prio: 1, icon: '😠', title: `${p.name} réclame un transfert`, text: `Promesse non tenue : statut « ${PROMISE_ROLES[p.promise.role].label} », ${Math.round(share * 100)} % du temps de jeu.`, action: { type: 'player', pid: p.id } });
+    } else {
+      pushMessage(state, { prio: 2, icon: '😕', title: `${p.name} est mécontent`, text: `On lui a promis un statut « ${PROMISE_ROLES[p.promise.role].label} » : ${Math.round(share * 100)} % du temps de jeu seulement.`, action: { type: 'player', pid: p.id } });
+    }
+  }
 }

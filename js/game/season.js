@@ -12,7 +12,7 @@ import { aiPrepare } from '../engine/ai.js';
 import { simulateMatch, summarize, penaltyShootout, allPlayers } from '../engine/match.js';
 import { wageBill, matchdayRevenue, sponsorIncome, prizeMoney, CUP_PRIZES, money, playerValue } from './economy.js';
 import { weeklyTraining, seasonDevelopment, shouldRetire, resetSeasonStats } from './progression.js';
-import { aiTransferActivity, fillSquad, logFinance } from './transfers.js';
+import { aiTransferActivity, fillSquad, logFinance, checkPromises } from './transfers.js';
 import { gameRng, matchSeed, clubById, userClub, clubPlayers, pushMessage, SAVE_VERSION } from './state.js';
 import { initClubExtras, newCoach, coachRep, coachAfterMatch, staffEffects, staffWages, trainingParams, dailyFacilities, checkJobOffers, jobCandidates, ensureStaff, resetClubStaff, refreshStaffPool } from './career.js';
 import { scoutDaily, marketEvents, seeInMatch } from './scouting.js';
@@ -480,6 +480,7 @@ export function completeDay(state, userMatch = null) {
   state.pendingOffers = (state.pendingOffers || []).filter((o) => state.day - o.day <= 3 && state.players[o.pid]?.clubId === uc.id);
 
   if (t.entry.type === 'league') managersAfterRound(state, t.entry.round, (id) => tablePosition(state, id));
+  if (t.entry.type === 'league' && t.entry.round >= 6 && t.entry.round % 4 === 0) checkPromises(state);
   if (t.entry.type === 'league' && t.entry.round === 19) {
     const y = createYouth(rng, uc);
     y.pot = clamp(Math.round(y.pot + coachMods(state.coach).youthPot + staffEffects(uc).youthPot), overall(y) + 3, 95);

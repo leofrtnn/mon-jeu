@@ -10,6 +10,8 @@ import { askingPrice, loanIn, loanOut, findBuyer, sellPlayer, releasePlayer, pro
 import { estimate, rangeLabel, observe } from '../../game/scouting.js';
 import { esc, posBadge, ovrChip, scaleColor, gauge, stars, statusTags } from '../components.js';
 import { negotiateTransfer, negotiateContract } from './negotiation.js';
+import { TALKS, playerTalk } from '../../game/media.js';
+import { PROMISE_ROLES } from '../../game/transfers.js';
 
 /** Jauge d'attribut : valeur exacte ou plage estimée. */
 function attrLine(label, [lo, hi]) {
@@ -37,7 +39,7 @@ export function showPlayer(app, pid, onChange) {
       actions = `<button class="btn primary block" data-act="promote">Promouvoir en équipe première</button>`;
     } else if (mine) {
       actions = `<div class="btns">
-        ${!p.onLoanFrom ? `<button class="btn" data-act="renew">${p.contract <= 2 ? 'Prolonger' : 'Renégocier'}</button>
+        ${!p.onLoanFrom ? `<button class="btn" data-act="talk">💬 Discuter</button><button class="btn" data-act="renew">${p.contract <= 2 ? 'Prolonger' : 'Renégocier'}</button>
         <button class="btn" data-act="sell">Vendre</button>
         <button class="btn" data-act="list">${p.listed ? 'Retirer de la liste' : 'Mettre sur la liste'}</button>
         <button class="btn" data-act="loanout">Prêter</button>
@@ -80,6 +82,7 @@ export function showPlayer(app, pid, onChange) {
         <div class="row between"><span>Salaire</span><b>${money(p.wage)}/sem</b></div>
         <div class="row between"><span>Contrat</span><b>${p.contract > 0 ? `${p.contract} an(s)` : '—'}</b></div>
         ${mine && p.clause ? `<div class="row between"><span>Clause libératoire</span><b>${money(p.clause)}</b></div>` : ''}
+        ${mine && p.promise ? `<div class="row between"><span>Statut promis</span><b>${PROMISE_ROLES[p.promise.role].label}${p.promise.strikes ? ' ⚠' : ''}</b></div>` : ''}
       </div>
       ${actions}`;
   };
@@ -95,6 +98,13 @@ export function showPlayer(app, pid, onChange) {
       loanin: () => done(loanIn(s, pid), true),
       observe: () => done({ ...observe(s, pid), ok: true }),
       renew: () => { h.close(); negotiateContract(app, pid, null, onChange, true); },
+      talk: () => {
+        const ts = app.sheet({
+          html: `<h2>💬 Discussion avec ${esc(s.players[pid].name)}</h2><p class="muted">Forme ${s.players[pid].form} · moral ${s.players[pid].morale}</p>
+            <div class="btns" style="flex-direction:column">${Object.entries(TALKS).map(([k, l]) => `<button class="btn block" data-act="say" data-v="${k}">${l}</button>`).join('')}</div>`,
+          actions: { say: (b) => { const r = playerTalk(s, pid, b.dataset.v); app.toast(r.msg, 3500); if (r.ok) app.save(); ts.close(); h.update(render()); } },
+        });
+      },
       list: () => { const p = s.players[pid]; p.listed = !p.listed; done({ ok: true, msg: p.listed ? 'Placé sur la liste des transferts.' : 'Retiré de la liste.' }); },
       sell: async () => {
         const p = s.players[pid];

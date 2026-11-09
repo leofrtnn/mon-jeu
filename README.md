@@ -82,6 +82,29 @@ Chaque championnat a son propre profil : style plus technique en Ibérie, plus p
 - **Éditeur de postes** : chaque joueur se déplace librement sur le terrain, et son poste est déduit de la zone.
 - **3 plans tactiques** (A, B, C) à enregistrer, chargeables aussi pendant un match.
 
+### Simulation de coach réaliste
+- **Marché des entraîneurs** :
+  - chaque club a un entraîneur nommé (compétences, philosophie, formation préférée) qui influence le jeu de son équipe ;
+  - les présidents jugent leur coach : limogeages en cours de saison et en fin de saison ;
+  - postes vacants auxquels vous pouvez postuler (entretien), entraîneurs sans club, fil d'actualité.
+- **Votre staff, poste par poste** : adjoint, entraîneur des gardiens, préparateur physique, médecin, jusqu'à 3 recruteurs, responsable formation, analyste vidéo.
+  - Chaque membre a une note de 1 à 20, un salaire et un contrat.
+  - Un marché du staff permet d'embaucher et de licencier (avec indemnités).
+  - Avant chaque match, l'analyste vidéo rédige un rapport sur l'adversaire.
+- **Conseil d'administration** :
+  - budget transferts et masse salariale distincts et rééquilibrables ; achats, salaires et prolongations bloqués s'ils sortent des enveloppes ;
+  - 60 % des ventes reversées au budget transferts ;
+  - identité de club, objectifs multiples (classement, coupes, style, jeunes, finances) ;
+  - confiance détaillée, demandes au CA, limogeage possible en pleine saison.
+- **Transferts réalistes** :
+  - les joueurs ambitieux refusent les clubs moins prestigieux, et un club ne lâche pas ses titulaires à un rival plus modeste ;
+  - le statut promis (Star, Titulaire, Rotation, Remplaçant, Espoir) est suivi : mécontentement, puis demande de départ si la promesse n'est pas tenue ;
+  - les gros clubs recrutent les meilleurs joueurs des petits clubs.
+- **Vie du club** :
+  - conférences de presse avant les matchs : effets sur la motivation des deux équipes et sur les supporters ;
+  - discussions individuelles avec les joueurs ;
+  - l'humeur des supporters joue sur l'affluence.
+
 ### Carrière longue
 - **Réputation du coach** et trophées.
 - **Offres d'emploi** de clubs plus prestigieux, en cours ou en fin de saison. Le limogeage est possible.
