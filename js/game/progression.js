@@ -31,7 +31,7 @@ export function shiftAttributes(p, delta, rng) {
 export function weeklyTraining(p, rng, playedMinutes = 0, tp = null) {
   const o = overall(p);
   const gap = p.pot - o;
-  const mult = tp?.mult ?? 1;
+  const mult = (tp?.mult ?? 1) * (p.age <= 21 ? tp?.youthMult ?? 1 : 1);
   const focus = tp?.focus && FOCUS_ATTRS[tp.focus];
   if (p.age <= 26 && gap > 0) {
     const chance = (0.015 + gap * 0.003 + (playedMinutes > 45 ? 0.02 : 0)) * mult;

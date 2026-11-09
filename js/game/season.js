@@ -16,6 +16,7 @@ import { aiTransferActivity, fillSquad, logFinance } from './transfers.js';
 import { gameRng, matchSeed, clubById, userClub, clubPlayers, pushMessage, SAVE_VERSION } from './state.js';
 import { initClubExtras, newCoach, coachRep, coachAfterMatch, staffEffects, staffWages, trainingParams, dailyFacilities, checkJobOffers, jobCandidates } from './career.js';
 import { scoutDaily, marketEvents, seeInMatch } from './scouting.js';
+import { coachMods, ensureCoachProfile, grantSeasonPoints } from './coach.js';
 import { slotsOf } from '../data/constants.js';
 
 export const CUP_ROUND_NAMES = ['16es de finale', '8es de finale', 'Quarts de finale', 'Demi-finales', 'Finale'];
@@ -48,7 +49,7 @@ export function startCareer(state, clubId) {
   state.userClubId = clubId;
   const club = userClub(state);
   initClubExtras(club);
-  state.coach = newCoach(club);
+  state.coach = ensureCoachProfile(newCoach(club));
   const squad = clubPlayers(state, club);
   const best = aiPrepare(squad, squad, true, null);
   club.tactics = { ...best.tactics, mentality: 'balanced', pressing: 'mid' };
@@ -309,7 +310,7 @@ export function teamCfg(state, club, opponent, isHome, isUser) {
   if (isUser) {
     validateUserLineup(state);
     return { club, players, lineup: club.lineup.slice(), bench: club.bench.slice(), tactics: { ...club.tactics }, isAI: false,
-      roles: (club.roles || []).slice(), setPieces: { ...(club.setPieces || {}) }, pi: (club.pi || []).map((x) => ({ ...x })), injuryMod: staffEffects(club).injuryMod };
+      roles: (club.roles || []).slice(), setPieces: { ...(club.setPieces || {}) }, pi: (club.pi || []).map((x) => ({ ...x })), injuryMod: staffEffects(club).injuryMod, coachMods: coachMods(state.coach) };
   }
   const rng = createRng(hashSeed(`${state.seed}-${state.season}-${state.day}-${club.id}`));
   const prep = aiPrepare(players, opponent ? clubPlayers(state, opponent) : players, isHome, rng);
@@ -417,15 +418,17 @@ export function completeDay(state, userMatch = null) {
 
   // Mise à jour quotidienne des joueurs (blessures, suspensions, récupération, entraînement).
   const eff = staffEffects(uc);
+  const cmod = coachMods(state.coach);
   for (const c of state.clubs) {
     const isUser = c.id === uc.id;
     const tp = trainingParams(c, isUser);
+    if (isUser) tp.youthMult = cmod.youth;
     for (const id of c.playerIds) {
       const p = state.players[id];
       if (!p) continue;
       if (p.injury > 0 && !ctx.newlyHurt.has(p.id)) p.injury--;
       if (p.suspended > 0 && played.has(c.id) && !ctx.newlySusp.has(p.id)) p.suspended--;
-      p.fatigue = clamp((p.fatigue || 0) - (20 + p.attrs.phy * 0.08 + (isUser ? eff.recovery : 0)) + tp.fatigue, 0, 90);
+      p.fatigue = clamp((p.fatigue || 0) - (20 + p.attrs.phy * 0.08 + (isUser ? eff.recovery + cmod.recovery : 0)) + tp.fatigue, 0, 90);
       if (tp.morale) p.morale = clamp(p.morale + tp.morale, 5, 99);
       if (tp.form) p.form = clamp(p.form + tp.form, 5, 95);
       weeklyTraining(p, rng, p._mins || 0, tp);
@@ -463,6 +466,7 @@ export function completeDay(state, userMatch = null) {
 
   if (t.entry.type === 'league' && t.entry.round === 19) {
     const y = createYouth(rng, uc);
+    y.pot = clamp(Math.round(y.pot + coachMods(state.coach).youthPot), overall(y) + 3, 95);
     state.players[y.id] = y;
     uc.youthIds.push(y.id);
     pushMessage(state, { prio: 2, icon: '🌱', title: `Un jeune prometteur : ${y.name}`, text: `${y.pos}, ${y.age} ans. Voir le centre de formation.` });
@@ -678,6 +682,9 @@ export function endSeason(state) {
   if (userPos === 1) { state.coach.trophies.push(`${DIVISIONS[userDiv].name} ${state.season}`); coachRep(state, DIVISIONS[userDiv].level === 1 ? 10 : 5, 'Titre de champion !'); }
   if (report.sacked) coachRep(state, -8, 'Limogeage');
   state.coach.seasons++;
+  const trophiesNow = state.coach.trophies.filter((t) => t.endsWith(String(state.season))).length;
+  grantSeasonPoints(state.coach, trophiesNow);
+  report.coachPoints = 2 + trophiesNow;
 
   // Primes de classement.
   for (const d of DIV_IDS) {

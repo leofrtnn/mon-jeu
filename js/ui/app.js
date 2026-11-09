@@ -7,6 +7,9 @@ import { save as saveState, userClub } from '../game/state.js';
 import { money } from '../game/economy.js';
 import { esc, accentInk, clubAccent } from './components.js';
 import { today } from '../game/season.js';
+import { avatarSvg } from './avatar.js';
+import { ensureCoachProfile } from '../game/coach.js';
+import { openCoachEditor } from './screens/coachEditor.js';
 import * as home from './screens/home.js';
 import * as squad from './screens/squad.js';
 import * as tactics from './screens/tactics.js';
@@ -59,7 +62,10 @@ export const app = {
     this.$screen.addEventListener('click', (e) => { if (e.target.tagName !== 'SELECT' && e.target.type !== 'file') this.dispatch(e, this.current()?.actions); });
     // Listes déroulantes et champs : événement "change".
     this.$screen.addEventListener('change', (e) => this.dispatch(e, this.current()?.actions));
-    this.$top.addEventListener('click', (e) => this.dispatch(e, this.current()?.actions));
+    this.$top.addEventListener('click', (e) => {
+      if (e.target.closest('#topcoach')) { openCoachEditor(this, { mode: 'edit' }); return; }
+      this.dispatch(e, this.current()?.actions);
+    });
   },
 
   dispatch(e, actions) {
@@ -87,6 +93,7 @@ export const app = {
     this.$tabs.classList.toggle('hidden', !started);
     document.body.classList.toggle('no-nav', !started);
     if (started) {
+      if (this.state.coach) ensureCoachProfile(this.state.coach);
       const c = userClub(this.state);
       const accent = clubAccent(c);
       document.documentElement.style.setProperty('--accent', accent);
@@ -95,7 +102,8 @@ export const app = {
       this.$top.innerHTML = `
         <span class="crest" style="background:${c.color};color:${c.color2}">${esc(c.short)}</span>
         <span class="club"><b>${esc(c.name)}</b><small>Saison ${this.state.season}-${String(this.state.season + 1).slice(2)} · ${esc(t ? t.label : 'Fin de saison')}</small></span>
-        <span class="budget">${money(c.budget)}</span>`;
+        <span class="budget">${money(c.budget)}</span>
+        <button class="topcoach" id="topcoach" aria-label="Mon coach">${avatarSvg(this.state.coach?.look, 40)}</button>`;
       this.$top.classList.remove('hidden');
     } else {
       this.$top.classList.add('hidden');

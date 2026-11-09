@@ -9,6 +9,21 @@ import { money } from '../../game/economy.js';
 import { esc, crest, stars } from '../components.js';
 import { DIVISIONS, DIV_IDS, COUNTRIES } from '../../data/world.js';
 import { readFileAsText } from '../files.js';
+import { openCoachEditor } from './coachEditor.js';
+import { PHILOSOPHIES } from '../../game/coach.js';
+import { autoLineup } from '../../engine/ratings.js';
+import { userClub } from '../../game/state.js';
+
+/** Applique la philosophie et la formation préférée du coach à son club. */
+export function applyPhilosophy(state) {
+  const uc = userClub(state);
+  const c = state.coach;
+  uc.tactics = { ...uc.tactics, ...PHILOSOPHIES[c.philosophy].tactics, formation: c.formation };
+  delete uc.tactics.custom;
+  uc.roles = []; uc.pi = [];
+  const lu = autoLineup(clubPlayers(state, uc), c.formation);
+  uc.lineup = lu.lineup; uc.bench = lu.bench;
+}
 
 export function render(app) {
   const ui = app.ui.start || (app.ui.start = { step: 'menu', div: 1 });
@@ -98,5 +113,6 @@ export const actions = {
     const slot = app.ui.start.slot || 1;
     enter(app, slot, app.state);
     app.save(true);
+    openCoachEditor(app, { mode: 'create', onDone: () => applyPhilosophy(app.state) });
   },
 };

@@ -339,6 +339,15 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; font-varian
 .tapcard b { font-family: var(--display); font-size: 17px; }
 .tc-num { width: 36px; height: 36px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-family: var(--display); font-weight: 800; font-size: 18px; flex: none; }
 
+.topcoach { border: 0; background: none; padding: 0; cursor: pointer; display: flex; }
+.coach-head { display: flex; align-items: center; gap: 16px; padding-top: 10px; }
+.swatches { display: flex; flex-wrap: wrap; gap: 8px; }
+.sw { width: 40px; height: 40px; border-radius: 50%; border: 2px solid var(--line2); cursor: pointer; }
+.sw.on { outline: 3px solid var(--accent); outline-offset: 2px; }
+.skillrow { display: flex; align-items: center; gap: 8px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.skillrow:last-child { border-bottom: 0; }
+.skillv { font-family: var(--display); font-size: 24px; min-width: 32px; text-align: center; }
+
 /* Barres de stats comparées */
 .cmp { margin: 10px 0; }
 .cmp .lbl { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 5px; font-variant-numeric: tabular-nums; }

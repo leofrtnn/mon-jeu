@@ -70,6 +70,7 @@ function makeTeam(cfg, side) {
     side, club: cfg.club, tactics: { ...DEFAULT_TACTICS, ...cfg.tactics }, slots, onPitch, bench, out: [], pi: (cfg.pi || []).slice(),
     subsUsed: 0, isAI: !!cfg.isAI, talk: 0,
     roles: (cfg.roles || []).slice(), setPieces: { ...(cfg.setPieces || {}) }, injuryMod: cfg.injuryMod ?? 1,
+    cm: cfg.coachMods || null, // effets des compétences du coach (équipe de l'utilisateur)
     stats: { poss: 0, shots: 0, onTarget: 0, xg: 0, passes: 0, passesOk: 0, fouls: 0, corners: 0,
       yellows: 0, reds: 0, offsides: 0, saves: 0, tackles: 0, dribbles: 0 },
   };
@@ -259,7 +260,7 @@ function refreshMultipliers(m) {
       if (!mp) continue;
       const fit = positionFit(mp.p.pos, t.slots[mp.slot].pos);
       const pm = { form: mp.p.form, morale: clamp(mp.morale + t.talk, 0, 100) };
-      mp.mult = conditionFactor(pm, mp.energy) * fit * home * numbers;
+      mp.mult = conditionFactor(pm, mp.energy) * fit * home * numbers * (t.cm ? t.cm.perf : 1);
     }
   }
 }
@@ -522,7 +523,7 @@ function foul(m, out, A, D, victim, offender, z) {
   // Cartons.
   let yP = 0.135 + (z === 1 || z === 2 ? 0.05 : 0) + (m.minute > 75 ? 0.04 : 0) + (m.counter ? 0.06 : 0) + (z === 3 ? 0.08 : 0);
   if (offender.yellow) yP *= 0.45; // un joueur averti se retient
-  yP *= m.profile.cards * (1 + TK[D.tactics.tackling] * 0.3);
+  yP *= m.profile.cards * (1 + TK[D.tactics.tackling] * 0.3) * (D.cm ? D.cm.cards : 1);
   if (m.rng.chance(0.003)) sendOff(m, out, D, offender, 'direct');
   else if (m.rng.chance(yP)) {
     offender.yellow++; D.stats.yellows++;
@@ -733,7 +734,7 @@ function decayEnergy(m) {
     for (const mp of activePlayers(t)) {
       let d = 0.42 - mp.p.attrs.phy * 0.0022 + pv * 0.06 + tv * 0.03 + (t.tactics.marking === 'man' ? 0.03 : 0);
       if (t.slots[mp.slot].pos === 'GB') d *= 0.35;
-      mp.energy = clamp(mp.energy - d * late * (1 + (mp.p.age > 31 ? 0.1 : 0)), 5, 100);
+      mp.energy = clamp(mp.energy - d * late * (1 + (mp.p.age > 31 ? 0.1 : 0)) * (t.cm ? t.cm.fatigue : 1), 5, 100);
       // Blessure "sans contact", plus fréquente quand le joueur est épuisé.
       if (m.rng.chance(0.00005 * t.injuryMod * (mp.energy < 50 ? 2.5 : 1))) {
         m._pendingInjury = m._pendingInjury || [];
@@ -910,6 +911,7 @@ export function teamTalk(m, side, kind) {
   else if (kind === 'encourage') delta = diff < 0 ? 7 : diff === 0 ? 5 : 2;
   else delta = diff < 0 ? (m.rng.chance(0.6) ? 10 : -6) : diff === 0 ? 3 : -5;
   delta += Math.round(m.rng.normal(0, 2));
+  if (T.cm) delta = Math.round(delta * (delta > 0 ? T.cm.talk : 2 - T.cm.talk));
   T.talk = clamp(T.talk + delta, -15, 15);
   for (const mp of activePlayers(T)) mp.morale = clamp(mp.morale + delta * 0.5, 0, 100);
   const text = delta >= 7 ? 'Les joueurs sont gonflés à bloc !' : delta >= 3 ? 'Le message est bien passé.'

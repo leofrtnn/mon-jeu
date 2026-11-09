@@ -14,6 +14,9 @@ import { POSITIONS } from '../../data/constants.js';
 import { esc, seg, playerRow, gauge, stars, scaleColor } from '../components.js';
 import { showPlayer } from './playerSheet.js';
 import * as settings from './settings.js';
+import { avatarSvg } from '../avatar.js';
+import { COACH_SKILLS, SKILL_KEYS, PHILOSOPHIES, coachName, ensureCoachProfile } from '../../game/coach.js';
+import { openCoachEditor } from './coachEditor.js';
 import * as friends from './friends.js';
 
 const TABS = [['fin', 'Finances'], ['market', 'Mercato'], ['staff', 'Staff'], ['train', 'Entraînement'], ['youth', 'Formation'], ['obj', 'Carrière'], ['friends', 'Amis'], ['settings', 'Réglages']];
@@ -165,7 +168,7 @@ function career(s) {
   const cup = s.cups[uc.country];
   const cupState = !o.cup ? null : cup.alive.includes(uc.id) ? 'En course' : 'Éliminé';
   const contiState = !o.conti ? null : s.conti.alive.includes(uc.id) ? 'En course' : 'Éliminé';
-  const c = s.coach;
+  const c = ensureCoachProfile(s.coach);
   return `<div class="card"><h3>Confiance du board</h3>
       <div class="row between"><b style="font-size:22px;color:${scaleColor(s.board.confidence)}">${Math.round(s.board.confidence)}%</b>
       <small>${s.board.confidence < 25 ? 'Votre poste est menacé !' : s.board.confidence < 50 ? 'Le board s\'impatiente.' : 'Le board vous soutient.'}</small></div>
@@ -176,6 +179,12 @@ function career(s) {
       ${o.conti ? `<div class="row" style="padding:6px 0"><span class="grow">⭐ ${esc(o.conti.label)}</span><span class="tag ${contiState === 'Éliminé' ? 'bad' : 'good'}">${contiState}</span></div>` : ''}
       <div class="row" style="padding:6px 0"><span class="grow">💶 ${esc(o.finance.label)}</span><span class="tag ${uc.budget >= 0 ? 'good' : 'bad'}">${money(uc.budget)}</span></div>
     </div>
+    <div class="card"><h3>Mon coach</h3>
+      <div class="row" style="gap:14px">${avatarSvg(c.look, 76)}<div class="grow"><b style="font-family:var(--display);font-size:22px">${esc(coachName(c))}</b><br>
+        <small>${esc(c.nationality)} · ${c.age} ans · ${esc(PHILOSOPHIES[c.philosophy].label)} · ${esc(c.formation)}</small></div></div>
+      ${SKILL_KEYS.map((k) => `<div class="attr"><span>${COACH_SKILLS[k].label}</span>${gauge(c.skills[k] * 5, scaleColor(c.skills[k] * 5))}<span class="v">${c.skills[k]}</span></div>`).join('')}
+      ${c.points ? `<p style="margin:8px 0 0"><span class="tag good">${c.points} point(s) à dépenser</span></p>` : ''}
+      <button class="btn block" style="margin-top:10px" data-act="editcoach">✎ Personnaliser mon coach</button></div>
     <div class="card"><h3>Votre carrière</h3>
       <div class="row between"><span>Réputation</span><b style="color:${scaleColor(c.rep)}">${Math.round(c.rep)}/100</b></div>${gauge(c.rep)}
       <div class="row between" style="margin-top:8px"><span>Bilan</span><b>${c.w} V · ${c.d} N · ${c.l} D</b></div>
@@ -198,6 +207,7 @@ export const actions = {
   ...settings.actions,
   ...friends.actions,
   ctab(el, app) { app.ui.clubTab = el.dataset.v; app.render(); },
+  editcoach(el, app) { openCoachEditor(app, { mode: 'edit' }); },
   mmode(el, app) { app.ui.mktMode = el.dataset.v; app.render(); },
   mpos(el, app) { app.ui.mktPos = el.dataset.v || null; app.render(); },
   player(el, app) { showPlayer(app, +el.dataset.id); },

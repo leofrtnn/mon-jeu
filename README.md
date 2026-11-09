@@ -51,11 +51,36 @@ Chaque championnat a son propre profil : style plus technique en Ibérie, plus p
 - **Calibration** propre à chaque championnat (buts, fautes, cartons).
 
 ### Affichage du match
+- **Joueurs dessinés et animés** : numéro sur le torse, tête orientée, bras et pieds qui bougent, maillot et short aux couleurs du club.
+- **Gestes** : frappe, tacle glissé, plongeon du gardien, jeu de tête, célébration.
+- **Mouvements** : les joueurs accélèrent et freinent selon leur vitesse et leur fatigue, et le dribbleur garde le ballon au pied. Un arbitre suit le jeu.
+- **Identification** : le nom (ou le numéro) s'affiche sous chaque joueur. Toucher un joueur ouvre sa fiche en direct.
 - **Ralentis** : chaque but est rejoué au ralenti.
 - **Audio d'ambiance** synthétisé en Web Audio, sans aucun fichier : foule, sifflets, clameur, « oh ! » sur les occasions.
 - **Statistiques visuelles** : graphique des **xG minute par minute** et **cartes de chaleur**, à la mi-temps et en fin de match.
 - **Conseils de l'adjoint** à la mi-temps, bandeau de changement de côté.
 - **Commentaires** : 20 à 47 phrases par événement courant.
+
+### Votre coach
+- **Création** en début de partie :
+  - identité : prénom, nom, nationalité, âge ;
+  - avatar dessiné : teint, coiffure, couleur des cheveux, barbe, lunettes, tenue et sa couleur ;
+  - philosophie de jeu et formation préférée.
+- **5 compétences notées de 1 à 20** : Tactique, Motivation, Discipline, Formation des jeunes, Préparation physique.
+  - 50 points à répartir au départ.
+  - Chaque compétence a un effet réel : performance de l'équipe, causeries, cartons, progression des jeunes, récupération et endurance.
+  - Chaque saison et chaque trophée rapportent des points à dépenser.
+- **Personnalisation à tout moment** : touchez l'avatar en haut à droite, ou passez par Club → Carrière.
+
+### Tactique (façon FM)
+- **Bases** : formations de base, mentalité, pressing, tempo, largeur.
+- **11 consignes d'équipe** :
+  - ligne défensive, style de passe, couloir privilégié ;
+  - centres, tirs de loin, contre-attaque, piège du hors-jeu ;
+  - tacles, marquage, relance du gardien, gain de temps.
+- **Consignes individuelles** : rôle, mission (défense, soutien, attaque), tirs, dribbles, montées.
+- **Éditeur de postes** : chaque joueur se déplace librement sur le terrain, et son poste est déduit de la zone.
+- **3 plans tactiques** (A, B, C) à enregistrer, chargeables aussi pendant un match.
 
 ### Carrière longue
 - **Réputation du coach** et trophées.
