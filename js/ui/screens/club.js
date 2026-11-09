@@ -22,6 +22,9 @@ import { avatarSvg } from '../avatar.js';
 import { COACH_SKILLS, SKILL_KEYS, PHILOSOPHIES, coachName, ensureCoachProfile } from '../../game/coach.js';
 import { openCoachEditor } from './coachEditor.js';
 import * as friends from './friends.js';
+import { TICKETS, SPONSOR_REQS, userSponsorIncome } from '../../game/fans.js';
+import { ownerType, finHealth } from '../../game/owners.js';
+import { showClub } from './clubInfo.js';
 
 const TABS = [['fin', 'Finances'], ['board', 'CA'], ['market', 'Mercato'], ['staff', 'Staff'], ['train', 'Entraînement'], ['youth', 'Formation'], ['obj', 'Carrière'], ['friends', 'Amis'], ['settings', 'Réglages']];
 
@@ -59,7 +62,12 @@ function finances(s) {
     ['Staff & infrastructures', sum((h) => /staff|Centre|stade/i.test(h.label))],
   ];
   return `<div class="card center"><h3>Budget</h3><div class="big ${uc.budget < 0 ? 'neg-txt' : ''}">${money(uc.budget)}</div>
-    <small>Joueurs ${money(wages)}/sem · Staff ${money(staffWages(uc))}/sem · Sponsors ${money(sponsorIncome(uc))}/sem</small></div>
+    <small>Joueurs ${money(wages)}/sem · Staff ${money(staffWages(uc))}/sem · Sponsors ${money(userSponsorIncome(s))}/sem · Santé financière ${finHealth(s, uc)}/100</small></div>
+    <div class="card"><h3>Billetterie & sponsors</h3>
+      <div class="label" style="margin-top:0">Prix des places · ambiance ${Math.round(uc.atmosphere ?? 55)}/100</div>${seg('ticket', Object.keys(TICKETS), uc.ticket || 'normal', TICKETS)}
+      <small class="muted">Des places chères rapportent plus mais refroidissent le stade (avantage à domicile, pression sur le board).</small>
+      ${(s.sponsorDeals || []).map((d) => `<div class="row between" style="padding:6px 0;border-bottom:1px solid var(--line)"><span class="grow"><b>${esc(d.name)}</b> <small>(${esc(d.kind)})</small><br><small class="muted">${esc(SPONSOR_REQS[d.req])} · ${d.years} an(s) · satisfaction ${Math.round(d.sat)}</small></span><b>${money(d.weekly)}/sem</b></div>`).join('') || '<p class="muted">Aucun sponsor.</p>'}
+    </div>
     <div class="card"><h3>Flux par journée</h3>
       ${days.length ? `<div class="bars">${days.map(([, v]) => `<i title="${money(v)}" style="height:${Math.abs(v) / max * 100}%;background:${v >= 0 ? 'var(--good)' : 'var(--bad)'}"></i>`).join('')}</div>` : '<p class="muted">Pas encore de mouvements cette saison.</p>'}
     </div>
@@ -79,7 +87,10 @@ function boardView(s) {
   const o = s.objectives;
   const st = s.seasonStats || {};
   const styleNow = st.m ? { attack: `${(st.gf / st.m).toFixed(2)} buts/match (objectif ≥ 1,6)`, solid: `${(st.ga / st.m).toFixed(2)} encaissés/match (≤ 1,1)`, possession: `${Math.round(st.poss / st.m)} % de possession (≥ 52 %)`, youth: `${youthShare(s)} % du temps de jeu aux jeunes` }[b.identity] : 'Pas encore de match';
-  return `<div class="card"><h3>Confiance du CA</h3>
+  const ot = ownerType(uc);
+  return `<div class="card"><div class="row between"><h3 style="margin:0">🏛 ${esc(uc.owner?.name || 'Propriétaire')}</h3><button class="btn sm" data-act="myclub">Fiche du club</button></div>
+      <small class="muted">${ot.label} · budget ×${ot.budget} · patience ×${ot.patience}</small></div>
+    <div class="card"><h3>Confiance du CA</h3>
       <div class="row between"><b class="big" style="color:${scaleColor(b.confidence)}">${Math.round(b.confidence)}%</b>
         <small>${b.confidence < 20 ? '⚠ Votre poste est menacé' : b.confidence < 45 ? 'Le CA s\'impatiente' : 'Le CA vous soutient'}</small></div>
       ${parts.map(([k, l, w]) => `<div class="attr"><span>${l} <small>(${w} %)</small></span>${gauge(b.parts[k], scaleColor(b.parts[k]))}<span class="v">${Math.round(b.parts[k])}</span></div>`).join('')}
@@ -279,6 +290,8 @@ export const actions = {
   shift(el, app) { done(app, shiftBudget(app.state, +el.dataset.v)); },
   req(el, app) { const r = boardRequest(app.state, el.dataset.v); app.toast(r.msg, 3500); app.save(); app.render(); },
   editcoach(el, app) { openCoachEditor(app, { mode: 'edit' }); },
+  ticket(el, app) { userClub(app.state).ticket = el.dataset.v; app.save(); app.render(); },
+  myclub(el, app) { showClub(app, app.state.userClubId); },
   mmode(el, app) { app.ui.mktMode = el.dataset.v; app.render(); },
   mpos(el, app) { app.ui.mktPos = el.dataset.v || null; app.render(); },
   player(el, app) { showPlayer(app, +el.dataset.id); },

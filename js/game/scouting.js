@@ -84,25 +84,8 @@ export function seeInMatch(state, m, oppSide) {
 export function marketEvents(state, rng) {
   const uc = userClub(state);
   const open = windowOpen(state);
-  // Rumeurs.
-  if (rng.chance(open ? 0.45 : 0.15)) {
-    const clubs = state.clubs.filter((c) => c.id !== uc.id);
-    const from = rng.pick(clubs);
-    const star = clubPlayers(state, from).sort((a, b) => overall(b) - overall(a))[rng.int(0, 2)];
-    const to = rng.pick(clubs.filter((c) => c.rep > from.rep && c.id !== from.id)) || rng.pick(clubs);
-    if (star && to && to.id !== from.id) {
-      pushMessage(state, { prio: 3, icon: '🗞', title: 'Rumeur', text: `${star.name} (${from.short}) intéresserait ${to.name}.`, action: { type: 'player', pid: star.id } });
-    }
-  }
+  // Rumeurs et demandes de départ : gérées par agents.js et people.js (boîte de réception).
   const squad = clubPlayers(state, uc).filter((p) => !p.onLoanFrom);
-  // Agents : un joueur frustré demande à partir.
-  for (const p of squad) {
-    if (p.requested || p.morale >= 28 || overall(p) < 60) continue;
-    if (rng.chance(0.12)) {
-      p.requested = true; p.listed = true;
-      pushMessage(state, { prio: 1, icon: '🧑‍💼', title: `${p.name} demande à partir`, text: 'Son agent réclame un transfert. Il est placé sur la liste.', action: { type: 'player', pid: p.id } });
-    }
-  }
   // Clauses libératoires : un club riche peut lever la clause d'un de vos joueurs.
   if (open) {
     for (const p of squad) {

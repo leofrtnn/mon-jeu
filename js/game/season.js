@@ -22,6 +22,13 @@ import { assignDates, windowInfo, fmtDate } from './dates.js';
 import { startPreseason } from './preseason.js';
 import { ensureBoard, setBoardSeason, updateBoardParts, checkMidSeasonSack, recordUserMatch, IDENTITIES } from './board.js';
 import { slotsOf } from '../data/constants.js';
+import { ensureLife, lifeDaily, lifeAfterFixture, lifeAfterUserMatch, lifeNextDay, lifeEndSeason, lifeSeasonStart } from './life.js';
+import { digestMatch, matchMods } from './press.js';
+import { homeAdvantage, gateMult, userSponsorIncome } from './fans.js';
+import { tension } from './relations.js';
+import { injuryLength, noteInjury, SEVERE_NAMES } from './injuries.js';
+import { aiSeasonBudget, finHealth } from './owners.js';
+import { BAL } from '../data/balance.js';
 
 export const CUP_ROUND_NAMES = ['16es de finale', '8es de finale', 'Quarts de finale', 'Demi-finales', 'Finale'];
 export const CONTI_ROUND_NAMES = ['Groupes · J1', 'Groupes · J2', 'Groupes · J3', 'Quarts de finale', 'Demi-finales', 'Finale'];
@@ -58,6 +65,8 @@ export function startCareer(state, clubId) {
   state.coach = ensureCoachProfile(newCoach(club));
   onUserArrives(state, club);
   ensureStaff(state);
+  ensureBoard(state);
+  ensureLife(state);
   const squad = clubPlayers(state, club);
   const best = aiPrepare(squad, squad, true, null);
   club.tactics = { ...best.tactics, mentality: 'balanced', pressing: 'mid' };
@@ -121,7 +130,7 @@ export function createSeason(state) {
   state.seasonOver = false;
   state.lastResult = null;
   setObjectives(state);
-  if (state.userClubId) startPreseason(state);
+  if (state.userClubId) { startPreseason(state); if (state.coach) lifeSeasonStart(state); }
 }
 
 /** Coupe continentale : qualification (classement final précédent ou réputation), tirage des groupes. */
@@ -243,7 +252,8 @@ function nationClub(nation) {
 function ensureIntlDraw(state, k) {
   if (state.intl.breaks[k]) return;
   const rng = gameRng(state);
-  const ranked = nationRanking(state).filter((r) => eligibleNations(state).includes(r.name)).map((r) => r.name);
+  const elig = new Set(eligibleNations(state));
+  const ranked = nationRanking(state).filter((r) => elig.has(r.name)).map((r) => r.name);
   // Appariements entre nations de niveau proche (blocs de 4 mélangés).
   const order = [];
   for (let i = 0; i < ranked.length; i += 4) order.push(...rng.shuffle(ranked.slice(i, i + 4)));
@@ -322,7 +332,7 @@ export function teamCfg(state, club, opponent, isHome, isUser) {
   const players = clubPlayers(state, club);
   if (isUser) {
     validateUserLineup(state);
-    return { club, players, lineup: club.lineup.slice(), bench: club.bench.slice(), tactics: { ...club.tactics }, isAI: false,
+    return { club, players, lineup: club.lineup.slice(), bench: club.bench.slice(), tactics: { ...club.tactics }, isAI: false, talk: matchMods(state)?.me || 0,
       roles: (club.roles || []).slice(), setPieces: { ...(club.setPieces || {}) }, pi: (club.pi || []).map((x) => ({ ...x })), injuryMod: staffEffects(club).injuryMod,
       coachMods: (() => { const cm = coachMods(state.coach); return { ...cm, perf: cm.perf * staffEffects(club).perf }; })() };
   }
@@ -330,6 +340,7 @@ export function teamCfg(state, club, opponent, isHome, isUser) {
   const style = managerStyle(state, club);
   const prep = aiPrepare(players, opponent ? clubPlayers(state, opponent) : players, isHome, rng, style);
   return { club, players, lineup: prep.lineup, bench: prep.bench, tactics: prep.tactics, isAI: true,
+    talk: opponent && opponent.id === state.userClubId ? (matchMods(state)?.opp || 0) : 0,
     coachMods: style ? { perf: style.perf, talk: 1, cards: 1, fatigue: 1 } : null };
 }
 
@@ -350,9 +361,12 @@ export function matchCfgFor(state, f) {
   const h = clubById(state, f.h), a = clubById(state, f.a);
   const uid = state.userClubId;
   const knockout = f.comp === 'cup' || (f.comp === 'conti' && f.ko);
+  const prof = { ...(f.comp === 'league' ? DIVISIONS[f.div].profile : f.comp === 'cup' ? DIVISIONS[h.div].profile : {}) };
+  const tens = tension(state, h.id, a.id);
+  if (tens > 1) { prof.fouls = (prof.fouls ?? 1) * tens; prof.cards = (prof.cards ?? 1) * tens; }
   return {
-    ...base, cup: knockout, extraTime: knockout,
-    profile: f.comp === 'league' ? DIVISIONS[f.div].profile : f.comp === 'cup' ? DIVISIONS[h.div].profile : {},
+    ...base, cup: knockout, extraTime: knockout, homeAdv: f.neutral ? 1 : homeAdvantage(h),
+    profile: prof,
     home: teamCfg(state, h, a, true, h.id === uid),
     away: teamCfg(state, a, h, false, a.id === uid),
   };
@@ -403,6 +417,7 @@ export function userMatchCfg(state) {
 export function completeDay(state, userMatch = null) {
   // La saison démarre : fin de la préparation (réunion acceptée par défaut).
   if (state.preseason?.active) { if (!state.preseason.meeting) state.preseason.meeting = true; state.preseason.active = false; }
+  ensureLife(state);
   const rng = gameRng(state);
   const t = today(state);
   const uc = userClub(state);
@@ -419,6 +434,7 @@ export function completeDay(state, userMatch = null) {
     if ((f.comp === 'cup' || f.ko) && m.score[0] === m.score[1] && !m.shootout) penaltyShootout(m);
     const sum = summarize(m);
     applyResult(state, f, sum, m, ctx);
+    lifeAfterFixture(state, f, sum);
     if (f.comp !== 'intl') { played.add(f.h); played.add(f.a); }
     report.results.push({ h: f.h, a: f.a, s: sum.score, pens: sum.shootout ? sum.shootout.score : null, div: f.div, comp: f.comp, key: f.key });
     if (isUser) {
@@ -428,6 +444,7 @@ export function completeDay(state, userMatch = null) {
       ensureBoard(state);
       recordUserMatch(state, sum, side, m);
       seeInMatch(state, m, 1 - side);
+      lifeAfterUserMatch(state, digestMatch(state, sum, m, side, f), rng, f, t.entry);
       state.lastResult = { h: f.h, a: f.a, s: sum.score, pens: sum.shootout ? sum.shootout.score : null, label: t.label,
         scorers: sum.goals.map((g) => ({ side: g.side, name: g.name, minute: g.minute, pen: g.pen })), motm: sum.motm?.name };
     }
@@ -460,24 +477,7 @@ export function completeDay(state, userMatch = null) {
     }
   }
 
-  // Finances : salaires (+ staff), sponsors, billetterie.
-  for (const c of state.clubs) {
-    const wages = wageBill(clubPlayers(state, c)) + (c.id === uc.id ? staffWages(c) : 0);
-    const sponsor = sponsorIncome(c);
-    c.budget += sponsor - wages;
-    if (c.id === uc.id) { logFinance(state, -wages, 'Salaires'); logFinance(state, sponsor, 'Sponsors'); }
-  }
-  for (const f of t.fixtures) {
-    if (f.neutral || f.comp === 'intl') continue;
-    const h = clubById(state, f.h), a = clubById(state, f.a);
-    const formRow = state.tables[h.div]?.[h.id];
-    const formPts = formRow && formRow.form.length ? formRow.form.reduce((s, r) => s + (r === 'V' ? 1 : r === 'N' ? 0.4 : 0), 0) / formRow.form.length : 0.5;
-    const { attendance, revenue } = matchdayRevenue(h, a, formPts, f.comp !== 'league');
-    const bonus = f.comp === 'conti' ? 1.6 : 1;
-    const fansK = h.id === uc.id ? 0.85 + (state.board?.fans ?? 60) / 400 : 1; // l'humeur des supporters remplit (ou vide) le stade
-    h.budget += Math.round(revenue * bonus * fansK);
-    if (h.id === uc.id) { logFinance(state, Math.round(revenue * bonus * fansK), `Billetterie (${attendance.toLocaleString('fr-FR')} spect.)`); report.attendance = attendance; }
-  }
+  applyDayFinances(state, t, report);
 
   dailyFacilities(state);
   aiTransferActivity(state, rng);
@@ -493,7 +493,7 @@ export function completeDay(state, userMatch = null) {
     state.players[y.id] = y;
     uc.youthIds.push(y.id);
     pushMessage(state, { prio: 2, icon: '🌱', title: `Un jeune prometteur : ${y.name}`, text: `${y.pos}, ${y.age} ans. Voir le centre de formation.` });
-    checkJobOffers(state, rng);
+    y.homegrown = true;
   }
   if (t.entry.type === 'league' && t.entry.round === 27) {
     const ending = clubPlayers(state, uc).filter((p) => p.contract <= 1 && !p.onLoanFrom);
@@ -503,14 +503,40 @@ export function completeDay(state, userMatch = null) {
   if (uc.budget < 0 && budgetBefore >= 0) pushMessage(state, { prio: 1, icon: '⚠', title: 'Budget dans le rouge', text: 'Le board demande de vendre ou de réduire la masse salariale.' });
 
   report.finance = uc.budget - budgetBefore;
+  lifeDaily(state, rng, t);
   updateBoard(state, t, report);
   state.day++;
   if (state.day >= state.calendar.length) state.seasonOver = true;
   else {
     const wi = windowInfo(state);
-    if (wi.deadline) pushMessage(state, { prio: 1, icon: '⏰', title: 'Dernier jour du mercato !', text: `Clôture le ${fmtDate(wi.closes, false)} : dernières affaires à conclure.` });
+    if (wi.deadline) pushMessage(state, { prio: 1, icon: '⏰', title: 'Dernier jour du mercato !', text: `Clôture le ${fmtDate(wi.closes, false)} : jouez le deadline day en direct depuis l'Accueil.` });
+    lifeNextDay(state, rng);
   }
   return report;
+}
+
+
+/** Finances d'une journée : salaires (+ staff), sponsors, billetterie (ambiance du stade). */
+export function applyDayFinances(state, t, report = {}) {
+  const uc = userClub(state);
+  for (const c of state.clubs) {
+    const wages = wageBill(clubPlayers(state, c)) + (c.id === uc.id ? staffWages(c) : 0);
+    const sponsor = c.id === uc.id ? userSponsorIncome(state) : sponsorIncome(c);
+    c.budget += sponsor - wages;
+    if (c.id === uc.id) { logFinance(state, -wages, 'Salaires'); logFinance(state, sponsor, 'Sponsors'); }
+  }
+  for (const f of t.fixtures) {
+    if (f.neutral || f.comp === 'intl') continue;
+    const h = clubById(state, f.h), a = clubById(state, f.a);
+    const formRow = state.tables[h.div]?.[h.id];
+    const formPts = formRow && formRow.form.length ? formRow.form.reduce((s, r) => s + (r === 'V' ? 1 : r === 'N' ? 0.4 : 0), 0) / formRow.form.length : 0.5;
+    const { attendance, revenue } = matchdayRevenue(h, a, formPts, f.comp !== 'league');
+    const bonus = f.comp === 'conti' ? 1.6 : 1;
+    const fansK = gateMult(h); // ambiance du stade et politique tarifaire
+    h.budget += Math.round(revenue * bonus * fansK);
+    if (h.id === uc.id) { logFinance(state, Math.round(revenue * bonus * fansK), `Billetterie (${attendance.toLocaleString('fr-FR')} spect.)`); report.attendance = attendance; }
+  }
+
 }
 
 function finishCupRound(state, t, report) {
@@ -633,10 +659,11 @@ function applyResult(state, f, sum, m, ctx) {
         }
       }
       if (mp.injured) {
-        let days = rng.chance(0.6) ? rng.int(1, 3) : rng.chance(0.75) ? rng.int(4, 8) : rng.int(9, 20);
+        let days = injuryLength(rng);
         if (p.clubId === uc) days = Math.max(1, Math.round(days * staffEffects(clubById(state, uc)).injuryDays));
         p.injury = days;
-        p.injuryName = rng.pick(days <= 3 ? ['Contusion', 'Entorse légère', 'Douleur musculaire'] : days <= 8 ? ['Élongation', 'Entorse de la cheville', 'Lésion aux ischios'] : ['Déchirure musculaire', 'Fracture du pied', 'Ligaments du genou']);
+        p.injuryName = rng.pick(days <= 3 ? ['Contusion', 'Entorse légère', 'Douleur musculaire'] : days <= 8 ? ['Élongation', 'Entorse de la cheville', 'Lésion aux ischios'] : days <= 20 ? ['Déchirure musculaire', 'Fracture du pied', 'Ligaments du genou'] : SEVERE_NAMES);
+        if (p.clubId === uc) noteInjury(state, p);
         ctx.newlyHurt.add(p.id);
         if (p.clubId === uc) {
           report.injuries.push({ name: p.name, days, what: p.injuryName });
@@ -736,8 +763,18 @@ export function endSeason(state) {
     const lvl1 = DIVISIONS[d].level === 1;
     tables[d].forEach((r, i) => { r.club.rep = clamp(r.club.rep + (lvl1 ? (i < 4 ? 2 : i >= 17 ? -2 : 0) : (i < 3 ? 4 : 0)), 30, 95); });
   }
+  // Relégation administrative : un club de D1 en faillite descend à la place du 17e.
+  const down = tables[1].slice(-3);
+  for (const r of tables[1].slice(0, -3)) {
+    if (finHealth(state, r.club) >= BAL.crisis.bankrupt) continue;
+    const saved = down.shift();
+    down.push(r);
+    pushMessage(state, { prio: r.id === uc.id ? 1 : 2, icon: '⚖', title: `Relégation administrative : ${r.club.name}`, text: `Faute de garanties financières, ${r.club.name} est rétrogradé. ${saved.club.name} est repêché.` });
+    break;
+  }
+  report.relegated = down.map((r) => r.club.name);
   // Promotions / relégations (France).
-  for (const r of tables[1].slice(-3)) { r.club.div = 2; r.club.rep = clamp(r.club.rep - 2, 30, 95); }
+  for (const r of down) { r.club.div = 2; r.club.rep = clamp(r.club.rep - 2, 30, 95); }
   for (const r of tables[2].slice(0, 3)) r.club.div = 1;
   report.userNewDiv = uc.div;
   if (report.userNewDiv < userDiv) coachRep(state, 5, 'Promotion !');
@@ -809,9 +846,7 @@ export function endSeason(state) {
     }
     if (c.id !== uc.id) {
       fillSquad(state, c, rng);
-      const lvl1 = DIVISIONS[c.div].level === 1;
-      const base = lvl1 ? Math.pow(c.rep / 10, 2.6) * 120000 : Math.pow(c.rep / 10, 2.2) * 60000;
-      c.budget = Math.round((Math.max(0, c.budget) * 0.4 + base) / 100000) * 100000;
+      c.budget = aiSeasonBudget(c, DIVISIONS[c.div].level === 1);
     }
     assignNumbers(clubPlayers(state, c));
   }
@@ -824,6 +859,7 @@ export function endSeason(state) {
   state.season++;
   state.messages = state.messages.filter((m) => m.prio === 1 && !m.read && m.action?.type !== 'offer').slice(0, 5);
   state.pendingOffers = [];
+  lifeEndSeason(state, rng, report.met);
   createSeason(state);
   validateUserLineup(state);
   report.jobs = jobCandidates(state, report.sacked).map((c) => c.id);

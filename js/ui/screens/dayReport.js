@@ -65,9 +65,10 @@ export function showOffer(app, pid) {
   const h = app.sheet({
     html: `<h2>Offre pour ${esc(p.name)}</h2>
       <p>${esc(c.name)} propose <b>${money(o.amount)}</b>.<br><small>Valeur estimée : ${money(p.value)} · Note ${overall(p)} · ${p.age} ans</small></p>
-      <div class="btns"><button class="btn" data-act="no">Refuser</button><button class="btn primary" data-act="yes">Accepter</button></div>`,
+      <div class="btns"><button class="btn" data-act="no">Refuser</button><button class="btn" data-act="yeson">Accepter −10 % avec 15 % à la revente</button><button class="btn primary" data-act="yes">Accepter</button></div>`,
     actions: {
       yes: () => { const r = sellPlayer(s, o); app.toast(r.msg); app.save(); h.close(); app.render(); },
+      yeson: () => { o.amount = Math.round(o.amount * 0.9 / 25000) * 25000; o.sellOn = 0.15; const r = sellPlayer(s, o); app.toast(r.msg); app.save(); h.close(); app.render(); },
       no: () => { s.pendingOffers = s.pendingOffers.filter((x) => x !== o); app.save(); h.close(); app.render(); },
     },
   });

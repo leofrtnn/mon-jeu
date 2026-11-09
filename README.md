@@ -18,7 +18,9 @@ Les modules ES ne se chargent pas en `file://`, d'où le petit serveur local. Le
 ## Tests
 
 ```bash
-npm test               # moteur (1000 matchs, prolongations, rôles, profils), 2 saisons complètes, multijoueur
+npm test               # moteur (1000 matchs…), 2 saisons complètes, multijoueur, vie du club, dérive (60 saisons)
+npm run test:drift     # dérive des systèmes « vie du club » sur 500 saisons (~80 s)
+npm run drift          # même banc, avec le détail des moyennes par indicateur
 npm run test:ui        # bout en bout dans Chromium (Playwright) : partie, match, Worker, sauvegarde, amis
 npm run calibrate      # statistiques détaillées du moteur (node tests/calibrate.js 2000)
 npm run sw             # régénère la liste des fichiers du cache hors ligne
@@ -136,6 +138,55 @@ Chaque championnat a son propre profil : style plus technique en Ibérie, plus p
 - **Ligue entre amis** : un championnat aller-retour **déterministe**. Les mêmes codes donnent les mêmes résultats chez chacun, sans serveur. Un « code de ligue » permet d'inviter un ami avec toutes les équipes d'un coup.
 - **Limite** : sans serveur, un code peut être modifié à la main. La somme de contrôle détecte seulement les codes abîmés lors d'un copier-coller. Une vraie ligue en ligne avec anti-triche demanderait un backend.
 
+## Vie du club (boîte de réception unique)
+
+Tout passe par les **messages de l'Accueil** : 3 messages importants maximum, le reste dans « Voir tout ». Une décision s'ouvre en carte à 2 ou 3 choix, avec une échéance. Les effets ne s'affichent qu'**après** le choix. Aucun nouvel onglet.
+
+- **Interviews d'après-match** : 1 à 3 questions selon le contexte réel du match.
+  - Contextes : score, buteur, erreur, rouge, série, arbitrage, jeune, rumeur, déclaration passée.
+  - 8 journalistes fictifs aux profils différents : bienveillant, neutre, piégeur, sensationnaliste.
+  - 4 réponses (humble, combatif, protecteur, évasif), ou « ne pas répondre ».
+  - Fatigue médiatique : la même réponse répétée perd de son effet.
+  - Clips viraux pendant 2 à 3 semaines, avec réponse possible d'un entraîneur rival.
+  - Cohérence : « je fais confiance à X » puis X sur le banc ? La presse le ressort, avec une pénalité.
+  - Plus de 300 formulations.
+- **Conférences d'avant-match** (derby, choc au sommet, match décisif, coupe) : 2 questions pièges.
+  - Elles motivent l'adversaire (« match de revanche ») et mettent la pression sur votre groupe.
+- **Vestiaire** : personnalité (leader, ambitieux, loyal, mercenaire, sensible, rebelle) et influence pour chaque joueur.
+  - Un noyau de 4 leaders contamine ou apaise ses proches (même nationalité, âge, ancienneté).
+  - Événements : réunion de crise, clash, capitaine qui prend la parole.
+- **Demandes privées** : temps de jeu, prolongation ou départ.
+  - Sans réponse sous 2 à 3 semaines, le joueur parle à la presse, ce qui fait baisser le board et le vestiaire.
+  - Les promesses sont mémorisées et vérifiées.
+- **Propriétaires** (ambitieux, mécène, gestionnaire, spéculateur, fan local) : environ 1 rachat pour 10 clubs par saison.
+  - Le nouveau propriétaire fixe budgets et objectifs, avec un risque de renvoi.
+  - Vous le rencontrez : 2 discours possibles.
+- **Rivaux et relations** : graphe de -100 à +100 entre tous les clubs.
+  - Origines : derbys, transferts, clashs, matchs tendus.
+  - Effets : refus de vendre à un concurrent direct, intouchables, solidarité entre alliés, prix réduits ou majorés, prêts refusés, plus de cartons.
+  - Club intermédiaire possible (avec commission). Les scores reviennent lentement vers leur base.
+  - Fiche club accessible depuis le classement : humeur de la relation et vue « Relations ».
+- **Crises financières** : santé financière calculée sur la trésorerie et l'équilibre d'exploitation.
+  - Un club en crise brade ses joueurs (surtout le dernier jour), avec un message « X cherche à vendre ».
+  - Retrait de points en cas de faillite, relégation administrative en D1.
+- **Agents, rumeurs, clauses** :
+  - agents gourmands, loyaux ou agressifs ;
+  - rumeurs vraies à 70 % (suivies d'une offre), parfois lancées par un agent pour faire monter les prix ;
+  - pourcentage à la revente, option d'achat sur les prêts, prime de but.
+- **Deadline day** : 2 minutes en direct depuis l'Accueil, avec compte à rebours.
+  - Offres surprises, bonnes affaires de clubs en crise, coups de théâtre.
+- **Supporters** : l'ambiance du stade module l'avantage à domicile dans le moteur et la billetterie.
+  - Elle dépend du prix des places, des résultats et des déclarations.
+  - Événements : banderoles, sifflets, manifestations, tifo.
+- **Sponsors** : contrats avec primes et exigences (titulariser la star, prime time, classement).
+  - Un sponsor part après un scandale ou si ses exigences ne sont pas tenues ; de nouvelles offres arrivent après une bonne saison.
+- **Blessures longues** : retour anticipé possible, mais avec un risque de rechute plus longue.
+  - Le médecin réduit les risques. La blessure pèse sur le moral et sur la valeur du joueur.
+- **Offres d'emploi** : les clubs plus prestigieux vous sollicitent quand tout va bien. Partir en cours de saison coûte de la réputation.
+  - Après un limogeage, des clubs modestes ou en crise vous font des offres.
+
+**Équilibrage** : tous les coefficients sont dans `js/data/balance.js` (commenté). **Sauvegarde** : format v3, avec migration automatique des sauvegardes v2.
+
 ## Architecture
 
 ```
@@ -149,6 +200,18 @@ js/game/career.js           coach, staff, installations, entraînement, offres d
 js/game/transfers.js        mercato, négociations, contrats
 js/game/scouting.js         brouillard, observations, rumeurs, agents, clauses
 js/game/friends.js          multijoueur asynchrone (codes, ligue déterministe)
+js/data/balance.js          ★ équilibrage centralisé des systèmes « vie du club »
+js/data/pressTexts.js       banque de textes de presse (journalistes, questions, réponses)
+js/game/life.js             chef d'orchestre : points d'entrée appelés par la saison
+js/game/inbox.js            décisions de la boîte de réception (choix, échéances)
+js/game/press.js            interviews, conférences, cohérence, clips viraux
+js/game/people.js           personnalités, influence, vestiaire, demandes des joueurs
+js/game/owners.js           propriétaires, rachats, santé financière, crises
+js/game/relations.js        graphe des relations, rivaux, politique de vente
+js/game/fans.js             ambiance du stade, billetterie, sponsors
+js/game/injuries.js         blessures longues, retour anticipé, rechutes
+js/game/agents.js           agents, rumeurs, clauses
+js/game/deadline.js         événements du deadline day
 js/game/dataImport.js       import/export des noms
 js/game/state.js            état, sauvegardes compressées multi-emplacements
 js/game/worker.js           Web Worker de simulation

@@ -229,9 +229,9 @@ export function jobCandidates(state, sacked = false) {
   const uc = userClub(state);
   const rep = state.coach.rep;
   return state.clubs
-    .filter((c) => c.id !== uc.id && (sacked ? c.rep <= Math.max(45, rep + 15) : c.rep > uc.rep + 2 && c.rep <= rep + 32))
-    .sort((a, b) => b.rep - a.rep)
-    .slice(0, 3);
+    .filter((c) => c.id !== uc.id && (sacked ? c.rep <= Math.max(45, rep + 15) || c.crisis : c.rep > uc.rep + 2 && c.rep <= rep + 32))
+    .sort((a, b) => (sacked ? (b.crisis ? 1 : 0) - (a.crisis ? 1 : 0) : 0) || b.rep - a.rep)
+    .slice(0, sacked ? 5 : 3);
 }
 
 /** Vérification périodique : un club plus prestigieux fait une offre ? */

@@ -489,3 +489,20 @@ textarea { width: 100%; min-height: 90px; border-radius: 12px; border: 1px solid
 }
 
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+
+/* ---------- Vie du club : boîte de réception, presse, deadline day ---------- */
+.msg.dec { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.press-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.press-btn { min-height: 74px; text-align: left; white-space: normal; line-height: 1.25; padding: 10px 12px; font-size: 13px; }
+.press-btn small { color: var(--accent); font-weight: 800; text-transform: uppercase; letter-spacing: .04em; font-size: 10px; }
+.deadline-card { border: 1px solid color-mix(in srgb, var(--bad) 45%, transparent); }
+.deadline-head { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; border-radius: 14px; background: var(--card2); font-weight: 900; letter-spacing: .06em; }
+.deadline-head b { font-family: var(--display); font-size: 30px; }
+.deadline-head.hot { background: color-mix(in srgb, var(--bad) 35%, var(--card2)); animation: dlpulse 1s infinite; }
+@keyframes dlpulse { 50% { filter: brightness(1.25); } }
+.dl-feed { margin: 10px 0; max-height: 52vh; overflow-y: auto; }
+.dl-item { padding: 8px 6px; border-bottom: 1px solid var(--line); font-size: 14px; animation: dlin .3s ease-out; }
+.dl-item.in { border-left: 3px solid var(--ok); } .dl-item.deal { border-left: 3px solid var(--good); } .dl-item.end { font-weight: 800; }
+.dl-item .btns { margin-top: 6px; }
+@keyframes dlin { from { opacity: 0; transform: translateY(-6px); } }
+@media (max-width: 420px) { .press-grid { grid-template-columns: 1fr; } }

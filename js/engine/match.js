@@ -68,7 +68,7 @@ function makeTeam(cfg, side) {
   });
   return {
     side, club: cfg.club, tactics: { ...DEFAULT_TACTICS, ...cfg.tactics }, slots, onPitch, bench, out: [], pi: (cfg.pi || []).slice(),
-    subsUsed: 0, isAI: !!cfg.isAI, talk: 0,
+    subsUsed: 0, isAI: !!cfg.isAI, talk: Math.max(-15, Math.min(15, cfg.talk || 0)),
     roles: (cfg.roles || []).slice(), setPieces: { ...(cfg.setPieces || {}) }, injuryMod: cfg.injuryMod ?? 1,
     cm: cfg.coachMods || null, // effets des compétences du coach (équipe de l'utilisateur)
     stats: { poss: 0, shots: 0, onTarget: 0, xg: 0, passes: 0, passesOk: 0, fouls: 0, corners: 0,
@@ -83,7 +83,7 @@ function makeTeam(cfg, side) {
 export function createMatch(cfg) {
   const rng = createRng(cfg.seed ?? 1);
   const m = {
-    rng, seed: cfg.seed ?? 1, neutral: !!cfg.neutral, cup: !!cfg.cup, varEnabled: cfg.varEnabled !== false,
+    rng, seed: cfg.seed ?? 1, neutral: !!cfg.neutral, homeAdv: cfg.homeAdv ?? 1.025, cup: !!cfg.cup, varEnabled: cfg.varEnabled !== false,
     teams: [makeTeam(cfg.home, 0), makeTeam(cfg.away, 1)],
     phase: 'pre', period: 1, minute: 0, extra: 0, added: [0, 0], stoppages: 0,
     score: [0, 0], poss: 0, zone: 1, carrier: null, counter: 0, setPiece: null,
@@ -254,7 +254,7 @@ function setPieceTaker(T, kind, score) {
 function refreshMultipliers(m) {
   for (const t of m.teams) {
     const n = activePlayers(t).length;
-    const home = !m.neutral && t.side === 0 ? 1.025 : 1;
+    const home = !m.neutral && t.side === 0 ? m.homeAdv : 1;
     const numbers = 1 - 0.055 * (11 - n);
     for (const mp of t.onPitch) {
       if (!mp) continue;

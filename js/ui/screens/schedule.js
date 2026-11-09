@@ -35,7 +35,7 @@ function table(s, div, uc) {
   const zone = (i) => (div === 1 ? (i < 4 ? 'zone-eu' : i >= 17 ? 'zone-down' : '') : div === 2 ? (i < 3 ? 'zone-up' : '') : (i < 5 ? 'zone-eu' : ''));
   return `<div class="card" style="padding:6px 8px"><div class="label" style="margin-top:4px">${esc(DIVISIONS[div].name)}</div><table class="tbl">
     <thead><tr><th class="l">#</th><th class="l">Club</th><th>J</th><th>Diff</th><th>Pts</th><th>Forme</th></tr></thead>
-    <tbody>${rows.map((r, i) => `<tr class="${r.id === uc.id ? 'me' : ''}">
+    <tbody>${rows.map((r, i) => `<tr class="${r.id === uc.id ? 'me' : ''}" data-act="clubinfo" data-id="${r.id}" style="cursor:pointer">
       <td class="l ${zone(i)}">${i + 1}</td>
       <td class="l"><span class="clubcell">${crest(r.club, 'sm')}${esc(r.club.name)}</span></td>
       <td>${r.p}</td><td>${r.gd > 0 ? '+' : ''}${r.gd}</td><td><b>${r.pts}</b></td>
@@ -173,6 +173,7 @@ export function mount(app, root) {
 }
 
 export const actions = {
+  clubinfo(el, app) { import('./clubInfo.js').then((mod) => mod.showClub(app, +el.dataset.id)); },
   stab(el, app) { app.ui.schedTab = el.dataset.v; app.render(); },
   sdiv(el, app) { app.ui.schedDiv = +el.dataset.v; app.render(); },
   cupw(el, app) { app.ui.cupWhich = el.dataset.v; app.render(); },

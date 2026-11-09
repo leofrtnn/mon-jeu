@@ -10,6 +10,10 @@ import { clamp, hashSeed } from '../core/rng.js';
 import { news } from './managers.js';
 import { boardAllows, spendTransfer, creditSale } from './board.js';
 import { windowInfo } from './dates.js';
+import { sellPolicy, relationsAfterTransfer, loanAllowed, relAdd, squadOveralls } from './relations.js';
+import { agentDemands, paySellOn, hypeMult } from './agents.js';
+import { favouriteLeaves } from './fans.js';
+import { BAL } from '../data/balance.js';
 
 export const MAX_SQUAD = 32;
 const MIN_SQUAD = 20;
@@ -20,22 +24,22 @@ export function windowOpen(state) {
 }
 
 /** Prix demandé pour un joueur. */
-export function askingPrice(state, p) {
+export function askingPrice(state, p, buyer = null) {
   if (!p.clubId) return 0;
+  const pol = sellPolicy(state, p, buyer || userClub(state));
   const club = clubById(state, p.clubId);
-  const squad = clubPlayers(state, club);
-  const rank = squad.map(overall).sort((a, b) => b - a).indexOf(overall(p));
+  const rank = squadOveralls(state, club).indexOf(overall(p));
   const key = rank >= 0 && rank < 11 ? 1.3 : 1.05;
-  return Math.round(playerValue(p) * key * (p.listed ? 0.85 : 1) / 25000) * 25000;
+  return Math.round(playerValue(p) * key * (p.listed ? 0.85 : 1) * pol.mult * hypeMult(state, p) / 25000) * 25000;
 }
 
 /** Liste du marché (hors club de l'utilisateur). */
-export function marketList(state, { pos = null, maxPrice = Infinity, youngOnly = false } = {}) {
+export function marketList(state, { pos = null, maxPrice = Infinity, youngOnly = false, buyer = null } = {}) {
   const ids = [...state.freeAgents];
   for (const c of state.clubs) if (c.id !== state.userClubId) ids.push(...c.playerIds);
   return ids.map((id) => state.players[id])
     .filter((p) => p && !p.onLoanFrom && (!pos || p.pos === pos) && (!youngOnly || p.age <= 23))
-    .map((p) => ({ p, price: askingPrice(state, p), ovr: overall(p) }))
+    .map((p) => ({ p, price: askingPrice(state, p, buyer), ovr: overall(p) }))
     .filter((x) => x.price <= maxPrice)
     .sort((a, b) => b.ovr - a.ovr);
 }
@@ -90,6 +94,7 @@ export function loanIn(state, pid) {
   const club = userClub(state);
   if (!windowOpen(state)) return { ok: false, msg: 'Le mercato est fermé.' };
   if (!p.clubId || p.age > 23) return { ok: false, msg: 'Prêt impossible.' };
+  if (!loanAllowed(state, clubById(state, p.clubId), club)) return { ok: false, msg: `${clubById(state, p.clubId).name} refuse de prêter à un club avec qui les relations sont glaciales.` };
   if (club.playerIds.length >= MAX_SQUAD) return { ok: false, msg: 'Effectif complet.' };
   const fee = Math.round(playerValue(p) * 0.08 / 25000) * 25000;
   if (club.budget < fee) return { ok: false, msg: 'Budget insuffisant.' };
@@ -101,9 +106,11 @@ export function loanIn(state, pid) {
   removeFromClub(state, p);
   addToClub(state, p, club);
   p.onLoanFrom = from.id;
+  p.buyOption = Math.round(playerValue(p) * 1.15 / 25000) * 25000;
   club.budget -= fee;
   logFinance(state, -fee, `Prêt : ${p.name}`);
-  pushMessage(state, { prio: 3, icon: '⇆', title: `${p.name} prêté jusqu'en fin de saison`, text: `Frais ${money(fee)}.` });
+  pushMessage(state, { prio: 3, icon: '⇆', title: `${p.name} prêté jusqu'en fin de saison`, text: `Frais ${money(fee)} · option d'achat ${money(p.buyOption)}.` });
+  relAdd(state, from.id, club.id, BAL.relations.loan);
   return { ok: true, msg: `${p.name} arrive en prêt.` };
 }
 
@@ -127,10 +134,14 @@ export function sellPlayer(state, offer) {
   const club = userClub(state);
   if (!p || p.clubId !== club.id) return { ok: false, msg: 'Joueur indisponible.' };
   if (club.playerIds.length <= MIN_SQUAD - 4) return { ok: false, msg: 'Effectif trop réduit.' };
+  paySellOn(state, p, club, offer.amount);
   removeFromClub(state, p);
   addToClub(state, p, buyer);
   buyer.budget -= offer.amount;
   club.budget += offer.amount;
+  if (offer.sellOn) p.sellOn = { clubId: club.id, pct: offer.sellOn };
+  relationsAfterTransfer(state, club, buyer, p, offer.amount);
+  favouriteLeaves(state, p);
   creditSale(state, offer.amount);
   logFinance(state, offer.amount, `Vente : ${p.name}`);
   state.pendingOffers = (state.pendingOffers || []).filter((o) => o.pid !== p.id);
@@ -241,24 +252,25 @@ function aiTransferRound(state, rng, deadline) {
     let pool;
     if (c.rep >= 72 && rng.chance(0.35)) {
       // Recrutement « vedette » : le meilleur joueur d'un club moins prestigieux.
-      pool = marketList(state, { maxPrice: c.budget * 0.75 })
+      pool = marketList(state, { maxPrice: c.budget * 0.75, buyer: c })
         .filter((x) => x.p.clubId && x.p.clubId !== c.id && x.ovr >= strength + 1 && clubById(state, x.p.clubId).rep < c.rep);
     } else {
       const byPos = {};
       for (const p of squad) byPos[p.pos] = Math.max(byPos[p.pos] || 0, overall(p));
       const weakest = Object.entries(byPos).sort((a, b) => a[1] - b[1])[0];
       if (!weakest) continue;
-      pool = marketList(state, { pos: weakest[0], maxPrice: c.budget * 0.6 })
+      pool = marketList(state, { pos: weakest[0], maxPrice: c.budget * 0.6, buyer: c })
         .filter((x) => x.p.clubId !== c.id && x.ovr > weakest[1] + 2 && x.ovr <= strength + 8);
     }
-    pool = pool.filter((x) => x.p.clubId !== state.userClubId && playerInterest(state, x.p, c).ok && sellerAccepts(state, x.p, c)).slice(0, 6);
+    pool = pool.slice(0, 20).filter((x) => x.p.clubId !== state.userClubId && playerInterest(state, x.p, c).ok && sellerAccepts(state, x.p, c)).slice(0, 6);
     if (!pool.length) continue;
     const pick = rng.pick(pool);
     const p = pick.p;
     const from = p.clubId ? clubById(state, p.clubId) : null;
-    if (from) from.budget += pick.price;
+    if (from) { from.budget += pick.price; paySellOn(state, p, from, pick.price); relationsAfterTransfer(state, from, c, p, pick.price); }
     removeFromClub(state, p);
     addToClub(state, p, c);
+    p.joined = state.season;
     c.budget -= pick.price;
     p.contract = Math.max(p.contract, 2);
     if (pick.price >= 3_000_000 || pick.ovr >= 74) news(state, 'transfer', `${p.first} ${p.last} (${pick.ovr}) quitte ${from ? from.name : 'les joueurs libres'} pour ${c.name}${pick.price ? ` · ${money(pick.price)}` : ''}.`, { pid: p.id });
@@ -328,7 +340,13 @@ export function startNegotiation(state, pid, rng) {
   const asking = askingPrice(state, p);
   const key = asking > playerValue(p) * 1.2;
   const min = Math.round(asking * (key ? rng.range(0.92, 1.05) : rng.range(0.78, 0.95)) * (p.requested ? 0.85 : 1) / 25000) * 25000;
-  return { pid, asking, min, patience: 3, history: [], fee: null, status: 'open' };
+  return { pid, asking, min, baseMin: min, sellOn: 0, patience: 3, history: [], fee: null, status: 'open' };
+}
+
+/** Pourcentage à la revente accordé au vendeur : baisse son prix plancher. */
+export function setSellOn(neg, pct) {
+  neg.sellOn = pct;
+  neg.min = Math.round(neg.baseMin * (1 - pct * 0.8) / 25000) * 25000;
 }
 
 /** Réponse du club à une offre : accept | counter | reject | end. */
@@ -347,7 +365,7 @@ export function clubRespond(neg, offer) {
 export function playerDemands(state, p, rng) {
   const base = Math.max(p.wage, playerWage(p));
   const greed = p.agentGreed ?? (p.agentGreed = Math.round(rng.range(0, 0.15) * 100) / 100);
-  return { wage: Math.round(base * (1.08 + greed) / 100) * 100, agentFeeRate: 0.04 + greed / 3, tries: 3 };
+  return agentDemands(p, { wage: Math.round(base * (1.08 + greed) / 100) * 100, agentFeeRate: 0.04 + greed / 3, tries: 3 });
 }
 
 /**
@@ -358,6 +376,8 @@ export function evaluateContract(p, dem, offer) {
   let v = offer.wage / (PROMISE_ROLES[offer.role || 'rotation']?.wage || 1);
   v *= 1 + (offer.bonus || 0) / (Math.max(1, dem.wage) * 40); // prime : vaut ~1/40e par semaine
   if (offer.clause) v *= offer.clause < playerValue(p) * 1.6 ? 1.1 : 1.05; // une clause basse = liberté
+  if (offer.goalBonus) v *= 1 + offer.goalBonus * expectedGoals(p) / Math.max(1, offer.wage); // prime de but
+  if (dem.minBonus && (offer.bonus || 0) < dem.minBonus) v *= 0.94; // agent gourmand : il veut sa prime
   const wantsLong = p.age >= 29;
   if (wantsLong && offer.years >= 3) v *= 1.05;
   if (!wantsLong && p.age <= 24 && offer.years >= 4) v *= 0.97;
@@ -369,8 +389,11 @@ export function evaluateContract(p, dem, offer) {
   return { kind: 'reject', msg: 'Proposition très loin des attentes.' };
 }
 
+/** Buts attendus par semaine selon le poste (pour évaluer une prime de but). */
+export const expectedGoals = (p) => ({ BU: 0.45, AG: 0.25, AD: 0.25, MO: 0.2 }[p.pos] ?? (p.pos?.startsWith('M') ? 0.08 : 0.03));
+
 /** Finalise un transfert négocié (fee = 0 pour un joueur libre). */
-export function completeTransfer(state, pid, fee, offer, dem) {
+export function completeTransfer(state, pid, fee, offer, dem, sellOn = 0) {
   const p = state.players[pid];
   const club = userClub(state);
   if (!windowOpen(state)) return { ok: false, msg: 'Le mercato est fermé.' };
@@ -381,11 +404,13 @@ export function completeTransfer(state, pid, fee, offer, dem) {
   const chk = boardAllows(state, { fee: cost, addWage: offer.wage });
   if (!chk.ok) return chk;
   spendTransfer(state, cost);
-  if (p.clubId) clubById(state, p.clubId).budget += fee;
+  const seller = p.clubId ? clubById(state, p.clubId) : null;
+  if (seller) { seller.budget += fee; paySellOn(state, p, seller, fee); relationsAfterTransfer(state, seller, club, p, fee); }
   removeFromClub(state, p);
   addToClub(state, p, club);
   club.budget -= cost;
-  Object.assign(p, { wage: offer.wage, contract: offer.years, clause: offer.clause || 0, requested: false, promise: { role: offer.role || 'rotation', season: state.season } });
+  Object.assign(p, { wage: offer.wage, contract: offer.years, clause: offer.clause || 0, requested: false, promise: { role: offer.role || 'rotation', season: state.season }, goalBonus: offer.goalBonus || 0, joined: state.season });
+  if (seller && sellOn) p.sellOn = { clubId: seller.id, pct: sellOn };
   p.morale = clamp(p.morale + 12, 0, 100);
   news(state, 'transfer', `${p.first} ${p.last} rejoint ${club.name}${fee ? ` · ${money(fee)}` : ' (libre)'}.`, { pid: p.id });
   logFinance(state, -fee, `Transfert : ${p.name}`);
@@ -404,7 +429,7 @@ export function completeRenewal(state, pid, offer) {
   if (!chk.ok) return chk;
   club.budget -= offer.bonus || 0;
   if (offer.bonus) logFinance(state, -offer.bonus, `Prime de prolongation : ${p.name}`);
-  Object.assign(p, { wage: offer.wage, contract: offer.years, clause: offer.clause || 0, requested: false, promise: { role: offer.role || p.promise?.role || 'rotation', season: state.season } });
+  Object.assign(p, { wage: offer.wage, contract: offer.years, clause: offer.clause || 0, requested: false, promise: { role: offer.role || p.promise?.role || 'rotation', season: state.season }, goalBonus: offer.goalBonus || p.goalBonus || 0 });
   p.morale = clamp(p.morale + 8, 0, 100);
   p.value = playerValue(p);
   return { ok: true, msg: `${p.name} prolonge ${offer.years} an(s) à ${money(offer.wage)}/sem.` };
@@ -444,6 +469,7 @@ export function playerInterest(state, p, buyer) {
 /** Un club ne lâche pas ses titulaires à un rival moins prestigieux. */
 export function sellerAccepts(state, p, buyer) {
   if (!p.clubId) return true;
+  if (!sellPolicy(state, p, buyer).ok) return false;
   const from = clubById(state, p.clubId);
   const squad = clubPlayers(state, from).map(overall).sort((a, b) => b - a);
   const key = squad.indexOf(overall(p)) < 11;

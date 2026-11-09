@@ -5,7 +5,9 @@
 import { createRng, hashSeed } from '../core/rng.js';
 import { getNextId, setNextId } from '../data/generator.js';
 
-export const SAVE_VERSION = 2;
+export const SAVE_VERSION = 3;
+/** Versions de sauvegarde encore lisibles (migrées à la volée). */
+export const MIN_SAVE_VERSION = 2;
 
 /** RNG "de partie" persistant : on sauvegarde son état interne. */
 export function gameRng(state) {
@@ -30,7 +32,13 @@ export const player = (state, id) => state.players[id];
 /** Ajoute un message (prio 1 = important, 3 = info). */
 export function pushMessage(state, { prio = 2, icon = '•', title, text = '', action = null }) {
   state.messages.unshift({ id: Date.now() + Math.random(), day: state.day, season: state.season, prio, icon, title, text, action, read: false });
-  if (state.messages.length > 60) state.messages.length = 60;
+  if (state.messages.length > 60) {
+    // On élague les plus anciens messages, jamais une décision encore ouverte.
+    for (let i = state.messages.length - 1; i >= 0 && state.messages.length > 60; i--) {
+      const m = state.messages[i];
+      if (!(m.decision && !m.decision.done)) state.messages.splice(i, 1);
+    }
+  }
 }
 
 /** Les messages importants pour l'accueil (3 max). */
@@ -111,9 +119,25 @@ export function save(state, immediate = false) {
   return Promise.resolve();
 }
 
+/**
+ * Migrations de format. v2 → v3 : systèmes « vie du club » (presse, vestiaire,
+ * propriétaires, relations, sponsors…). Les nouveaux champs sont créés
+ * paresseusement par ensureLife() ; on marque seulement la version ici.
+ */
+export function migrate(s) {
+  if (s.version === 2) {
+    s.life = s.life || null;      // créé par ensureLife au premier chargement
+    s.ownersReady = false;        // propriétaires, ambiance, relations initiales
+    for (const m of s.messages || []) if (m.decision === undefined) m.decision = null;
+    s.version = 3;
+  }
+  return s;
+}
+
 /** Valide et prépare un état chargé (version, compteur d'identifiants). */
 export function adoptState(s) {
-  if (!s || s.version !== SAVE_VERSION || !s.clubs || !s.players) return null;
+  if (!s || !s.clubs || !s.players || !(s.version >= MIN_SAVE_VERSION && s.version <= SAVE_VERSION)) return null;
+  migrate(s);
   setNextId(s.nextId);
   return s;
 }

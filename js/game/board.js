@@ -95,7 +95,7 @@ export function updateBoardParts(state, { pos, target, matchDiff, leagueRound })
 /** Limogeage en cours de saison si la confiance s'effondre. */
 export function checkMidSeasonSack(state, leagueRound) {
   const b = state.board;
-  if (state.sacked || leagueRound < 10 || b.confidence >= 14) return false;
+  if (state.sacked || leagueRound < 10 || b.confidence >= 14 / (b.patience ?? 1)) return false;
   const rng = gameRng(state);
   if (!rng.chance(b.confidence < 8 ? 0.6 : 0.25)) return false;
   state.sacked = { season: state.season, day: state.day, club: userClub(state).name };

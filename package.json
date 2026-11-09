@@ -5,10 +5,12 @@
   "type": "module",
   "description": "Manager de football mobile léger (PWA)",
   "scripts": {
-    "test": "node --test tests/*.test.js",
+    "test": "DRIFT_SEASONS=${DRIFT_SEASONS:-60} node --test tests/*.test.js",
     "test:ui": "node tests/ui.e2e.cjs",
     "calibrate": "node tests/calibrate.js",
     "sw": "node scripts/update-sw.js",
-    "start": "python3 -m http.server 8080"
+    "start": "python3 -m http.server 8080",
+    "test:drift": "DRIFT_SEASONS=500 node --test tests/drift.test.js",
+    "drift": "node tests/drift.js 500"
   }
 }

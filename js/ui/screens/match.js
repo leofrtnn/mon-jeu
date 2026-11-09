@@ -17,6 +17,8 @@ import { userClub } from '../../game/state.js';
 import { staffEffects } from '../../game/career.js';
 import { managerOf } from '../../game/managers.js';
 import { pressQuestion, pressAnswer } from '../../game/media.js';
+import { openDecisions } from '../../game/inbox.js';
+import { openInterview } from './inboxUI.js';
 import { showDayReport } from './dayReport.js';
 
 const SPEEDS = [1, 2, 4];
@@ -265,6 +267,22 @@ export function openMatch(app, opts = {}) {
       go: (el, a, h) => { h.close(); if (s.settings.audio) audio.start(); view.play(); },
       press: (el) => {
         if (ctrl.pressDone) return;
+        const conf = openDecisions(s, 'interview')[0];
+        if (conf && s.life?.interview?.kind === 'pre') {
+          // Gros match : conférence à 2 questions (effets appliqués à la configuration du match).
+          const ih = openInterview(app, conf);
+          ih.onDone = null;
+          const mm = s.life.matchMods;
+          const apply = () => {
+            if (!mm) return;
+            m.teams[userSide].talk = Math.max(-15, Math.min(15, mm.me));
+            m.teams[1 - userSide].talk = Math.max(-15, Math.min(15, mm.opp));
+          };
+          const closeOrig = ih.close;
+          ih.close = () => { apply(); closeOrig(); };
+          ctrl.pressDone = true; el.disabled = true; el.textContent = '🎙 Conférence faite';
+          return;
+        }
         const qa = pressQuestion(s, O.club.id);
         const ps = app.sheet({
           root,
@@ -444,6 +462,8 @@ export function openMatch(app, opts = {}) {
           closeScreen();
           app.render();
           showDayReport(app, report);
+          const iv = openDecisions(s, 'interview')[0];
+          if (iv && s.life?.interview?.kind === 'post') openInterview(app, iv);
         },
       },
     });

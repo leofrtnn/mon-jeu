@@ -107,9 +107,19 @@ function serve() {
     await page.click('[data-c=skip]');
     await page.waitForSelector('[data-act=done]');
     await page.click('[data-act=done]');
-    await page.waitForSelector('.sheet [data-act=close]');
+    // Interview d'après-match : une carte par question, effets visibles après le choix.
+    await page.waitForSelector('.press-btn');
+    for (let q = 0; q < 3; q++) {
+      if (!(await page.$('.press-btn'))) break;
+      await page.click('.press-btn >> nth=' + q % 4);
+      await page.waitForSelector('.sheet [data-act=next]');
+      await page.click('.sheet [data-act=next]');
+    }
+    await page.click('.sheet:has-text("Interview terminée") [data-act=close]');
+    const said = await page.evaluate(() => window.__app.state.coach.statements.length);
+    assert.ok(said >= 1, 'déclarations mémorisées');
     await page.click('.sheet [data-act=close]');
-    step('match joué (résumé rapide, mi-temps, fin)');
+    step('match joué (résumé rapide, mi-temps, fin) + interview d\'après-match');
 
     for (let i = 0; i < 6; i++) {
       await page.click('[data-act=simulate]');
@@ -121,6 +131,37 @@ function serve() {
     const mode = await page.evaluate(() => window.__simMode);
     assert.equal(mode, 'worker', 'simulation dans le Web Worker');
     step(`6 journées simulées dans le Web Worker (journée ${day + 1})`);
+
+    // Boîte de réception : 3 messages max à l'accueil, « Voir tout », décisions.
+    await page.click('[data-tab=home]');
+    const shown = await page.$$eval('.layout-2 .msg', (els) => els.length);
+    assert.ok(shown <= 3, `${shown} messages affichés`);
+    await page.evaluate(() => import('./js/game/inbox.js').then((m) => m.pushDecision(window.__app.state, { kind: 'clash', title: 'Clash test', data: { a: window.__app.state.clubs.find((c) => c.id === window.__app.state.userClubId).playerIds[0], b: window.__app.state.clubs.find((c) => c.id === window.__app.state.userClubId).playerIds[1] }, choices: [{ key: 'a', label: 'A' }, { key: 'b', label: 'B' }, { key: 'fine', label: 'Amende' }] })));
+    await page.click('[data-act=allmsgs]');
+    await page.click('.sheet .msg.dec >> nth=0');
+    await page.waitForSelector('.sheet [data-act=pick]');
+    await page.click('.sheet [data-act=pick] >> nth=0');
+    await page.waitForSelector('.sheet [data-act=close]');
+    await page.click('.sheet [data-act=close]');
+    // Fiche club et relations (depuis le classement).
+    await page.click('[data-tab=schedule]');
+    await page.click('[data-act=clubinfo] >> nth=1');
+    await page.click('.sheet [data-act=rel]');
+    await page.waitForSelector('.sheet:has-text("Relations")');
+    await page.click('.sheet [data-act=back]');
+    await page.click('.sheet-bg', { position: { x: 5, y: 5 } });
+    // Deadline day en direct (ouvert directement pour le test).
+    await page.evaluate(() => import('./js/ui/screens/deadlineUI.js').then((m) => m.openDeadline(window.__app)));
+    await page.waitForSelector('.deadline-head');
+    await page.waitForTimeout(1200);
+    await page.click('.sheet [data-act=finish]');
+    await page.waitForSelector('.sheet:has-text("Le mercato est terminé")');
+    await page.click('.sheet [data-act=close]');
+    // Finances : billetterie et sponsors.
+    await page.click('[data-tab=club]'); await page.click('[data-act=ctab][data-v=fin]');
+    await page.click('[data-act=ticket][data-v=high]');
+    assert.equal(await page.evaluate(() => window.__app.state.clubs.find((c) => c.id === window.__app.state.userClubId).ticket), 'high');
+    step('boîte de réception, décision, fiche club + relations, deadline day, billetterie');
 
     await page.waitForTimeout(800);
     const raw = await page.evaluate(() => localStorage.getItem('cdp-slot-1'));

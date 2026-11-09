@@ -13,6 +13,10 @@ import { negotiateTransfer, negotiateContract } from './negotiation.js';
 import { TALKS, playerTalk } from '../../game/media.js';
 import { windowInfo } from '../../game/dates.js';
 import { PROMISE_ROLES } from '../../game/transfers.js';
+import { persInfo, influence } from '../../game/people.js';
+import { agentInfo, exerciseOption } from '../../game/agents.js';
+import { relapseRisk } from '../../game/injuries.js';
+import { showClub } from './clubInfo.js';
 
 /** Jauge d'attribut : valeur exacte ou plage estimée. */
 function attrLine(label, [lo, hi]) {
@@ -44,7 +48,7 @@ export function showPlayer(app, pid, onChange) {
         <button class="btn" data-act="sell">Vendre</button>
         <button class="btn" data-act="list">${p.listed ? 'Retirer de la liste' : 'Mettre sur la liste'}</button>
         <button class="btn" data-act="loanout">Prêter</button>
-        <button class="btn danger" data-act="release">Libérer</button>` : '<small class="muted">Joueur prêté : il retournera dans son club en fin de saison.</small>'}
+        <button class="btn danger" data-act="release">Libérer</button>` : `<small class="muted">Joueur prêté : il retournera dans son club en fin de saison.</small>${p.buyOption ? `<button class="btn primary" data-act="option">Lever l'option · ${money(p.buyOption)}</button>` : ''}`}
       </div>`;
     } else {
       const price = askingPrice(s, p);
@@ -60,7 +64,7 @@ export function showPlayer(app, pid, onChange) {
         <div style="font-size:30px;font-weight:900;color:var(--muted);min-width:44px;text-align:center">${p.number || ''}</div>
         <div class="grow"><h2>${esc(p.first)} ${esc(p.last)}</h2>
           <div class="row" style="gap:6px;flex-wrap:wrap">${posBadge(p.pos)}<small>${POSITION_LABELS[p.pos]} · ${p.age} ans · ${esc(p.nat || '')}</small>${statusTags(p)}</div>
-          <small>${club ? esc(club.name) : 'Libre'}${p.onLoanFrom ? ` (prêt de ${esc(clubById(s, p.onLoanFrom).short)})` : ''}</small></div>
+          <small>${club ? `<a data-act="club" style="text-decoration:underline;cursor:pointer">${esc(club.name)}</a>` : 'Libre'}${p.onLoanFrom ? ` (prêt de ${esc(clubById(s, p.onLoanFrom).short)})` : ''}</small></div>
         <div class="center">${ovrHtml}<div style="font-size:11px;margin-top:4px">${stars(potStars[1])}</div></div>
       </div>
       ${p.requested ? '<div class="tag ok" style="display:block;margin-bottom:8px">🧑‍💼 Son agent réclame un transfert</div>' : ''}
@@ -83,6 +87,11 @@ export function showPlayer(app, pid, onChange) {
         <div class="row between"><span>Salaire</span><b>${money(p.wage)}/sem</b></div>
         <div class="row between"><span>Contrat</span><b>${p.contract > 0 ? `${p.contract} an(s)` : '—'}</b></div>
         ${mine && p.clause ? `<div class="row between"><span>Clause libératoire</span><b>${money(p.clause)}</b></div>` : ''}
+        ${mine && p.goalBonus ? `<div class="row between"><span>Prime de but</span><b>${money(p.goalBonus)}</b></div>` : ''}
+        ${p.sellOn ? `<div class="row between"><span>Revente</span><b>${Math.round(p.sellOn.pct * 100)} % à ${esc(clubById(s, p.sellOn.clubId)?.short || '?')}</b></div>` : ''}
+        <div class="row between"><span>Personnalité</span><b>${persInfo(p).label}${mine ? ` · influence ${influence(s, p)}` : ''}</b></div>
+        ${agentInfo(p) ? `<div class="row between"><span>Agent</span><b>${esc(agentInfo(p).name)} (${agentInfo(p).label})</b></div>` : ''}
+        ${mine && p.relapse ? `<div class="row between"><span>Risque de rechute</span><b class="bad">${Math.round(p.relapse.risk * 100)} % · ${p.relapse.matches} match(s)</b></div>` : ''}
         ${mine && p.promise ? `<div class="row between"><span>Statut promis</span><b>${PROMISE_ROLES[p.promise.role].label}${p.promise.strikes ? ' ⚠' : ''}</b></div>` : ''}
       </div>
       ${actions}`;
@@ -125,6 +134,8 @@ export function showPlayer(app, pid, onChange) {
         done(releasePlayer(s, pid), true);
       },
       promote: () => done(promoteYouth(s, pid), true),
+      option: () => done(exerciseOption(s, pid)),
+      club: () => { const c = s.players[pid].clubId; if (c) { h.close(); showClub(app, c); } },
     },
   });
   return h;

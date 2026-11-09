@@ -11,6 +11,9 @@ import { openMatch } from './match.js';
 import { showDayReport, showOffer } from './dayReport.js';
 import { showEndSeason } from './endSeason.js';
 import { simulateDays, busy } from '../sim.js';
+import { msgRow, openMessage } from './inboxUI.js';
+import { openDeadline } from './deadlineUI.js';
+import { windowInfo } from '../../game/dates.js';
 
 export function render(app) {
   const s = app.state;
@@ -69,6 +72,12 @@ export function render(app) {
       <button class="btn block" style="margin-top:8px" data-act="skipto">⏩ Jusqu'à mon prochain match</button></div>`;
   }
 
+  // Deadline day : un direct de 2 minutes, depuis l'Accueil.
+  if (windowInfo(s).deadline && s.life && s.life.deadlineDone !== `${s.season}-${s.day}`) {
+    html += `<div class="card deadline-card"><div class="row between"><div><b>⏰ Deadline day</b><br><small>Dernières heures du mercato : offres surprises et bonnes affaires.</small></div>
+      <button class="btn primary" data-act="deadline">En direct ▸</button></div></div>`;
+  }
+
   // Forme de l'équipe.
   const squad = clubPlayers(s, uc);
   const fit = squad.filter(isAvailable);
@@ -86,7 +95,7 @@ export function render(app) {
       <div>${row.form.length ? formPills(row.form) : '<small>Aucun match joué</small>'}</div>
       <div class="center"><div class="big" style="font-size:22px">${pos}<small style="font-size:12px">e</small></div><small>${row.pts} pts</small></div>
     </div>
-    ${line('Condition', cond)}${line('Moral', morale)}${line('Forme', form)}${line('Confiance du board', s.board.confidence)}${line('Réputation du coach', s.coach.rep)}${line('Supporters', s.board.fans ?? 60)}
+    ${line('Condition', cond)}${line('Moral', morale)}${line('Forme', form)}${line('Confiance du board', s.board.confidence)}${line('Vestiaire', s.coach.dressing ?? 60)}${line('Supporters', s.board.fans ?? 60)}${line('Médias', s.coach.media ?? 50)}${line('Réputation du coach', s.coach.rep)}
     ${unavailable ? `<p style="margin:10px 0 0"><span class="tag bad">${unavailable} indisponible(s)</span> <small>blessés, suspendus ou prêtés</small></p>` : ''}
   </div>`;
 
@@ -104,9 +113,8 @@ export function render(app) {
 
   const msgs = topMessages(s);
   right += `<div class="card"><div class="row between"><h3 style="margin:0">Messages</h3>
-    <button class="btn sm ghost" data-act="allmsgs">Tout voir</button></div>
-    ${msgs.length ? msgs.map((m) => `<div class="msg p${m.prio}" data-act="msg" data-id="${m.id}">
-      <span class="ic">${m.icon}</span><div class="grow"><b>${esc(m.title)}</b><br><small>${esc(m.text)}</small></div></div>`).join('')
+    <button class="btn sm ghost" data-act="allmsgs">Voir tout</button></div>
+    ${msgs.length ? msgs.map(msgRow).join('')
     : '<p class="muted" style="margin:8px 0 0">Rien de neuf, coach.</p>'}
   </div>`;
   return `<div class="layout-2"><div class="col">${html}</div><div class="col">${right}</div></div>`;
@@ -124,28 +132,35 @@ export const actions = {
   async skipto(el, app) { await runSim(app, 12, true); },
   endseason(el, app) { showEndSeason(app); },
   takejob(el, app) { const c = clubById(app.state, +el.dataset.id); changeClub(app.state, c.id); delete app.state.sacked; app.save(true); app.render(); app.toast(`Nouveau départ à ${c.name} !`); },
+  deadline(el, app) { openDeadline(app); },
   msg(el, app) {
     const m = app.state.messages.find((x) => String(x.id) === el.dataset.id);
     if (!m) return;
-    m.read = true;
-    app.save();
+    openMessage(app, m, (mm) => legacyOpen(app, mm));
+  },
+  allmsgs(el, app) {
+    const ms = app.state.messages.slice(0, 40);
+    const h = app.sheet({
+      html: `<h2>Boîte de réception</h2>${ms.map(msgRow).join('') || '<p class="muted">Aucun message.</p>'}
+        <button class="btn block" data-act="readall" style="margin-top:12px">Tout marquer comme lu</button>`,
+      actions: {
+        readall: () => { app.state.messages.forEach((m) => (m.read = true)); app.save(); h.close(); app.render(); },
+        msg: (e) => { const m = app.state.messages.find((x) => String(x.id) === e.dataset.id); if (!m) return; h.close(); openMessage(app, m, (mm) => legacyOpen(app, mm)); },
+      },
+    });
+  },
+};
+
+function legacyOpen(app, m) {
+  {
     if (m.action?.type === 'offer') showOffer(app, m.action.pid);
     else if (m.action?.type === 'player') import('./playerSheet.js').then((mod) => { app.render(); mod.showPlayer(app, m.action.pid); });
     else if (m.action?.type === 'job') jobSheet(app, m.action.clubId);
     else if (m.action?.type === 'scouting') { app.ui.clubTab = 'market'; app.ui.mktMode = 'scout'; app.go('club'); }
     else if (m.action?.type === 'vacancy') { app.ui.schedTab = 'managers'; app.ui.schedDiv = app.state.clubs.find((c) => c.id === m.action.clubId)?.div; app.go('schedule'); }
     else app.render();
-  },
-  allmsgs(el, app) {
-    const ms = app.state.messages.slice(0, 40);
-    app.sheet({
-      html: `<h2>Messages</h2>${ms.map((m) => `<div class="msg p${m.prio}" style="${m.read ? 'opacity:.6' : ''}"><span class="ic">${m.icon}</span>
-        <div class="grow"><b>${esc(m.title)}</b><br><small>${esc(m.text)}</small></div></div>`).join('') || '<p class="muted">Aucun message.</p>'}
-        <button class="btn block" data-act="readall" style="margin-top:12px">Tout marquer comme lu</button>`,
-      actions: { readall: (e, a, h) => { app.state.messages.forEach((m) => (m.read = true)); app.save(); h.close(); app.render(); } },
-    });
-  },
-};
+  }
+}
 
 /** Offre d'emploi reçue d'un autre club. */
 function jobSheet(app, clubId) {
