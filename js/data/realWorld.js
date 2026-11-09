@@ -45,6 +45,17 @@ function profile(p, rp, age) {
   for (const k in a) a[k] = Math.max(1, Math.min(97, Math.round(a[k])));
 }
 
+/**
+ * Étire le haut de l'échelle (notes sur 100, lecture « à la FM ») : les cadres des grands
+ * clubs passent de 82-86 à 85-90 et les tout meilleurs approchent 92, au lieu d'être tassés.
+ */
+function stretchTop(lv) {
+  if (lv <= 72) return lv;
+  let v = lv + (lv - 72) * 0.42;
+  if (v > 88) v = 88 + (v - 88) * 0.55;
+  return Math.round(Math.min(94, v));
+}
+
 /** Graine stable tirée d'un texte (le même joueur a les mêmes notes dans toutes les parties). */
 function hashSeed(str) {
   let h = 2166136261;
@@ -53,8 +64,10 @@ function hashSeed(str) {
 }
 
 /** Budget de départ d'un club : réputation × richesse du championnat (arrondi à 100 000 €). */
-export function clubBudget(rep, country) {
-  return Math.round(Math.pow(rep / 10, 2.6) * 120000 * (LEAGUE_WEALTH[country] ?? 0.5) / 100000) * 100000;
+export function clubBudget(rep, country, level = 1) {
+  // Trésorerie de départ : ~10 M€ pour un club moyen de Ligue 1, ~300 M€ pour les géants.
+  const v = 11e6 * Math.pow(1.105, rep - 63) * (LEAGUE_WEALTH[country] ?? 0.5) * (level === 2 ? 0.45 : 1);
+  return Math.round(v / 100000) * 100000;
 }
 
 /**
@@ -75,7 +88,7 @@ export function createRealWorld(rng, data) {
       id: i + 1, key: c.id, name: c.name, short: c.short, city: c.name, country: DIVISIONS[div].country,
       color: c.colors[0], color2: c.colors[1], rep, div, logo: c.logo || null,
       stadium: Math.max(8000, Math.round(c.stadium / 500) * 500),
-      budget: clubBudget(rep, DIVISIONS[div].country),
+      budget: clubBudget(rep, DIVISIONS[div].country, DIVISIONS[div].level),
       academy: clamp(Math.round(rep / 22), 1, 5),
       tactics: { ...DEFAULT_TACTICS }, playerIds: [], youthIds: [], lineup: null, bench: null, finances: { history: [] },
     };
@@ -87,7 +100,7 @@ export function createRealWorld(rng, data) {
     if (!club) continue;
     // Graine propre au joueur : ses notes ne changent pas d'une partie à l'autre.
     const prng = createRng(hashSeed(`${rp.f} ${rp.l} ${rp.club}`));
-    const level = rp.lv || realLevel(club, rp, prng);
+    const level = stretchTop(rp.lv || realLevel(club, rp, prng));
     const age = rp.age || prng.int(20, 30);
     const p = createPlayer(prng, { pos: rp.pos, level, age, clubId: club.id, country: club.country, noise: 3.5 });
     if (rp.p2?.length) p.pos2 = rp.p2.slice();

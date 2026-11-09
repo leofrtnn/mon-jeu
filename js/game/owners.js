@@ -129,7 +129,7 @@ export function takeovers(state, rng) {
     const old = c.owner?.type;
     c.owner = makeOwner(state, rng, c, old);
     const t = ownerType(c);
-    const ref = Math.pow(c.rep / 10, 2.4) * 100000;
+    const ref = 11e6 * Math.pow(1.105, c.rep - 63) * (LEAGUE_WEALTH[c.country] ?? 0.6);
     const inj = Math.round(ref * O.injection * t.budget / 100000) * 100000;
     c.budget += inj;
     c.atmosphere = clamp((c.atmosphere ?? 60) + t.fans, 0, 100);
@@ -217,7 +217,7 @@ registerDecision('sellstar', {
 
 /** Budget de référence d'un club IA à l'intersaison (selon son propriétaire, dettes reportées). */
 export function aiSeasonBudget(club, lvl1) {
-  const base = (lvl1 ? Math.pow(club.rep / 10, 2.6) * 120000 : Math.pow(club.rep / 10, 2.2) * 60000) * ownerType(club).budget * (LEAGUE_WEALTH[club.country] ?? 1);
-  const carry = club.budget >= 0 ? club.budget * 0.4 : club.budget * C.negativeCarry;
+  const base = 11e6 * Math.pow(1.105, club.rep - 63) * (lvl1 ? 1 : 0.45) * ownerType(club).budget * (LEAGUE_WEALTH[club.country] ?? 0.6);
+  const carry = club.budget >= 0 ? club.budget * 0.3 : club.budget * C.negativeCarry;
   return Math.round((carry + base) / 100000) * 100000;
 }

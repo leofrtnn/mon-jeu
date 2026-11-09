@@ -202,10 +202,17 @@ export const app = {
     const mod = this.current();
     // Démontage de l'écran précédent (écouteurs globaux, etc.).
     if (this._unmount) { this._unmount(); this._unmount = null; }
+    // Animation d'entrée seulement quand on change d'écran : un simple clic (filtre, onglet,
+    // tri…) met à jour la page sur place, sans clignoter ni remonter.
+    const key = `${started ? 1 : 0}|${this.tab}|${active}`;
+    const changed = key !== this._screenKey;
+    this._screenKey = key;
     this.$screen.innerHTML = mod.render(this);
-    this.$screen.style.animation = 'none';
-    void this.$screen.offsetHeight;
-    this.$screen.style.animation = '';
+    if (changed) {
+      this.$screen.classList.remove('enter');
+      void this.$screen.offsetWidth;
+      this.$screen.classList.add('enter');
+    }
     const un = mod.mount?.(this, this.$screen);
     if (typeof un === 'function') this._unmount = un;
   },

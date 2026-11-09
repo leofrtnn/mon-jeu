@@ -118,7 +118,7 @@ export class MatchView {
 
   /** Vue : 'fm' (2D façon FM), '3d' (stade en 3D), 'anim' (silhouettes animées). */
   setStyle(st) {
-    this.style = st; this.pitchCache = null; this.trail = [];
+    this.style = st; this.pitchCache = null; this.trail = []; this._ovDirty = true;
     if (st === '3d' && !this.r3d && !this._loading3d) {
       this._loading3d = true;
       import('./match3d.js').then((mod) => {
@@ -1270,6 +1270,10 @@ export class MatchView {
   draw3D() {
     this.r3d.render(this.lastDt || 0.016);
     const g = this.ctx, W = this.canvas.width, H = this.canvas.height;
+    // Le calque 2D n'est effacé que s'il contient quelque chose (économise une image pleine par frame).
+    const need = !!(this.banner || this.replaying);
+    if (!need && this._ovDirty === false) return;
+    this._ovDirty = need;
     g.setTransform(1, 0, 0, 1, 0, 0);
     g.clearRect(0, 0, W, H);
     if (this.banner) this.drawBanner(g, W, H);

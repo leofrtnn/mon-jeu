@@ -160,12 +160,30 @@ function market(app) {
       <div class="card list" style="padding:0 10px">${ids.slice(0, 40).map((id) => marketRow(s, s.players[id])).join('') || '<p class="muted">Aucun joueur observé.</p>'}</div>`;
     return html;
   }
-  const list = marketList(s, { pos, youngOnly: mode === 'loan' }).filter((x) => (mode === 'loan' ? !!x.p.clubId : true))
-    .map((x) => ({ ...x, e: estimate(s, x.p) })).sort((a, b) => mid(b.e.ovr) - mid(a.e.ovr)).slice(0, 40);
-  html += `<div class="chips" style="margin-top:8px"><button class="chip ${!pos ? 'on' : ''}" data-act="mpos" data-v="">Tous</button>
+  const q = app.ui.mktQ || '', aff = !!app.ui.mktAff;
+  html += `<div class="mkt-tools"><label class="pk-search">🔎<input id="mkt-q" type="search" placeholder="Chercher un joueur par son nom…" value="${esc(q)}" autocomplete="off"></label>
+    <button class="chip ${aff ? 'on' : ''}" data-act="maff" title="Seulement les joueurs que vous pouvez payer">Dans mon budget</button></div>
+    <div class="chips" style="margin-top:8px"><button class="chip ${!pos ? 'on' : ''}" data-act="mpos" data-v="">Tous</button>
     ${POSITIONS.map((p) => `<button class="chip ${pos === p ? 'on' : ''}" data-act="mpos" data-v="${p}">${p}</button>`).join('')}</div>
-    <div class="card list" style="padding:0 10px">${list.map(({ p, price }) => marketRow(s, p, mode === 'loan' ? Math.round(p.value * 0.08 / 25000) * 25000 : price)).join('') || '<p class="muted">Aucun joueur trouvé.</p>'}</div>`;
+    <div class="card list" id="mkt-list" style="padding:0 10px">${marketListHtml(app)}</div>`;
   return html;
+}
+
+const fold = (t) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+
+/** Liste des joueurs à vendre (recherche, poste, budget). Mise à jour sur place pendant la saisie. */
+function marketListHtml(app) {
+  const s = app.state;
+  const pos = app.ui.mktPos || null;
+  const mode = app.ui.mktMode || 'buy';
+  const q = fold(app.ui.mktQ).trim();
+  const where = (p) => (mode !== 'loan' || !!p.clubId) && (!q || fold(`${p.first || ''} ${p.last || ''} ${p.name}`).includes(q));
+  const maxPrice = app.ui.mktAff && mode !== 'loan' ? ensureBoard(s).transferBudget : Infinity;
+  // Les 160 meilleurs suffisent (on n'en affiche que 40) : évite d'estimer 16 000 joueurs à chaque affichage.
+  const list = marketList(s, { pos, youngOnly: mode === 'loan', limit: 160, where, maxPrice })
+    .map((x) => ({ ...x, e: estimate(s, x.p) })).sort((a, b) => mid(b.e.ovr) - mid(a.e.ovr)).slice(0, 40);
+  return list.map(({ p, price }) => marketRow(s, p, mode === 'loan' ? Math.round(p.value * 0.08 / 25000) * 25000 : price)).join('')
+    || `<p class="muted">Aucun joueur trouvé${q ? ` pour « ${esc(app.ui.mktQ)} »` : ''}.</p>`;
 }
 
 function marketRow(s, p, price) {
@@ -175,7 +193,7 @@ function marketRow(s, p, price) {
   const ps = Math.max(1, Math.min(5, Math.round((mid(e.pot) - 45) / 10)));
   return playerRow(p, {
     extra: `· ${c ? esc(c.short) : 'Libre'} · ${esc(p.nat || '')} · ${stars(ps)}`,
-    right: `<div class="center" style="min-width:78px">${starBar(abilityStars(mid(e.ovr)))}${e.exact ? '' : '<small class="muted" style="font-size:10px"> ≈</small>'}<br><small style="color:${(price ?? 0) <= uc.budget ? 'var(--muted)' : 'var(--bad)'}">${price ? money(price) : c ? '' : 'Libre'}</small></div>`,
+    right: `<div class="center" style="min-width:78px">${ovrChip(mid(e.ovr), rangeLabel(e.ovr))}${e.exact ? '' : '<small class="muted" style="font-size:10px"> ≈</small>'}<br><small style="color:${(price ?? 0) <= ensureBoard(s).transferBudget ? 'var(--muted)' : 'var(--bad)'}">${price ? money(price) : c ? '' : 'Libre'}</small></div>`,
   });
 }
 
@@ -277,6 +295,15 @@ function career(s) {
 }
 
 export function mount(app, root) {
+  const qi = root.querySelector('#mkt-q');
+  if (qi) {
+    let t = 0;
+    qi.addEventListener('input', () => {
+      clearTimeout(t);
+      t = setTimeout(() => { app.ui.mktQ = qi.value; const box = root.querySelector('#mkt-list'); if (box) box.innerHTML = marketListHtml(app); }, 160);
+    });
+    if (app.ui.mktQ) { qi.focus(); qi.setSelectionRange(qi.value.length, qi.value.length); }
+  }
   if ((app.ui.clubTab || 'fin') === 'friends') return friends.mount?.(app, root);
   if ((app.ui.clubTab || 'fin') === 'settings') return settings.mount?.(app, root);
 }
@@ -294,6 +321,7 @@ export const actions = {
   myclub(el, app) { showClub(app, app.state.userClubId); },
   mmode(el, app) { app.ui.mktMode = el.dataset.v; app.render(); },
   mpos(el, app) { app.ui.mktPos = el.dataset.v || null; app.render(); },
+  maff(el, app) { app.ui.mktAff = !app.ui.mktAff; app.render(); },
   player(el, app) { showPlayer(app, +el.dataset.id); },
   upgrade(el, app) { done(app, upgradeAcademy(app.state)); },
   staffrole(el, app) { app.ui.staffRole = el.dataset.v || null; app.render(); },

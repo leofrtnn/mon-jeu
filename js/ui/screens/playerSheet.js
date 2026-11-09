@@ -8,7 +8,7 @@ import { money } from '../../game/economy.js';
 import { clubById, userClub, gameRng } from '../../game/state.js';
 import { askingPrice, loanIn, loanOut, findBuyer, sellPlayer, releasePlayer, promoteYouth, windowOpen } from '../../game/transfers.js';
 import { estimate, rangeLabel, observe } from '../../game/scouting.js';
-import { esc, posBadge, ovrChip, scaleColor, gauge, stars, statusTags, a20, color20, abilityStars, starBar, face } from '../components.js';
+import { esc, posBadge, ovrChip, scaleColor, gauge, stars, statusTags, a20, color20, abilityStars, starBar, face, ovrColor } from '../components.js';
 import { negotiateTransfer, negotiateContract } from './negotiation.js';
 import { TALKS, playerTalk } from '../../game/media.js';
 import { windowInfo } from '../../game/dates.js';
@@ -62,7 +62,7 @@ export function showPlayer(app, pid, onChange) {
         ${!e.exact ? `<button class="btn" data-act="observe" ${queued ? 'disabled' : ''}>${queued ? 'En observation…' : '🔭 Observer'}</button>` : ''}
       </div>${windowOpen(s) ? '' : `<p class="muted" style="font-size:12px">${esc(windowInfo(s).label)}</p>`}`;
     }
-    const ovrHtml = `<div style="text-align:right;font-size:11px;color:var(--muted)">Niveau<br>${starBar(caStars[e.exact ? 0 : 1] === caStars[0] ? caStars[0] : (caStars[0] + caStars[1]) / 2)}<br>Potentiel<br>${starBar(e.exact ? potStars[0] : (potStars[0] + potStars[1]) / 2)}${e.exact ? '' : '<br><small>estimation</small>'}</div>`;
+    const ovrHtml = `<div style="text-align:right;font-size:11px;color:var(--muted)">Note /100<br><b class="ovr-n" style="--oc:${ovrColor((e.ovr[0] + e.ovr[1]) / 2)};display:inline-block;margin:2px 0 4px">${rangeLabel(e.ovr)}</b>${e.exact ? ` <small>pot. ${rangeLabel(e.pot)}</small>` : ''}<br>Niveau<br>${starBar(caStars[e.exact ? 0 : 1] === caStars[0] ? caStars[0] : (caStars[0] + caStars[1]) / 2)}<br>Potentiel<br>${starBar(e.exact ? potStars[0] : (potStars[0] + potStars[1]) / 2)}${e.exact ? '' : '<br><small>estimation</small>'}</div>`;
     return `<div class="row" style="gap:12px;margin-bottom:10px">
         ${p.photo || p.real ? face(p, club, 'lg') : ''}<div style="font-size:30px;font-weight:900;color:var(--muted);min-width:34px;text-align:center">${p.number || ''}</div>
         <div class="grow"><h2>${esc(p.first)} ${esc(p.last)}</h2>

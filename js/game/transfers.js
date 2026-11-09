@@ -31,7 +31,7 @@ export function askingPrice(state, p, buyer = null) {
   const pol = sellPolicy(state, p, buyer || userClub(state));
   const club = clubById(state, p.clubId);
   const rank = squadOveralls(state, club).indexOf(overall(p));
-  const key = rank >= 0 && rank < 11 ? 1.3 : 1.05;
+  const key = rank >= 0 && rank < 11 ? 1.2 : 1.05;
   return Math.round(playerValue(p) * key * (p.listed ? 0.85 : 1) * pol.mult * hypeMult(state, p) / 25000) * 25000;
 }
 

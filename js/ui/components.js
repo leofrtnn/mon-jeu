@@ -66,9 +66,12 @@ export function posBadge(pos) {
 }
 
 /** Niveau d'un joueur : étoiles (plus de note sur 100). */
-export function ovrChip(v) {
-  return `<span class="stars-chip">${starBar(abilityStars(v))}</span>`;
+/** Note générale sur 100 (pastille colorée) + étoiles relatives au championnat. `label` : fourchette estimée. */
+export function ovrChip(v, label = null) {
+  return `<span class="stars-chip"><b class="ovr-n" style="--oc:${ovrColor(v)}" title="Note générale sur 100">${label ?? Math.round(v)}</b>${starBar(abilityStars(v))}</span>`;
 }
+/** Couleur d'une note générale : gris < 60, vert, bleu, violet, or ≥ 85. */
+export const ovrColor = (v) => (v >= 85 ? '#f4c430' : v >= 78 ? '#b48cff' : v >= 70 ? '#4cc9f0' : v >= 62 ? '#5fd38d' : '#9aa0b4');
 
 /** Couleur d'une valeur 0-100 (rouge -> vert). */
 export function scaleColor(v) {

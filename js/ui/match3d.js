@@ -545,7 +545,10 @@ export class Match3D {
 
   resize() {
     const v = this.v;
-    const dpr = Math.min(window.devicePixelRatio || 1, 1.75);
+    // Résolution : au plus ~2,2 millions de pixels (grands écrans de PC), puis réglage
+    // automatique selon la fluidité mesurée (this.quality, voir adaptQuality).
+    const cap = Math.sqrt(2.2e6 / Math.max(1, v.cssW * v.cssH));
+    const dpr = Math.max(0.5, Math.min(window.devicePixelRatio || 1, 1.75, cap) * (this.quality ?? 1));
     this.renderer.setPixelRatio(dpr);
     this.renderer.setSize(v.cssW, v.cssH, false);
     this.canvas.style.width = v.cssW + 'px';
@@ -613,8 +616,26 @@ export class Match3D {
     this.camera.updateProjectionMatrix();
   }
 
+  /** Baisse la résolution si les images mettent trop de temps à venir (PC sans grosse carte graphique), la remonte sinon. */
+  adaptQuality() {
+    const now = performance.now();
+    if (this._lastT) {
+      const ft = Math.min(100, now - this._lastT);
+      this._acc = (this._acc || 0) + ft; this._n = (this._n || 0) + 1;
+      if (this._acc > 1000) {
+        const avg = this._acc / this._n;
+        const q = this.quality ?? 1;
+        if (avg > 24 && q > 0.55) { this.quality = Math.max(0.55, q - 0.15); this._good = 0; this.resize(); }
+        else if (avg < 18.5 && q < 1 && (this._good = (this._good || 0) + 1) >= 3) { this.quality = Math.min(1, q + 0.1); this._good = 0; this.resize(); }
+        this._acc = 0; this._n = 0;
+      }
+    }
+    this._lastT = now;
+  }
+
   render(dt) {
     const v = this.v;
+    if (!document.hidden) this.adaptQuality();
     this.syncPlayers();
     const flip = this.flip();
     const carrier = v.holder ?? (v.cur ? v.cur.carrier : null);

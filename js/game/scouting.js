@@ -17,7 +17,10 @@ import { creditSale } from './board.js';
 export function knowledge(state, p) {
   const uc = userClub(state);
   if (!uc || p.clubId === uc.id || uc.youthIds?.includes(p.id) || p.onLoanFrom === uc.id) return 100;
-  const base = staffEffects(uc).scoutBase + (p.clubId && clubById(state, p.clubId)?.div === uc.div ? 10 : 0);
+  const club = p.clubId ? clubById(state, p.clubId) : null;
+  // Les joueurs célèbres (internationaux, grands clubs) sont connus de tous : fourchette serrée.
+  const fame = Math.min(45, (p.caps || 0) * 0.8) + (club ? (club.rep >= 85 ? 15 : club.rep >= 75 ? 8 : 0) : 0);
+  const base = staffEffects(uc).scoutBase + (club?.div === uc.div ? 10 : 0) + fame;
   return clamp(Math.max(base, state.scout?.[p.id] || 0), 0, 100);
 }
 

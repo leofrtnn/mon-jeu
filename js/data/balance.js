@@ -124,8 +124,8 @@ export const BAL = {
     aiClashChance: 0.25,  // par journée : une petite guerre médiatique entre clubs IA
   },
   rivals: {
-    priceMult: [1.3, 2.0],   // surcoût quand la vente renforcerait trop un concurrent
-    untouchableMult: 2.5,    // offre exceptionnelle exigée pour un intouchable
+    priceMult: [1.2, 1.6],   // surcoût quand la vente renforcerait trop un concurrent
+    untouchableMult: 1.6,    // offre exceptionnelle exigée pour un intouchable
     intermediaryFee: 0.12,   // commission d'un club intermédiaire
     intermediaryCaught: 0.3, // risque que la manœuvre soit éventée
     directGap: 3,            // places d'écart au classement = concurrent direct
@@ -147,7 +147,7 @@ export const BAL = {
 
   /* ---------- 10. Agents & rumeurs ---------- */
   agents: {
-    minValue: 900000,
+    minValue: 2500000,
     types: {
       greedy:     { label: 'gourmand', weight: 0.4, wage: 1.12, fee: 0.09, bonusWeeks: 10 },
       loyal:      { label: 'loyal',    weight: 0.3, wage: 1.0,  fee: 0.04, bonusWeeks: 0 },

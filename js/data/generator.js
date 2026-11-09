@@ -146,7 +146,7 @@ export function createWorld(rng) {
       const club = {
         id: i + 1, name, short, city, country: d.country, color, color2, rep: clamp(rep, 30, 95), div,
         stadium: Math.round((d.level === 1 ? 15000 + rep * 450 : 6000 + rep * 200) / 500) * 500,
-        budget: Math.round((d.level === 1 ? Math.pow(rep / 10, 2.6) * 120000 : Math.pow(rep / 10, 2.2) * 60000) / 100000) * 100000,
+        budget: Math.round(11e6 * Math.pow(1.105, rep - 63) * (d.level === 1 ? 1 : 0.45) / 100000) * 100000,
         academy: clamp(Math.round(rep / 22), 1, 5),
         tactics: { ...DEFAULT_TACTICS },
         playerIds: [], youthIds: [], lineup: null, bench: null,

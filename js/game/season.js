@@ -38,7 +38,7 @@ const CUP_AFTER = [5, 12, 20, 28, 34];
 const CONTI_AFTER = [3, 9, 15, 23, 30, 36];
 const INTL_AFTER = [8, 18, 27];
 const CONTI_GROUP_PAIRS = [[[0, 1], [2, 3]], [[0, 2], [1, 3]], [[0, 3], [1, 2]]];
-const CONTI_PRIZES = { win: 500000, draw: 250000, ko: [2_000_000, 3_000_000, 6_000_000] };
+const CONTI_PRIZES = { win: 2_800_000, draw: 900_000, ko: [9_000_000, 12_000_000, 20_000_000] };
 
 /* ---------------- Création ---------------- */
 
@@ -837,7 +837,7 @@ export function endSeason(state) {
   // Primes de classement.
   for (const d of DIV_IDS) {
     tables[d].forEach((r, i) => {
-      const prize = prizeMoney(DIVISIONS[d].level, i + 1);
+      const prize = prizeMoney(DIVISIONS[d].level, i + 1, r.club);
       r.club.budget += prize;
       const hu = humanOfClub(state, r.id);
       if (hu !== undefined) withHuman(state, hu, () => { R[hu].prize = prize; logFinance(state, prize, `Prime de classement (${i + 1}e)`); });

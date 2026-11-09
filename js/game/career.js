@@ -154,7 +154,7 @@ export function staffEffects(club) {
 
 /* ---------------- Installations ---------------- */
 
-export const trainingUpgradeCost = (lvl) => 2_000_000 * lvl;
+export const trainingUpgradeCost = (lvl) => 6_000_000 * lvl;
 export function upgradeTraining(state) {
   const club = userClub(state);
   const lvl = club.facilities.training;
@@ -168,7 +168,7 @@ export function upgradeTraining(state) {
 }
 
 export const STADIUM_OPTIONS = [{ seats: 2000, days: 5 }, { seats: 5000, days: 9 }, { seats: 10000, days: 15 }];
-export const stadiumCost = (seats) => seats * 1100;
+export const stadiumCost = (seats) => seats * 4500; // ~4 500 € la place (tribune ajoutée)
 export function expandStadium(state, seats) {
   const club = userClub(state);
   if (club.facilities.works) return { ok: false, msg: 'Des travaux sont déjà en cours.' };
