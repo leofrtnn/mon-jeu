@@ -15,6 +15,7 @@ import { autoLineup } from '../../engine/ratings.js';
 import { userClub } from '../../game/state.js';
 import { loadRealData } from '../../data/realWorld.js';
 import { busy } from '../sim.js';
+import { APP_VERSION } from '../../version.js';
 
 /** Applique la philosophie et la formation préférée du coach à son club. */
 export function applyPhilosophy(state) {
@@ -35,6 +36,7 @@ export function render(app) {
       <svg class="logo-ball" viewBox="0 0 100 100"><circle cx="50" cy="50" r="46" fill="#e6edf3"/><path d="M50 22l15 11-6 18H41l-6-18z" fill="#0d1117"/><path d="M50 4v18M65 33l26-6M59 51l14 22M41 51 27 73M35 33 9 27" stroke="#0d1117" stroke-width="4"/></svg>
       <h1>Coach<br><em>de Poche</em></h1>
       <p>Le manager de foot qui tient dans une main.</p>
+      <p class="muted" style="font-size:11px">Version ${APP_VERSION}</p>
       <p class="muted" style="font-size:12px">Monde réel (5 grands championnats) ou monde fictif · coupes nationales et continentale</p>
     </div><div>
     ${legacySave() ? `<div class="card"><small>Une sauvegarde d'une ancienne version a été trouvée : elle n'est pas compatible avec le nouveau monde (3 pays, 80 clubs).</small>

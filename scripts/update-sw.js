@@ -12,4 +12,6 @@ const list = ["  './',", ...files.map((f) => `  './${f}',`)].join('\n');
 const out = sw.replace(/const ASSETS = \[[\s\S]*?\];/, `const ASSETS = [\n${list}\n];`)
   .replace(/const VERSION = 'cdp-v(\d+)';/, (_, n) => `const VERSION = 'cdp-v${+n + 1}';`);
 writeFileSync('sw.js', out);
+const v = out.match(/const VERSION = 'cdp-v(\d+)';/)[1];
+writeFileSync('js/version.js', `/** Numéro de version affiché (mis à jour par scripts/update-sw.js). */\nexport const APP_VERSION = ${v};\n`);
 console.log(`${files.length} fichiers dans le cache du service worker.`);

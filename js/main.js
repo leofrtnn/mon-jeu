@@ -18,7 +18,18 @@ app.init();
 document.addEventListener('visibilitychange', () => { if (document.hidden && app.state?.userClubId) saveSync(app.state); else if (!document.hidden) app.save(); });
 
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
-  window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));
+  // Mise à jour : dès qu'une nouvelle version est installée, on recharge la page une fois.
+  let reloaded = false;
+  const hadController = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController || reloaded) return;
+    reloaded = true;
+    if (app.state?.userClubId) saveSync(app.state);
+    location.reload();
+  });
+  window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' })
+    .then((reg) => { reg.update(); setInterval(() => reg.update(), 60 * 60 * 1000); })
+    .catch(() => {}));
 }
 
 // Exposé pour le débogage depuis la console.

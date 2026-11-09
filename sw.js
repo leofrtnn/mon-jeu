@@ -3,7 +3,7 @@
  * Stratégie : cache d'abord, puis réseau (et mise à jour du cache en arrière-plan).
  * Pensez à incrémenter VERSION à chaque livraison.
  */
-const VERSION = 'cdp-v14';
+const VERSION = 'cdp-v15';
 const ASSETS = [
   './',
   './css/style.css',
@@ -78,11 +78,13 @@ const ASSETS = [
   './js/ui/screens/start.js',
   './js/ui/screens/tactics.js',
   './js/ui/sim.js',
+  './js/version.js',
   './manifest.webmanifest',
 ];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(VERSION).then((c) => c.addAll(ASSETS)).then(() => self.skipWaiting()));
+  // cache: 'reload' : on contourne le cache HTTP du navigateur pour ne jamais remettre d'anciens fichiers.
+  e.waitUntil(caches.open(VERSION).then((c) => c.addAll(ASSETS.map((u) => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (e) => {
@@ -94,7 +96,7 @@ self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET') return;
   e.respondWith(
     caches.match(e.request, { ignoreSearch: true }).then((hit) => {
-      const net = fetch(e.request).then((res) => {
+      const net = fetch(e.request, { cache: 'no-cache' }).then((res) => {
         const u = new URL(e.request.url);
         if (res && (res.ok || res.type === 'opaque') && (u.origin === location.origin || /fonts\.(googleapis|gstatic)\.com$/.test(u.hostname))) {
           const copy = res.clone();
