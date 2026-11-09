@@ -124,7 +124,7 @@ def ascii_low(s):
     s = s.translate(str.maketrans({'ø': 'o', 'Ø': 'O', 'æ': 'ae', 'Æ': 'AE', 'ł': 'l', 'Ł': 'L', 'đ': 'd', 'Đ': 'D', 'ß': 'ss', 'ı': 'i'}))
     return unicodedata.normalize('NFKD', s).encode('ascii', 'ignore').decode().lower()
 
-LEAGUE_KEY = {('FRA2', 'red star'): (57, 'RSFC')}   # homonymes (Red Star de Paris ≠ Étoile rouge de Belgrade)
+LEAGUE_KEY = {('FRA2', 'red star'): (57, 'RSFC'), ('ENG2', 'queens park'): (61, 'QPR'), ('ESP2', 'sporting'): (62, 'SPG')}   # homonymes (Red Star de Paris ≠ Étoile rouge de Belgrade)
 def rep_short(c, league):
     n = ascii_low(c['name'] + ' ' + c['id'].replace('-', ' '))
     for (lg, key), v in LEAGUE_KEY.items():

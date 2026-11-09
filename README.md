@@ -40,9 +40,13 @@ Chaque championnat a son propre profil : style plus technique en Ibérie, plus p
 ## Fonctionnalités
 
 ### Monde
-- **Monde réel** (le seul mode de jeu) : 30 championnats, avec leur vrai format.
+- **Monde réel** (le seul mode de jeu) : 35 championnats, avec leur vrai format.
   - Angleterre, Espagne, Italie, Allemagne, France, Portugal, Pays-Bas, Belgique, Turquie, Tchéquie, Grèce, Norvège, Pologne, Danemark, Autriche, Suisse, Écosse, Suède, Croatie, Serbie,
-    Brésil, Arabie saoudite, Mexique, Japon, Russie, Ukraine, Roumanie, Hongrie, Chypre, Israël : 484 clubs, 13 850 joueurs.
+    Brésil, Arabie saoudite, Mexique, Japon, Russie, Ukraine, Roumanie, Hongrie, Chypre, Israël,
+    et les deuxièmes divisions des 5 grands (Championship, LaLiga 2, Serie B, 2. Bundesliga, Ligue 2) : 586 clubs, 16 672 joueurs.
+  - **Montées et descentes** entre élite et deuxième division (3 en Angleterre, Espagne, Italie ; 2 en Allemagne et en France).
+    Le Championship joue 46 journées : le calendrier ajoute des journées en semaine.
+  - **Postes façon FM** : poste principal + postes secondaires, tirés de Wikipédia (le premier poste cité est le principal).
   - **Notes des joueurs** calculées une fois pour toutes (identiques dans toutes les parties) : niveau du club, rang dans l'effectif,
     anciens clubs, sélections pondérées par la force du pays, buts en carrière (attaquants), notoriété (longueur de l'article Wikipédia), âge.
   - **Budgets** : réputation du club × richesse du championnat (droits TV : Angleterre et Arabie saoudite en tête).

@@ -1,3 +1,4 @@
+import { DIVISIONS } from '../../data/world.js';
 /**
  * Bilan de fin de saison : palmarès, place finale vs objectif, promotions/relégations,
  * évolution des joueurs, réputation du coach, offres d'emploi (ou limogeage).
@@ -20,7 +21,7 @@ export function showEndSeason(app, report = null) {
       <div class="card center"><h3>Votre classement</h3>
         <div class="big">${r.userPos}<small style="font-size:14px">e</small></div><small>${DIV_NAMES[r.userDiv]}</small>
         <p>Objectif : ${esc(r.objective.label)} → <b class="${r.met ? 'pos-txt' : 'neg-txt'}">${r.met ? 'atteint ✔' : 'manqué ✘'}</b></p>
-        ${r.userNewDiv !== r.userDiv ? `<p style="font-size:18px"><b>${r.userNewDiv < r.userDiv ? '⬆ Promotion en Division 1 !' : '⬇ Relégation en Division 2'}</b></p>` : ''}
+        ${r.userNewDiv !== r.userDiv ? `<p style="font-size:18px"><b>${r.userNewDiv < r.userDiv ? `⬆ Promotion en ${DIVISIONS[r.userNewDiv]?.name || 'Division 1'} !` : `⬇ Relégation en ${DIVISIONS[r.userNewDiv]?.name || 'Division 2'}`}</b></p>` : ''}
         <small>Prime de classement : ${money(r.prize)}</small></div>
       <div class="card"><h3>Palmarès</h3>
         ${r.champions.map((c) => `<div class="row between"><span>🏆 ${esc(DIV_NAMES[c.div])}</span><b>${esc(c.name)}</b></div>`).join('')}

@@ -29,7 +29,13 @@ export function startPreseason(state) {
 /** Échelle d'objectifs du championnat de l'utilisateur. */
 function ladder(state) {
   const lvl = DIVISIONS[userClub(state).div].level;
+  const D = DIVISIONS[userClub(state).div];
   const L = LADDERS[lvl].slice();
+  if (lvl === 2) {
+    // Vrais noms : « Être champion de Ligue 2 », « Monter en Ligue 1 ».
+    L[0] = [1, `Être champion de ${D.name}`];
+    L[1] = [D.up || 3, `Monter en ${DIVISIONS[D.upper]?.name || 'Division 1'}`];
+  }
   if (!DIVISIONS[userClub(state).div].down && lvl === 1) L[L.length - 1] = [15, 'Finir dans le top 15'];
   return L;
 }
