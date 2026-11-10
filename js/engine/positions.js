@@ -32,10 +32,14 @@ export function formationPos(t, mp, bx, by, inPoss, kickoff = false) {
       depth += { def: -0.05, sup: 0, att: 0.05 }[pi.duty] || 0;
       depth += { stay: -0.04, normal: 0, join: 0.04 }[pi.runs] || 0;
     }
+    // Latéraux : montées (avec ballon) selon la consigne.
+    if (inPoss && (s.pos === 'DG' || s.pos === 'DD')) depth += { stay: -0.05, normal: 0, join: 0.11 }[t.tactics.overlap] || 0;
+    // Contre-attaque : les attaquants restent haut quand on défend, prêts à partir.
+    if (!inPoss && t.tactics.counter === 'on' && ['BU', 'AG', 'AD'].includes(s.pos)) depth += 0.06;
     if (role === 'pivot') depth -= 0.04;
     if (inPoss && role === 'renard') depth += 0.04;
     const pull = inPoss ? 0.12 : 0.3;
-    lat = 0.5 + (s.y - 0.5) * (inPoss ? (WIDTH_K[t.tactics.width] || 1) : 0.82);
+    lat = 0.5 + (s.y - 0.5) * (inPoss ? (WIDTH_K[t.tactics.width] || 1) * ((s.pos === 'DG' || s.pos === 'DD') && t.tactics.overlap === 'join' ? 1.12 : 1) : 0.82);
     if (inPoss && role === 'interieur') lat = 0.5 + (lat - 0.5) * 0.6;
     lat += (bl - lat) * pull;
     depth = Math.max(0.05, Math.min(0.93, depth));

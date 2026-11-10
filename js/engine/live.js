@@ -243,7 +243,15 @@ export class LiveSim {
       p.tx = clamp(rx + ux * gap, 0, L) / L; p.ty = clamp(ry + uy * gap, 0, W) / W; p.role = 'contain';
     }
     const cover = cand.find((c) => c !== presser && c.goalSide && c.d < pressRange + 10);
-    if (cover) { const p = cover.p; p.tx = (rx + ux * 7) / L; p.ty = (ry + uy * 7) / W; p.role = 'cover'; }
+    const hiPress = D.tactics.pressing === 'high' && engage;
+    if (cover) {
+      const p = cover.p;
+      if (hiPress && h) {
+        // Pressing haut : il coupe la passe vers le partenaire le plus proche du porteur.
+        const mate = this.list(A.side).filter((q) => q !== h && !q.gk).sort((a, b) => this.dist(a, rx, ry) - this.dist(b, rx, ry))[0];
+        if (mate) { p.tx = (rx + (this.X(mate) - rx) * 0.6) / L; p.ty = (ry + (this.Y(mate) - ry) * 0.6) / W; p.role = 'press2'; }
+      } else { p.tx = (rx + ux * 7) / L; p.ty = (ry + uy * 7) / W; p.role = 'cover'; }
+    }
     // Repli : dépassés, ils reviennent se placer entre le ballon et le but.
     for (const c of cand) {
       if (c === presser || c === cover || c.goalSide || c.d < 3) continue;
@@ -259,17 +267,21 @@ export class LiveSim {
     for (const { p } of defs) {
       const zx = p.tx * L, zy = p.ty * W;
       let best = null, bd = 9;
+      const reachM = D.tactics.marking === 'man' ? 14 : 9;
+      bd = reachM;
       for (const a of attackers) {
         if (taken.has(a)) continue;
         const d = Math.hypot(this.X(a) - zx, this.Y(a) - zy);
         if (d < bd) { bd = d; best = a; }
       }
-      const inOwnHalf = Math.abs(this.P.x - ownGoalX) < L * 0.4; // marquage serré près de son but
+      const man = D.tactics.marking === 'man';
+      const inOwnHalf = Math.abs(this.P.x - ownGoalX) < L * (hiPress ? 1 : man ? 0.62 : 0.4); // marquage serré près de son but
       if (best && inOwnHalf) {
         taken.add(best);
         const ax = this.X(best), ay = this.Y(best);
         const g = Math.hypot(ownGoalX - ax, W / 2 - ay) || 1;
-        p.tx = (ax + ((ownGoalX - ax) / g) * 1.6) / L; p.ty = (ay + ((W / 2 - ay) / g) * 1.6) / W; p.role = 'mark';
+        const tight = man ? 0.9 : 1.6;
+        p.tx = (ax + ((ownGoalX - ax) / g) * tight) / L; p.ty = (ay + ((W / 2 - ay) / g) * tight) / W; p.role = 'mark';
       }
     }
     // Attaque : chacun se rend disponible (loin des marqueurs, ligne de passe ouverte).
@@ -321,7 +333,8 @@ export class LiveSim {
     if (backs.length < 2) return;
     // Hauteur commune : la moyenne de leurs positions de formation, sans dépasser le ballon.
     let line = backs.reduce((a, p) => a + p.tx * L * dir, 0) / backs.length;
-    line = Math.min(line, this.P.x * dir - 4);
+    if (D.tactics.offsideTrap === 'on') line += 2.5;          // la ligne monte d'un bloc
+    line = Math.min(line, this.P.x * dir - (D.tactics.offsideTrap === 'on' ? 2.5 : 4));
     for (const p of backs) p.tx = clamp(line * dir, 1, L - 1) / L;
   }
 
@@ -406,9 +419,20 @@ export class LiveSim {
     return 0.02 + 0.36 * Math.exp(-d / 15.5);
   }
 
+  /** Consignes qui modulent les décisions de l'équipe `A` en ce moment. */
+  tacticalMood(A) {
+    const m = this.m;
+    const lead = m.score[A.side] - m.score[1 - A.side];
+    const counter = A.tactics.counter === 'on' && this.now - (this.gainT?.[A.side] ?? -99) < 6;
+    const wasting = A.tactics.timeWasting === 'on' && lead > 0 && m.minute >= 60;
+    const drib = { less: 0.6, normal: 1, more: 1.45 }[A.tactics.dribbling] || 1;
+    return { counter, wasting, drib };
+  }
+
   /** Choix du porteur : passe, conduite, frappe, centre, dégagement. */
   decide(h, out) {
     const m = this.m, A = h.team, D = m.teams[1 - A.side];
+    const mood = this.tacticalMood(A);
     const P = this.P, dir = this.dir(A.side), gx = this.goalX(A.side);
     const hx = this.X(h), hy = this.Y(h);
     const press = this.pressure(h);
@@ -437,7 +461,7 @@ export class LiveSim {
       const cx = clamp(hx + dir * len, 2, L - 2), cy = clamp(hy + (W / 2 - hy) * (dGoal < 35 ? 0.25 : 0.05), 2, W - 2);
       const dri = eff(h.mp, 'dri');
       const keep = sig((space - 3) / 1.6) * (0.75 + dri / 400);
-      const w = TUNE.carryW * ({ less: 0.6, normal: 1, more: 1.5 }[piOf(A, h.mp, 'dribble', 'normal')]) * (1 + ment * 0.1);
+      const w = TUNE.carryW * ({ less: 0.6, normal: 1, more: 1.5 }[piOf(A, h.mp, 'dribble', 'normal')]) * (1 + ment * 0.1) * (0.6 + 0.4 * mood.drib) * (mood.counter ? 1.25 : 1);
       opts.push({ k: 'carry', u: keep * this.threat(A.side, cx, cy) * w + 0.004, x: cx, y: cy });
     }
     // Crochet / débordement : un défenseur devant, de l'espace derrière lui.
@@ -448,7 +472,7 @@ export class LiveSim {
       const tx2 = clamp(ox + dir * 4.5, 2, L - 2), ty2 = clamp(oy + side * 2.6, 2, W - 2);
       const dri = eff(h.mp, 'dri') * 0.8 + eff(h.mp, 'vit') * 0.2, def = eff(opp.p.mp, 'def') * 0.75 + eff(opp.p.mp, 'vit') * 0.25;
       const pWin = sig((dri - def) / 11 + 0.15);
-      const w = TUNE.takeonW * ({ less: 0.5, normal: 1, more: 1.7 }[piOf(A, h.mp, 'dribble', 'normal')]);
+      const w = TUNE.takeonW * ({ less: 0.5, normal: 1, more: 1.7 }[piOf(A, h.mp, 'dribble', 'normal')]) * mood.drib;
       opts.push({ k: 'takeon', u: (pWin * this.threat(A.side, tx2, ty2) - (1 - pWin) * this.threat(A.side, hx, hy) * TUNE.lossW) * w, x: tx2, y: ty2, opp: opp.p, pWin });
     }
     // Centre : couloir, dernier tiers, coéquipiers dans la surface.
@@ -471,13 +495,13 @@ export class LiveSim {
     const ws = opts.map((o) => Math.exp((o.u - Math.max(...opts.map((x) => x.u))) / temp));
     const pick = opts[this.rng.weightedIndex(ws)];
     const tempo = LVL[A.tactics.tempo] || 0;
-    h.next = this.now + (0.45 + this.rand() * 0.5) * (1 - tempo * 0.18) * (press < 3 ? 0.6 : 1) * (1.3 - vis / 250);
+    h.next = this.now + (0.45 + this.rand() * 0.5) * (1 - tempo * 0.18) * (press < 3 ? 0.6 : 1) * (1.3 - vis / 250) * (mood.counter ? 0.82 : 1) * (mood.wasting && press > 4 ? 1.7 : 1);
     // Passe, frappe, centre, dégagement : le joueur s'arrête sur son appui et arme sa jambe ;
     // le ballon ne part qu'au moment du contact (comme dans un vrai geste).
     if (['shot', 'pass', 'cross', 'clear'].includes(pick.k)) {
       const big = pick.k !== 'pass' || pick.lofted;
       const tgt = pick.k === 'pass' ? { x: pick.tx, y: pick.ty } : pick.k === 'cross' ? { x: this.X(pick.r), y: this.Y(pick.r) } : pick.k === 'shot' ? { x: gx, y: W / 2 } : { x: hx + dir * 30, y: hy };
-      h.face = Math.atan2(tgt.y - hy, tgt.x - hx);
+      h.faceTo = Math.atan2(tgt.y - hy, tgt.x - hx);   // il s'oriente pendant l'armé (le ballon tourne avec lui)
       if (pick.k === 'shot') h.shotTech = this.shotTech(h);
       h.kick = big ? 0.32 : 0.24; h.kickPow = pick.k === 'shot' ? (h.shotTech === 'drive' ? 1 : 0.8) : big ? 0.85 : 0.5; h.kickSide = (pick.k === 'pass' && !big) || h.shotTech === 'finesse' || h.shotTech === 'curl';
       h.prep = { pick, at: this.now + (h.kick - 0.16) * GS, until: this.now + (h.kick - 0.16) * GS + 0.5 };
@@ -568,19 +592,27 @@ export class LiveSim {
       if (c > 0.01) { p *= 1 - c; if (c > wc) { wc = c; worst = { o, x: px, y: py }; } }
     }
     const offside = this.isOffside(h, r);
-    if (offside) p *= 0.6; // le passeur ne voit pas toujours le hors-jeu
+    // Le passeur ne voit pas toujours le hors-jeu ; un piège bien tendu le surprend encore plus.
+    if (offside) p *= this.m.teams[1 - A.side].tactics.offsideTrap === 'on' ? 0.92 : 0.6;
     const ment = MENT[A.tactics.mentality] || 0;
     const dirW = { short: 1, mid: 1, direct: 1 }[A.tactics.passing] || 1;
     let lenW = 1;
     if (A.tactics.passing === 'short') lenW = len > 28 ? 0.55 : 1.12;
     if (A.tactics.passing === 'direct') lenW = len > 28 ? 1.6 : 0.85;
+    if (ment < 0 && len > 28) lenW *= 1.25;      // bloc bas : on dégage le jeu loin devant
     // Garder le ballon a de la valeur en soi : une passe sûre à un partenaire démarqué, même
     // en retrait ou en largeur, permet de faire tourner et d'attendre l'ouverture.
     let free = 99;
     for (const o of this.players.values()) if (o.side !== A.side) free = Math.min(free, Math.hypot(this.X(o) - tx, this.Y(o) - ty));
     const styleK = { short: 1.7, mid: 1, direct: 0.45 }[A.tactics.passing] ?? 1;
-    const keep = TUNE.keepW * styleK * (1 - ment * 0.15) * clamp((free - 2) / 6, 0, 1);
-    const val = (this.threat(A.side, tx, ty) * (1 + ment * 0.05) + keep) * lenW * dirW;
+    const mood = this.tacticalMood(A);
+    const keep = TUNE.keepW * styleK * (1 + ment * 0.15) * clamp((free - 2) / 6, 0, 1) * (mood.counter ? 0.3 : 1) * (mood.wasting ? 1.8 : 1);
+    // Couloir privilégié (gauche / axe / droite, du point de vue de l'équipe qui attaque).
+    const rel = A.side === 0 ? ty / W : 1 - ty / W;
+    const lane = { left: rel < 0.36 ? 1.18 : rel > 0.64 ? 0.9 : 1, right: rel > 0.64 ? 1.18 : rel < 0.36 ? 0.9 : 1, center: rel > 0.3 && rel < 0.7 ? 1.14 : 0.94 }[A.tactics.focus] || 1;
+    // Contre-attaque : on cherche la profondeur tout de suite.
+    const fwd = ((tx - sx) * dir) > 6 ? (mood.counter ? 1.18 : 1) : 1;
+    const val = (this.threat(A.side, tx, ty) * (1 + ment * 0.05) * fwd + keep) * lenW * dirW * lane;
     // Perdre le ballon coûte la valeur de la possession actuelle + le danger d'une contre-attaque.
     const danger = this.threat(1 - A.side, worst ? worst.x : tx, worst ? worst.y : ty) + this.threat(A.side, sx, sy) * 1.4 + 0.012;
     return { k: 'pass', u: p * val - (1 - p) * danger * TUNE.lossW + 0.003, r, tx, ty, p, lofted, through, worst, offside };
@@ -594,7 +626,8 @@ export class LiveSim {
     if (rx <= this.P.x * dir) return false;
     const defs = this.list(1 - h.side).map((p) => this.X(p) * dir).sort((a, b) => b - a);
     const second = defs[1] ?? -Infinity;
-    return rx > second + 0.4;
+    const trap = this.m.teams[1 - h.side].tactics.offsideTrap === 'on';
+    return rx > second + (trap ? -0.9 : 0.4);
   }
 
   doPass(h, o, out) {
@@ -602,7 +635,7 @@ export class LiveSim {
     this.releaseBall(h);
     A.stats.passes++; h.mp.passes++;
     // Hors-jeu : sifflé au départ du ballon (l'assistant lève son drapeau).
-    if (o.offside && this.rand() < 0.85) {
+    if (o.offside && this.rand() < (this.m.teams[1 - A.side].tactics.offsideTrap === 'on' ? 0.97 : 0.85)) {
       A.stats.offsides++;
       this.kickBall(h, o.tx, o.ty, o.lofted);
       emit(m, out, { type: 'offside', side: A.side, pid: o.r.mp.id, x: o.tx / L, y: o.ty / W, zone: m.zone });
@@ -738,6 +771,7 @@ export class LiveSim {
   }
 
   doShot(h, kind, out) {
+    if (kind === 'freekick') for (const p of this._wall || []) p.jump = 0.45;   // le mur saute
     const m = this.m, A = h.team, D = m.teams[1 - A.side], P = this.P;
     const gx = this.goalX(A.side), gdir = this.dir(A.side), cy = W / 2;
     const xg = this.xg(h, kind);
@@ -960,10 +994,14 @@ export class LiveSim {
     const m = this.m;
     this.holder = p; this.inHands = false; this.pending = null;
     p.carry = null;
+    for (const q of this.players.values()) q.faceBall = false;
+    // Il prend le ballon face à lui (jamais « dans le dos »).
+    if (this.dist(p, this.P.x, this.P.y) < 2.5) p.face = Math.atan2(this.P.y - p.y * W, this.P.x - p.x * L);
     p.next = this.now + 0.35 + this.rand() * 0.45;
     p.touch = 0.2;
     this.lastTouch = p.side;
     if (this.poss !== p.side) {
+      this.gainT = this.gainT || [-99, -99]; this.gainT[p.side] = this.now;
       this.poss = p.side;
       changePossession(m, p.side, m.zone, p.mp);
       momentum(m, p.side, 1);
@@ -985,6 +1023,7 @@ export class LiveSim {
       // Le destinataire (receveur ou intercepteur) court à la réception.
       const lead = Math.min(0.6, Math.hypot(P.vx, P.vy) / 25);
       if (this.now > pd.t0 + pd.T * 0.6) { r.tx = clamp((P.x + P.vx * lead) / L, 0, 1); r.ty = clamp((P.y + P.vy * lead) / W, 0, 1); }
+      for (const q of this.players.values()) q.faceBall = q === r && this.dist(r, P.x, P.y) < 9;
       const f = this.foot(r, 0.4);
       const d = Math.hypot(f.x - P.x, f.y - P.y);
       const reach = Math.hypot(P.vx, P.vy) < 9 ? 1.9 : 1.35; // ballon lent : il va le chercher d'un pas
@@ -1054,6 +1093,9 @@ export class LiveSim {
       this.lastTouch = r.side; this.pending = null; r.touch = 0.2; r.ctrl = 0.25; r.ctrlH = P.z;
       return;
     }
+    // Contrôle orienté : le corps face au ballon, qui reste devant lui.
+    r.faceBall = false;
+    r.face = Math.atan2(P.y - r.y * W, P.x - r.x * L);
     // Contrôle : le ballon est amorti (pied, cuisse ou poitrine selon la hauteur).
     r.ctrl = 0.3; r.ctrlH = P.z;
     P.vx *= 0.2; P.vy *= 0.2; P.vz = Math.min(0, P.vz) * 0.2; P.spin = 0;
@@ -1196,8 +1238,6 @@ export class LiveSim {
     if (kind === 'corner') {
       T.stats.corners++; momentum(m, side, 2);
       if (out) emit(m, out, { type: 'corner', side, pid: taker.mp.id, x: x / L, y: y / W, zone: 3 });
-      // Coupure de réalisation : le tireur est au poteau de corner.
-      taker.x = x / L; taker.y = (y < W / 2 ? -0.6 : W + 0.6) / W;
     }
     if (kind === 'penalty' && out) emit(m, out, { type: 'penalty', side, pid: taker.mp.id, x: x / L, y: y / W, zone: 3 });
     if (kind === 'freekick' && out) emit(m, out, { type: 'freekick', side, pid: taker.mp.id, x: x / L, y: y / W, zone: m.zone });
@@ -1235,8 +1275,24 @@ export class LiveSim {
         if (a && i < spots.length) { p.tx = a.tx - (dir * 0.8) / L; p.ty = a.ty; }
       });
     }
+    // Mur : 2 à 5 joueurs alignés à 9,15 m, entre le ballon et le but.
+    for (const p of this.players.values()) p.wall = false;
+    if (rs.kind === 'freekick') {
+      const gxD = this.goalX(rs.side), dG = Math.hypot(gxD - rs.x, W / 2 - rs.y);
+      if (dG < 32) {
+        const n = dG < 22 ? (Math.abs(rs.y - W / 2) < 12 ? 5 : 4) : dG < 27 ? 3 : 2;
+        const ux = (gxD - rs.x) / dG, uy = (W / 2 - rs.y) / dG;
+        const wx = rs.x + ux * 9.15, wy = rs.y + uy * 9.15;
+        const ws = this.list(D.side).filter((p) => !p.gk).sort((a, b) => this.dist(a, wx, wy) - this.dist(b, wx, wy)).slice(0, n);
+        ws.forEach((p, i) => {
+          const off = (i - (n - 1) / 2) * 0.62 + 0.25;
+          p.tx = clamp(wx - uy * off, 0, L) / L; p.ty = clamp(wy + ux * off, 0, W) / W; p.wall = true;
+        });
+      }
+    }
     // Personne à moins de 9 m du ballon côté adverse.
     for (const p of this.list(D.side)) {
+      if (p.wall) continue;
       if (p.gk) continue;
       const dx = p.tx * L - rs.x, dy = p.ty * W - rs.y, d = Math.hypot(dx, dy);
       if (d < 9.2 && rs.kind !== 'penalty') { const k = 9.2 / Math.max(0.5, d); p.tx = (rs.x + dx * k) / L; p.ty = (rs.y + dy * k) / W; }
@@ -1288,28 +1344,41 @@ export class LiveSim {
     const rs = this.restart, t = rs.taker;
     rs.t += dt;
     if (!t || !this.players.has(t.mp.id)) { rs.taker = this.list(rs.side).find((p) => !p.gk); return; }
-    const minT = { kickoff: 1.2, throw: 0.9, goalkick: 1.8, corner: 2.2, freekick: 2.2, penalty: 2.6 }[rs.kind];
+    // Temps de mise en place (le temps de jeu effectif baisse, mais tout est lisible) :
+    // ballon posé, mur formé, joueurs placés, signal du tireur.
+    const nearGoal = Math.hypot(this.goalX(rs.side) - rs.x, W / 2 - rs.y) < 32;
+    const minT = { kickoff: 2.4, throw: 1.4, goalkick: 3.0, corner: 4.2, freekick: nearGoal ? 5.5 : 3.2, penalty: 4.5 }[rs.kind] * (this.tacticalMood(rs.taker?.team || this.m.teams[rs.side]).wasting ? 1.8 : 1);
     const atBall = this.dist(t, rs.x, rs.y) < 1.4;
+    if (atBall && !rs.placed && rs.kind !== 'throw' && rs.kind !== 'kickoff') { rs.placed = true; t.place = 0.9; t.face = Math.atan2(rs.y - t.y * W, rs.x - t.x * L); }
+    if (rs.kind === 'corner' && rs.placed && rs.t > minT - 1.4 && !rs.signal) { rs.signal = true; t.signal = 1.1; }
     t.hold = rs.kind === 'throw' && atBall ? 1 : 0;   // touche : ballon pris à deux mains
-    if (t.hold) { rs.holdT = (rs.holdT || 0) + dt; if (rs.holdT < 0.7 && rs.t < 7) return; }
+    if (t.hold) { rs.holdT = (rs.holdT || 0) + dt; if (rs.holdT < 1.0 && rs.t < 14) return; }
     if (t.hold) t.face = Math.atan2(W / 2 - rs.y, 0);
     // Engagement : chacun doit être dans sa moitié.
     let settled = true;
-    if (rs.kind === 'kickoff' || rs.kind === 'penalty' || rs.kind === 'corner') {
+    if (rs.kind === 'kickoff' || rs.kind === 'penalty' || rs.kind === 'corner' || (rs.kind === 'freekick' && nearGoal)) {
       for (const p of this.players.values()) {
-        if (Math.hypot((p.tx - p.x) * L, (p.ty - p.y) * W) > 3) { settled = false; break; }
+        if (Math.hypot((p.tx - p.x) * L, (p.ty - p.y) * W) > (rs.kind === 'kickoff' ? 7 : 4.5)) { settled = false; break; }
         // Engagement : tout le monde dans sa moitié (et l'adversaire hors du rond central).
         if (rs.kind === 'kickoff' && (p.x * L - L / 2) * this.dir(p.side) > 0.02) { settled = false; break; }
       }
     }
-    if (rs.t > 7 && rs.go == null) { // trop long : on replace d'autorité
-      for (const p of this.players.values()) { p.x = p.tx; p.y = p.ty; p.vx = p.vy = 0; }
-    } else if (!(atBall && rs.t >= minT && settled)) return;
+    if (rs.t > 14 && !rs.forced) { // trop long : on reprend, seuls les retardataires gênants sont replacés
+      rs.forced = true;
+      for (const p of this.players.values()) {
+        // Seul un joueur encore dans la mauvaise moitié à l'engagement est replacé.
+        const wrongHalf = rs.kind === 'kickoff' && (p.x * L - L / 2) * this.dir(p.side) > 0.02;
+        if (wrongHalf) { p.x = p.tx; p.y = p.ty; p.vx = p.vy = 0; }
+      }
+      if (!atBall) { t.x = (rs.x - this.dir(rs.side) * 0.4) / L; t.y = rs.y / W; }
+    } else if (!rs.forced && !(atBall && rs.t >= minT && settled && !(t.place > 0))) return;
     // Armé de la jambe avant de jouer le ballon (le geste précède le départ du ballon).
     if (rs.kind !== 'throw') {
       if (rs.go == null) { rs.go = this.now + 0.12 * GS; t.kick = 0.28; t.kickPow = ['goalkick', 'corner', 'penalty'].includes(rs.kind) ? 1 : 0.55; t.kickSide = rs.kind === 'kickoff'; t.face = Math.atan2(W / 2 - this.P.y, this.goalX(rs.side) - this.P.x); return; }
       if (this.now < rs.go) return;
     } else { t.throwIn = 0.6; t.hold = 0; }
+    this._wall = [...this.players.values()].filter((p) => p.wall);
+    for (const p of this.players.values()) p.wall = false;
     this.restart = null;
     const P = this.P;
     t.face = Math.atan2(W / 2 - P.y, this.goalX(rs.side) - P.x);
@@ -1362,22 +1431,34 @@ export class LiveSim {
       p.speed = Math.hypot(p.vx, p.vy);
       p.acc = dt > 0 ? (p.speed - before) / dt : 0;
       const P = this.P;
-      const target = p.speed > 1.2 ? Math.atan2(p.vy, p.vx) : Math.atan2(P.y - p.y * W, P.x - p.x * L);
+      // Orientation : vers la cible de son geste (armé), vers le ballon qui arrive (réception,
+      // il ouvre le corps au lieu de lui tourner le dos), sinon dans le sens de sa course.
+      let target, rate = 7;
+      if (p.prep && p.faceTo != null) { target = p.faceTo; rate = 12; }
+      else if (p.faceBall) { target = Math.atan2(P.y - p.y * W, P.x - p.x * L); rate = 10; }
+      else target = p.speed > 1.2 ? Math.atan2(p.vy, p.vx) : Math.atan2(P.y - p.y * W, P.x - p.x * L);
       let d = target - (p.face || 0);
       while (d > Math.PI) d -= Math.PI * 2;
       while (d < -Math.PI) d += Math.PI * 2;
-      p.face = (p.face || 0) + d * Math.min(1, dt * 7);
+      p.turnGap = Math.abs(d);
+      p.face = (p.face || 0) + d * Math.min(1, dt * rate);
       // Foulée réelle : un cycle (deux pas) ≈ 4,4 m en sprint, ≈ 2,8 m en petite foulée.
       p.phase = (p.phase || 0) + p.speed * dt * (1.45 + 0.8 * (1 - Math.min(1, p.speed / 8)));
     };
     for (const p of this.players.values()) {
       const vit = p.mp?.p?.attrs?.vit ?? 60, en = p.mp?.energy ?? 100;
-      const withBall = p === this.holder && !this.inHands ? (p.carry?.takeon ? 1.0 : 0.86) : 1;
+      const withBall = p === this.holder && !this.inHands ? (p.carry?.takeon ? 1.0 : 0.86) * ((p.turnGap || 0) > 1.2 ? 0.35 : (p.turnGap || 0) > 0.6 ? 0.7 : 1) : 1;
       if (p.fall > 0.3 || p.slide > 0.2) { p.tx = p.x; p.ty = p.y; }
-      step(p, (6.6 + vit * 0.033) * (0.8 + 0.2 * en / 100) * withBall * (p.celeb > 0 ? 0.8 : 1));
+      // Arrêt de jeu : on se replace en trottinant (on ne sprinte pas pour un coup franc).
+      let cap = Infinity;
+      if (this.restart && p !== this.restart.taker) { const dd = Math.hypot((p.tx - p.x) * L, (p.ty - p.y) * W); cap = dd > 25 ? 6.4 : dd > 10 ? 5 : 3.4; }
+      else if (this.restart) cap = Math.hypot((p.tx - p.x) * L, (p.ty - p.y) * W) > 12 ? 6.5 : 4.2;   // le tireur file vers le ballon
+      step(p, Math.min(cap, (6.6 + vit * 0.033) * (en > 70 ? 1 - (100 - en) * 0.002 : 0.94 - (70 - en) * 0.006) * withBall * (p.celeb > 0 ? 0.8 : 1)));
+      // Effort réel : ce qu'il court (les sprints coûtent bien plus que le trot).
+      if (p.mp && !p.celeb) { const v = p.speed || 0; p.mp.work = (p.mp.work || 0) + v * dt * (0.6 + (v / 6.5) ** 2 * 1.6); }
       const gd = dt / GS;
       if (p.diveDelay != null) { p.diveDelay -= dt; if (p.diveDelay <= 0) { p.diveDelay = null; p.dive = 0.75; } }
-      for (const k of ['kick', 'slide', 'dive', 'jump', 'celeb', 'touch', 'fall', 'block', 'throwIn', 'ctrl']) if (p[k] > 0) p[k] = Math.max(0, p[k] - gd);
+      for (const k of ['kick', 'slide', 'dive', 'jump', 'celeb', 'touch', 'fall', 'block', 'throwIn', 'ctrl', 'place', 'signal']) if (p[k] > 0) p[k] = Math.max(0, p[k] - gd);
     }
     // Contacts : on ne se traverse pas.
     const arr = [...this.players.values()];

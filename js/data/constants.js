@@ -91,6 +91,7 @@ export const DEFAULT_TACTICS = {
   // Consignes d'équipe avancées (valeurs neutres par défaut).
   line: 'mid', passing: 'mixed', focus: 'mixed', counter: 'off', offsideTrap: 'off', tackling: 'normal',
   marking: 'zonal', timeWasting: 'off', gkDist: 'mixed', longShots: 'mid', crossing: 'mid',
+  overlap: 'normal', dribbling: 'normal',
 };
 
 /** Consignes d'équipe : options et libellés (écran Tactique et pause du match). */
@@ -100,6 +101,8 @@ export const TEAM_INSTRUCTIONS = [
   { key: 'focus', label: 'Couloir privilégié', opts: { left: 'Gauche', mixed: 'Mixte', center: 'Axe', right: 'Droite' }, help: 'Côté vers lequel l\'équipe oriente le jeu.' },
   { key: 'crossing', label: 'Centres', opts: { low: 'Rares', mid: 'Normaux', high: 'Fréquents' } },
   { key: 'longShots', label: 'Tirs de loin', opts: { low: 'Rarement', mid: 'Parfois', high: 'Souvent' } },
+  { key: 'overlap', label: 'Montées des latéraux', opts: { stay: 'Rester', normal: 'Normal', join: 'Monter' }, help: 'Monter : les latéraux débordent et donnent de la largeur, mais laissent de l\'espace dans leur dos.' },
+  { key: 'dribbling', label: 'Dribbles', opts: { less: 'Moins', normal: 'Normal', more: 'Plus' }, help: 'Plus : on élimine davantage… et on perd plus de ballons.' },
   { key: 'counter', label: 'Contre-attaque', opts: { off: 'Non', on: 'Oui' }, help: 'Projection rapide dès la récupération du ballon.' },
   { key: 'offsideTrap', label: 'Piège du hors-jeu', opts: { off: 'Non', on: 'Oui' }, help: 'Plus de hors-jeu signalés… et plus de risques si le piège échoue.' },
   { key: 'tackling', label: 'Tacles', opts: { soft: 'Prudents', normal: 'Normaux', hard: 'Engagés' }, help: 'Engagés : plus de ballons récupérés, plus de fautes et de cartons.' },

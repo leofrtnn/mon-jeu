@@ -496,6 +496,17 @@ export class MatchView {
     }
     this.holder = this.live.holder ? this.live.holder.mp.id : null;
     this.inHands = this.live.inHands;
+    // Remises en jeu annoncées à l'écran (après la bannière en cours, s'il y en a une).
+    const rs = this.live.restart;
+    if (rs && rs !== this._lastRs) { this._lastRs = rs; this._capPending = rs; }
+    if (this._capPending && !this.banner) {
+      const r0 = this._capPending; this._capPending = null;
+      if (this.live.restart === r0) {
+        const lbl = { freekick: 'Coup franc', corner: 'Corner', goalkick: 'Six mètres', throw: 'Touche', kickoff: 'Engagement', penalty: 'Penalty' }[r0.kind];
+        const team = this.m.teams[r0.side];
+        if (lbl && r0.kind !== 'penalty') this.banner = { text: `${lbl} · ${team.club?.short || team.name || ''}`.replace(/ · $/, ''), color: this.colors[r0.side], t: 0, dur: r0.kind === 'throw' ? 1.2 : 1.8, small: true };
+      }
+    }
     const b = this.ball, P = this.phys;
     b.x = P.x / PITCH_L; b.y = P.y / PITCH_W; b.h = Math.max(0, P.z - BALL_R) / 26;
     this.updateFx(realDt);
@@ -526,7 +537,7 @@ export class MatchView {
     if (ev.type === 'foul') {
       this.slowmo = { t: 1.5, k: 0.3 };
       this.banner = { text: `FAUTE · ${nm(ev.pid)}`, color: '#e63946', t: 0, dur: 2, small: true };
-      r.focus = { x: ev.x, y: ev.y, t: 3 }; r.whistle = 0.8;
+      r.focus = { x: ev.x, y: ev.y, t: 3 }; r.whistle = 0.8; r.pointLater = 1.0; // puis il indique le sens du coup franc
     }
     if (ev.type === 'yellow' || ev.type === 'red') {
       this.banner = { text: `${ev.type === 'yellow' ? '🟨 Carton jaune' : '🟥 Carton rouge'} · ${nm(ev.pid)}`, color: ev.type === 'yellow' ? '#d4a017' : '#c1121f', t: 0, dur: 2.6, small: true };
@@ -554,6 +565,7 @@ export class MatchView {
     if (r.speed > 1) r.face = Math.atan2(r.vy, r.vx); else r.face = Math.atan2((b.y - r.y) * PITCH_W, (b.x - r.x) * PITCH_L);
     r.phase = (r.phase || 0) + r.speed * dt * (1.45 + 0.8 * (1 - Math.min(1, r.speed / 8)));
     for (const k2 of ['card', 'whistle', 'point']) if (r[k2] > 0) r[k2] = Math.max(0, r[k2] - dt / 1.25);
+    if (r.pointLater > 0 && (r.pointLater -= dt) <= 0) { r.pointLater = 0; if (!(r.card > 0)) r.point = 1.4; }
   }
 
   /* ---------------- Ballon physique ---------------- */

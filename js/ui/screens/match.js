@@ -5,9 +5,9 @@
  * pause (changements, tactique), mi-temps (stats + causerie), fin de match.
  */
 import { userMatchCfg, completeDay, today } from '../../game/season.js';
-import { createMatch, stepMinute, makeSub, changeFormation, setTactic, applyPlan, teamTalk, summarize, penaltyShootout, clockLabel, activePlayers } from '../../engine/match.js';
+import { createMatch, stepMinute, makeSub, changeFormation, swapSlots, setTactic, applyPlan, teamTalk, summarize, penaltyShootout, clockLabel, activePlayers } from '../../engine/match.js';
 import { describe, iconFor } from '../../engine/commentary.js';
-import { FORMATION_NAMES, MENTALITIES, MENTALITY_LABELS, LEVELS, PRESSING_LABELS, TEMPO_LABELS, MAX_SUBS, POSITION_GROUP, TEAM_INSTRUCTIONS, DEFAULT_TACTICS } from '../../data/constants.js';
+import { FORMATION_NAMES, MENTALITIES, MENTALITY_LABELS, LEVELS, PRESSING_LABELS, TEMPO_LABELS, MAX_SUBS, POSITION_GROUP, TEAM_INSTRUCTIONS, DEFAULT_TACTICS, PLAYER_INSTRUCTIONS, WIDTH_LABELS } from '../../data/constants.js';
 import { ratingAt } from '../../engine/ratings.js';
 import { MatchView } from '../matchView.js';
 import { esc, crest, cmpBar, ratingChip, posBadge, seg, scaleColor, face } from '../components.js';
@@ -53,7 +53,7 @@ export function openMatch(app, opts = {}) {
     <div class="pitch-area"><canvas id="pitch"></canvas><div class="tapcard hidden" id="tapcard"></div><div class="pitch-caption hidden" id="caption"></div></div>
     <div class="feed" id="feed"></div>
     <div class="controls">
-      <button class="btn" data-c="pause">⏸ Pause</button>
+      <button class="btn primary" data-c="pause" title="Compo, changements, tactique">📋 Compo &amp; tactique</button>
       <button class="btn" data-c="speed">x${SPEEDS[0]}</button>
       <button class="btn" data-c="quick">⚡ Résumé</button>
       <button class="btn" data-c="skip">⏭ Fin</button>
@@ -327,57 +327,126 @@ export function openMatch(app, opts = {}) {
     },
   });
 
-  /* ---------- Pause : changements + tactique ---------- */
+  /* ---------- Pause : composition, changements, tactique ---------- */
+  /** Consignes rapides : plusieurs réglages d'un coup, pour réagir vite au score. */
+  const QUICK_PLANS = [
+    { id: 'allin', icon: '🔥', label: 'Tout pour l\'attaque', tac: { mentality: 'offensive', pressing: 'high', tempo: 'high', line: 'high', passing: 'direct', crossing: 'high', longShots: 'high', overlap: 'join', timeWasting: 'off' } },
+    { id: 'press', icon: '⚡', label: 'Pressing tout terrain', tac: { pressing: 'high', line: 'high', tackling: 'hard', marking: 'man' } },
+    { id: 'keep', icon: '🔄', label: 'Confisquer le ballon', tac: { passing: 'short', tempo: 'low', mentality: 'balanced', dribbling: 'less', longShots: 'low' } },
+    { id: 'counter', icon: '🏃', label: 'Bloc bas et contres', tac: { mentality: 'defensive', pressing: 'low', line: 'low', counter: 'on', passing: 'direct', overlap: 'stay' } },
+    { id: 'close', icon: '🔒', label: 'Fermer le match', tac: { mentality: 'defensive', pressing: 'mid', line: 'low', tempo: 'low', timeWasting: 'on', overlap: 'stay', tackling: 'soft' } },
+  ];
+  const syncPitch = () => { if (view.live) view.live.sync(); else view.syncPlayers(false); };
+
   function pauseSheet(resumeAfter = true, isHT = false) {
-    let sel = null;
-    let tab = 'subs';
+    let sel = null;            // joueur choisi sur le terrain
+    let tab = 'compo';
+    const t = () => m.teams[userSide];
+    const energyBar = (e) => `<span class="mini" style="width:40px"><i style="width:${Math.round(e)}%;background:${scaleColor(e)}"></i></span>`;
+    const pitchHtml = () => {
+      const T = t();
+      const club = userClub(s);
+      return `<div class="tpitch mpitch">${T.slots.map((sl, i) => {
+        const mp = T.onPitch[i];
+        const gone = !mp || !mp.onPitch || mp.red || mp.injured;
+        const fitC = mp && !gone ? scaleColor(Math.min(100, ratingAt(mp.p, sl.pos) * 1.2)) : '#555';
+        return `<div class="slot ${gone ? 'empty' : ''} ${mp && sel === mp.id ? 'sel' : ''}" data-act="pick" data-id="${gone ? '' : mp.id}" style="--x:${sl.x.toFixed(3)};--y:${sl.y.toFixed(3)}">
+          <div class="tok">${gone ? `<span class="shirt">${mp?.red ? '🟥' : '✚'}</span>` : `${face(mp.p, club)}<em class="num">${mp.number || ''}</em><span class="fit" style="background:${fitC}"></span>`}</div>
+          <div class="nm">${gone ? '—' : esc(mp.name.split(' ').slice(-1)[0])}${mp?.yellow ? ' 🟨' : ''}${mp?.goals ? ' ⚽' : ''}</div>
+          <div class="ps">${sl.pos}${gone ? '' : ` · ${mp.rating.toFixed(1)}`}</div>
+          ${gone ? '' : `<div class="en"><i style="width:${Math.round(mp.energy)}%;background:${scaleColor(mp.energy)}"></i></div>`}
+        </div>`;
+      }).join('')}</div>`;
+    };
+    const benchHtml = () => {
+      const T = t();
+      const bench = T.bench.filter((x) => !x.onPitch && x.minOut == null);
+      const subsLeft = MAX_SUBS - T.subsUsed;
+      const selMp = sel ? T.onPitch.find((x) => x && x.id === sel) : null;
+      const pos = selMp ? T.slots[selMp.slot].pos : null;
+      return `<div class="label" style="margin-top:0">Banc · ${subsLeft} changement(s) restant(s)</div>
+        <div class="list">${bench.map((x) => `<div class="prow ${selMp && subsLeft > 0 ? '' : 'dim'}" data-act="in" data-id="${x.id}">
+          ${posBadge(x.pos)}<div class="pname"><b>${esc(x.name)}</b><small>${pos ? `Au poste ${pos} : ${Math.round(ratingAt(x.p, pos))}` : `Note ${Math.round(ratingAt(x.p, x.pos))}`}</small></div>
+          ${energyBar(x.energy)}</div>`).join('') || '<p class="muted">Banc vide.</p>'}</div>`;
+    };
+    const selPanel = () => {
+      const T = t();
+      const mp = sel ? T.onPitch.find((x) => x && x.id === sel) : null;
+      if (!mp) return `<p class="muted mhelp">Touchez un joueur sur le terrain : puis un remplaçant pour le faire entrer, ou un autre joueur pour échanger leurs postes.</p>`;
+      const pi = T.pi[mp.slot] = { duty: 'sup', shoot: 'normal', dribble: 'normal', runs: 'normal', ...(T.pi[mp.slot] || {}) };
+      return `<div class="card msel"><div class="row between"><b>${esc(mp.name)}</b><small>${T.slots[mp.slot].pos} · énergie ${Math.round(mp.energy)} % · note ${mp.rating.toFixed(1)}</small></div>
+        <p class="muted mhelp">Touchez un remplaçant pour le faire entrer, ou un autre joueur du terrain pour échanger leurs postes.</p>
+        ${PLAYER_INSTRUCTIONS.map((pd) => `<div class="mrow"><span>${pd.label}</span><div class="seg sm">${Object.entries(pd.opts).map(([v, l]) => `<button data-act="pi" data-k="${pd.key}" data-v="${v}" class="${pi[pd.key] === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>`).join('')}</div>`;
+    };
+    const tacHtml = () => {
+      const T = t(), tc = T.tactics;
+      const row = (label, key, opts, help) => `<div class="mrow"><span title="${esc(help || '')}">${label}${help ? ' <i class="hint">?</i>' : ''}</span><div class="seg sm">${Object.entries(opts).map(([v, l]) => `<button data-act="ti" data-k="${key}" data-v="${v}" class="${(tc[key] || DEFAULT_TACTICS[key]) === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>`;
+      return `<div class="label" style="margin-top:0">Consignes rapides</div>
+        <div class="qplans">${QUICK_PLANS.map((q) => `<button class="btn sm" data-act="qplan" data-v="${q.id}">${q.icon} ${q.label}</button>`).join('')}
+          ${(userClub(s).presets || []).map((pl, i) => pl ? `<button class="btn sm" data-act="plan" data-v="${i}">📋 Plan ${'ABC'[i]}</button>` : '').join('')}</div>
+        <div class="mtac">
+          <div><div class="label">Approche</div>
+            ${row('Mentalité', 'mentality', Object.fromEntries(MENTALITIES.map((k) => [k, MENTALITY_LABELS[k]])), 'Offensive : plus de joueurs devant, mais plus d\'espaces dans votre dos.')}
+            ${row('Pressing', 'pressing', Object.fromEntries(LEVELS.map((k) => [k, PRESSING_LABELS[k]])), 'Haut : on récupère plus haut mais on se fatigue beaucoup plus vite.')}
+            ${row('Tempo', 'tempo', Object.fromEntries(LEVELS.map((k) => [k, TEMPO_LABELS[k]])), 'Rapide : on joue vite, plus de pertes de balle, plus de fatigue.')}
+            ${row('Largeur', 'width', Object.fromEntries(LEVELS.map((k) => [k, WIDTH_LABELS[k]])), 'Large : on étire la défense adverse sur les côtés.')}
+            ${TEAM_INSTRUCTIONS.filter((ti) => ['line', 'offsideTrap', 'marking', 'tackling', 'timeWasting'].includes(ti.key)).map((ti) => row(ti.label, ti.key, ti.opts, ti.help)).join('')}
+          </div>
+          <div><div class="label">Avec le ballon</div>
+            ${TEAM_INSTRUCTIONS.filter((ti) => ['passing', 'focus', 'overlap', 'dribbling', 'crossing', 'longShots', 'counter', 'gkDist'].includes(ti.key)).map((ti) => row(ti.label, ti.key, ti.opts, ti.help)).join('')}
+          </div>
+        </div>`;
+    };
     const html = () => {
-      const t = m.teams[userSide];
-      const on = t.onPitch.filter((mp) => mp && mp.onPitch && !mp.red && !mp.injured);
-      const bench = t.bench.filter((b) => !b.onPitch && b.minOut == null);
-      const subsLeft = MAX_SUBS - t.subsUsed;
-      return `<div class="row between"><h2>${isHT ? 'Vestiaire' : 'Pause'} · ${clockLabel(m.minute, m.extra)}</h2><b class="num">${m.score[0]} - ${m.score[1]}</b></div>
-        <div style="margin:10px 0">${seg('ptab', ['subs', 'tac'], tab, { subs: `Changements (${subsLeft})`, tac: 'Tactique' })}</div>
-        ${tab === 'subs' ? `
-          <p class="muted" style="font-size:12px;margin:4px 0">${sel ? 'Choisissez le remplaçant.' : 'Touchez le joueur à sortir.'}</p>
-          <div class="list">${on.map((mp) => `<div class="prow ${sel === mp.id ? 'sel' : ''}" data-act="out" data-id="${mp.id}">
-            ${posBadge(t.slots[mp.slot].pos)}<div class="pname"><b>${esc(mp.name)}</b><small>${mp.yellow ? '🟨 ' : ''}${mp.goals ? '⚽'.repeat(mp.goals) : ''}</small></div>
-            <span class="mini" style="width:44px"><i style="width:${mp.energy}%;background:${scaleColor(mp.energy)}"></i></span>${ratingChip(mp.rating)}</div>`).join('')}</div>
-          <div class="label">Banc</div>
-          <div class="list">${bench.map((b) => `<div class="prow ${sel && subsLeft > 0 ? '' : 'dim'}" data-act="in" data-id="${b.id}">
-            ${posBadge(b.pos)}<div class="pname"><b>${esc(b.name)}</b><small>Note ${Math.round(ratingAt(b.p, b.pos))}</small></div></div>`).join('') || '<p class="muted">Banc vide.</p>'}</div>`
-        : `<div class="label">Formation</div>
-          <div class="chips">${FORMATION_NAMES.map((f) => `<button class="chip ${t.tactics.formation === f ? 'on' : ''}" data-act="form" data-v="${f}">${f}</button>`).join('')}</div>
-          <div class="label">Mentalité</div>${seg('ment', MENTALITIES, t.tactics.mentality, MENTALITY_LABELS)}
-          <div class="label">Pressing</div>${seg('press', LEVELS, t.tactics.pressing, PRESSING_LABELS)}
-          <div class="label">Tempo</div>${seg('tempo', LEVELS, t.tactics.tempo, TEMPO_LABELS)}
-          ${TEAM_INSTRUCTIONS.filter((ti) => ['line', 'passing', 'focus', 'counter', 'tackling', 'offsideTrap', 'timeWasting'].includes(ti.key)).map((ti) => `<div class="label">${ti.label}</div>
-            <div class="seg">${Object.entries(ti.opts).map(([v, l]) => `<button data-act="ti" data-k="${ti.key}" data-v="${v}" class="${(t.tactics[ti.key] || DEFAULT_TACTICS[ti.key]) === v ? 'on' : ''}">${l}</button>`).join('')}</div>`).join('')}
-          ${(userClub(s).presets || []).some(Boolean) ? `<div class="label">Plans enregistrés</div><div class="btns">${(userClub(s).presets || []).map((pl, i) => pl ? `<button class="btn sm" data-act="plan" data-v="${i}">Plan ${'ABC'[i]}</button>` : '').join('')}</div>` : ''}`}
-        <button class="btn primary lg block" style="margin-top:14px" data-act="close">${isHT ? 'Retour au vestiaire' : '▶ Reprendre'}</button>`;
+      const T = t();
+      return `<div class="row between"><h2>${isHT ? 'Vestiaire' : 'Banc de touche'} · ${clockLabel(m.minute, m.extra)}</h2><b class="num" style="font-size:20px">${m.score[0]} - ${m.score[1]}</b></div>
+        <div style="margin:8px 0">${seg('ptab', ['compo', 'tac', 'stats'], tab, { compo: `Compo & changements (${MAX_SUBS - T.subsUsed})`, tac: 'Tactique', stats: 'Stats' })}</div>
+        ${tab === 'compo' ? `
+          <div class="chips">${FORMATION_NAMES.map((f) => `<button class="chip ${T.tactics.formation === f && !T.tactics.custom ? 'on' : ''}" data-act="form" data-v="${f}">${f}</button>`).join('')}</div>
+          <div class="mlay"><div>${pitchHtml()}</div><div>${selPanel()}${benchHtml()}</div></div>`
+        : tab === 'tac' ? tacHtml()
+        : `${statsHtml()}${adviceHtml()}`}
+        <button class="btn primary lg block" style="margin-top:14px" data-act="close">${isHT ? 'Retour au vestiaire' : '▶ Reprendre le match'}</button>`;
     };
     const h = app.sheet({
-      root, html,
+      root, html: html(), full: true,
       onClose: () => { if (resumeAfter && !ctrl.finished) view.play(); },
       actions: {
         ptab: (el) => { tab = el.dataset.v; h.update(html()); },
-        out: (el) => { sel = +el.dataset.id; h.update(html()); },
+        pick: (el) => {
+          const id = +el.dataset.id;
+          if (!id) return;
+          if (sel && sel !== id) {
+            // Deux joueurs du terrain : ils échangent leurs postes.
+            if (swapSlots(m, userSide, sel, id)) { syncPitch(); app.toast('Postes échangés'); }
+            sel = null;
+          } else sel = sel === id ? null : id;
+          h.update(html());
+        },
         in: (el) => {
-          if (!sel) { app.toast('Choisissez d\'abord le joueur à sortir.'); return; }
+          if (!sel) { app.toast('Touchez d\'abord le joueur à sortir sur le terrain.'); return; }
           const r = makeSub(m, userSide, sel, +el.dataset.id);
           if (!r.ok) { app.toast(r.error); return; }
           view.queue.unshift(...r.events);
           sel = null; h.update(html());
         },
-        form: (el) => { changeFormation(m, userSide, el.dataset.v); view.syncPlayers(false); h.update(html()); },
-        ment: (el) => { setTactic(m, userSide, 'mentality', el.dataset.v); h.update(html()); },
-        press: (el) => { setTactic(m, userSide, 'pressing', el.dataset.v); h.update(html()); },
-        tempo: (el) => { setTactic(m, userSide, 'tempo', el.dataset.v); h.update(html()); },
+        pi: (el) => {
+          const T = t(), mp = T.onPitch.find((x) => x && x.id === sel);
+          if (!mp) return;
+          T.pi[mp.slot] = { ...(T.pi[mp.slot] || {}), [el.dataset.k]: el.dataset.v };
+          h.update(html());
+        },
+        form: (el) => { changeFormation(m, userSide, el.dataset.v); syncPitch(); sel = null; h.update(html()); },
         ti: (el) => { setTactic(m, userSide, el.dataset.k, el.dataset.v); h.update(html()); },
+        qplan: (el) => {
+          const q = QUICK_PLANS.find((x) => x.id === el.dataset.v);
+          for (const [k, v] of Object.entries(q.tac)) setTactic(m, userSide, k, v);
+          app.toast(`${q.icon} ${q.label}`); h.update(html());
+        },
         plan: (el) => {
           const pl = (userClub(s).presets || [])[+el.dataset.v];
           if (!pl) return;
-          applyPlan(m, userSide, pl); view.syncPlayers(false);
+          applyPlan(m, userSide, pl); syncPitch();
           app.toast(`Plan ${'ABC'[+el.dataset.v]} appliqué`); h.update(html());
         },
       },

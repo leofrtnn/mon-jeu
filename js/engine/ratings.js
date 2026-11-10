@@ -32,7 +32,8 @@ export function isAvailable(p) {
  * Une énergie de 100 => 1.0 ; 60 => ~0.89.
  */
 export function conditionFactor(p, energy = 100) {
-  const e = 0.72 + 0.28 * (energy / 100);
+  // Peu d'effet tant qu'il reste du jus ; en dessous de 70 %, le rendement chute nettement.
+  const e = energy >= 70 ? 1 - (100 - energy) * 0.002 : 0.94 - (70 - energy) * 0.0075;
   const f = 1 + ((p.form ?? 50) - 50) / 1250;
   const m = 1 + ((p.morale ?? 50) - 50) / 1700;
   return e * f * m;

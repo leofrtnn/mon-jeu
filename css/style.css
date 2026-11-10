@@ -823,3 +823,23 @@ html.land.short .ce-side { padding: 10px; }
 /* Recrutement : recherche + filtre budget. */
 .mkt-tools { display: flex; gap: 10px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
 .mkt-tools .pk-search { max-width: 420px; }
+
+/* ---------- Match : banc de touche (compo, changements, tactique) ---------- */
+.mlay { display: grid; grid-template-columns: 1fr; gap: 12px; margin-top: 8px; }
+html.land .mlay { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; }
+.mpitch { max-width: 420px; margin: 0 auto; }
+html.land .mpitch { max-height: calc(var(--H) - 210px); width: auto; aspect-ratio: 68 / 80; }
+.mpitch .slot { cursor: pointer; }
+.mpitch .slot .en { width: 40px; height: 4px; border-radius: 2px; background: rgba(0, 0, 0, .55); margin-top: 2px; overflow: hidden; }
+.mpitch .slot .en i { display: block; height: 100%; }
+.mpitch .slot.sel .tok { outline: 3px solid #fff; outline-offset: 3px; border-radius: 50%; }
+.mhelp { font-size: 12px; margin: 2px 0 8px; }
+.msel { margin: 0 0 10px; padding: 10px 12px; }
+.mrow { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 5px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+.mrow > span { flex: 0 0 auto; color: var(--muted); }
+.mrow .hint { font-style: normal; display: inline-flex; width: 15px; height: 15px; border-radius: 50%; background: var(--line2); font-size: 10px; align-items: center; justify-content: center; }
+.seg.sm { flex: 0 1 auto; }
+.seg.sm button { padding: 6px 9px; font-size: 12px; min-height: 32px; }
+.qplans { display: flex; flex-wrap: wrap; gap: 8px; }
+.mtac { display: grid; grid-template-columns: 1fr; gap: 4px 20px; }
+html.land .mtac { grid-template-columns: 1fr 1fr; }

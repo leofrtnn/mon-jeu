@@ -381,6 +381,20 @@ class Player3D {
       this.body.rotation.z = 0.22 * (1 - k) - 0.3 * k;
       lL.hip.rotation.z = 0.35; lR.hip.rotation.z = -0.25; lL.knee.rotation.z = -0.2; lR.knee.rotation.z = -0.3;
     }
+    // Ballon posé (coup franc, corner, six mètres) : il se penche et le place à deux mains.
+    if (p.place > 0) {
+      const k = Math.sin((1 - p.place / 0.9) * Math.PI);
+      // Buste penché en avant, jambes ramenées à la verticale et genoux pliés (accroupi).
+      this.body.rotation.z = -0.6 * k; this.body.position.y = -0.3 * k;
+      lL.hip.rotation.z = lR.hip.rotation.z = 1.25 * k; lL.knee.rotation.z = lR.knee.rotation.z = -1.3 * k;
+      for (const a of this.arms) { a.sh.rotation.z = 0.95 * k; a.sh.rotation.x = a.sgn * 0.15 * k; a.el.rotation.z = 0.15; }
+    }
+    // Tireur de corner : bras levé pour donner le signal.
+    if (p.signal > 0) { const a = this.arms[1]; a.sh.rotation.x = -a.sgn * 2.55; a.sh.rotation.z = 0.25; a.el.rotation.z = 0.1; }
+    // Mur : les joueurs se protègent, mains devant eux, coudes serrés.
+    if (p.wall && !(p.jump > 0)) {
+      for (const a of this.arms) { a.sh.rotation.z = 0.2; a.sh.rotation.x = a.sgn * 0.3; a.el.rotation.z = 0.75; }
+    }
     // Gardien ballon en main : bras repliés contre la poitrine.
     if (ctx.holding) {
       for (const a of this.arms) { a.sh.rotation.z = 0.9; a.sh.rotation.x = a.sgn * 0.25; a.el.rotation.z = 1.5; }

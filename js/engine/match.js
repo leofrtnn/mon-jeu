@@ -732,9 +732,19 @@ export function decayEnergy(m) {
   for (const t of m.teams) {
     const pv = LVL[t.tactics.pressing], tv = LVL[t.tactics.tempo];
     for (const mp of activePlayers(t)) {
-      let d = 0.42 - mp.p.attrs.phy * 0.0022 + pv * 0.06 + tv * 0.03 + (t.tactics.marking === 'man' ? 0.03 : 0);
-      if (t.slots[mp.slot].pos === 'GB') d *= 0.35;
-      mp.energy = clamp(mp.energy - d * late * (1 + (mp.p.age > 31 ? 0.1 : 0)) * (t.cm ? t.cm.fatigue : 1), 5, 100);
+      let d;
+      if (mp.work != null) {
+        // Moteur en direct : la fatigue vient de ce que le joueur a réellement couru cette
+        // minute (sprints, pressing, retours défensifs), tempérée par son physique.
+        // + intensité imposée par les consignes (pressing, tempo, marquage individuel).
+        d = (0.05 + mp.work * 0.0058 + pv * 0.09 + tv * 0.04 + (t.tactics.marking === 'man' ? 0.03 : 0)) * (1.3 - mp.p.attrs.phy / 180);
+        if (t.slots[mp.slot].pos === 'GB') d *= 0.4;
+        mp.work = 0;
+      } else {
+        d = 0.42 - mp.p.attrs.phy * 0.0022 + pv * 0.06 + tv * 0.03 + (t.tactics.marking === 'man' ? 0.03 : 0);
+        if (t.slots[mp.slot].pos === 'GB') d *= 0.35;
+      }
+      mp.energy = clamp(mp.energy - d * (mp.work != null ? 1 : late) * (1 + (mp.p.age > 31 ? 0.1 : 0)) * (t.cm ? t.cm.fatigue : 1), 5, 100);
       // Blessure "sans contact", plus fréquente quand le joueur est épuisé.
       if (m.rng.chance(0.00005 * t.injuryMod * (mp.energy < 50 ? 2.5 : 1))) {
         m._pendingInjury = m._pendingInjury || [];
@@ -867,6 +877,18 @@ export function makeSub(m, side, outId, inId) {
   const events = [];
   doSub(m, events, T, outMp, inMp, false);
   return { ok: true, events };
+}
+
+/** Échange les postes de deux joueurs sur le terrain (pendant le match). */
+export function swapSlots(m, side, idA, idB) {
+  const T = m.teams[side];
+  const a = T.onPitch.find((mp) => mp && mp.id === idA), b = T.onPitch.find((mp) => mp && mp.id === idB);
+  if (!a || !b || a === b) return false;
+  const ia = T.onPitch.indexOf(a), ib = T.onPitch.indexOf(b);
+  T.onPitch[ia] = b; T.onPitch[ib] = a;
+  [a.slot, b.slot] = [b.slot, a.slot];
+  refreshMultipliers(m);
+  return true;
 }
 
 /** Change la formation en réaffectant au mieux les joueurs présents. */
