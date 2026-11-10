@@ -2,6 +2,7 @@
  * Écran de démarrage : 3 emplacements de sauvegarde (continuer, nouvelle partie,
  * importer, supprimer), puis choix du club.
  */
+import { storedRatings, applyRatings } from '../../game/ratingsImport.js';
 import { newGame, startCareer } from '../../game/season.js';
 import { load, deleteSave, clubPlayers, slotsInfo, SLOTS, setSlot, importFile, legacySave, dropLegacy, restoreSlot, lastKey } from '../../game/state.js';
 import { squadStrength, overall } from '../../engine/ratings.js';
@@ -217,7 +218,11 @@ export const actions = {
     busy(true, 'Chargement des championnats…');
     try {
       const data = await loadRealData();
-      startNew(app, slot, newGame((Date.now() ^ (Math.random() * 1e9)) >>> 0, { real: data }));
+      const st = newGame((Date.now() ^ (Math.random() * 1e9)) >>> 0, { real: data });
+      // Notes importées par l'utilisateur (Réglages → Notes des joueurs) : appliquées à la nouvelle partie.
+      const rl = storedRatings();
+      if (rl) applyRatings(st, rl);
+      startNew(app, slot, st);
     } catch (e) { app.toast('Impossible de charger les championnats (vérifiez la connexion).', 4000); }
     finally { busy(false); }
   },

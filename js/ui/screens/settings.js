@@ -2,6 +2,7 @@
  * Réglages : options de match, données (import/export de noms), sauvegardes.
  */
 import { exportNames, importNames } from '../../game/dataImport.js';
+import { readRatings, applyRatings, storeRatings, storedRatings, clearStoredRatings } from '../../game/ratingsImport.js';
 import { esc } from '../components.js';
 import { downloadJson, downloadText, readFileAsText } from '../files.js';
 import { getSlot, exportFile, importFile, slotsInfo } from '../../game/state.js';
@@ -28,6 +29,14 @@ export function render(app) {
       <div class="btns"><button class="btn" data-act="exportSave">Exporter la partie</button>
         <label class="btn">Importer ici<input type="file" accept=".json,application/json" data-act="importSave" hidden></label></div>
       <p class="muted" style="font-size:12px;margin-bottom:0">L'export produit un fichier .json à conserver ou à transférer sur un autre appareil.</p></div>
+    <div class="card"><h3>Notes des joueurs (import)</h3>
+      <p class="muted" style="font-size:13px;margin-top:0">Importez votre propre fichier de notes : liste de joueurs exportée depuis votre jeu de gestion
+        (fichier texte avec des « | », CSV ou page HTML). Colonnes reconnues : <b>Nom</b>, <b>Club</b>, <b>CA</b>/<b>PA</b> (sur 200, convertis sur 100),
+        <b>Note</b> (sur 100) et les attributs sur 20 (Fin, Pas, Dri, Tac, Vit, For, Vis, Sf, Réf…).</p>
+      ${(() => { const st0 = storedRatings(); return st0 ? `<p style="font-size:13px;margin:0 0 8px">✅ Import mémorisé : <b>${st0.length}</b> joueurs (appliqué aussi aux nouvelles parties).</p>` : ''; })()}
+      <div class="btns"><label class="btn primary">Importer un fichier de notes<input type="file" accept=".txt,.csv,.tsv,.html,.htm,.rtf,text/*" data-act="importRatings" hidden></label>
+        ${storedRatings() ? '<button class="btn" data-act="forgetRatings">Oublier l\'import</button>' : ''}</div>
+      ${app.ui.ratingsMissing?.length ? `<details style="margin-top:8px"><summary class="muted" style="font-size:12px">${app.ui.ratingsMissing.length} joueur(s) du fichier non trouvés dans la partie</summary><p class="muted" style="font-size:12px">${app.ui.ratingsMissing.slice(0, 80).map(esc).join(', ')}${app.ui.ratingsMissing.length > 80 ? '…' : ''}</p></details>` : ''}</div>
     <div class="card"><button class="btn danger block" data-act="quit">Quitter vers le menu</button></div>`;
 }
 
@@ -45,6 +54,20 @@ export const actions = {
       if (r.ok) { app.save(); app.render(); }
     } catch (e) { app.toast('Fichier JSON invalide.'); }
   },
+  async importRatings(el, app) {
+    const f = el.files?.[0];
+    if (!f) return;
+    try {
+      const { list, error } = readRatings(await readFileAsText(f));
+      if (error || !list.length) { app.toast(error || 'Aucun joueur lisible dans ce fichier.', 4000); return; }
+      const r = applyRatings(app.state, list);
+      storeRatings(list);
+      app.ui.ratingsMissing = r.missing;
+      app.save(true); app.render();
+      app.toast(`${r.matched} joueur(s) mis à jour sur ${r.total} lus.`, 4000);
+    } catch (e) { console.warn(e); app.toast('Fichier illisible.'); }
+  },
+  forgetRatings(el, app) { clearStoredRatings(); app.ui.ratingsMissing = null; app.render(); app.toast('Import oublié (les notes de la partie en cours restent).'); },
   exportSave(el, app) {
     app.save(true);
     downloadText(exportFile(app.state), `coach-de-poche-${app.state.season}-j${app.state.day + 1}.json`, 'application/json');
