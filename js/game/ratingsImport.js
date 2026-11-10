@@ -19,9 +19,12 @@
 import { overall } from '../engine/ratings.js';
 import { fitToLevel } from '../data/generator.js';
 import { playerValue, playerWage } from './economy.js';
+import { TOP100 } from '../data/top100.js';
 
 const KEY = 'cdp-ratings-import';
 const fold = (t) => String(t ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
+/** Nom comparable : accents, ponctuation, « Jr » = « Júnior ». */
+const foldName = (t) => fold(t).replace(/\bjr\b/g, 'junior');
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
 /** Capacité (0-200, échelle des jeux de gestion) → note sur 100 de ce jeu. */
@@ -125,17 +128,19 @@ export function readRatings(text) {
 /* ---------- Application à la partie ---------- */
 
 function indexPlayers(state) {
-  const full = new Map(), last = new Map();
+  const full = new Map(), last = new Map(), first = new Map();
   const clubName = new Map(state.clubs.map((c) => [c.id, fold(c.name)]));
   for (const p of Object.values(state.players)) {
-    const k = fold(`${p.first || ''} ${p.last || ''}`);
+    const k = foldName(`${p.first || ''} ${p.last || ''}`);
     if (!full.has(k)) full.set(k, []);
     full.get(k).push(p);
-    const l = fold(p.last || p.name);
+    const l = foldName(p.last || p.name);
     if (!last.has(l)) last.set(l, []);
     last.get(l).push(p);
+    const f = foldName(p.first || '');
+    if (f) { if (!first.has(f)) first.set(f, []); first.get(f).push(p); }
   }
-  return { full, last, clubName };
+  return { full, last, first, clubName };
 }
 
 function pick(cands, club, idx) {
@@ -152,23 +157,34 @@ function pick(cands, club, idx) {
 }
 
 /** Applique la liste à la partie. Retourne { matched, total, missing: [noms] }. */
-export function applyRatings(state, list) {
+export function applyRatings(state, list, { best = false } = {}) {
   const idx = indexPlayers(state);
   let matched = 0;
   const missing = [];
+  const used = new Set();
   for (const row of list) {
-    const nf = fold(row.name);
-    let p = pick(idx.full.get(nf), row.club, idx);
-    if (!p) {
-      // « Kylian Mbappé » ↔ « K. Mbappé » / nom seul : par le nom de famille (+ club).
-      const words = nf.split(' ');
-      for (let k = 1; k < words.length && !p; k++) p = pick(idx.last.get(words.slice(k).join(' ')), row.club, idx);
-      if (!p && words.length === 1) p = pick(idx.last.get(nf), row.club, idx);
+    const nf = foldName(row.name);
+    const words = nf.split(' ');
+    let p = pick((idx.full.get(nf) || []).filter((q) => !row.pos || q.pos === row.pos), row.club, idx);
+    // « Kylian Mbappé » ↔ « K. Mbappé » / nom seul : par le nom de famille (+ club).
+    // (le prénom doit commencer pareil : « Son Heung-min » n'est pas « David Min »)
+    const sameInitial = (q) => !q.first || foldName(q.first).startsWith(words[0][0]);
+    for (let k = 1; k < words.length && !p; k++) { const q = pick(idx.last.get(words.slice(k).join(' ')), row.club, idx); if (q && sameInitial(q)) p = q; }
+    if (!p && words.length === 1) p = pick([...(idx.last.get(nf) || []), ...(idx.first.get(nf) || [])].filter((q) => !row.pos || q.pos === row.pos), row.club, idx);
+    if (!p && best) {
+      // Homonymes : pour une liste de stars, le meilleur joueur portant ce nom est le bon.
+      const cands = [...(idx.full.get(nf) || []), ...(words.length > 1 ? idx.last.get(words.slice(1).join(' ')) || [] : []),
+        ...(words.length === 1 ? [...(idx.last.get(nf) || []), ...(idx.first.get(nf) || [])] : [])]
+        .filter((q) => !used.has(q) && (!row.pos || q.pos === row.pos) && (words.length === 1 || foldName(q.first || '').startsWith(words[0][0])));
+      p = cands.sort((a, b) => overall(b) - overall(a))[0] || null;
     }
+    if (p && used.has(p)) p = null;
     if (!p) { missing.push(row.name); continue; }
-    if (row.attrs) {
-      p.attrs = { ...p.attrs, ...row.attrs };
-      if (p.pos === 'GB' && row.attrs.arr == null) p.attrs.arr = p.attrs.arr || 60;
+    used.add(p);
+    const rowAttrs = row.raw ? top100Attrs(p, row.raw) : row.attrs;
+    if (rowAttrs) {
+      p.attrs = { ...p.attrs, ...rowAttrs };
+      if (p.pos === 'GB' && rowAttrs.arr == null) p.attrs.arr = p.attrs.arr || 60;
     }
     if (row.note != null) fitToLevel(p, row.note);
     const o = overall(p);
@@ -197,3 +213,30 @@ export function storedRatings() {
   } catch { return null; }
 }
 export function clearStoredRatings() { try { localStorage.removeItem(KEY); } catch { /* ignore */ } }
+
+/* ---------- Top 100 intégré au jeu ---------- */
+export const TOP100_V = 2;
+
+/**
+ * Attributs clés du top 100 (sur 20) → profil du jeu (sur 100), selon le poste du joueur :
+ * technique → dribble, mental → vision et sang-froid, physique, passes, finition → tir,
+ * placement → défense pour un défenseur / milieu défensif, arrêts pour un gardien
+ * (pour un attaquant, le placement est offensif : on ne touche pas à sa défense).
+ */
+function top100Attrs(p, [tech, ment, phys, pass, fin, plac]) {
+  const v = (x) => clamp(Math.round(x * 5 - 2), 5, 97);
+  const a = { dri: v(tech), vis: v(ment), sf: v(ment), phy: v(phys), pas: v(pass), tir: v(fin) };
+  if (p.pos === 'GB') a.arr = v(plac);
+  else if (['DC', 'DG', 'DD', 'MDC'].includes(p.pos)) a.def = v(plac);
+  else if (p.pos === 'MC') a.def = Math.round((v(plac) + (p.attrs.def ?? 60)) / 2);
+  return a;
+}
+
+/** Applique le top 100 intégré (CA / PA → notes sur 100, attributs clés). Une fois par version. */
+export function applyTop100(state) {
+  if (state.world !== 'real' || state.top100V === TOP100_V) return null;
+  const list = TOP100.map(([name, club, ca, pa, pos, raw]) => ({ name, club, pos, raw, note: abilityTo100(ca), pot: abilityTo100(pa), attrs: null }));
+  const r = applyRatings(state, list, { best: true });
+  state.top100V = TOP100_V;
+  return r;
+}

@@ -43,7 +43,7 @@ export const TUNE = {
   lossW: 2.2,         // coût de la perte de balle dans le choix des passes
   tackleRate: 1.6,    // fréquence des tentatives de tacle
   foulP: 0.28,        // part des tentatives de tacle qui finissent en faute
-  xg: 1.3,            // échelle du modèle d'xG géométrique
+  xg: 1.55,           // échelle du modèle d'xG géométrique
   takeonW: 1.0,       // attrait du crochet / débordement
 };
 

@@ -8,6 +8,7 @@ import { money } from '../game/economy.js';
 import { esc, clubAccent, refreshStarRef, crest } from './components.js';
 import { DIVISIONS } from '../data/world.js';
 import { scrollTop } from './viewport.js';
+import { applyTop100, TOP100_V } from '../game/ratingsImport.js';
 import { today } from '../game/season.js';
 import { currentDate, longDate } from '../game/dates.js';
 import { avatarSvg } from './avatar.js';
@@ -167,6 +168,8 @@ export const app = {
         const st = this.state;
         loadRealData().then((d) => { if (enrichRealSave(st, d) && st === this.state) { this.save(); this.render(); } }).catch(() => {}).finally(() => { this._enriching = false; });
       }
+      // Top 100 intégré : appliqué une fois aux parties « monde réel » déjà commencées.
+      if (this.state.world === 'real' && this.state.top100V !== TOP100_V) { applyTop100(this.state); this.save(); }
       // Logos gardés sur l'appareil : téléchargés une fois, puis toujours affichés (même hors ligne).
       if (this.state.world === 'real' && !this._logosQueued) {
         let done = false;

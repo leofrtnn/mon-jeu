@@ -6,6 +6,7 @@
 import { createRng, hashSeed, clamp } from '../core/rng.js';
 import { createWorld, createYouth, getNextId, setNextId, assignNumbers } from '../data/generator.js';
 import { createRealWorld } from '../data/realWorld.js';
+import { applyTop100 } from './ratingsImport.js';
 import { DIVISIONS, DIV_IDS, COUNTRIES, CONTI_SLOTS, CONTI_NAME, DIV_NAMES, applyWorld } from '../data/world.js';
 import { NATION_COLORS } from '../data/names.js';
 import { autoLineup, isAvailable, overall, squadStrength, ratingAt } from '../engine/ratings.js';
@@ -70,6 +71,7 @@ export function newGame(seed = (Date.now() >>> 0), { real = null } = {}) {
     if (co.nat) m.nat = co.nat;
     if (co.age) m.age = co.age;
   }
+  applyTop100(state);   // notes du top 100 intégré (monde réel)
   return state;
 }
 
