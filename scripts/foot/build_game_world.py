@@ -112,11 +112,31 @@ REP_KEY = [
   ('nantes', 66, 'FCN2'), ('montpellier', 64, 'MHSC'), ('reims', 64, 'SDR'), ('saint-etienne', 64, 'ASSE'), ('saint etienne', 64, 'ASSE'),
   ('metz', 62, 'FCM2'), ('guingamp', 58, 'EAG'), ('clermont', 58, 'CF63'), ('dijon', 57, 'DFCO'),
   ('maccabi tel aviv', 66, 'MTA'), ('maccabi haifa', 64, 'MHA'), ('hapoel be', 64, 'HBS'), ('beitar', 63, 'BEI'), ('hapoel tel aviv', 60, 'HTA'),
+  # Championnats 36 à 45.
+  ('ulsan', 65, 'ULS'), ('jeonbuk', 66, 'JEO'), ('pohang', 63, 'POH'), ('fc seoul', 62, 'SEO'), ('gangwon', 60, 'GAN'), ('gimcheon', 59, 'GIM'),
+  ('daejeon', 59, 'DAE'), ('gwangju', 59, 'GWA'), ('jeju', 58, 'JEJ'), ('suwon', 58, 'SUW'), ('incheon', 57, 'INC'), ('daegu', 57, 'DGU'),
+  ('shanghai port', 64, 'SHP'), ('shanghai shenhua', 64, 'SHS'), ('chengdu rongcheng', 63, 'CDR'), ('beijing guoan', 62, 'BGA'),
+  ('shandong taishan', 62, 'SDT'), ('tianjin jinmen', 58, 'TJJ'), ('zhejiang', 58, 'ZHE'), ('wuhan three towns', 58, 'WTT'),
+  ('melbourne city', 60, 'MCY'), ('melbourne victory', 59, 'MVI'), ('sydney fc', 59, 'SYD'), ('central coast', 58, 'CCM'),
+  ('western sydney', 58, 'WSW'), ('auckland', 58, 'AKL'), ('wellington', 56, 'WEL'), ('adelaide', 57, 'ADE'), ('macarthur', 56, 'MAC3'),
+  ('al ain', 66, 'AIN'), ('shabab al ahli', 66, 'SAA'), ('al wahda', 63, 'WAH'), ('al jazira', 63, 'JAZ'), ('sharjah', 64, 'SHJ'), ('al wasl', 63, 'WAS'),
+  ('al nasr', 60, 'NSR'), ('baniyas', 58, 'BAN2'), ('ajman', 56, 'AJM'),
+  ('al sadd', 67, 'SAD'), ('al duhail', 65, 'DUH'), ('al-duhail', 65, 'DUH'), ('al-rayyan', 63, 'RAY'), ('al rayyan', 63, 'RAY'), ('al-gharafa', 62, 'GHA'),
+  ('al-arabi', 61, 'ARA'), ('al arabi', 61, 'ARA'), ('al-wakrah', 60, 'WAK'), ('qatar sc', 58, 'QSC'), ('umm salal', 58, 'UMS'), ('al-sailiya', 57, 'SAI'),
+  ('wydad', 63, 'WAC'), ('raja', 63, 'RCA'), ('fus rabat', 60, 'FUS'), ('as far', 61, 'FAR2'), ('renaissance berkane', 62, 'RSB2'), ('berkane', 62, 'RSB2'),
+  ('hassania', 56, 'HUSA'), ('maghreb fes', 57, 'MAS'), ('ittihad tanger', 57, 'IRT'),
+  ('universitario', 61, 'UNI'), ('alianza lima', 61, 'ALI'), ('sporting cristal', 60, 'SCR'), ('melgar', 57, 'MEL'), ('cienciano', 56, 'CIE'),
+  ('colo-colo', 63, 'COL2'), ('colo colo', 63, 'COL2'), ('universidad de chile', 62, 'UCH'), ('universidad catolica', 61, 'UCA'), ('palestino', 57, 'PAL3'),
+  ('everton de vina', 56, 'EVE2'), ('huachipato', 56, 'HUA'), ('cobresal', 55, 'COB'), ('o\'higgins', 56, 'OHI'),
+  ('atletico nacional', 64, 'ATN'), ('millonarios', 63, 'MIL3'), ('america de cali', 62, 'AME2'), ('junior', 62, 'JUN'), ('independiente santa fe', 61, 'SFE'),
+  ('deportivo cali', 60, 'CAL'), ('independiente medellin', 60, 'DIM'), ('once caldas', 59, 'ONC'), ('atletico bucaramanga', 59, 'BUC'), ('tolima', 59, 'TOL2'),
+  ('penarol', 63, 'PEN'), ('defensor sporting', 59, 'DEF'), ('liverpool montevideo', 58, 'LIV2'), ('danubio', 57, 'DAN'), ('wanderers', 56, 'MWA'),
 ]
 DEFAULT_REP = {'POR1': 57, 'NED1': 58, 'BEL1': 57, 'TUR1': 59, 'CZE1': 55, 'GRE1': 55, 'NOR1': 55, 'POL1': 56, 'DEN1': 56, 'AUT1': 55,
                'SUI1': 56, 'SCO1': 54, 'SWE1': 55, 'CRO1': 54, 'SRB1': 53,
                'BRA1': 64, 'KSA1': 58, 'MEX1': 62, 'JPN1': 61, 'RUS1': 60, 'UKR1': 56, 'ROU1': 56, 'HUN1': 54, 'CYP1': 54, 'ISR1': 55,
-               'ENG2': 62, 'ESP2': 59, 'ITA2': 59, 'GER2': 60, 'FRA2': 57}
+               'ENG2': 62, 'ESP2': 59, 'ITA2': 59, 'GER2': 60, 'FRA2': 57,
+               'KOR1': 57, 'CHN1': 56, 'AUS1': 55, 'UAE1': 56, 'QAT1': 56, 'MAR1': 54, 'PER1': 53, 'CHI1': 54, 'COL1': 56, 'URU1': 54}
 PREFIX = {'fc', 'sc', 'sk', 'fk', 'ac', 'kv', 'k', 'r', 'rsc', 'sl', 'cd', 'cf', 'gd', 'ud', 'kaa', 'krc', 'kvc', 'rc', 'sv', 'afc', 'f', 'c', 's', 'a',
           'royal', 'royale', 'club', 'cs', 'pec', 'ado', 'sfk', '1', 'raal', 'fsv', 'ksv', 'vv', 'sint', 'oud'}
 
@@ -124,7 +144,8 @@ def ascii_low(s):
     s = s.translate(str.maketrans({'ø': 'o', 'Ø': 'O', 'æ': 'ae', 'Æ': 'AE', 'ł': 'l', 'Ł': 'L', 'đ': 'd', 'Đ': 'D', 'ß': 'ss', 'ı': 'i'}))
     return unicodedata.normalize('NFKD', s).encode('ascii', 'ignore').decode().lower()
 
-LEAGUE_KEY = {('FRA2', 'red star'): (57, 'RSFC'), ('ENG2', 'queens park'): (61, 'QPR'), ('ESP2', 'sporting'): (62, 'SPG')}   # homonymes (Red Star de Paris ≠ Étoile rouge de Belgrade)
+LEAGUE_KEY = {('FRA2', 'red star'): (57, 'RSFC'), ('ENG2', 'queens park'): (61, 'QPR'), ('ESP2', 'sporting'): (62, 'SPG'),
+              ('URU1', 'nacional'): (63, 'NAC'), ('URU1', 'liverpool'): (58, 'LIV2'), ('CHI1', 'everton'): (56, 'EVE2'), ('UAE1', 'al ahli'): (66, 'SAA'), ('URU1', 'river plate'): (56, 'RPM')}   # homonymes (Red Star de Paris ≠ Étoile rouge de Belgrade)
 def rep_short(c, league):
     n = ascii_low(c['name'] + ' ' + c['id'].replace('-', ' '))
     for (lg, key), v in LEAGUE_KEY.items():

@@ -44,6 +44,17 @@ LEAGUES = [
     {'id': 'GER2', 'size': 18, 'name': '2. Bundesliga', 'country': 'Allemagne', 'templates': ['Template:2. Bundesliga']},
     {'id': 'FRA2', 'size': 18, 'name': 'Ligue 2', 'country': 'France', 'templates': ['Template:Ligue 2 teamlist']},
     {'id': 'ISR1', 'size': 14, 'name': 'Ligat HaAl', 'country': 'Israël', 'templates': ['Template:Ligat HaAl'], 'season': '|Clubs]]'},
+    # Championnats 36 à 45 : Asie, Océanie, Golfe, Afrique du Nord, Amérique du Sud.
+    {'id': 'KOR1', 'size': 12, 'name': 'K League 1', 'country': 'Corée du Sud', 'templates': [], 'article': '2026 K League 1'},
+    {'id': 'CHN1', 'size': 16, 'name': 'Super League (CHN)', 'country': 'Chine', 'templates': [], 'article': '2026 Chinese Super League'},
+    {'id': 'AUS1', 'size': 12, 'name': 'A-League', 'country': 'Australie', 'templates': [], 'article': '2025–26 A-League Men'},
+    {'id': 'UAE1', 'size': 14, 'name': 'UAE Pro League', 'country': 'Émirats arabes unis', 'templates': ['Template:UAE Pro League'], 'season': '2025–26'},
+    {'id': 'QAT1', 'size': 12, 'name': 'Stars League', 'country': 'Qatar', 'templates': [], 'article': '2025–26 Qatar Stars League'},
+    {'id': 'MAR1', 'size': 16, 'name': 'Botola Pro', 'country': 'Maroc', 'templates': [], 'article': '2025–26 Botola Pro'},
+    {'id': 'PER1', 'size': 18, 'name': 'Liga 1 (PER)', 'country': 'Pérou', 'templates': [], 'article': '2026 Liga 1 (Peru)'},
+    {'id': 'CHI1', 'size': 16, 'name': 'Primera División (CHI)', 'country': 'Chili', 'templates': ['Template:Chilean Primera División'], 'season': '2026'},
+    {'id': 'COL1', 'size': 20, 'name': 'Primera A', 'country': 'Colombie', 'templates': ['Template:Categoría Primera A'], 'season': '2026'},
+    {'id': 'URU1', 'size': 16, 'name': 'Primera División (URU)', 'country': 'Uruguay', 'templates': ['Template:Uruguayan Primera División'], 'season': '2026'},
 ]
 CLUB_BOX = re.compile(r'\{\{\s*Infobox football club', re.I)
 

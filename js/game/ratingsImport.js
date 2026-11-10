@@ -170,11 +170,14 @@ export function applyRatings(state, list, { best = false } = {}) {
     // (le prénom doit commencer pareil : « Son Heung-min » n'est pas « David Min »)
     const sameInitial = (q) => !q.first || foldName(q.first).startsWith(words[0][0]);
     for (let k = 1; k < words.length && !p; k++) { const q = pick(idx.last.get(words.slice(k).join(' ')), row.club, idx); if (q && sameInitial(q)) p = q; }
-    if (!p && words.length === 1) p = pick([...(idx.last.get(nf) || []), ...(idx.first.get(nf) || [])].filter((q) => !row.pos || q.pos === row.pos), row.club, idx);
+    // Nom d'un seul mot : nom de famille / surnom (Rodri, Pedri) ; un prénom seulement si le club concorde (Alisson Becker).
+    const clubOk = (q) => { const cn = idx.clubName.get(q.clubId) || '', cf = fold(row.club); return !!cf && !!cn && (cn.includes(cf) || cf.includes(cn) || cn.split(' ').some((w) => w.length > 3 && cf.includes(w))); };
+    const firstOk = (idx.first.get(nf) || []).filter(clubOk);
+    if (!p && words.length === 1) p = pick([...(idx.last.get(nf) || []), ...firstOk].filter((q) => !row.pos || q.pos === row.pos), row.club, idx);
     if (!p && best) {
       // Homonymes : pour une liste de stars, le meilleur joueur portant ce nom est le bon.
       const cands = [...(idx.full.get(nf) || []), ...(words.length > 1 ? idx.last.get(words.slice(1).join(' ')) || [] : []),
-        ...(words.length === 1 ? [...(idx.last.get(nf) || []), ...(idx.first.get(nf) || [])] : [])]
+        ...(words.length === 1 ? [...(idx.last.get(nf) || []), ...firstOk] : [])]
         .filter((q) => !used.has(q) && (!row.pos || q.pos === row.pos) && (words.length === 1 || foldName(q.first || '').startsWith(words[0][0])));
       p = cands.sort((a, b) => overall(b) - overall(a))[0] || null;
     }
@@ -215,7 +218,7 @@ export function storedRatings() {
 export function clearStoredRatings() { try { localStorage.removeItem(KEY); } catch { /* ignore */ } }
 
 /* ---------- Top 100 intégré au jeu ---------- */
-export const TOP100_V = 2;
+export const TOP100_V = 3;
 
 /**
  * Attributs clés du top 100 (sur 20) → profil du jeu (sur 100), selon le poste du joueur :
@@ -225,7 +228,9 @@ export const TOP100_V = 2;
  */
 function top100Attrs(p, [tech, ment, phys, pass, fin, plac]) {
   const v = (x) => clamp(Math.round(x * 5 - 2), 5, 97);
-  const a = { dri: v(tech), vis: v(ment), sf: v(ment), phy: v(phys), pas: v(pass), tir: v(fin) };
+  const a = { dri: v(tech), vis: v(ment), sf: v(ment), phy: v(phys), pas: v(pass) };
+  // Finition : ignorée pour les défenseurs et gardiens (les fichiers fournis y mettent parfois n'importe quoi).
+  if (!['GB', 'DC', 'DG', 'DD'].includes(p.pos)) a.tir = v(fin);
   if (p.pos === 'GB') a.arr = v(plac);
   else if (['DC', 'DG', 'DD', 'MDC'].includes(p.pos)) a.def = v(plac);
   else if (p.pos === 'MC') a.def = Math.round((v(plac) + (p.attrs.def ?? 60)) / 2);

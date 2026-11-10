@@ -40,7 +40,7 @@ Chaque championnat a son propre profil : style plus technique en Ibérie, plus p
 ## Fonctionnalités
 
 ### Monde
-- **Monde réel** (le seul mode de jeu) : 35 championnats, avec leur vrai format.
+- **Monde réel** (le seul mode de jeu) : 45 championnats (dont 10 d'Asie, d'Océanie, du Golfe, du Maroc et d'Amérique du Sud), avec leur vrai format.
   - Angleterre, Espagne, Italie, Allemagne, France, Portugal, Pays-Bas, Belgique, Turquie, Tchéquie, Grèce, Norvège, Pologne, Danemark, Autriche, Suisse, Écosse, Suède, Croatie, Serbie,
     Brésil, Arabie saoudite, Mexique, Japon, Russie, Ukraine, Roumanie, Hongrie, Chypre, Israël,
     et les deuxièmes divisions des 5 grands (Championship, LaLiga 2, Serie B, 2. Bundesliga, Ligue 2) : 586 clubs, 16 672 joueurs.

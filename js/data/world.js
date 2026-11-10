@@ -21,7 +21,7 @@ const FICTIONAL = {
   conti: { 1: 6, 3: 5, 4: 5 },
 };
 
-/** 30 championnats : les 20 premiers européens et 10 autres (Europe de l'Est, Brésil, Arabie saoudite, Mexique, Japon) (seules les élites sont dans les données : pas de relégation). */
+/** 45 championnats : 20 européens, 10 autres (Europe de l'Est, Brésil, Arabie saoudite, Mexique, Japon…), 5 deuxièmes divisions et 10 d'Asie, d'Océanie, du Golfe, du Maroc et d'Amérique du Sud. */
 const REAL = {
   countries: {
     ENG: { name: 'Angleterre', flag: '🏴󠁧󠁢󠁥󠁮󠁧󠁿', cup: 'FA Cup' },
@@ -54,6 +54,16 @@ const REAL = {
     HUN: { name: 'Hongrie', flag: '🇭🇺', cup: 'Coupe de Hongrie' },
     CYP: { name: 'Chypre', flag: '🇨🇾', cup: 'Coupe de Chypre' },
     ISR: { name: 'Israël', flag: '🇮🇱', cup: 'Coupe d\'Israël' },
+    KOR: { name: 'Corée du Sud', flag: '🇰🇷', cup: 'Coupe de Corée' },
+    CHN: { name: 'Chine', flag: '🇨🇳', cup: 'Coupe de Chine' },
+    AUS: { name: 'Australie', flag: '🇦🇺', cup: 'Australia Cup' },
+    UAE: { name: 'Émirats arabes unis', flag: '🇦🇪', cup: 'Coupe du Président' },
+    QAT: { name: 'Qatar', flag: '🇶🇦', cup: 'Coupe de l\'Émir' },
+    MAR: { name: 'Maroc', flag: '🇲🇦', cup: 'Coupe du Trône' },
+    PER: { name: 'Pérou', flag: '🇵🇪', cup: 'Copa Bicentenario' },
+    CHI: { name: 'Chili', flag: '🇨🇱', cup: 'Copa Chile' },
+    COL: { name: 'Colombie', flag: '🇨🇴', cup: 'Copa Colombia' },
+    URU: { name: 'Uruguay', flag: '🇺🇾', cup: 'Copa AUF Uruguay' },
   },
   divisions: {
     1: { name: 'Premier League', short: 'PL', country: 'ENG', level: 1, source: 'ENG1', profile: { goals: 1.0, fouls: 0.85, cards: 0.8 }, down: 3, lower: 31 },
@@ -92,6 +102,17 @@ const REAL = {
     33: { name: 'Serie B', short: 'SB', country: 'ITA', level: 2, source: 'ITA2', profile: { goals: 0.92, fouls: 1.1, cards: 1.2 }, up: 3, upper: 3 },
     34: { name: '2. Bundesliga', short: 'BL2', country: 'GER', level: 2, source: 'GER2', profile: { goals: 1.05, fouls: 1, cards: 0.95 }, up: 2, upper: 4 },
     35: { name: 'Ligue 2', short: 'L2', country: 'FRA', level: 2, source: 'FRA2', profile: { goals: 0.92, fouls: 1.05, cards: 1.05 }, up: 2, upper: 5 },
+    // Asie, Océanie, Golfe, Afrique du Nord, Amérique du Sud (élites seules).
+    36: { name: 'K League 1', short: 'KL', country: 'KOR', level: 1, source: 'KOR1', profile: { goals: 0.98, fouls: 0.9, cards: 0.85 } },
+    37: { name: 'Super League (CHN)', short: 'CSL', country: 'CHN', level: 1, source: 'CHN1', profile: { goals: 1.05, fouls: 1, cards: 1.05 } },
+    38: { name: 'A-League', short: 'AL', country: 'AUS', level: 1, source: 'AUS1', profile: { goals: 1.12, fouls: 0.9, cards: 0.9 } },
+    39: { name: 'UAE Pro League', short: 'UAE', country: 'UAE', level: 1, source: 'UAE1', profile: { goals: 1.1, fouls: 0.95, cards: 1 } },
+    40: { name: 'Stars League', short: 'QSL', country: 'QAT', level: 1, source: 'QAT1', profile: { goals: 1.12, fouls: 0.95, cards: 0.95 } },
+    41: { name: 'Botola Pro', short: 'BP', country: 'MAR', level: 1, source: 'MAR1', profile: { goals: 0.85, fouls: 1.1, cards: 1.1 } },
+    42: { name: 'Liga 1 (PER)', short: 'PE', country: 'PER', level: 1, source: 'PER1', profile: { goals: 0.98, fouls: 1.15, cards: 1.25 } },
+    43: { name: 'Primera División (CHI)', short: 'CL', country: 'CHI', level: 1, source: 'CHI1', profile: { goals: 1.02, fouls: 1.1, cards: 1.2 } },
+    44: { name: 'Primera A', short: 'CO', country: 'COL', level: 1, source: 'COL1', profile: { goals: 0.92, fouls: 1.15, cards: 1.25 } },
+    45: { name: 'Primera División (URU)', short: 'UY', country: 'URU', level: 1, source: 'URU1', profile: { goals: 0.95, fouls: 1.15, cards: 1.3 } },
   },
   // 16 qualifiés pour la Ligue des Étoiles.
   conti: { 1: 3, 2: 2, 3: 2, 4: 2, 5: 2, 6: 1, 7: 1, 8: 1, 9: 1, 10: 1 },
@@ -105,6 +126,7 @@ export const LEAGUE_WEALTH = {
   ENG: 1.45, ESP: 1.3, ITA: 1.05, GER: 1.15, FRA: 0.9, KSA: 1.45, POR: 0.6, NED: 0.62, BEL: 0.55, TUR: 0.7,
   BRA: 0.62, MEX: 0.55, JPN: 0.5, RUS: 0.62, USA: 0.7, SCO: 0.45, AUT: 0.5, SUI: 0.5, DEN: 0.45, GRE: 0.45,
   CZE: 0.38, POL: 0.42, NOR: 0.4, SWE: 0.4, CRO: 0.35, SRB: 0.33, UKR: 0.4, ROU: 0.35, HUN: 0.38, CYP: 0.38, ISR: 0.38,
+  KOR: 0.45, CHN: 0.55, AUS: 0.4, UAE: 0.6, QAT: 0.65, MAR: 0.3, PER: 0.25, CHI: 0.3, COL: 0.3, URU: 0.25,
 };
 
 export const COUNTRIES = {};

@@ -115,7 +115,8 @@ export function roundRobin(ids, rng) {
 const REAL_SOURCES = { ENG1: 1, ESP1: 2, ITA1: 3, GER1: 4, FRA1: 5, POR1: 6, NED1: 7, BEL1: 8, TUR1: 9, CZE1: 10,
   GRE1: 11, NOR1: 12, POL1: 13, DEN1: 14, AUT1: 15, SUI1: 16, SCO1: 17, SWE1: 18, CRO1: 19, SRB1: 20,
   BRA1: 21, KSA1: 22, MEX1: 23, JPN1: 24, RUS1: 25, UKR1: 26, ROU1: 27, HUN1: 28, CYP1: 29, ISR1: 30,
-  ENG2: 31, ESP2: 32, ITA2: 33, GER2: 34, FRA2: 35 };
+  ENG2: 31, ESP2: 32, ITA2: 33, GER2: 34, FRA2: 35,
+  KOR1: 36, CHN1: 37, AUS1: 38, UAE1: 39, QAT1: 40, MAR1: 41, PER1: 42, CHI1: 43, COL1: 44, URU1: 45 };
 const REAL_DIVS = (data) => [...new Set(data.clubs.map((c) => REAL_SOURCES[c.league]).filter(Boolean))].sort((a, b) => a - b);
 
 const clubsOfDiv = (state, div) => state.clubs.filter((c) => c.div === div);
