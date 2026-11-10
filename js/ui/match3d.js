@@ -340,11 +340,50 @@ class Player3D {
       else if (t < 0.6) { const u = (t - 0.4) / 0.2; hip = -0.6 * pow + (0.6 * pow + 1.1 * pow) * u; knee = -(0.6 + 1.0 * pow) * (1 - u); }
       else { const u = (t - 0.6) / 0.4; hip = 1.1 * pow * (1 - 0.6 * u); knee = -0.1 - 0.3 * u; }
       lR.hip.rotation.z = hip; lR.knee.rotation.z = knee;
-      lL.hip.rotation.z = 0.12; lL.knee.rotation.z = -0.25;
+      // Plat du pied (passe, frappe placée) : pied ouvert vers l'extérieur, geste plus court.
+      if (p.kickSide) { lR.hip.rotation.y = -0.75 * Math.sin(Math.min(1, t * 1.6) * Math.PI / 2); lR.hip.rotation.x = 0.18; }
+      lL.hip.rotation.z = 0.12; lL.knee.rotation.z = -0.25 - 0.15 * pow;
       // Bras opposé écarté pour l'équilibre, buste qui accompagne.
       this.arms[0].sh.rotation.x = 0.9 * pow; this.arms[1].sh.rotation.x = -0.4 * pow;
       this.body.rotation.z = -0.1 - 0.25 * pow * Math.sin(t * Math.PI);
       this.body.rotation.x = 0.12 * pow * Math.sin(t * Math.PI);
+    }
+    // Repos loin du ballon : mains sur les hanches (joueurs de champ) ; porteur arrêté : il
+    // protège le ballon, bras écartés et centre de gravité bas.
+    if (sp < 0.4 && ctx.restFar && !p.gk && !(p.kick > 0) && !(p.celeb > 0)) {
+      for (const a of this.arms) { a.sh.rotation.x = -a.sgn * 0.55; a.sh.rotation.z = -0.35; a.el.rotation.z = 1.75; }
+    }
+    if (ctx.shield && sp < 2.5 && !(p.kick > 0)) {
+      for (const a of this.arms) { a.sh.rotation.x = -a.sgn * 0.75; a.el.rotation.z = 0.45; }
+      lL.knee.rotation.z += -0.25; lR.knee.rotation.z += -0.25; this.body.position.y -= 0.05; this.body.rotation.z += -0.1;
+    }
+    // Contrôle du ballon : amorti du pied, de la cuisse ou de la poitrine selon la hauteur.
+    if (p.ctrl > 0) {
+      const k = Math.sin((1 - p.ctrl / 0.3) * Math.PI);
+      const hgt = p.ctrlH || 0;
+      if (hgt > 1.05) {                           // poitrine : buste en arrière, bras ouverts
+        this.body.rotation.z += 0.32 * k;
+        for (const a of this.arms) { a.sh.rotation.x = -a.sgn * 0.9 * k; a.el.rotation.z = 0.6; }
+        lL.knee.rotation.z = lR.knee.rotation.z = -0.35 * k;
+      } else if (hgt > 0.45) {                    // cuisse levée
+        lR.hip.rotation.z = 1.25 * k; lR.knee.rotation.z = -1.2 * k;
+        this.arms[0].sh.rotation.x = 0.6 * k; this.arms[1].sh.rotation.x = -0.6 * k;
+      } else {                                    // pied qui accompagne le ballon (amorti)
+        lR.hip.rotation.z = 0.45 * k; lR.knee.rotation.z = -0.3 * k; lR.hip.rotation.y = -0.5 * k;
+        this.body.rotation.z += -0.1 * k;
+      }
+    }
+    // Touche : ballon tenu à deux mains derrière la tête, puis lancer en fouettant le buste.
+    if (p.hold > 0 || p.throwIn > 0) {
+      const t = p.throwIn > 0 ? 1 - p.throwIn / 0.6 : 0;
+      const k = p.throwIn > 0 ? Math.min(1, t * 2.2) : 0;
+      for (const a of this.arms) { a.sh.rotation.x = -a.sgn * 0.2; a.sh.rotation.z = 3.3 - 1.9 * k; a.el.rotation.z = 1.3 * (1 - k) + 0.1; }
+      this.body.rotation.z = 0.22 * (1 - k) - 0.3 * k;
+      lL.hip.rotation.z = 0.35; lR.hip.rotation.z = -0.25; lL.knee.rotation.z = -0.2; lR.knee.rotation.z = -0.3;
+    }
+    // Gardien ballon en main : bras repliés contre la poitrine.
+    if (ctx.holding) {
+      for (const a of this.arms) { a.sh.rotation.z = 0.9; a.sh.rotation.x = a.sgn * 0.25; a.el.rotation.z = 1.5; }
     }
     // Tacle : glissé (buste en ARRIÈRE, jambe d'attaque tendue devant, appui sur une main)
     // ou debout (jambe tendue vers le ballon, buste droit).
@@ -404,7 +443,18 @@ class Player3D {
     // Célébration : course bras écartés (« l'avion »), puis bonds bras levés.
     if (p.celeb > 0) {
       if (sp > 2) for (const a of this.arms) { a.sh.rotation.x = -a.sgn * 1.45; a.sh.rotation.z = 0; a.el.rotation.z = 0.05; }
-      else { for (const a of this.arms) { a.sh.rotation.x = -a.sgn * 2.6; a.sh.rotation.z = 0.2; a.el.rotation.z = 0.2; } this.body.position.y += Math.abs(Math.sin(p.celeb * 7)) * 0.2; }
+      else if (p.celebType === 'knees') {           // à genoux, bras au ciel
+        this.body.position.y = -0.42; this.body.rotation.z = 0.25;
+        lL.hip.rotation.z = lR.hip.rotation.z = 0.1; lL.knee.rotation.z = lR.knee.rotation.z = -1.9;
+        for (const a of this.arms) { a.sh.rotation.x = -a.sgn * 2.7; a.sh.rotation.z = 0.3; a.el.rotation.z = 0.15; }
+      } else if (p.celebType === 'fist') {          // poing rageur, buste penché
+        const k = Math.abs(Math.sin(p.celeb * 5));
+        this.arms[1].sh.rotation.z = 1.2 + 0.6 * k; this.arms[1].el.rotation.z = 2.0;
+        this.arms[0].sh.rotation.x = 0.7; this.body.rotation.z = -0.25; lL.knee.rotation.z = lR.knee.rotation.z = -0.4;
+      } else if (p.celebType === 'point') {         // index vers le ciel
+        this.arms[0].sh.rotation.x = 2.9; this.arms[0].el.rotation.z = 0.05; this.arms[1].sh.rotation.x = 2.9; this.arms[1].el.rotation.z = 0.05;
+        this.body.rotation.z = 0.15;
+      } else { for (const a of this.arms) { a.sh.rotation.x = -a.sgn * 2.6; a.sh.rotation.z = 0.2; a.el.rotation.z = 0.2; } this.body.position.y += Math.abs(Math.sin(p.celeb * 7)) * 0.2; }
     }
     this.shadow.scale.setScalar(1 - Math.min(0.5, this.body.position.y * 0.4));
   }
@@ -643,8 +693,9 @@ export class Match3D {
       const p = v.players.get(id);
       const [x, z] = this.toWorld(p.x, p.y, flip);
       e.p3.root.position.set(x, 0, z);
-      const ballNear = p.gk && Math.hypot((p.x - v.ball.x) * L, (p.y - v.ball.y) * W) < 30;
-      e.p3.pose(p, flip, { ballNear });
+      const dB = Math.hypot((p.x - v.ball.x) * L, (p.y - v.ball.y) * W);
+      const isCar = id === carrier;
+      e.p3.pose(p, flip, { ballNear: p.gk && dB < 30, restFar: dB > 28 && !isCar, shield: isCar && !v.inHands && (p.shieldK || 0) > 0, holding: isCar && v.inHands && p.gk });
       const hl = id === carrier || id === v.selected;
       e.p3.ring.visible = hl;
       e.p3.ring.material = this.mats[p.side].ring;
@@ -656,8 +707,17 @@ export class Match3D {
       this.ref3d.root.position.set(rx, 0, rz);
       this.ref3d.pose(v.referee, flip);
     }
-    const [bx, bz] = this.toWorld(v.ball.x, v.ball.y, flip);
-    const hgt = v.ball.h * 26;
+    let [bx, bz] = this.toWorld(v.ball.x, v.ball.y, flip);
+    let hgt = v.ball.h * 26;
+    // Ballon dans les mains : gardien (contre la poitrine) ou joueur qui fait la touche (au-dessus de la tête).
+    const handP = carrier != null && v.inHands ? v.players.get(carrier) : [...v.players.values()].find((p) => p.hold > 0);
+    if (handP) {
+      const [hx, hz] = this.toWorld(handP.x, handP.y, flip);
+      const fa = flip ? handP.face + Math.PI : handP.face;
+      const fwd = handP.hold > 0 ? -0.12 : 0.32;
+      bx = hx + Math.cos(fa) * fwd; bz = hz + Math.sin(fa) * fwd;
+      hgt = (handP.hold > 0 ? 2.05 : 1.15) * K;
+    }
     this.ball.position.set(bx, BALL_R + hgt, bz);
     // Rotation réelle : le ballon roule sur lui-même dans le sens de sa course.
     const P = v.phys;
