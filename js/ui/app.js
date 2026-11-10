@@ -215,6 +215,11 @@ export const app = {
     }
     const un = mod.mount?.(this, this.$screen);
     if (typeof un === 'function') this._unmount = un;
+    // Match officiel interrompu (page rechargée) : il reprend là où il en était.
+    if (started && this.state.liveLock && !this._resumeTried && !document.querySelector('.match-screen')) {
+      this._resumeTried = true;
+      import('./screens/match.js').then((mm) => { if (mm.pendingLiveMatch(this.state) && !document.querySelector('.match-screen')) mm.openMatch(this); });
+    }
   },
 
   save(immediate = false) { if (this.state) saveState(this.state, immediate); },

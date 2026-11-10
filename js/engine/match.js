@@ -28,6 +28,7 @@ import { createRng, clamp } from '../core/rng.js';
 import { FORMATIONS, MAX_SUBS, positionFit, playerFit, DEFAULT_TACTICS, slotsOf } from '../data/constants.js';
 import { conditionFactor, ratingAt } from './ratings.js';
 import { aiManage } from './ai.js';
+import { tacticalEdge } from './tacticalEdge.js';
 import { formationPos, pitchDist } from './positions.js';
 
 const ZONE_DEPTH = [[0.1, 0.33], [0.33, 0.58], [0.58, 0.8], [0.81, 0.94]];
@@ -251,7 +252,16 @@ export function setPieceTaker(T, kind, score) {
 }
 
 /** Multiplicateurs mis à jour chaque minute (fatigue, forme, moral, poste, contexte). */
+/** Poids du duel tactique sur le rendement (0,45 → jusqu'à ±16 %). */
+export const TACTIC_WEIGHT = 0.45;
+/** Moteur rapide (matchs simulés) : ses multiplicateurs pèsent davantage, d'où un poids plus faible. */
+export const TACTIC_WEIGHT_QUICK = 0.1;
+
 export function refreshMultipliers(m) {
+  // Duel tactique : l'avantage d'une équipe est le désavantage de l'autre.
+  const e0 = tacticalEdge(m.teams[0], m.teams[1]), e1 = tacticalEdge(m.teams[1], m.teams[0]);
+  m.teams[0].edge = e0.edge - e1.edge * 0.5; m.teams[1].edge = e1.edge - e0.edge * 0.5;
+  m.teams[0].edgeNotes = e0.notes; m.teams[1].edgeNotes = e1.notes;
   for (const t of m.teams) {
     const n = activePlayers(t).length;
     const home = !m.neutral && t.side === 0 ? m.homeAdv : 1;
@@ -260,7 +270,7 @@ export function refreshMultipliers(m) {
       if (!mp) continue;
       const fit = playerFit(mp.p, t.slots[mp.slot].pos);
       const pm = { form: mp.p.form, morale: clamp(mp.morale + t.talk, 0, 100) };
-      mp.mult = conditionFactor(pm, mp.energy) * fit * home * numbers * (t.cm ? t.cm.perf : 1);
+      mp.mult = conditionFactor(pm, mp.energy) * fit * home * numbers * (t.cm ? t.cm.perf : 1) * (1 + (t.edge || 0) * (m.live ? TACTIC_WEIGHT : TACTIC_WEIGHT_QUICK));
     }
   }
 }
@@ -606,7 +616,7 @@ function shoot(m, out, A, D, s, z, opts) {
     default: xg = [0.015, 0.024, 0.05, 0.13][z];
   }
   if (opts.type !== 'penalty') {
-    xg *= Math.exp(m.rng.normal(0, 0.55)) * 0.7 * m.profile.goals * (opts.bonus || 1);
+    xg *= Math.exp(m.rng.normal(0, 0.55)) * 0.67 * m.profile.goals * (opts.bonus || 1);
     const q = (eff(s, 'tir') * 0.7 + eff(s, 'sf') * 0.3) / (m.level - 8);
     xg *= Math.pow(q, 1.3);
     if (z >= 2) xg *= 1 - defContext(D, 3) * 0.6;
@@ -935,6 +945,7 @@ export function applyPlan(m, side, plan) {
 
 export function setTactic(m, side, key, value) {
   m.teams[side].tactics[key] = value;
+  refreshMultipliers(m);   // le duel tactique est réévalué tout de suite
 }
 
 /** Causerie : 'calm' | 'encourage' | 'demand'. Retourne { delta, text }. */
@@ -1020,4 +1031,44 @@ export function summarize(m) {
 /** Affichage de la minute : 45+2'. */
 export function clockLabel(minute, extra) {
   return extra > 0 ? `${minute}+${extra}'` : `${minute}'`;
+}
+
+/* ------------------------------------------------------------------ */
+/* Instantané (reprise du match après un rechargement de la page)      */
+/* ------------------------------------------------------------------ */
+
+const MP_SKIP = new Set(['p', 'work']);
+const M_SKIP = new Set(['rng', 'teams', 'carrier', 'lastPasser', '_pos', '_pendingInjury', '_dbg']);
+const T_SKIP = new Set(['club', 'onPitch', 'bench', 'out', 'cm', 'edgeNotes']);
+const plain = (o, skip) => { const r = {}; for (const k in o) if (!skip.has(k) && typeof o[k] !== 'function') r[k] = o[k]; return JSON.parse(JSON.stringify(r)); };
+
+/** Copie sérialisable de l'état du match (les joueurs sont référencés par leur id). */
+export function snapshotMatch(m) {
+  const mpOut = (mp) => (mp ? plain(mp, MP_SKIP) : null);
+  return {
+    v: 1, rng: m.rng.getState(), m: plain(m, M_SKIP), carrier: m.carrier?.id ?? null, lastPasser: m.lastPasser?.id ?? null,
+    teams: m.teams.map((t) => ({ ...plain(t, T_SKIP), onPitch: t.onPitch.map(mpOut), bench: t.bench.map(mpOut), out: t.out.map(mpOut) })),
+  };
+}
+
+/** Restaure un instantané dans un match fraîchement créé avec la même configuration. */
+export function restoreMatch(m, snap) {
+  if (!snap || snap.v !== 1) return false;
+  const byId = new Map();
+  for (const t of m.teams) for (const mp of [...t.onPitch, ...t.bench, ...t.out]) if (mp) byId.set(mp.id, mp);
+  const mpIn = (o) => { if (!o) return null; const mp = byId.get(o.id); if (!mp) return null; Object.assign(mp, o); return mp; };
+  Object.assign(m, snap.m);
+  m.rng.setState(snap.rng);
+  snap.teams.forEach((st, i) => {
+    const t = m.teams[i];
+    const { onPitch, bench, out, ...rest } = st;
+    Object.assign(t, rest);
+    t.onPitch = onPitch.map(mpIn);
+    t.bench = bench.map(mpIn).filter(Boolean);
+    t.out = out.map(mpIn).filter(Boolean);
+  });
+  m.carrier = byId.get(snap.carrier) || null;
+  m.lastPasser = byId.get(snap.lastPasser) || null;
+  refreshMultipliers(m);
+  return true;
 }

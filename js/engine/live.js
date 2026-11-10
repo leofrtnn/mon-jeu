@@ -34,16 +34,16 @@ const piOf = (t, mp, key, def) => (mp && t.pi?.[mp.slot]?.[key]) || def;
 
 /** Réglages d'équilibre (calibrés avec tests/live.test.js : buts, tirs, fautes, corners). */
 export const TUNE = {
-  shotW: 1.15,        // attrait de la frappe face aux autres options
-  shotCost: 0.7,      // coût de la perte de balle dans le choix de tirer
+  shotW: 1.8,         // attrait de la frappe face aux autres options
+  shotCost: 0.45,     // coût de la perte de balle dans le choix de tirer
   carryW: 1.3,        // attrait de la conduite de balle
   keepW: 0.02,        // valeur de garder le ballon (passe sûre à un partenaire libre)
   crossW: 1.5,
   passRisk: 0.5,      // sévérité des interceptions
   lossW: 2.2,         // coût de la perte de balle dans le choix des passes
   tackleRate: 1.6,    // fréquence des tentatives de tacle
-  foulP: 0.33,        // part des tentatives de tacle qui finissent en faute
-  xg: 0.85,           // échelle du modèle d'xG géométrique
+  foulP: 0.28,        // part des tentatives de tacle qui finissent en faute
+  xg: 1.3,            // échelle du modèle d'xG géométrique
   takeonW: 1.0,       // attrait du crochet / débordement
 };
 
@@ -54,6 +54,7 @@ export class LiveSim {
    */
   constructor(m, opts = {}) {
     this.m = m;
+    m.live = true;
     this.rng = m.rng;
     this.players = opts.players || new Map();
     this.P = opts.ball || createBall();
@@ -67,6 +68,37 @@ export class LiveSim {
     this.celebrate = 0;
     this.resumeHT = false;
     this.sync(true);
+  }
+
+  /* ---------------- Instantané (reprise après rechargement) ---------------- */
+
+  snapshot() {
+    const pl = {};
+    const KEEP = ['x', 'y', 'tx', 'ty', 'vx', 'vy', 'face', 'phase', 'speed', 'cd', 'next', 'celeb', 'celebType'];
+    for (const [id, p] of this.players) { const o = {}; for (const k of KEEP) if (p[k] != null) o[k] = p[k]; pl[id] = o; }
+    const P = this.P;
+    const rs = this.restart;
+    return {
+      now: this.now, sec: this.sec, poss: this.poss, lastTouch: this.lastTouch, celebrate: this.celebrate, afterGoalSide: this.afterGoalSide,
+      inHands: this.inHands, holder: this.holder?.mp.id ?? null, gainT: this.gainT || null, resumeHT: this.resumeHT,
+      ball: { x: P.x, y: P.y, z: P.z, vx: P.vx, vy: P.vy, vz: P.vz },
+      restart: rs ? { kind: rs.kind, side: rs.side, x: rs.x, y: rs.y, taker: rs.taker?.mp.id ?? null } : null,
+      players: pl,
+    };
+  }
+
+  restore(s) {
+    this.sync();
+    Object.assign(this, { now: s.now, sec: s.sec, poss: s.poss, lastTouch: s.lastTouch, celebrate: s.celebrate || 0, afterGoalSide: s.afterGoalSide, inHands: !!s.inHands, gainT: s.gainT, resumeHT: !!s.resumeHT });
+    Object.assign(this.P, s.ball, { spin: 0, top: 0, inGoal: 0, hitPost: false });
+    for (const [id, o] of Object.entries(s.players || {})) { const p = this.players.get(+id); if (p) Object.assign(p, o, { carry: null, prep: null, kick: 0 }); }
+    this.holder = s.holder != null ? this.players.get(s.holder) || null : null;
+    this.pending = null; this.shot = null;
+    if (s.restart) {
+      const taker = this.players.get(s.restart.taker) || this.list(s.restart.side).find((p) => !p.gk);
+      this.restart = { ...s.restart, taker, t: 0 };
+      if (this.restart.kind === 'kickoff') this.kickoffTargets(); else this.restartPositions();
+    } else this.restart = null;
   }
 
   /* ---------------- Joueurs ---------------- */
@@ -383,7 +415,13 @@ export class LiveSim {
     }
     // Ballon pas encore contrôlé (rebond, ballon qui file) : il le poursuit.
     const f = this.foot(h);
-    if (Math.hypot(f.x - P.x, f.y - P.y) > 1.6 || P.z > 0.8) { h.tx = P.x / L; h.ty = P.y / W; return; }
+    const dBall = Math.hypot(f.x - P.x, f.y - P.y);
+    const aheadB = (P.x - h.x * L) * Math.cos(h.face) + (P.y - h.y * W) * Math.sin(h.face);
+    const inStride = (h.speed || 0) > 1.5 && dBall < 4.2 && aheadB > -0.3 && P.z < 0.8;   // ballon poussé devant lui
+    if ((dBall > 0.9 && !inStride) || P.z > 0.8) { h.tx = P.x / L; h.ty = P.y / W; h.faceBall = true; return; }
+    h.faceBall = false;
+    // Entre deux touches, il court vers le ballon qu'il vient de pousser (il ne le dépasse pas).
+    const chaseTouch = inStride && dBall > 0.7 && !h.prep;
     if (h.prep) {
       // Appui planté : il ne bouge plus, le ballon part au contact.
       h.tx = h.x; h.ty = h.y;
@@ -391,7 +429,11 @@ export class LiveSim {
       else if (this.now >= h.prep.at) { const pk = h.prep.pick; h.prep = null; h.next = this.now + 0.4; this.execute(h, pk, out); }
       return;
     }
-    if (h.carry) {
+    if (chaseTouch) {
+      // Il vise un peu au-delà du ballon pour garder son élan (pas de freinage à chaque touche).
+      h.tx = clamp((P.x + P.vx * 0.7) / L, 0, 1); h.ty = clamp((P.y + P.vy * 0.7) / W, 0, 1);
+      if (h.carry && (this.dist(h, h.carry.x, h.carry.y) < 1.5 || this.now > h.carry.until)) { h.carry = null; h.next = Math.min(h.next, this.now); }
+    } else if (h.carry) {
       h.tx = h.carry.x / L; h.ty = h.carry.y / W;
       const pressed = this.pressure(h) < 2.2;
       if (this.dist(h, h.carry.x, h.carry.y) < 1.5 || this.now > h.carry.until || (pressed && !h.carry.takeon && this.now > h.carry.t0 + 0.4)) { h.carry = null; h.next = Math.min(h.next, this.now); }
@@ -402,7 +444,8 @@ export class LiveSim {
       else { h.tx = clamp(h.x + (dir * 3) / L, 0.02, 0.98); h.ty = h.y; }
     }
     h.shieldK = this.pressure(h) < 2.5 ? 1 : 0;
-    if (this.now >= h.next) this.decide(h, out);
+    // Il ne frappe / passe que le ballon à portée de pied (sinon il attend la prochaine touche).
+    if (this.now >= h.next && dBall < 1.5) this.decide(h, out);
   }
 
   /** Distance au plus proche adversaire. */
@@ -505,6 +548,7 @@ export class LiveSim {
       if (pick.k === 'shot') h.shotTech = this.shotTech(h);
       h.kick = big ? 0.32 : 0.24; h.kickPow = pick.k === 'shot' ? (h.shotTech === 'drive' ? 1 : 0.8) : big ? 0.85 : 0.5; h.kickSide = (pick.k === 'pass' && !big) || h.shotTech === 'finesse' || h.shotTech === 'curl';
       h.prep = { pick, at: this.now + (h.kick - 0.16) * GS, until: this.now + (h.kick - 0.16) * GS + 0.5 };
+      P.vx *= 0.3; P.vy *= 0.3;   // dernier contact pour placer le ballon avant la frappe
       h.next = h.prep.until;
       return;
     }
@@ -751,7 +795,7 @@ export class LiveSim {
     const pr = this.pressure(h);
     if (pr < 1.5) xg *= 0.55; else if (pr < 3) xg *= 0.8;
     const q = (eff(h.mp, 'tir') * 0.7 + eff(h.mp, 'sf') * 0.3) / (m.level - 8);
-    xg *= Math.pow(q, 1.3) * (m.profile.goals || 1);
+    xg *= Math.pow(q, 1.0) * (m.profile.goals || 1);
     return clamp(xg, 0.005, 0.8);
   }
 
@@ -939,7 +983,7 @@ export class LiveSim {
       if (this.rand() < foulP) { this.foul(h, o, out); return; }
       const att = eff(h.mp, 'dri') * 0.75 + eff(h.mp, 'phy') * 0.25;
       const def = eff(o.mp, 'def') * 0.75 + eff(o.mp, 'phy') * 0.25;
-      if (this.rand() < sig((def - att) / 10 - 0.25)) {
+      if (this.rand() < sig((def - att) / 13 - 0.25)) {
         o.slide = 0.55; h.fall = 0.6;
         D.stats.tackles++; o.mp.tackles++; addRating(o.mp, 0.06);
         emit(m, out, { type: 'tackle', side: D.side, pid: o.mp.id, pid2: h.mp.id, x: this.P.x / L, y: this.P.y / W, zone: m.zone });
@@ -1160,21 +1204,52 @@ export class LiveSim {
       Object.assign(P, { x: f.x, y: f.y, z: 1.05, vx: 0, vy: 0, vz: 0 });
       glued = true;
     } else if (h) {
-      const f0 = this.foot(h);
-      if (P.z < 0.8 && Math.hypot(f0.x - P.x, f0.y - P.y) < 1.6) {
-        // Conduite : ballon au pied, une touche à chaque foulée quand il court.
+      // Conduite de balle réelle : à l'arrêt ou en marchant, le ballon reste sous la semelle ;
+      // en course, le joueur le pousse devant lui à chaque touche, puis le ballon roule
+      // librement (il peut être chipé) jusqu'à ce qu'il le rattrape.
+      const sp = h.speed || 0;
+      const f0 = this.foot(h, 0.45);
+      const dB = Math.hypot(f0.x - P.x, f0.y - P.y);
+      if (P.z < 0.8 && (dB < 1.0 || (h.prep && dB < 1.7)) && (sp < 1.8 || h.prep)) {
         glued = true;
-        const sp = h.speed || 0;
-        h.dribT = (h.dribT || 0) + dt;
-        const cyc = sp > 1.4 ? (h.dribT % 0.55) / 0.55 : 0;
-        if (sp > 1.4 && cyc < (h.lastCyc ?? 0)) h.touch = 0.16;
-        h.lastCyc = cyc;
-        const f = this.foot(h, 0.45 + (sp > 1.4 ? Math.min(1.1, sp * 0.13) * Math.sin(cyc * Math.PI) : 0));
-        const k = Math.min(1, dt * 14);
-        const nx = P.x + (f.x - P.x) * k, ny = P.y + (f.y - P.y) * k;
+        const k = Math.min(1, dt * (h.prep ? 10 : 7));
+        const nx = P.x + (f0.x - P.x) * k, ny = P.y + (f0.y - P.y) * k;
         P.vx = (nx - P.x) / Math.max(dt, 1e-4); P.vy = (ny - P.y) / Math.max(dt, 1e-4);
         P.x = nx; P.y = ny; P.z = BR; P.vz = 0; P.spin = 0; P.top = 0;
         P.rot.a += (Math.hypot(P.vx, P.vy) / BR) * dt; P.rot.b = Math.atan2(P.vy, P.vx);
+      } else if (P.z < 0.6 && sp >= 1.8) {
+        // Le ballon arrive à hauteur du pied (ou il est encore dessous) : nouvelle touche.
+        const fx = Math.cos(h.face), fy = Math.sin(h.face);
+        const ahead = (P.x - h.x * L) * fx + (P.y - h.y * W) * fy;      // distance devant lui
+        const lat = Math.abs(-(P.x - h.x * L) * fy + (P.y - h.y * W) * fx);
+        const bv = P.vx * fx + P.vy * fy;                                 // vitesse du ballon dans sa course
+        if (ahead < 0.85 && ahead > -0.7 && lat < 1.0 && bv < sp + 0.6 && this.now > (h.nextTouch || 0)) {
+          const dri = eff(h.mp, 'dri');
+          const tight = h.carry?.takeon || this.pressure(h) < 4;            // collé au pied en un-contre-un
+          const push = (tight ? 0.7 : 1.5 + this.rand() * 0.8) + (1 - dri / 100) * (tight ? 0.4 : 1.2);
+          const err = (this.rand() - 0.5) * 0.3 * (1.2 - dri / 100);
+          let tx = h.carry ? h.carry.x - h.x * L : fx, ty = h.carry ? h.carry.y - h.y * W : fy;
+          const n = Math.hypot(tx, ty) || 1; tx /= n; ty /= n;
+          const a = Math.atan2(ty, tx) + err, v = sp + push;
+          P.vx = Math.cos(a) * v; P.vy = Math.sin(a) * v; P.vz = 0;
+          h.touch = 0.16; h.nextTouch = this.now + 0.25;
+          this.lastTouch = h.side;
+        }
+      }
+      // Touche trop longue : le ballon lui échappe, il redevient libre.
+      if (!glued && Math.hypot(h.x * L - P.x, h.y * W - P.y) > 4.5) { this.releaseBall(h); this.pending = null; }
+      // Entre deux touches, un adversaire bien placé peut chiper le ballon.
+      else if (!glued && P.z < 0.6) {
+        for (const o of this.players.values()) {
+          if (o.side === h.side || o.fall > 0 || (o.cd || 0) > 0.3) continue;
+          const fo = this.foot(o, 0.5);
+          if (Math.hypot(fo.x - P.x, fo.y - P.y) < 0.6 && this.rand() < dt * (0.6 + eff(o.mp, 'def') / 70)) {
+            o.touch = 0.2; o.cd = 0.8;
+            emit(this.m, [], { type: 'interception', side: o.side, pid: o.mp.id, pid2: h.mp.id, x: P.x / L, y: P.y / W, zone: this.m.zone });
+            this.gain(o, []);
+            break;
+          }
+        }
       }
     }
     if (!glued) stepBall(P, dt);

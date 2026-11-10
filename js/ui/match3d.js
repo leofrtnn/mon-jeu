@@ -474,6 +474,12 @@ class Player3D {
   }
 }
 
+/** Taille estimée quand la vraie n'est pas connue (selon le poste et le physique). */
+function estHeight(p) {
+  const base = { GB: 189, DC: 187, MDC: 181, DG: 177, DD: 177, MC: 179, MO: 176, AG: 175, AD: 175, BU: 183 }[p.pos] ?? 180;
+  return base + ((p.attrs?.phy ?? 65) - 65) * 0.15 + ((p.id * 37) % 9) - 4;
+}
+
 /* ---------------- Scène ---------------- */
 
 export class Match3D {
@@ -641,8 +647,14 @@ export class Match3D {
         const shirtHex = p.gk ? v.gkColors[side] : v.colors[side];
         const ink = p.gk ? '#111' : v.textColors[side];
         const p3 = new Player3D(mats, p.skin || '#c68642', p.hair || '#2b1d14', p.num, shirtHex, ink, p.mp?.p?.photo || null);
+        // Morphologie du vrai joueur : taille (grand défenseur, petit ailier) et carrure (physique).
+        const pl = p.mp?.p;
+        const hgt = pl ? (pl.height || estHeight(pl)) : 180;
+        const hk = Math.max(0.9, Math.min(1.11, hgt / 181));
+        const wk = pl ? Math.max(0.9, Math.min(1.13, 0.86 + (pl.attrs?.phy ?? 65) / 420 + (hgt - 181) / 300)) : 1;
+        p3.body.scale.set(K * wk, K * hk, K * wk);
         const label = textSprite(p.short || '');
-        label.position.y = 2.75 * K;
+        label.position.y = 2.75 * K * hk;
         p3.root.add(label);
         this.scene.add(p3.root);
         e = { p3, label };
@@ -711,7 +723,7 @@ export class Match3D {
       const isCar = id === carrier;
       e.p3.pose(p, flip, { ballNear: p.gk && dB < 30, restFar: dB > 28 && !isCar, shield: isCar && !v.inHands && (p.shieldK || 0) > 0, holding: isCar && v.inHands && p.gk });
       const hl = id === carrier || id === v.selected;
-      e.p3.ring.visible = hl;
+      e.p3.ring.visible = id === v.selected;   // pas de rond sous le porteur : seulement le joueur touché
       e.p3.ring.material = this.mats[p.side].ring;
       e.label.visible = v.labelMode === 'name' || (v.labelMode !== 'none' && hl);
     }

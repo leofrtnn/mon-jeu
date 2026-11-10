@@ -5,7 +5,7 @@
  * pause (changements, tactique), mi-temps (stats + causerie), fin de match.
  */
 import { userMatchCfg, completeDay, today } from '../../game/season.js';
-import { createMatch, stepMinute, makeSub, changeFormation, swapSlots, setTactic, applyPlan, teamTalk, summarize, penaltyShootout, clockLabel, activePlayers } from '../../engine/match.js';
+import { createMatch, stepMinute, makeSub, changeFormation, swapSlots, setTactic, snapshotMatch, restoreMatch, applyPlan, teamTalk, summarize, penaltyShootout, clockLabel, activePlayers } from '../../engine/match.js';
 import { describe, iconFor } from '../../engine/commentary.js';
 import { FORMATION_NAMES, MENTALITIES, MENTALITY_LABELS, LEVELS, PRESSING_LABELS, TEMPO_LABELS, MAX_SUBS, POSITION_GROUP, TEAM_INSTRUCTIONS, DEFAULT_TACTICS, PLAYER_INSTRUCTIONS, WIDTH_LABELS } from '../../data/constants.js';
 import { ratingAt } from '../../engine/ratings.js';
@@ -24,6 +24,19 @@ import { showDayReport } from './dayReport.js';
 const SPEEDS = [1, 2, 4];
 /** Événements montrés en mode "Résumé rapide". */
 const QUICK_KEEP = new Set(['goal', 'red', 'yellow', 'penalty', 'var', 'ht', 'ft', 'injury', 'kickoff', 'freekick']);
+
+/* ---------- Reprise du match après un rechargement (anti-triche) ----------
+ * Dès le coup d'envoi, la partie est « verrouillée » sur ce match (state.liveLock) et
+ * l'état complet du match est mis de côté toutes les 2 secondes. Si la page est
+ * rechargée, le match reprend exactement où il en était, au lieu de recommencer. */
+const LIVE_KEY = 'cdp-live';
+const liveSig = (s) => `${s.seed}|${s.season}|${s.day}|${s.userClubId}`;
+/** Un match officiel est-il en cours (à reprendre) ? */
+export const pendingLiveMatch = (s) => !!(s?.liveLock && s.liveLock === liveSig(s));
+function readSnap(s) {
+  try { const o = JSON.parse(localStorage.getItem(LIVE_KEY) || 'null'); return o && o.sig === liveSig(s) ? o.snap : null; } catch { return null; }
+}
+function clearSnap() { try { localStorage.removeItem(LIVE_KEY); } catch { /* ignore */ } }
 
 /**
  * opts (facultatif, matchs amicaux) : { cfg, label, userSide, onFinish(summary, m) }.
@@ -67,6 +80,23 @@ export function openMatch(app, opts = {}) {
 
   const $ = (id) => root.querySelector('#' + id);
   const ctrl = { speedIdx: Math.max(0, SPEEDS.indexOf(s.settings.speed || 1)), quick: false, finished: false, scorers: [[], []], recent: [] };
+  const official = !opts.cfg;
+  const resuming = official && pendingLiveMatch(s);
+  const saveSnap = () => {
+    if (!official || !s.liveLock) return;
+    try { localStorage.setItem(LIVE_KEY, JSON.stringify({ sig: liveSig(s), snap: { m: snapshotMatch(m), live: view.live ? view.live.snapshot() : null } })); } catch { /* stockage plein : tant pis */ }
+  };
+  const onHide = () => { if (document.visibilityState === 'hidden') saveSnap(); };
+  const lockMatch = () => {
+    if (!official || s.liveLock) return;
+    s.liveLock = liveSig(s); app.save(true);
+    saveSnap();
+  };
+  if (official) {
+    ctrl.snapT = setInterval(saveSnap, 2000);
+    window.addEventListener('pagehide', saveSnap);
+    document.addEventListener('visibilitychange', onHide);
+  }
   const audio = new MatchAudio();
   const nameOf = (id) => {
     for (const t of m.teams) for (const mp of [...t.onPitch, ...t.bench, ...t.out]) if (mp && mp.id === id) return mp.name;
@@ -274,7 +304,8 @@ export function openMatch(app, opts = {}) {
 
   /* ---------- Pré-match ---------- */
   const T = m.teams[userSide], O = m.teams[1 - userSide];
-  app.sheet({
+  if (resuming) resumeMatch();
+  else app.sheet({
     root,
     dismissable: false,
     html: `<h2>${esc(label)}</h2>
@@ -287,7 +318,7 @@ export function openMatch(app, opts = {}) {
       ${scoutReport()}
       <div class="btns"><button class="btn" data-act="back">Retour</button>${!opts.cfg ? '<button class="btn" data-act="press" id="pressbtn">🎤 Conférence de presse</button>' : ''}<button class="btn primary lg" data-act="go">Coup d'envoi</button></div>`,
     actions: {
-      go: (el, a, h) => { h.close(); if (s.settings.audio) audio.start(); view.play(); },
+      go: (el, a, h) => { h.close(); lockMatch(); if (s.settings.audio) audio.start(); view.play(); },
       press: (el) => {
         if (ctrl.pressDone) return;
         const conf = openDecisions(s, 'interview')[0];
@@ -326,6 +357,24 @@ export function openMatch(app, opts = {}) {
       back: (el, a, h) => { h.close(); closeScreen(); },
     },
   });
+
+  /** Reprise après rechargement : on restaure l'état sauvegardé et on continue. */
+  function resumeMatch() {
+    const snap = readSnap(s);
+    if (snap) {
+      restoreMatch(m, snap.m);
+      if (view.live && snap.live) view.live.restore(snap.live);
+      view.period = m.period;
+    }
+    setScore(m.score); setClock(m.minute, m.extra); setMomentum();
+    for (const g of m.goals) ctrl.scorers[g.side].push(`${g.name} ${clockLabel(g.minute, g.extra)}${g.pen ? ' (p)' : ''}`);
+    for (const sd of [0, 1]) $('sc-' + sd).textContent = ctrl.scorers[sd].length ? '⚽ ' + ctrl.scorers[sd].join(', ') : '';
+    app.toast(snap ? `Match repris à la ${clockLabel(m.minute, m.extra)}` : 'Match en cours : reprise au coup d\'envoi', 3000);
+    if (m.phase === 'ft') { fullTime(); return; }
+    if (m.phase === 'ht') { halfTime(); return; }
+    if (s.settings.audio) audio.start();
+    view.play();
+  }
 
   /* ---------- Pause : composition, changements, tactique ---------- */
   /** Consignes rapides : plusieurs réglages d'un coup, pour réagir vite au score. */
@@ -405,7 +454,7 @@ export function openMatch(app, opts = {}) {
           <div class="chips">${FORMATION_NAMES.map((f) => `<button class="chip ${T.tactics.formation === f && !T.tactics.custom ? 'on' : ''}" data-act="form" data-v="${f}">${f}</button>`).join('')}</div>
           <div class="mlay"><div>${pitchHtml()}</div><div>${selPanel()}${benchHtml()}</div></div>`
         : tab === 'tac' ? tacHtml()
-        : `${statsHtml()}${adviceHtml()}`}
+        : `${edgeHtml()}${statsHtml()}${adviceHtml()}`}
         <button class="btn primary lg block" style="margin-top:14px" data-act="close">${isHT ? 'Retour au vestiaire' : '▶ Reprendre le match'}</button>`;
     };
     const h = app.sheet({
@@ -463,6 +512,19 @@ export function openMatch(app, opts = {}) {
       <div class="grow"><small>${esc(ac.short)}</small>${heatmap(m, 1, cols[1])}</div></div>`;
   }
 
+  /** Duel tactique : ce qui marche / ne marche pas dans notre plan face au leur. */
+  function edgeHtml() {
+    const T = m.teams[userSide], O = m.teams[1 - userSide];
+    const e = T.edge || 0;
+    const pct = Math.round(50 + e * 140);
+    const verdict = e > 0.08 ? 'Votre plan domine le leur' : e > 0.02 ? 'Léger avantage tactique' : e < -0.08 ? 'Leur plan prend le dessus' : e < -0.02 ? 'Léger désavantage tactique' : 'Duel tactique équilibré';
+    const mine = (T.edgeNotes || []).slice(0, 4).map((n) => `<li class="${n.v > 0 ? 'good' : 'bad'}">${n.v > 0 ? '▲' : '▼'} ${esc(n.text)}</li>`).join('');
+    const theirs = (O.edgeNotes || []).filter((n) => n.v > 0.02).slice(0, 2).map((n) => `<li class="bad">▼ ${esc(n.text)} <small>(eux)</small></li>`).join('');
+    return `<div class="card edgecard"><div class="row between"><b>♟ Duel tactique</b><small>${verdict}</small></div>
+      <div class="edgebar"><i style="width:${Math.max(4, Math.min(96, pct))}%"></i></div>
+      <ul class="edgelist">${mine}${theirs || ''}${!mine && !theirs ? '<li>Aucun point marquant.</li>' : ''}</ul></div>`;
+  }
+
   /** Conseils de l'adjoint (plus précis avec un adjoint de bon niveau). */
   function adviceHtml() {
     const lvl = Math.max(1, Math.round(staffEffects(userClub(s)).assistant / 4));
@@ -498,7 +560,7 @@ export function openMatch(app, opts = {}) {
     if (ctrl.finished) return;
     let talked = null;
     const html = () => `<div class="row between"><h2>Mi-temps</h2><b class="big" style="font-size:22px">${m.score[0]} - ${m.score[1]}</b></div>
-      ${statsHtml()}
+      ${edgeHtml()}${statsHtml()}
       ${adviceHtml()}
       <div class="label">Causerie</div>
       ${talked ? `<div class="card" style="margin-top:0">${esc(talked.text)} <small>(moral ${talked.delta >= 0 ? '+' : ''}${talked.delta})</small></div>` : `
@@ -525,6 +587,7 @@ export function openMatch(app, opts = {}) {
     if (ctrl.finished) return;
     ctrl.finished = true;
     view.pause();
+    saveSnap();
     if (m.cup && m.score[0] === m.score[1] && !m.shootout) penaltyShootout(m);
     const sum = summarize(m);
     const my = sum.ratings[userSide];
@@ -549,6 +612,7 @@ export function openMatch(app, opts = {}) {
         done: (el, a, h) => {
           h.close();
           if (opts.onFinish) { closeScreen(); opts.onFinish(sum, m); return; }
+          s.liveLock = null; clearSnap();
           const report = completeDay(s, m);
           app.save(true);
           closeScreen();
@@ -562,6 +626,9 @@ export function openMatch(app, opts = {}) {
   }
 
   function closeScreen() {
+    clearInterval(ctrl.snapT);
+    window.removeEventListener('pagehide', saveSnap);
+    document.removeEventListener('visibilitychange', onHide);
     audio.stop();
     view.destroy();
     root.remove();

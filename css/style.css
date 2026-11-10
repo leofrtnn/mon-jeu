@@ -843,3 +843,10 @@ html.land .mpitch { max-height: calc(var(--H) - 210px); width: auto; aspect-rati
 .qplans { display: flex; flex-wrap: wrap; gap: 8px; }
 .mtac { display: grid; grid-template-columns: 1fr; gap: 4px 20px; }
 html.land .mtac { grid-template-columns: 1fr 1fr; }
+.edgecard { margin: 0 0 10px; }
+.edgebar { height: 8px; border-radius: 4px; margin: 8px 0; background: color-mix(in srgb, var(--bad) 55%, transparent); overflow: hidden; }
+.edgebar i { display: block; height: 100%; background: var(--good); }
+.edgelist { margin: 0; padding: 0; list-style: none; font-size: 13px; }
+.edgelist li { padding: 3px 0; }
+.edgelist li.good { color: var(--good); }
+.edgelist li.bad { color: var(--bad); }

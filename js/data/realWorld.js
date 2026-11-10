@@ -113,6 +113,7 @@ export function createRealWorld(rng, data) {
     p.number = rp.num || 0;
     p.real = true;
     if (rp.ph) p.photo = rp.ph;
+    if (rp.h) p.height = rp.h;            // taille réelle (cm), pour le rendu 3D
     if (rp.apps >= 150) p.homegrown = rp.apps >= 200;           // figures historiques du club
     // Potentiel des jeunes : plus élevé dans les grands clubs.
     const o = overall(p);

@@ -5,6 +5,9 @@
 export function createRng(seed = 1) {
   let s = (seed >>> 0) || 1;
   const rng = {
+    /** État interne (pour sauvegarder / reprendre un match exactement). */
+    getState() { return s; },
+    setState(v) { s = v >>> 0; },
     /** Flottant dans [0, 1). */
     next() {
       s = (s + 0x6d2b79f5) >>> 0;
