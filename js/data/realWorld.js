@@ -170,15 +170,27 @@ export async function loadRealData() {
  * Sauvegardes « monde réel » créées avant l'ajout des logos et des photos :
  * on complète les clubs (par identifiant) et les joueurs (par nom, dans le même club).
  */
+export const MEDIA_V = 3;
 export function enrichRealSave(state, data) {
-  if (state.world !== 'real' || state.mediaV === 2) return 0;
+  if (state.world !== 'real' || state.mediaV === MEDIA_V) return 0;
   let n = 0;
   const byKey = Object.fromEntries(state.clubs.filter((c) => c.key).map((c) => [c.key, c]));
   for (const c of data.clubs) if (byKey[c.id]) { byKey[c.id].logo = c.logo || null; n++; }
   const idx = {};
   for (const p of Object.values(state.players)) if (p.real) idx[`${p.first} ${p.last}`] = p;
-  for (const rp of data.players) { const p = idx[`${rp.f} ${rp.l}`]; if (p && rp.ph && !p.photo) { p.photo = rp.ph; n++; } }
+  for (const rp of data.players) {
+    const p = idx[`${rp.f} ${rp.l}`];
+    if (!p) continue;
+    if (rp.ph && !p.photo) { p.photo = rp.ph; n++; }
+    if (rp.h && !p.height) p.height = rp.h;
+  }
+  // Photos des entraîneurs (bancs des clubs IA).
+  for (const co of data.coaches || []) {
+    const club = byKey[co.club];
+    const m = club && state.managers?.[club.managerId];
+    if (m && co.ph && !m.photo && co.name && (m.fullName === co.name || co.name.endsWith(m.last || '§'))) { m.photo = co.ph; n++; }
+  }
   state.mediaReady = true;
-  state.mediaV = 2;
+  state.mediaV = MEDIA_V;
   return n || 1;
 }

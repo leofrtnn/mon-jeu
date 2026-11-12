@@ -17,7 +17,7 @@ import { ensureManagers, onUserArrives } from '../game/managers.js';
 import { ensureStaff } from '../game/career.js';
 import { ensureBoard } from '../game/board.js';
 import { ensureLife } from '../game/life.js';
-import { loadRealData, enrichRealSave } from '../data/realWorld.js';
+import { loadRealData, enrichRealSave, MEDIA_V } from '../data/realWorld.js';
 import { prefetchLogos } from './images.js';
 import { openCoachEditor } from './screens/coachEditor.js';
 import * as home from './screens/home.js';
@@ -174,7 +174,7 @@ export const app = {
       ensureLife(this.state);
       refreshStarRef(this.state);
       // Parties « monde réel » créées avant l'ajout des logos/photos : on les complète une fois.
-      if (this.state.world === 'real' && this.state.mediaV !== 2 && !this._enriching) {
+      if (this.state.world === 'real' && this.state.mediaV !== MEDIA_V && !this._enriching) {
         this._enriching = true;
         const st = this.state;
         loadRealData().then((d) => { if (enrichRealSave(st, d) && st === this.state) { this.save(); this.render(); } }).catch(() => {}).finally(() => { this._enriching = false; });
