@@ -60,3 +60,21 @@ test('import / export de noms', async () => {
   assert.equal(state.clubs[0].name, 'Club Importé');
   assert.equal(state.players[state.clubs[0].playerIds[0]].name, 'J. Testeur');
 });
+
+test('effectif : on ne peut pas tout libérer ; moins de 7 joueurs = défaite 3-0', async () => {
+  const { releasePlayer } = await import('../js/game/transfers.js');
+  const { createMatch, simulateMatch } = await import('../js/engine/match.js');
+  const { simulateLive } = await import('../js/engine/live.js');
+  const st = newGame(21);
+  const uc = st.clubs[2]; startCareer(st, uc.id);
+  uc.budget = 1e9;
+  for (const id of [...uc.playerIds]) releasePlayer(st, id);
+  assert.ok(uc.playerIds.length >= 16, `effectif minimum gardé (${uc.playerIds.length})`);
+  uc.playerIds = []; uc.lineup = null; uc.bench = [];
+  let g = 0; while (!today(st).userFixture && g++ < 10) completeDay(st);
+  const cfg = userMatchCfg(st);
+  const us = cfg.home.club.id === uc.id ? 0 : 1;
+  for (const m of [simulateMatch(cfg), (() => { const x = createMatch(cfg); simulateLive(x, 0.05); return x; })()]) {
+    assert.equal(m.score[us], 0); assert.equal(m.score[1 - us], 3);
+  }
+});

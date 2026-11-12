@@ -7,7 +7,9 @@ import assert from 'node:assert/strict';
 import { loadRealData } from '../js/data/realWorld.js';
 import { createOnlineCareer, adoptOnline, makeSlice, applySlice, hostAdvance, managers } from '../js/online/multi.js';
 import { userClub, clubPlayers, clubById } from '../js/game/state.js';
-import { completeDay } from '../js/game/season.js';
+import { completeDay, today, userMatchCfg, fixtureKey, onlineMustPlay } from '../js/game/season.js';
+import { createMatch, snapshotMatch } from '../js/engine/match.js';
+import { simulateLive } from '../js/engine/live.js';
 import { LocalBackend } from '../js/online/backend.js';
 
 const data = await loadRealData();
@@ -49,6 +51,29 @@ test('journée : les deux managers jouent, la tranche de B est fusionnée chez l
   assert.ok(!after.freeAgents.includes(fa.id));
   assert.ok(after.messages.some((m) => m.title === 'note de Bob'), 'messages de B conservés');
   assert.ok(report && host.day === 1);
+});
+
+test('en ligne, chaque manager joue son match en direct : l\'hôte reprend exactement ce résultat', () => {
+  const host = createOnlineCareer(data, 13, [{ user_id: 'A', username: 'Alice', club_id: 1 }, { user_id: 'B', username: 'Bob', club_id: 21 }], 'g9');
+  // Avancer jusqu'à un jour où B a un match (et pas contre A).
+  let guard = 0;
+  while (guard++ < 12) {
+    const b0 = adoptOnline(clone(host), 'B');
+    if (onlineMustPlay(b0)) break;
+    hostAdvance(host, []);
+  }
+  const b = adoptOnline(clone(host), 'B'), baseB = adoptOnline(clone(host), 'B');
+  assert.ok(onlineMustPlay(b), 'B doit jouer son match avant « Prêt »');
+  const f = today(b).userFixture;
+  const m = createMatch(userMatchCfg(b));
+  simulateLive(m, 0.05);
+  b.playedMatch = { key: fixtureKey(b, f), snap: snapshotMatch(m), score: m.score.slice() };
+  assert.ok(!onlineMustPlay(b));
+  const { report } = hostAdvance(host, [makeSlice(b, baseB)]);
+  const r = report.results.find((x) => x.h === f.h && x.a === f.a);
+  assert.deepEqual(r.s, m.score, `résultat repris : ${r.s} contre ${m.score}`);
+  const after = adoptOnline(clone(host), 'B');
+  assert.equal(after.playedMatch, null, 'le match joué est consommé');
 });
 
 test('conflit : deux managers recrutent le même joueur libre → le second est annulé et remboursé', () => {

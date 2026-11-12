@@ -1,7 +1,7 @@
 /**
  * Accueil : prochain match, forme de l'équipe, messages importants (3 max).
  */
-import { today, tablePosition, DIV_NAMES, nationSquad, eligibleNations, changeClub, leagueRoundOf } from '../../game/season.js';
+import { today, tablePosition, DIV_NAMES, nationSquad, eligibleNations, changeClub, leagueRoundOf, onlineMustPlay } from '../../game/season.js';
 import { DIVISIONS, COUNTRIES } from '../../data/world.js';
 import { jobCandidates } from '../../game/career.js';
 import { preseasonCard, preseasonActions } from './preseasonUI.js';
@@ -193,6 +193,7 @@ export function primaryAction(app) {
     return { label: s.online ? 'Prêt' : 'Lancer la saison', run: () => preseasonActions.psstart(null, app) };
   }
   if (s.online) {
+    if (onlineMustPlay(s)) return { label: 'Jouer', run: () => openMatch(app) };
     const o = app.online;
     const me = o?.players?.find((p) => p.user_id === o.uid);
     if (me?.ready && me.version === s.online.version) return null;

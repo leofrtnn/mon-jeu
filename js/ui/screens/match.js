@@ -4,7 +4,7 @@
  * tableau d'affichage, momentum, commentaires, vitesse, résumé rapide,
  * pause (changements, tactique), mi-temps (stats + causerie), fin de match.
  */
-import { userMatchCfg, completeDay, today } from '../../game/season.js';
+import { userMatchCfg, completeDay, today, fixtureKey } from '../../game/season.js';
 import { createMatch, stepMinute, makeSub, changeFormation, swapSlots, setTactic, snapshotMatch, restoreMatch, applyPlan, teamTalk, summarize, penaltyShootout, clockLabel, activePlayers } from '../../engine/match.js';
 import { describe, iconFor } from '../../engine/commentary.js';
 import { FORMATION_NAMES, MENTALITIES, MENTALITY_LABELS, LEVELS, PRESSING_LABELS, TEMPO_LABELS, MAX_SUBS, POSITION_GROUP, TEAM_INSTRUCTIONS, DEFAULT_TACTICS, PLAYER_INSTRUCTIONS, WIDTH_LABELS } from '../../data/constants.js';
@@ -613,6 +613,13 @@ export function openMatch(app, opts = {}) {
           h.close();
           if (opts.onFinish) { closeScreen(); opts.onFinish(sum, m); return; }
           s.liveLock = null; clearSnap();
+          if (s.online) {
+            // En ligne : le match joué est envoyé avec « Prêt » ; l'hôte l'intègre à la journée.
+            s.playedMatch = { key: fixtureKey(s, today(s).userFixture), snap: snapshotMatch(m), score: m.score.slice() };
+            app.save(true); closeScreen(); app.render();
+            app.toast('Match enregistré : cliquez « Prêt » pour la journée suivante.', 3500);
+            return;
+          }
           const report = completeDay(s, m);
           app.save(true);
           closeScreen();

@@ -821,6 +821,17 @@ export function stepMinute(m) {
   const out = [];
   if (m.phase === 'ft' || m.phase === 'done') return out;
   if (m.phase === 'pre') {
+    // Moins de 7 joueurs disponibles : le match n'a pas lieu, défaite 3-0 sur tapis vert.
+    const short = m.teams.map((t) => activePlayers(t).length < 7);
+    if (short[0] || short[1]) {
+      m.forfeit = short[0] && short[1] ? -1 : short[0] ? 0 : 1;
+      m.score = short[0] && short[1] ? [0, 0] : short[0] ? [0, 3] : [3, 0];
+      m.phase = 'ft'; m.minute = 90;
+      for (const t of m.teams) for (const mp of activePlayers(t)) mp.minOut = 90;
+      emit(m, out, { type: 'ft', side: -1, forfeit: m.forfeit, x: 0.5, y: 0.5, zone: 1 });
+      finalizeRatings(m);
+      return out;
+    }
     m.phase = 'live';
     refreshMultipliers(m);
     m.kickoffSide = m.rng.chance(0.5) ? 0 : 1;

@@ -3,6 +3,7 @@
  * (choix des clubs), puis en jeu : bouton « Prêt », attente des autres managers,
  * calcul de la journée par l'hôte et réception des nouvelles versions.
  */
+import { onlineMustPlay } from '../../game/season.js';
 import { esc, crest } from '../components.js';
 import { packState, unpackState, setSlot, clubById } from '../../game/state.js';
 import { loadRealData } from '../../data/realWorld.js';
@@ -193,6 +194,8 @@ export function onlineCard(app) {
     <div class="ready-list">${ps.map((p) => `<span class="tag ${p.ready && p.version === v ? 'good' : ''}">${p.ready && p.version === v ? '✔' : '…'} ${esc(name(p))}${clubOf(p) ? ` · ${esc(clubOf(p).short)}` : ''}${p.user_id === o.game.host ? ' 👑' : ''}</span>`).join('')}</div>
     ${ready ? `<p class="muted" style="margin:8px 0">En attente des autres managers… ${o.isHost ? 'Vous êtes l\'hôte : la journée sera calculée ici dès que tout le monde sera prêt (gardez le jeu ouvert).' : 'L\'hôte calculera la journée dès que tout le monde sera prêt.'}</p>
       <button class="btn block" data-act="ounready">Annuler « Prêt »</button>`
+    : onlineMustPlay(app.state) ? `<button class="btn primary lg block" data-act="play">▶ Jouer mon match</button>
+      <small class="muted">Jouez votre match en direct (compo, changements, tactique) : le résultat sera envoyé avec votre « Prêt ».</small>`
     : `<button class="btn primary lg block" data-act="oready">✅ Prêt ${app.state.seasonOver ? '(fin de saison)' : app.state.preseason?.active ? '(lancer la saison)' : 'pour la journée suivante'}</button>
       <small class="muted">Réglez votre équipe, puis cliquez « Prêt ». La journée est jouée quand tous les managers sont prêts.</small>`}
   </div>`;
@@ -200,6 +203,7 @@ export function onlineCard(app) {
 
 export async function setMeReady(app) {
   const o = app.online;
+  if (onlineMustPlay(app.state)) { app.toast('Jouez d\'abord votre match.'); return; }
   busy(true, 'Envoi…');
   try {
     let slice = null;

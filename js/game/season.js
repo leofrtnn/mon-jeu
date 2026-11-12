@@ -11,7 +11,7 @@ import { DIVISIONS, DIV_IDS, COUNTRIES, CONTI_SLOTS, CONTI_NAME, DIV_NAMES, appl
 import { NATION_COLORS } from '../data/names.js';
 import { autoLineup, isAvailable, overall, squadStrength, ratingAt } from '../engine/ratings.js';
 import { aiPrepare } from '../engine/ai.js';
-import { simulateMatch, summarize, penaltyShootout, allPlayers } from '../engine/match.js';
+import { simulateMatch, summarize, penaltyShootout, allPlayers, createMatch, restoreMatch } from '../engine/match.js';
 import { wageBill, matchdayRevenue, sponsorIncome, prizeMoney, CUP_PRIZES, money, playerValue } from './economy.js';
 import { weeklyTraining, seasonDevelopment, shouldRetire, resetSeasonStats } from './progression.js';
 import { aiTransferActivity, userTransferOffers, fillSquad, logFinance, checkPromises } from './transfers.js';
@@ -429,10 +429,32 @@ export function matchCfgFor(state, f) {
   return {
     ...base, cup: knockout, extraTime: knockout, homeAdv: f.neutral ? 1 : homeAdvantage(h),
     profile: prof,
-    home: teamCfg(state, h, a, true, h.id === uid),
-    away: teamCfg(state, a, h, false, a.id === uid),
+    home: sideCfg(state, h, a, true, uid),
+    away: sideCfg(state, a, h, false, uid),
   };
 }
+
+/** Équipe d'une rencontre : un club d'un manager humain (en ligne) garde SA compo et SA tactique. */
+function sideCfg(state, club, opp, isHome, uid) {
+  const hu = humanOfClub(state, club.id);
+  if (state.online && hu !== undefined && hu !== state.online.cur) return withHuman(state, hu, () => teamCfg(state, club, opp, isHome, true));
+  return teamCfg(state, club, opp, isHome, club.id === uid);
+}
+
+/**
+ * En ligne : le manager doit-il jouer son match en direct avant d'être « Prêt » ?
+ * (Un match entre deux managers humains est calculé par l'hôte.)
+ */
+export function onlineMustPlay(state) {
+  if (!state.online || state.preseason?.active || state.seasonOver) return false;
+  const f = today(state)?.userFixture;
+  if (!f || f.comp === 'intl') return false;
+  if (humanOfClub(state, f.h) !== undefined && humanOfClub(state, f.a) !== undefined) return false;
+  return state.playedMatch?.key !== fixtureKey(state, f);
+}
+
+/** Clé d'une rencontre (pour retrouver le match joué en direct par un manager en ligne). */
+export const fixtureKey = (state, f) => `${state.season}-${state.day}-${f.comp}-${f.h}-${f.a}`;
 
 /** S'assure que la compo de l'utilisateur est valide (blessés, suspendus, départs). */
 export function validateUserLineup(state) {
@@ -495,7 +517,16 @@ export function completeDay(state, userMatch = null) {
     const hh = f.comp === 'intl' ? [] : [humanOfClub(state, f.h), humanOfClub(state, f.a)].filter((h) => h !== undefined);
     let m;
     if (userMatch && hh.includes(cur)) m = userMatch;
-    else m = simulateMatch(matchCfgFor(state, f));
+    else {
+      // En ligne : un manager a joué ce match en direct sur son appareil → on reprend son match.
+      const key = fixtureKey(state, f);
+      const played = hh.length === 1 ? withHuman(state, hh[0], () => (state.playedMatch?.key === key ? state.playedMatch : null)) : null;
+      if (played) {
+        m = createMatch(matchCfgFor(state, f));
+        if (!restoreMatch(m, played.snap) || !['ft', 'done'].includes(m.phase)) m = simulateMatch(matchCfgFor(state, f));
+      } else m = simulateMatch(matchCfgFor(state, f));
+      if (hh.length === 1) withHuman(state, hh[0], () => { state.playedMatch = null; });
+    }
     if ((f.comp === 'cup' || f.ko) && m.score[0] === m.score[1] && !m.shootout) penaltyShootout(m);
     const sum = summarize(m);
     applyResult(state, f, sum, m, ctx);

@@ -151,7 +151,8 @@ export function sellPlayer(state, offer) {
   const buyer = clubById(state, offer.clubId);
   const club = userClub(state);
   if (!p || p.clubId !== club.id) return { ok: false, msg: 'Joueur indisponible.' };
-  if (club.playerIds.length <= MIN_SQUAD - 4) return { ok: false, msg: 'Effectif trop réduit.' };
+  const can = canLetGo(state, club, p);
+  if (!can.ok) return can;
   paySellOn(state, p, club, offer.amount);
   removeFromClub(state, p);
   addToClub(state, p, buyer);
@@ -174,6 +175,8 @@ export function loanOut(state, pid, rng) {
   const club = userClub(state);
   if (!windowOpen(state)) return { ok: false, msg: 'Le mercato est fermé.' };
   if (p.onLoanFrom) return { ok: false, msg: 'Joueur déjà prêté.' };
+  const can = canLetGo(state, club, p);
+  if (!can.ok) return can;
   const o = overall(p);
   const cands = state.clubs.filter((c) => c.id !== club.id && c.playerIds.length < MAX_SQUAD - 1 && squadStrength(clubPlayers(state, c)) <= o + 2);
   if (!cands.length) return { ok: false, msg: 'Aucun club intéressé.' };
@@ -199,10 +202,23 @@ export function renewContract(state, pid) {
   return { ok: true, msg: `${p.name} prolonge 3 ans (${money(wage)}/sem).` };
 }
 
+/**
+ * Peut-on se séparer de ce joueur ? Il faut garder un effectif jouable : au moins
+ * 16 joueurs (hors prêtés) dont 2 gardiens.
+ */
+export function canLetGo(state, club, p) {
+  const squad = clubPlayers(state, club).filter((q) => !q.loanedOut && q.id !== p.id);
+  if (squad.length < MIN_SQUAD - 4) return { ok: false, msg: `Effectif trop réduit : il faut garder au moins ${MIN_SQUAD - 4} joueurs.` };
+  if (p.pos === 'GB' && squad.filter((q) => q.pos === 'GB').length < 2) return { ok: false, msg: 'Il faut garder au moins 2 gardiens.' };
+  return { ok: true };
+}
+
 /** Libération : indemnité de 10 semaines de salaire. */
 export function releasePlayer(state, pid) {
   const p = state.players[pid];
   const club = userClub(state);
+  const can = canLetGo(state, club, p);
+  if (!can.ok) return can;
   const cost = p.wage * 10;
   if (club.budget < cost) return { ok: false, msg: 'Budget insuffisant pour l\'indemnité.' };
   removeFromClub(state, p);
