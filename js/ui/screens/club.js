@@ -26,7 +26,10 @@ import { TICKETS, SPONSOR_REQS, userSponsorIncome } from '../../game/fans.js';
 import { ownerType, finHealth } from '../../game/owners.js';
 import { showClub } from './clubInfo.js';
 
-const TABS = [['fin', 'Finances'], ['board', 'CA'], ['market', 'Mercato'], ['staff', 'Staff'], ['train', 'Entraînement'], ['youth', 'Formation'], ['obj', 'Carrière'], ['friends', 'Amis'], ['settings', 'Réglages']];
+const TAB_LABEL = { fin: 'Finances', board: 'Direction', market: 'Recrutement', staff: 'Staff', train: 'Entraînement', youth: 'Jeunes', obj: 'Carrière', friends: 'Amis', settings: 'Paramètres' };
+const PAGE_TITLE = { board: 'Direction du club', youth: 'Centre de formation', obj: 'Ma carrière', friends: 'Entre amis' };
+/** Rubriques du menu : les sous-onglets affichés sont ceux de la rubrique en cours. */
+const SECTIONS = [{ tabs: ['train', 'youth', 'staff'] }, { tabs: ['board', 'fin', 'obj', 'friends'] }, { tabs: ['market'] }, { tabs: ['settings'] }];
 
 export function render(app) {
   const tab = app.ui.clubTab || 'fin';
@@ -41,7 +44,10 @@ export function render(app) {
   else if (tab === 'friends') body = friends.render(app);
   else if (tab === 'settings') body = settings.render(app);
   else body = career(s);
-  return `<div class="chips" style="margin-top:6px">${TABS.map(([k, l]) => `<button class="chip ${tab === k ? 'on' : ''}" data-act="ctab" data-v="${k}">${l}</button>`).join('')}</div><div class="${tab === 'market' ? '' : 'tab-body'}">${body}</div>`;
+  // Sous-onglets : seulement ceux de la même rubrique du menu (le reste est dans le menu).
+  const group = SECTIONS.find((g) => g.tabs.includes(tab));
+  const chips = group && group.tabs.length > 1 ? `<div class="chips sub-tabs">${group.tabs.map((k) => `<button class="chip ${tab === k ? 'on' : ''}" data-act="ctab" data-v="${k}">${TAB_LABEL[k]}</button>`).join('')}</div>` : '';
+  return `<div class="page-head"><h2>${PAGE_TITLE[tab] || TAB_LABEL[tab]}</h2>${chips}</div><div class="${tab === 'market' ? '' : 'tab-body'}">${body}</div>`;
 }
 
 function finances(s) {

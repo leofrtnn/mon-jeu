@@ -5,7 +5,7 @@
  * pause (changements, tactique), mi-temps (stats + causerie), fin de match.
  */
 import { userMatchCfg, completeDay, today, fixtureKey } from '../../game/season.js';
-import { createMatch, stepMinute, makeSub, changeFormation, swapSlots, setTactic, snapshotMatch, restoreMatch, applyPlan, teamTalk, summarize, penaltyShootout, clockLabel, activePlayers } from '../../engine/match.js';
+import { createMatch, stepMinute, makeSub, changeFormation, swapSlots, setTactic, snapshotMatch, restoreMatch, replayCfg, applyPlan, teamTalk, summarize, penaltyShootout, clockLabel, activePlayers } from '../../engine/match.js';
 import { describe, iconFor } from '../../engine/commentary.js';
 import { FORMATION_NAMES, MENTALITIES, MENTALITY_LABELS, LEVELS, PRESSING_LABELS, TEMPO_LABELS, MAX_SUBS, POSITION_GROUP, TEAM_INSTRUCTIONS, DEFAULT_TACTICS, PLAYER_INSTRUCTIONS, WIDTH_LABELS } from '../../data/constants.js';
 import { ratingAt } from '../../engine/ratings.js';
@@ -81,6 +81,12 @@ export function openMatch(app, opts = {}) {
   const $ = (id) => root.querySelector('#' + id);
   const ctrl = { speedIdx: Math.max(0, SPEEDS.indexOf(s.settings.speed || 1)), quick: false, finished: false, scorers: [[], []], recent: [] };
   const official = !opts.cfg;
+  // Journal des décisions du coach (instant précis = nombre de pas du moteur) : permet de
+  // rejouer ce match À L'IDENTIQUE sur un autre appareil (match entre managers, en ligne).
+  const replay = opts.replay || null;
+  const journal = [];
+  let jIdx = 0;
+  const rec = (op, a) => { if (!replay) journal.push({ n: view.liveSteps || 0, op, a }); };
   const resuming = official && pendingLiveMatch(s);
   const saveSnap = () => {
     if (!official || !s.liveLock) return;
@@ -152,7 +158,11 @@ export function openMatch(app, opts = {}) {
     if (text) addLine(ev, text);
     setMomentum();
     if (ev.type === 'goal' && s.settings.replays && !view.live) queueReplay();
-    if (ev.type === 'ht') { view.pause(); setTimeout(halfTime, 400); }
+    if (ev.type === 'ht') {
+      view.pause();
+      if (replay) { applyJournal(view.liveSteps || 0); app.toast('Mi-temps', 1500); setTimeout(() => { if (!ctrl.finished) view.play(); }, 1800); }
+      else setTimeout(halfTime, 400);
+    }
     if (ev.type === 'ft') { view.pause(); setTimeout(fullTime, 500); }
   };
 
@@ -216,9 +226,10 @@ export function openMatch(app, opts = {}) {
     } while (view.queue.length === 0 && m.phase === 'live' && guard++ < 30);
   };
 
-  const view = new MatchView($('pitch'), m, { userSide, onEventStart, onIdle, live: s.settings.liveEngine !== false, labelMode: s.settings.labels || ((s.settings.matchStyle || '3d') !== 'anim' ? 'num' : 'name'), style: s.settings.matchStyle || '3d', onPlayerTap: showTapCard,
+  const view = new MatchView($('pitch'), m, { userSide, onEventStart, onIdle, live: replay ? true : s.settings.liveEngine !== false,
+    beforeStep: replay ? (n) => applyJournal(n) : null, labelMode: s.settings.labels || ((s.settings.matchStyle || '3d') !== 'anim' ? 'num' : 'name'), style: s.settings.matchStyle || '3d', onPlayerTap: showTapCard,
     on3DFail: () => { app.toast('3D indisponible sur cet appareil : vue 2D.', 3500); s.settings.matchStyle = 'fm'; root.querySelector('[data-c=style]').textContent = '2D'; } });
-  window.__view = view; // débogage
+  window.__view = view; window.__journal = journal; window.__cfgSnap = () => replayCfg(cfg); // débogage
   view.setSpeed(SPEEDS[ctrl.speedIdx]);
   root.querySelector('[data-c="speed"]').textContent = `x${SPEEDS[ctrl.speedIdx]}`;
 
@@ -227,7 +238,7 @@ export function openMatch(app, opts = {}) {
     const b = e.target.closest('[data-c]');
     if (!b || ctrl.finished) return;
     const c = b.dataset.c;
-    if (c === 'pause') { if (m.phase === 'live') { view.pause(); pauseSheet(); } }
+    if (c === 'pause') { if (replay) { app.toast('Match en différé : pas de changement possible.'); return; } if (m.phase === 'live') { view.pause(); pauseSheet(); } }
     if (c === 'speed') {
       ctrl.speedIdx = (ctrl.speedIdx + 1) % SPEEDS.length;
       view.setSpeed(SPEEDS[ctrl.speedIdx] * (ctrl.quick ? (view.live ? 3 : 1.5) : 1));
@@ -240,7 +251,7 @@ export function openMatch(app, opts = {}) {
       view.setSpeed(SPEEDS[ctrl.speedIdx] * (ctrl.quick ? (view.live ? 3 : 1.5) : 1));
       app.toast(ctrl.quick ? 'Résumé rapide : seulement les temps forts' : 'Match en intégralité');
     }
-    if (c === 'skip') skipToEnd();
+    if (c === 'skip') { if (replay) { view.setSpeed(12); app.toast('Avance rapide'); } else { rec('skip', {}); skipToEnd(); } }
     if (c === 'style') {
       const st = { '3d': 'fm', fm: 'anim', anim: '3d' }[view.style] || '3d';
       view.setStyle(st);
@@ -304,7 +315,8 @@ export function openMatch(app, opts = {}) {
 
   /* ---------- Pré-match ---------- */
   const T = m.teams[userSide], O = m.teams[1 - userSide];
-  if (resuming) resumeMatch();
+  if (replay) { app.toast('Match en différé', 2000); setTimeout(() => { if (s.settings.audio) audio.start(); view.play(); }, 300); }
+  else if (resuming) resumeMatch();
   else app.sheet({
     root,
     dismissable: false,
@@ -357,6 +369,22 @@ export function openMatch(app, opts = {}) {
       back: (el, a, h) => { h.close(); closeScreen(); },
     },
   });
+
+  /** Différé : applique les décisions du coach enregistrées pour cet instant du match. */
+  function applyJournal(n) {
+    const list = replay?.journal || [];
+    while (jIdx < list.length && list[jIdx].n <= n) {
+      const { op, a } = list[jIdx++];
+      if (op === 'sub') { const r = makeSub(m, a.side, a.out, a.in); if (r.ok) { view.live?.handle(r.events, []); for (const ev of r.events) view.liveEvent?.(ev); } }
+      else if (op === 'form') { changeFormation(m, a.side, a.f); syncPitch(); }
+      else if (op === 'swap') { swapSlots(m, a.side, a.x, a.y); syncPitch(); }
+      else if (op === 'pi') { const T = m.teams[a.side]; T.pi[a.slot] = { ...(T.pi[a.slot] || {}), [a.k]: a.v }; }
+      else if (op === 'ti') setTactic(m, a.side, a.k, a.v);
+      else if (op === 'plan') { applyPlan(m, a.side, a.plan); syncPitch(); }
+      else if (op === 'talk') teamTalk(m, a.side, a.kind);
+      else if (op === 'skip') { skipToEnd(); return; }
+    }
+  }
 
   /** Reprise après rechargement : on restaure l'état sauvegardé et on continue. */
   function resumeMatch() {
@@ -467,7 +495,7 @@ export function openMatch(app, opts = {}) {
           if (!id) return;
           if (sel && sel !== id) {
             // Deux joueurs du terrain : ils échangent leurs postes.
-            if (swapSlots(m, userSide, sel, id)) { syncPitch(); app.toast('Postes échangés'); }
+            if (swapSlots(m, userSide, sel, id)) { rec('swap', { side: userSide, x: sel, y: id }); syncPitch(); app.toast('Postes échangés'); }
             sel = null;
           } else sel = sel === id ? null : id;
           h.update(html());
@@ -476,6 +504,7 @@ export function openMatch(app, opts = {}) {
           if (!sel) { app.toast('Touchez d\'abord le joueur à sortir sur le terrain.'); return; }
           const r = makeSub(m, userSide, sel, +el.dataset.id);
           if (!r.ok) { app.toast(r.error); return; }
+          rec('sub', { side: userSide, out: sel, in: +el.dataset.id });
           view.queue.unshift(...r.events);
           sel = null; h.update(html());
         },
@@ -483,19 +512,20 @@ export function openMatch(app, opts = {}) {
           const T = t(), mp = T.onPitch.find((x) => x && x.id === sel);
           if (!mp) return;
           T.pi[mp.slot] = { ...(T.pi[mp.slot] || {}), [el.dataset.k]: el.dataset.v };
+          rec('pi', { side: userSide, slot: mp.slot, k: el.dataset.k, v: el.dataset.v });
           h.update(html());
         },
-        form: (el) => { changeFormation(m, userSide, el.dataset.v); syncPitch(); sel = null; h.update(html()); },
-        ti: (el) => { setTactic(m, userSide, el.dataset.k, el.dataset.v); h.update(html()); },
+        form: (el) => { changeFormation(m, userSide, el.dataset.v); rec('form', { side: userSide, f: el.dataset.v }); syncPitch(); sel = null; h.update(html()); },
+        ti: (el) => { setTactic(m, userSide, el.dataset.k, el.dataset.v); rec('ti', { side: userSide, k: el.dataset.k, v: el.dataset.v }); h.update(html()); },
         qplan: (el) => {
           const q = QUICK_PLANS.find((x) => x.id === el.dataset.v);
-          for (const [k, v] of Object.entries(q.tac)) setTactic(m, userSide, k, v);
+          for (const [k, v] of Object.entries(q.tac)) { setTactic(m, userSide, k, v); rec('ti', { side: userSide, k, v }); }
           app.toast(`${q.icon} ${q.label}`); h.update(html());
         },
         plan: (el) => {
           const pl = (userClub(s).presets || [])[+el.dataset.v];
           if (!pl) return;
-          applyPlan(m, userSide, pl); syncPitch();
+          applyPlan(m, userSide, pl); rec('plan', { side: userSide, plan: JSON.parse(JSON.stringify(pl)) }); syncPitch();
           app.toast(`Plan ${'ABC'[+el.dataset.v]} appliqué`); h.update(html());
         },
       },
@@ -574,7 +604,7 @@ export function openMatch(app, opts = {}) {
     const h = app.sheet({
       root, dismissable: false, html,
       actions: {
-        talk: (el) => { talked = teamTalk(m, userSide, el.dataset.v); h.update(html()); },
+        talk: (el) => { talked = teamTalk(m, userSide, el.dataset.v); rec('talk', { side: userSide, kind: el.dataset.v }); h.update(html()); },
         subs: () => pauseSheet(false, true),
         resume: () => { ctrl.htDone = true; h.close(); view.play(); },
       },
@@ -611,11 +641,12 @@ export function openMatch(app, opts = {}) {
       actions: {
         done: (el, a, h) => {
           h.close();
+          if (replay) { closeScreen(); return; }
           if (opts.onFinish) { closeScreen(); opts.onFinish(sum, m); return; }
           s.liveLock = null; clearSnap();
           if (s.online) {
             // En ligne : le match joué est envoyé avec « Prêt » ; l'hôte l'intègre à la journée.
-            s.playedMatch = { key: fixtureKey(s, today(s).userFixture), snap: snapshotMatch(m), score: m.score.slice() };
+            s.playedMatch = { key: fixtureKey(s, today(s).userFixture), snap: snapshotMatch(m), score: m.score.slice(), cfg: replayCfg(cfg), journal };
             app.save(true); closeScreen(); app.render();
             app.toast('Match enregistré : cliquez « Prêt » pour la journée suivante.', 3500);
             return;

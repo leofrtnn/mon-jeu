@@ -1083,3 +1083,10 @@ export function restoreMatch(m, snap) {
   refreshMultipliers(m);
   return true;
 }
+
+/** Configuration d'un match, allégée et figée (pour le rejouer ailleurs à l'identique). */
+export function replayCfg(cfg) {
+  const club = (c) => (c ? { id: c.id, name: c.name, short: c.short, color: c.color, color2: c.color2, logo: c.logo, rep: c.rep, div: c.div, country: c.country, stadium: c.stadium } : c);
+  const side = (t) => ({ ...t, club: club(t.club), players: t.players.map((p) => ({ ...p })) });
+  return JSON.parse(JSON.stringify({ ...cfg, home: side(cfg.home), away: side(cfg.away) }));
+}

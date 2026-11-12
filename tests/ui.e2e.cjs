@@ -89,19 +89,21 @@ function serve() {
       await page.waitForTimeout(150);
     }
     for (const t of ['fin', 'market', 'staff', 'train', 'youth', 'obj', 'friends', 'settings']) {
-      await page.click('[data-nav=board]'); await page.click(`[data-act=ctab][data-v=${t}]`);
+      await page.click(`[data-nav=${t}]`);
     }
+    // Sous-onglets de la rubrique « Club ».
+    await page.click('[data-nav=board]'); await page.click('[data-act=ctab][data-v=fin]');
     step('onglets et sous-onglets');
 
     // Mission de recrutement.
-    await page.click('[data-nav=board]'); await page.click('[data-act=ctab][data-v=market]');
+    await page.click('[data-nav=market]');
     await page.click('[data-act=mmode][data-v=scout]');
     await page.click('[data-act=mission] >> nth=0');
     await page.selectOption('.sheet select[data-act=mr]', 'FRA');
     await page.click('.sheet [data-act=go]');
     await page.waitForSelector('text=En mission');
     // Négociation avec un membre du staff.
-    await page.click('[data-act=ctab][data-v=staff]');
+    await page.click('[data-nav=staff]');
     await page.click('[data-act=hirestaff] >> nth=0');
     await page.waitForSelector('.sheet [data-act=propose]');
     await page.click('.sheet [data-act=propose]');
@@ -176,7 +178,7 @@ function serve() {
     // Fiche club et relations (depuis le classement).
     await page.click('[data-nav=table]');
     await page.click('[data-act=clubinfo] >> nth=1');
-    await page.click('.sheet [data-act=rel]');
+    await page.click('.sheet [data-act=cview][data-v=main]'); await page.click('.sheet [data-act=rel]');
     await page.waitForSelector('.sheet:has-text("Relations")');
     await page.click('.sheet [data-act=back]');
     await page.click('.sheet-bg', { position: { x: 5, y: 5 } });
@@ -233,7 +235,7 @@ function serve() {
     step('multijoueur : code, amical, ligue entre amis');
 
     // Carrière en ligne (serveur local partagé) : l'hôte dans la page, un 2e manager simulé.
-    await page.click('[data-nav=board]'); await page.click('[data-act=ctab][data-v=settings]');
+    await page.click('[data-nav=settings]');
     await page.click('[data-act=quit]'); await page.click('.sheet [data-act=ok], .sheet .btn.primary');
     await page.evaluate(() => { window.__app.allowLocalOnline = true; window.__app.ui.start.gamesLoaded = false; window.__app.render(); });
     await page.click('[data-act=ocreate]');

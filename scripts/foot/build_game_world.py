@@ -395,7 +395,8 @@ for p in d['players']:
                     'nat': (p.get('nationality') or {}).get('name') or '', 'num': p.get('number') or 0,
                     'caps': intl.get('caps') or 0, 'ig': intl.get('goals') or 0, 'apps': (p.get('clubStats') or {}).get('apps') or 0,
                     'ph': (p.get('photo') or {}).get('file'), 'lv': levels.get(p['id'])})
-coaches = [{'club': c['club'], 'name': re.sub(r'\s*\([^)]*\)', '', c['name'] or '').strip() or None, 'nat': (c.get('nationality') or [''])[0], 'age': c.get('age') or 50} for c in d['coaches']]
+coaches = [{'club': c['club'], 'name': re.sub(r'\s*\([^)]*\)', '', c['name'] or '').strip() or None, 'nat': (c.get('nationality') or [''])[0], 'age': c.get('age') or 50,
+            'ph': (c.get('photo') or {}).get('file')} for c in d['coaches']]
 out = {'format': 'coach-de-poche-monde-reel-v1', 'season': d['meta']['season'], 'sources': d['meta']['sources'],
        'leagues': [{'id': lg['id'], 'name': lg['name'], 'country': lg['country']} for lg in d['leagues']],
        'clubs': clubs, 'players': players, 'coaches': coaches}

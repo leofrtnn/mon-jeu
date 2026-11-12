@@ -70,6 +70,7 @@ export function newGame(seed = (Date.now() >>> 0), { real = null } = {}) {
     m.name = m.first ? `${m.first[0]}. ${m.last}` : m.last; m.fullName = co.name;
     if (co.nat) m.nat = co.nat;
     if (co.age) m.age = co.age;
+    if (co.ph) m.photo = co.ph;
   }
   applyTop100(state);   // notes du top 100 intégré (monde réel)
   return state;
@@ -437,8 +438,29 @@ export function matchCfgFor(state, f) {
 /** Équipe d'une rencontre : un club d'un manager humain (en ligne) garde SA compo et SA tactique. */
 function sideCfg(state, club, opp, isHome, uid) {
   const hu = humanOfClub(state, club.id);
-  if (state.online && hu !== undefined && hu !== state.online.cur) return withHuman(state, hu, () => teamCfg(state, club, opp, isHome, true));
+  // L'autre manager n'est pas là pendant ce match : son équipe garde sa compo et sa tactique,
+  // et son adjoint (l'IA) gère les changements.
+  if (state.online && hu !== undefined && hu !== state.online.cur) return { ...withHuman(state, hu, () => teamCfg(state, club, opp, isHome, true)), isAI: true };
   return teamCfg(state, club, opp, isHome, club.id === uid);
+}
+
+/**
+ * Match joué en direct par un manager (en ligne) → match officiel : reconstruit à partir
+ * de la configuration figée et de l'instantané de fin, rattaché aux joueurs et clubs de l'état.
+ */
+function playedToMatch(state, played) {
+  let m;
+  if (played.cfg) {
+    m = createMatch(played.cfg);
+    if (!restoreMatch(m, played.snap)) return null;
+    for (const t of m.teams) {
+      t.club = clubById(state, t.club.id) || t.club;
+      for (const mp of [...t.onPitch, ...t.bench, ...t.out]) if (mp && state.players[mp.id]) mp.p = state.players[mp.id];
+    }
+  } else {
+    return null;
+  }
+  return ['ft', 'done'].includes(m.phase) ? m : null;
 }
 
 /**
@@ -449,7 +471,8 @@ export function onlineMustPlay(state) {
   if (!state.online || state.preseason?.active || state.seasonOver) return false;
   const f = today(state)?.userFixture;
   if (!f || f.comp === 'intl') return false;
-  if (humanOfClub(state, f.h) !== undefined && humanOfClub(state, f.a) !== undefined) return false;
+  // Match entre deux managers : c'est le manager qui reçoit qui le joue en direct.
+  if (humanOfClub(state, f.h) !== undefined && humanOfClub(state, f.a) !== undefined && state.userClubId !== f.h) return false;
   return state.playedMatch?.key !== fixtureKey(state, f);
 }
 
@@ -511,6 +534,7 @@ export function completeDay(state, userMatch = null) {
   const played = new Set();
   const ctx = { newlyHurt: new Set(), newlySusp: new Set(), report, rng, cur };
   const budgetBefore = {};
+  if (state.online) state.online.replays = {}; // les différés de la veille ne servent plus
   forEachHuman(state, (h) => { budgetBefore[h] = userClub(state).budget; });
 
   for (const f of t.fixtures) {
@@ -520,12 +544,17 @@ export function completeDay(state, userMatch = null) {
     else {
       // En ligne : un manager a joué ce match en direct sur son appareil → on reprend son match.
       const key = fixtureKey(state, f);
-      const played = hh.length === 1 ? withHuman(state, hh[0], () => (state.playedMatch?.key === key ? state.playedMatch : null)) : null;
-      if (played) {
-        m = createMatch(matchCfgFor(state, f));
-        if (!restoreMatch(m, played.snap) || !['ft', 'done'].includes(m.phase)) m = simulateMatch(matchCfgFor(state, f));
-      } else m = simulateMatch(matchCfgFor(state, f));
-      if (hh.length === 1) withHuman(state, hh[0], () => { state.playedMatch = null; });
+      // Le match est joué par le manager concerné (entre deux managers : celui qui reçoit).
+      const owner = hh.length === 1 ? hh[0] : hh.length === 2 ? humanOfClub(state, f.h) : undefined;
+      const played = owner !== undefined ? withHuman(state, owner, () => (state.playedMatch?.key === key ? state.playedMatch : null)) : null;
+      m = played ? playedToMatch(state, played) : null;
+      if (!m) m = simulateMatch(matchCfgFor(state, f));
+      else if (state.online) {
+        // Différé pour les autres managers : configuration figée + journal des décisions.
+        state.online.replays = state.online.replays || {};
+        state.online.replays[key] = { key, h: f.h, a: f.a, label: t.label, cfg: played.cfg, journal: played.journal || [], score: m.score.slice(), by: owner };
+      }
+      for (const h of hh) withHuman(state, h, () => { if (state.playedMatch?.key === key) state.playedMatch = null; });
     }
     if ((f.comp === 'cup' || f.ko) && m.score[0] === m.score[1] && !m.shootout) penaltyShootout(m);
     const sum = summarize(m);

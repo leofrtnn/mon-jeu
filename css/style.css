@@ -850,3 +850,16 @@ html.land .mtac { grid-template-columns: 1fr 1fr; }
 .edgelist li { padding: 3px 0; }
 .edgelist li.good { color: var(--good); }
 .edgelist li.bad { color: var(--bad); }
+.nextmatch .vs .team { cursor: pointer; border-radius: 14px; transition: background .15s; }
+.nextmatch .vs .team:hover { background: rgba(255, 255, 255, .05); }
+
+/* ---------- Menu latéral en rubriques ---------- */
+#tabbar .nav-group { display: none; }
+html.land #tabbar .inner { overflow-y: auto; scrollbar-width: none; justify-content: flex-start; padding-bottom: 6px; }
+html.land #tabbar .nav-group { display: block; padding: 12px 18px 3px; font: 600 10.5px var(--display); letter-spacing: .14em; text-transform: uppercase; color: var(--muted); opacity: .75; }
+html.land.short #tabbar .nav-group { padding: 7px 16px 1px; font-size: 9.5px; }
+html.land.short #tabbar .inner button, html.land.short #tabbar .inner button.more { min-height: 32px; }
+/* En-tête de page : titre + sous-onglets de la rubrique. */
+.page-head { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin: 8px 0 2px; }
+.page-head h2 { font-size: 22px; margin: 0; }
+.page-head .sub-tabs { margin: 0; padding: 0; }

@@ -8,7 +8,7 @@ import { loadRealData } from '../js/data/realWorld.js';
 import { createOnlineCareer, adoptOnline, makeSlice, applySlice, hostAdvance, managers } from '../js/online/multi.js';
 import { userClub, clubPlayers, clubById } from '../js/game/state.js';
 import { completeDay, today, userMatchCfg, fixtureKey, onlineMustPlay } from '../js/game/season.js';
-import { createMatch, snapshotMatch } from '../js/engine/match.js';
+import { createMatch, snapshotMatch, replayCfg } from '../js/engine/match.js';
 import { simulateLive } from '../js/engine/live.js';
 import { LocalBackend } from '../js/online/backend.js';
 
@@ -65,15 +65,17 @@ test('en ligne, chaque manager joue son match en direct : l\'hôte reprend exact
   const b = adoptOnline(clone(host), 'B'), baseB = adoptOnline(clone(host), 'B');
   assert.ok(onlineMustPlay(b), 'B doit jouer son match avant « Prêt »');
   const f = today(b).userFixture;
-  const m = createMatch(userMatchCfg(b));
+  const cfg = userMatchCfg(b);
+  const m = createMatch(cfg);
   simulateLive(m, 0.05);
-  b.playedMatch = { key: fixtureKey(b, f), snap: snapshotMatch(m), score: m.score.slice() };
+  b.playedMatch = { key: fixtureKey(b, f), snap: snapshotMatch(m), score: m.score.slice(), cfg: replayCfg(cfg), journal: [] };
   assert.ok(!onlineMustPlay(b));
   const { report } = hostAdvance(host, [makeSlice(b, baseB)]);
   const r = report.results.find((x) => x.h === f.h && x.a === f.a);
   assert.deepEqual(r.s, m.score, `résultat repris : ${r.s} contre ${m.score}`);
   const after = adoptOnline(clone(host), 'B');
   assert.equal(after.playedMatch, null, 'le match joué est consommé');
+  assert.ok(after.online.replays[fixtureKey(b, f)], 'différé disponible pour les autres managers');
 });
 
 test('conflit : deux managers recrutent le même joueur libre → le second est annulé et remboursé', () => {

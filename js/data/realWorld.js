@@ -151,7 +151,7 @@ export function createRealWorld(rng, data) {
     players[p.id] = p;
     freeAgents.push(p.id);
   }
-  const coaches = (data.coaches || []).filter((c) => byKey[c.club]).map((c) => ({ clubId: byKey[c.club].id, name: c.name, nat: c.nat, age: c.age }));
+  const coaches = (data.coaches || []).filter((c) => byKey[c.club]).map((c) => ({ clubId: byKey[c.club].id, name: c.name, nat: c.nat, age: c.age, ph: c.ph || null }));
   return { clubs, players, freeAgents, coaches, nextId: getNextId() };
 }
 

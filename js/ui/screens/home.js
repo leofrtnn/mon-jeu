@@ -62,7 +62,7 @@ export function render(app) {
 
   /* ---------- Colonne 2 : le prochain rendez-vous ---------- */
   let col2 = '';
-  if (s.online) col2 += onlineCard(app);
+  if (s.online) col2 += onlineCard(app) + replaysCard(app);
   if (s.seasonOver) {
     col2 += `<div class="card nextmatch"><h3 class="ttl">${ico('trophy')}Saison ${s.season}-${s.season + 1} terminée</h3>
       <p>Classement final : <b>${pos}e</b> de ${esc(DIV_NAMES[uc.div])}</p>
@@ -75,10 +75,11 @@ export function render(app) {
     col2 += `<div class="card nextmatch">
       <h3 class="ttl">${ico('ball')}Prochain match</h3>
       <div class="vs">
-        <div class="team">${crest(h, 'lg')}<span>${esc(h.name)}</span></div>
+        <div class="team" data-act="clubinfo" data-id="${h.id}" title="Voir l'effectif">${crest(h, 'lg')}<span>${esc(h.name)}</span></div>
         <div class="mid">VS<small>${esc(oppPos)}</small></div>
-        <div class="team">${crest(a, 'lg')}<span>${esc(a.name)}</span></div>
+        <div class="team" data-act="clubinfo" data-id="${a.id}" title="Voir l'effectif">${crest(a, 'lg')}<span>${esc(a.name)}</span></div>
       </div>
+      <button class="btn ghost sm block" data-act="clubinfo" data-id="${opp.id}">🔎 Effectif de ${esc(opp.name)}</button>
       <p class="nm-meta">${esc(t.label)}<br>${esc(longDate(currentDate(s)))} · ${f.neutral ? 'Terrain neutre' : `${esc(h.name)} (${h.id === uc.id ? 'domicile' : 'extérieur'})`}</p>
       ${s.online ? '<button class="btn block" data-act="tactics">Préparer le match →</button>' : `<div class="btns">
         <button class="btn" data-act="tactics">Préparer le match</button>
@@ -205,6 +206,16 @@ export function primaryAction(app) {
   return { label: 'Continuer', run: () => runSim(app, 1, false) };
 }
 
+/** En ligne : matchs de la journée joués par un manager, à revoir en différé. */
+function replaysCard(app) {
+  const s = app.state, uc = userClub(s);
+  const list = Object.values(s.online?.replays || {}).sort((x, y) => ((y.h === uc.id || y.a === uc.id) ? 1 : 0) - ((x.h === uc.id || x.a === uc.id) ? 1 : 0));
+  if (!list.length) return '';
+  return `<div class="card"><h3 class="ttl">📺 Matchs à revoir (différé)</h3>
+    ${list.map((r) => { const h = clubById(s, r.h), a = clubById(s, r.a); const mine = r.h === uc.id || r.a === uc.id;
+      return `<div class="prow" data-act="oreplay" data-k="${esc(r.key)}">${crest(h, 'sm')}<div class="pname"><b>${esc(h.short)} ${r.score[0]} - ${r.score[1]} ${esc(a.short)}</b><small>${esc(r.label)}${mine ? ' · votre match' : ''}</small></div>${crest(a, 'sm')}<span class="tag">▶</span></div>`; }).join('')}</div>`;
+}
+
 function line(label, v) {
   return `<div class="g-line"><div class="row between"><span>${label}</span><b style="color:${scaleColor(v)}">${Math.round(v)}</b></div>${gauge(v)}</div>`;
 }
@@ -214,6 +225,13 @@ export const actions = {
   oready: onlineActions.oready,
   ounready: onlineActions.ounready,
   play(el, app) { openMatch(app); },
+  oreplay(el, app) {
+    const s = app.state, r = s.online?.replays?.[el.dataset.k];
+    if (!r) return;
+    const uc = userClub(s);
+    openMatch(app, { cfg: JSON.parse(JSON.stringify(r.cfg)), replay: r, label: `${r.label} · différé`, userSide: r.cfg.away.club.id === uc.id ? 1 : 0, onFinish() {} });
+  },
+  clubinfo(el, app) { import('./clubInfo.js').then((mod) => mod.showClub(app, +el.dataset.id)); },
   tactics(el, app) { app.go('tactics'); },
   async simulate(el, app) { await runSim(app, 1, false); },
   async skipto(el, app) { await runSim(app, 12, true); },

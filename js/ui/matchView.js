@@ -41,6 +41,9 @@ const SKINS = ['#f1c27d', '#e0ac69', '#c68642', '#8d5524', '#ffdbac', '#a0673b',
 const HAIRS = ['#2b1d14', '#120c08', '#5a3a1e', '#b07a3c', '#d9b26b', '#1a1a1a', '#7a4b2a', '#3d2a1a', '#e6d3a3'];
 const ease = (t) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2);
 
+/** Pas de simulation du moteur en direct (secondes de jeu). */
+export const LIVE_STEP = 1 / 96;
+
 export class MatchView {
   /**
    * @param canvas élément <canvas>
@@ -486,12 +489,16 @@ export class MatchView {
     // Ralenti bref sur les temps forts (faute, grosse occasion, but).
     let slow = 1;
     if (this.slowmo) { slow = this.slowmo.k; this.slowmo.t -= realDt; if (this.slowmo.t <= 0) this.slowmo = null; }
-    let left = dt * this.TS * slow;
-    this.moveReferee(left);
-    while (left > 1e-6) {
-      const h = Math.min(0.025, left); // pas de simulation fin : décisions et contacts plus précis
-      left -= h;
-      for (const ev of this.live.step(h)) this.liveEvent(ev);
+    const adv = dt * this.TS * slow;
+    this.moveReferee(adv);
+    // Pas de simulation FIXE (1/96 s) : le même match se rejoue à l'identique sur un autre
+    // appareil (revoir un match en ligne), quelle que soit la fluidité de l'affichage.
+    this.liveAcc = Math.min(1, (this.liveAcc || 0) + adv);
+    while (this.liveAcc >= LIVE_STEP) {
+      this.opts.beforeStep?.(this.liveSteps || 0);
+      this.liveAcc -= LIVE_STEP;
+      this.liveSteps = (this.liveSteps || 0) + 1;
+      for (const ev of this.live.step(LIVE_STEP)) this.liveEvent(ev);
       if (this.paused) break; // mi-temps / fin : l'écran a mis en pause
     }
     this.holder = this.live.holder ? this.live.holder.mp.id : null;

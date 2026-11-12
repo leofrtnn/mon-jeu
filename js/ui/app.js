@@ -41,6 +41,10 @@ const ICONS = {
   mail: '<rect x="3" y="5.5" width="18" height="13" rx="2"/><path d="m3.5 7 8.5 6.5L20.5 7"/>',
   gear: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-1-1.5 1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.6 1.6 0 0 0 1.5-1 1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z"/>',
   cal: '<rect x="3.5" y="5" width="17" height="15.5" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/>',
+  train: '<path d="M6.5 6.5v11M17.5 6.5v11M3.5 9v6M20.5 9v6M6.5 12h11"/>',
+  youth: '<path d="M12 21v-8"/><path d="M12 13c0-4 3-6.5 7-6.5 0 4-3 6.5-7 6.5zM12 15c0-3.2-2.4-5.2-5.6-5.2 0 3.2 2.4 5.2 5.6 5.2z"/>',
+  career: '<circle cx="12" cy="9" r="5"/><path d="M9 13.5 7.5 21l4.5-2.5 4.5 2.5L15 13.5"/>',
+  friends: '<circle cx="8" cy="9" r="3"/><circle cx="16" cy="9" r="3"/><path d="M2.5 20c0-3 2.5-5 5.5-5s5.5 2 5.5 5M12.5 15.4c1-.3 2.2-.4 3.5-.4 3 0 5.5 2 5.5 5"/>',
 };
 const TABS = [
   { id: 'home', label: 'Accueil', mod: home },
@@ -55,15 +59,23 @@ const TABS = [
  */
 const NAV = [
   { key: 'home', tab: 'home', label: 'Accueil', icon: 'home', main: true },
+  { key: 'mail', label: 'Messages', icon: 'mail' },
+  { group: 'Équipe' },
   { key: 'squad', tab: 'squad', label: 'Effectif', icon: 'squad', main: true },
   { key: 'tactics', tab: 'tactics', label: 'Tactiques', icon: 'tactics', main: true },
-  { key: 'fixtures', tab: 'schedule', sub: ['schedTab', 'fixtures'], label: 'Calendrier', icon: 'calendar' },
-  { key: 'table', tab: 'schedule', sub: ['schedTab', 'table'], label: 'Compétitions', icon: 'schedule', main: true },
-  { key: 'market', tab: 'club', sub: ['clubTab', 'market'], label: 'Recrutement', icon: 'scout' },
-  { key: 'board', tab: 'club', sub: ['clubTab', 'board'], label: 'Club', icon: 'club', main: true },
+  { key: 'train', tab: 'club', sub: ['clubTab', 'train'], label: 'Entraînement', icon: 'train' },
+  { key: 'youth', tab: 'club', sub: ['clubTab', 'youth'], label: 'Jeunes', icon: 'youth' },
   { key: 'staff', tab: 'club', sub: ['clubTab', 'staff'], label: 'Staff', icon: 'staff' },
+  { group: 'Compétitions' },
+  { key: 'fixtures', tab: 'schedule', sub: ['schedTab', 'fixtures'], label: 'Calendrier', icon: 'calendar' },
+  { key: 'table', tab: 'schedule', sub: ['schedTab', 'table'], label: 'Classements', icon: 'schedule', main: true },
+  { group: 'Mercato' },
+  { key: 'market', tab: 'club', sub: ['clubTab', 'market'], label: 'Recrutement', icon: 'scout' },
+  { group: 'Club' },
+  { key: 'board', tab: 'club', sub: ['clubTab', 'board'], label: 'Direction', icon: 'club', main: true },
   { key: 'fin', tab: 'club', sub: ['clubTab', 'fin'], label: 'Finances', icon: 'money' },
-  { key: 'mail', label: 'Messages', icon: 'mail' },
+  { key: 'obj', tab: 'club', sub: ['clubTab', 'obj'], label: 'Carrière', icon: 'career' },
+  { key: 'friends', tab: 'club', sub: ['clubTab', 'friends'], label: 'Amis', icon: 'friends' },
   { key: 'settings', tab: 'club', sub: ['clubTab', 'settings'], label: 'Paramètres', icon: 'gear', bottom: true },
 ];
 const svg = (k, w = 1.8) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round">${ICONS[k]}</svg>`;
@@ -85,12 +97,12 @@ export const app = {
     this.$overlay = document.getElementById('overlay-root');
     const item = (n) => `<button data-nav="${n.key}" class="${n.main ? 'main' : 'more'}" aria-label="${n.label}">${svg(n.icon)}<span>${n.label}</span>${n.key === 'mail' ? '<em class="nav-badge" id="mailbadge"></em>' : ''}</button>`;
     this.$tabs.innerHTML = `<div class="brand">${BRAND}<b>Coach<br>de Poche</b></div>
-      <div class="inner">${NAV.filter((n) => !n.bottom).map(item).join('')}</div>
+      <div class="inner">${NAV.filter((n) => !n.bottom).map((n) => (n.group ? `<div class="nav-group">${n.group}</div>` : item(n))).join('')}</div>
       <div class="nav-foot">${NAV.filter((n) => n.bottom).map(item).join('')}</div>`;
     this.$tabs.addEventListener('click', (e) => {
       const b = e.target.closest('[data-nav]');
       if (!b) return;
-      const n = NAV.find((x) => x.key === b.dataset.nav);
+      const n = NAV.find((x) => x.key && x.key === b.dataset.nav);
       if (n.key === 'mail') { if (this.state?.userClubId) home.actions.allmsgs(b, this); return; }
       if (n.sub) this.ui[n.sub[0]] = n.sub[1];
       this.go(n.tab);
@@ -131,8 +143,7 @@ export const app = {
   navKey() {
     if (this.tab === 'schedule') return (this.ui.schedTab || 'table') === 'fixtures' ? 'fixtures' : 'table';
     if (this.tab === 'club') {
-      const k = this.ui.clubTab || 'fin';
-      return ['market', 'staff', 'fin', 'settings'].includes(k) ? k : 'board';
+      return this.ui.clubTab || 'fin';
     }
     return this.tab;
   },
