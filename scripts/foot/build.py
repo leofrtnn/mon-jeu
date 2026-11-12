@@ -123,6 +123,7 @@ def build():
     for i in range(0, len(club_titles), 5):  # pages longues : petits lots
         pages.update(wiki.wikitexts(club_titles[i:i + 5]))
     clubs, squads, manager_titles = [], {}, {}
+    seen_ids = set()
     for lg in data_leagues:
         for title in lg['clubs']:
             if title not in pages:
@@ -130,6 +131,9 @@ def build():
             final, text, qid = pages[title]
             ib = first_infobox(text, 'football club')
             cid = slug(clean(ib.get('clubname', '')) or final)
+            # Homonymes (Liverpool d'Uruguay, Everton du Chili…) : identifiant unique par championnat.
+            if cid in seen_ids: cid = cid + '-' + lg['id'].lower()
+            seen_ids.add(cid)
             logo_file = clean(ib.get('image', '')) or None
             colors = [c for c in (hexcol(ib.get('body1')), hexcol(ib.get('shorts1')), hexcol(ib.get('socks1'))) if c]
             away = [c for c in (hexcol(ib.get('body2')), hexcol(ib.get('shorts2')), hexcol(ib.get('socks2'))) if c]

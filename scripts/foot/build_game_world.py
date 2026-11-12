@@ -145,7 +145,8 @@ def ascii_low(s):
     return unicodedata.normalize('NFKD', s).encode('ascii', 'ignore').decode().lower()
 
 LEAGUE_KEY = {('FRA2', 'red star'): (57, 'RSFC'), ('ENG2', 'queens park'): (61, 'QPR'), ('ESP2', 'sporting'): (62, 'SPG'),
-              ('URU1', 'nacional'): (63, 'NAC'), ('URU1', 'liverpool'): (58, 'LIV2'), ('CHI1', 'everton'): (56, 'EVE2'), ('UAE1', 'al ahli'): (66, 'SAA'), ('URU1', 'river plate'): (56, 'RPM')}   # homonymes (Red Star de Paris ≠ Étoile rouge de Belgrade)
+              ('URU1', 'nacional'): (63, 'NAC'), ('URU1', 'liverpool'): (58, 'LIV2'), ('CHI1', 'everton'): (56, 'EVE2'), ('UAE1', 'al ahli'): (66, 'SAA'), ('URU1', 'river plate'): (56, 'RPM'),
+              ('MAR1', 'union'): (55, 'UYM'), ('CHI1', 'union'): (56, 'ULC')}   # homonymes (Red Star de Paris ≠ Étoile rouge de Belgrade)
 def rep_short(c, league):
     n = ascii_low(c['name'] + ' ' + c['id'].replace('-', ' '))
     for (lg, key), v in LEAGUE_KEY.items():
@@ -216,7 +217,7 @@ for lg in d['leagues']:
     for cid in lg['clubs']:
         c = next(x for x in d['clubs'] if x['id'] == cid)
         name = c.get('shortName') if c.get('shortName') and len(c['name']) > 22 else c['name']
-        if cid in REP:
+        if cid in REP and lg['id'] in ('ENG1', 'ESP1', 'ITA1', 'GER1', 'FRA1'):
             rep, short = REP[cid], SHORT.get(cid)
         else:
             rep, short = rep_short(c, lg['id'])
