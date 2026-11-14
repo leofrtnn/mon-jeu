@@ -20,6 +20,13 @@ export function injuryLength(rng) {
 export const SEVERE_NAMES = ['Rupture des ligaments croisés', 'Fracture du tibia', 'Rupture du tendon d\'Achille', 'Pubalgie chronique'];
 
 /** Enregistre une blessure longue (appelé quand un joueur de l'utilisateur se blesse). */
+/** Historique des blessures d'un joueur (saison, date, nature, durée, contexte). */
+export function logInjury(state, p, where = '', when = null) {
+  const date = when || state.calendar?.[state.day]?.date || `${state.season}`;
+  (p.injHist ||= []).unshift({ y: state.season, d: date, what: p.injuryName || 'Blessure', n: p.injury || 0, where });
+  if (p.injHist.length > 25) p.injHist.length = 25;
+}
+
 export function noteInjury(state, p) {
   p.injTotal = p.injury;
   p.injAsked = false;
@@ -73,6 +80,7 @@ export function relapseCheck(state, d, rng) {
       p.injury = Math.round(Math.max(4, p.relapse.total) * I.relapseMult);
       p.injuryName = `Rechute (${p.injuryName || 'blessure'})`;
       p.injTotal = p.injury; p.injLong = true; p.injAsked = true;
+      logInjury(state, p, 'Rechute');
       p.relapse = null;
       moodShift(p, -12);
       pushMessage(state, { prio: 1, icon: '✚', title: `Rechute pour ${p.name}`, text: `Retour trop précipité : ${p.injury} match(s) d'absence. Le moral est au plus bas.`, action: { type: 'player', pid: p.id } });

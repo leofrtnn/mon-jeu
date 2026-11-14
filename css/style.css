@@ -1181,3 +1181,37 @@ ul.notes { margin: 4px 0 0; padding-left: 18px; font-size: 13px; line-height: 1.
 .bc-carrier em { font: 800 15px var(--display); font-style: normal; color: var(--tc, #fff); filter: brightness(1.6); }
 .bc-carrier b { font: 700 14px var(--display); letter-spacing: .02em; }
 .bc-carrier small { color: #aab; font-size: 11px; }
+
+/* ---------- Sélections : tournois internationaux ---------- */
+.nt { cursor: pointer; white-space: nowrap; }
+.nt.w { font-weight: 700; }
+.tourn-up { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; }
+.tourn-up .tu { display: flex; gap: 10px; align-items: center; margin: 0; padding: 10px 12px; }
+.tourn-up .tu-ic { font-size: 28px; }
+.tourn-up small { display: block; color: var(--muted); }
+.tourn-win { display: flex; gap: 14px; align-items: center; text-align: left; justify-content: flex-start; }
+.tourn-win .tw-flag { font-size: 58px; line-height: 1; filter: drop-shadow(0 4px 10px rgba(0,0,0,.35)); }
+.bracket { display: flex; gap: 10px; overflow-x: auto; padding: 4px 2px 10px; scroll-snap-type: x proximity; }
+.br-col { display: flex; flex-direction: column; justify-content: space-around; gap: 8px; min-width: 168px; scroll-snap-align: start; }
+.br-h { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin-bottom: 2px; }
+.br-m { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 4px 8px; font-size: 13px; }
+.br-m > div { display: flex; justify-content: space-between; gap: 8px; padding: 2px 0; opacity: .7; }
+.br-m > div.w { opacity: 1; font-weight: 700; }
+.br-m sup { font-size: 9px; margin-left: 2px; color: var(--muted); }
+.grp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; margin-top: 8px; }
+.tbl.mini td { padding: 5px 4px; font-size: 13px; }
+.tbl.mini td b { font-size: 14px; }
+.tbl.mini tr.q td:first-child { box-shadow: inset 3px 0 0 var(--good); }
+/* Fiche joueur : carrière et blessures */
+.car-tbl td, .car-tbl th { padding: 6px 4px; font-size: 12.5px; }
+.car-tbl tr.cur td { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.car-tbl tr.pre td { opacity: .8; }
+.inj-row { display: flex; gap: 8px; align-items: baseline; padding: 5px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+.inj-row .d { color: var(--muted); min-width: 78px; font-variant-numeric: tabular-nums; }
+/* Pré-saison : stages */
+.camp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 8px; }
+.camp-opt { display: flex; flex-direction: column; gap: 3px; text-align: left; padding: 10px 12px; border-radius: 14px; border: 1px solid var(--line); background: var(--card2, rgba(255,255,255,.03)); color: inherit; cursor: pointer; font: inherit; }
+.camp-opt:hover:not(:disabled) { border-color: var(--accent); }
+.camp-opt:disabled { opacity: .45; cursor: not-allowed; }
+.camp-opt .ci { font-size: 26px; }
+.camp-opt small { color: var(--muted); font-size: 12px; }

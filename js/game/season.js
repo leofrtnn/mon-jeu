@@ -29,7 +29,8 @@ import { ensureLife, lifeWorldDaily, lifeUserDaily, lifeAfterFixture, lifeAfterU
 import { digestMatch, matchMods } from './press.js';
 import { homeAdvantage, gateMult, userSponsorIncome } from './fans.js';
 import { tension } from './relations.js';
-import { injuryLength, noteInjury, SEVERE_NAMES } from './injuries.js';
+import { injuryLength, noteInjury, logInjury, SEVERE_NAMES } from './injuries.js';
+import { runSummerTournaments, breakLabel } from './international.js';
 import { aiSeasonBudget, finHealth } from './owners.js';
 import { BAL } from '../data/balance.js';
 import { captainCfg } from './captain.js';
@@ -389,12 +390,18 @@ export function eligibleNations(state) {
   return Object.keys(pools).filter((n) => pools[n].length >= 16 && pools[n].filter((p) => p.pos === 'GB').length >= 1);
 }
 
-function nationRow(state, n) {
+export function nationRow(state, n) {
   return (state.nations[n] = state.nations[n] || { elo: 1500, p: 0, w: 0, d: 0, l: 0, gf: 0, ga: 0 });
 }
 
 export function nationRanking(state) {
-  for (const n of eligibleNations(state)) nationRow(state, n);
+  // Elo de départ selon la force réelle de l'effectif (11 meilleurs joueurs).
+  const pools = nationPools(state);
+  for (const n of eligibleNations(state)) {
+    if (state.nations[n]) continue;
+    const xi = pools[n].slice(0, 11).map(overall);
+    nationRow(state, n).elo = Math.round(1500 + (xi.reduce((a, b) => a + b, 0) / 11 - 70) * 22);
+  }
   return Object.entries(state.nations).map(([name, r]) => ({ name, ...r })).sort((a, b) => b.elo - a.elo);
 }
 
@@ -403,7 +410,7 @@ export function nationSquad(state, nation) {
   return (nationPools(state)[nation] || []).filter(isAvailable).slice(0, 23);
 }
 
-function nationClub(nation) {
+export function nationClub(nation) {
   const [color, color2] = NATION_COLORS[nation] || ['#888888', '#ffffff'];
   return { id: `N:${nation}`, name: nation, short: nation.normalize('NFD').replace(/[^A-Za-z]/g, '').slice(0, 3).toUpperCase(), color, color2, rep: 80 };
 }
@@ -492,7 +499,7 @@ export function today(state) {
   } else {
     ensureIntlDraw(state, entry.round);
     fixtures = state.intl.breaks[entry.round].map((f) => ({ h: f.h, a: f.a, s: f.s, comp: 'intl', ref: f }));
-    label = `Trêve internationale ${entry.round + 1}/3`;
+    label = `${breakLabel(state)} · trêve ${entry.round + 1}/3`;
   }
   const uf = fixtures.find((f) => f.comp !== 'intl' && (f.h === state.userClubId || f.a === state.userClubId)) || null;
   return { entry, fixtures, label, userFixture: uf };
@@ -719,8 +726,11 @@ export function completeDay(state, userMatch = null) {
       if (tev && isUser) (c.trainLog ||= []).unshift({ pid: p.id, day: state.day, ...tev });
       if (tp.injury && p.injury === 0 && rng.chance(tp.injury)) {
         p.injury = rng.int(1, 3); p.injuryName = 'Blessure à l\'entraînement';
+        logInjury(state, p, 'Entraînement');
         withHuman(state, hu, () => pushMessage(state, { prio: 2, icon: '✚', title: `${p.name} blessé à l'entraînement`, text: `${p.injury} match(s). Entraînement intense…` }));
       }
+      // Rythme de match : il se gagne en jouant, se perd sur le banc ou à l'infirmerie.
+      if (p.sharp != null) p.sharp = clamp(p.sharp + (p._mins ? (p._mins / 90) * 7 : p.injury > 0 ? -3 : -1.2), 40, 100);
       p._mins = 0;
     }
     if (isUser) {
@@ -1021,6 +1031,7 @@ function applyResult(state, f, sum, m, ctx) {
         p.injury = days;
         p.injuryName = rng.pick(days <= 3 ? ['Contusion', 'Entorse légère', 'Douleur musculaire'] : days <= 8 ? ['Élongation', 'Entorse de la cheville', 'Lésion aux ischios'] : days <= 20 ? ['Déchirure musculaire', 'Fracture du pied', 'Ligaments du genou'] : SEVERE_NAMES);
         ctx.newlyHurt.add(p.id);
+        logInjury(state, p, intl ? 'En sélection' : compLabel(state, f));
         if (hu !== undefined) withHuman(state, hu, () => {
           noteInjury(state, p);
           if (p.clubId === uc) report.injuries.push({ name: p.name, days, what: p.injuryName });
@@ -1192,13 +1203,13 @@ export function endSeason(state) {
           if (rep) rep.left.push(p.name);
         }
       }
-      resetSeasonStats(p);
+      resetSeasonStats(p, state.season, c);
       p.injury = 0; p.suspended = 0; p.fatigue = 0;
       p.morale = clamp(Math.round(p.morale * 0.5 + 32), 20, 90);
       p.form = 50;
       p.value = playerValue(p);
     }
-    for (const id of c.youthIds || []) { const p = state.players[id]; if (p) { seasonDevelopment(p, rng, mult); resetSeasonStats(p); } }
+    for (const id of c.youthIds || []) { const p = state.players[id]; if (p) { seasonDevelopment(p, rng, mult); resetSeasonStats(p, state.season, c, true); } }
     c.sst = emptyClubStats(); c.posHist = [];
   }
   state.freeAgents = state.freeAgents.filter((id) => {
@@ -1248,11 +1259,16 @@ export function endSeason(state) {
     }
     if (due.length) uc.debts = uc.debts.filter((d) => !due.includes(d));
   });
+  const summer = state.season + 1;
   state.season++;
   forEachHuman(state, () => {
     state.messages = state.messages.filter((m) => m.prio === 1 && !m.read && m.action?.type !== 'offer').slice(0, 5);
     state.pendingOffers = [];
   });
+  // Été : grands tournois internationaux (Coupe du monde, Euro, Copa América, CAN…).
+  for (const p of Object.values(state.players)) p.summerLoad = 0;
+  const tourns = runSummerTournaments(state, summer);
+  forEachHuman(state, (h) => { R[h].tournaments = tourns.map((t) => ({ key: t.key, name: `${t.name} ${t.year}`, icon: t.icon, winner: t.winner, runnerUp: t.runnerUp, final: t.final, top: t.top[0] || null })); });
   lifeEndSeasonWorld(state, rng);
   forEachHuman(state, (h) => lifeEndSeasonUser(state, R[h].met));
   createSeason(state);

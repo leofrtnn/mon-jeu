@@ -6,6 +6,7 @@
  * Les notes (attributs) sont estimées par le jeu : niveau du club (réputation) +
  * statut international, âge et place dans l'effectif. Tout est déterministe (graine).
  */
+import { fixNat } from './nations.js';
 import { createPlayer, setNextId, getNextId, assignNumbers, fitToLevel } from './generator.js';
 import { DIVISIONS, DIV_IDS, LEAGUE_WEALTH } from './world.js';
 import { DEFAULT_TACTICS } from './constants.js';
@@ -108,7 +109,9 @@ export function createRealWorld(rng, data) {
     fitToLevel(p, level);
     p.first = rp.f; p.last = rp.l;
     p.name = rp.f ? `${rp.f[0]}. ${rp.l}` : rp.l;
-    p.nat = rp.nat || p.nat;
+    p.nat = fixNat(rp.nat) || p.nat;
+    // Parcours avant la partie (clubs, matchs, buts) : « années|club|matchs|buts ».
+    if (rp.cr?.length) p.careerHist = rp.cr.map((x) => { const [y, c, a, g] = String(x).split('|'); return { y, club: String(c).replace(/\(loan\)/i, '(prêt)'), apps: +a || 0, goals: +g || 0 }; });
     p.caps = rp.caps || 0; p.intGoals = rp.ig || 0;
     p.number = rp.num || 0;
     p.real = true;
@@ -151,7 +154,7 @@ export function createRealWorld(rng, data) {
     players[p.id] = p;
     freeAgents.push(p.id);
   }
-  const coaches = (data.coaches || []).filter((c) => byKey[c.club]).map((c) => ({ clubId: byKey[c.club].id, name: c.name, nat: c.nat, age: c.age, ph: c.ph || null }));
+  const coaches = (data.coaches || []).filter((c) => byKey[c.club]).map((c) => ({ clubId: byKey[c.club].id, name: c.name, nat: fixNat(c.nat), age: c.age, ph: c.ph || null }));
   return { clubs, players, freeAgents, coaches, nextId: getNextId() };
 }
 

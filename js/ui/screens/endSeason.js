@@ -1,3 +1,4 @@
+import { nationFlag } from '../../data/nations.js';
 import { DIVISIONS } from '../../data/world.js';
 /**
  * Bilan de fin de saison : palmarès, place finale vs objectif, promotions/relégations,
@@ -30,6 +31,8 @@ export function showEndSeason(app, report = null) {
         ${(r.supers || []).map((c) => `<div class="row between"><span>🛡️ ${esc(c.name)}</span><b>${esc(c.winner)}</b></div>`).join('')}
         ${r.topScorer ? `<div class="row between"><span>⚽ Meilleur buteur</span><b>${esc(r.topScorer.name)}</b></div>` : ''}
         <div style="margin-top:8px;font-size:13px"><span class="pos-txt">⬆</span> ${r.promoted.map(esc).join(', ')}<br><span class="neg-txt">⬇</span> ${r.relegated.map(esc).join(', ')}</div></div>
+      ${(r.tournaments || []).length ? `<div class="card"><h3>🌍 Été international</h3>${r.tournaments.map((t) => `<div class="row between" style="padding:3px 0"><span>${t.icon} ${esc(t.name)}</span><b>${nationFlag(t.winner)} ${esc(t.winner)}</b></div>
+        ${t.final ? `<small class="muted" style="display:block;margin:-2px 0 4px 26px">Finale ${t.final.s[0]}-${t.final.s[1]}${t.final.pens ? ` (${t.final.pens[0]}-${t.final.pens[1]} t.a.b.)` : ''} contre ${esc(t.runnerUp || '')}${t.top ? ` · buteur : ${esc(t.top.name)} (${t.top.g})` : ''}</small>` : ''}`).join('')}<small class="muted">Détails dans Monde du foot → Sélections.</small></div>` : ''}
       <div class="card"><h3>Évolution des joueurs</h3>
         ${prog.map((p) => `<div class="row between" style="padding:3px 0"><span>${esc(p.name)} <small>${p.age} ans</small></span>
           <span>${noteChip(p.before)} → ${noteChip(p.after)} <b style="color:${p.after > p.before ? 'var(--good)' : 'var(--bad)'}">${p.after > p.before ? '▲ +' : '▼ '}${Math.round(p.after - p.before)}</b></span></div>`).join('') || '<p class="muted">Pas de changement notable.</p>'}

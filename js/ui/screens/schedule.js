@@ -15,6 +15,10 @@ import { avatarSvg } from '../avatar.js';
 import { createRng, hashSeed } from '../../core/rng.js';
 import { CONTI_SLOTS } from '../../data/world.js';
 import { divPicker } from './stats.js';
+import { nationSquad } from '../../game/season.js';
+import { TOURNAMENTS, tournamentsIn, summerYear } from '../../game/international.js';
+import { nationFlag, confedOf } from '../../data/nations.js';
+import { clubPlayers as clubPlayersOf } from '../../game/state.js';
 
 export function render(app) {
   const s = app.state;
@@ -29,7 +33,7 @@ export function render(app) {
   else {
     title = 'Monde du foot';
     chips = `<div class="chips sub-tabs">${world.map(([k, l]) => `<button class="chip ${tab === k ? 'on' : ''}" data-act="stab" data-v="${k}">${l}</button>`).join('')}</div>`;
-    body = tab === 'managers' ? divPicker(s, div, uc, 'sdiv') + managersView(s, uc, div) : tab === 'news' ? newsView(s) : nations(s, uc);
+    body = tab === 'managers' ? divPicker(s, div, uc, 'sdiv') + managersView(s, uc, div) : tab === 'news' ? newsView(s) : nations(s, uc, app);
   }
   return `<div class="page-head"><h2>${title}</h2>${chips}</div>${body}`;
 }
@@ -228,17 +232,54 @@ function cups(app, s, uc) {
   return html;
 }
 
-function nations(s, uc) {
+function nations(s, uc, app) {
   const rank = nationRanking(s);
-  const mine = new Map();
-  for (const id of uc.playerIds) { const p = s.players[id]; if (p?.caps) mine.set(p.nat, (mine.get(p.nat) || []).concat(p.name)); }
-  const last = [...s.intl.breaks].reverse().find(Boolean);
-  return `${last ? `<div class="label">Derniers matchs internationaux</div><div class="card" style="padding:4px 10px;margin-top:0">${last.map((g) => `<div class="row" style="padding:5px 0;border-bottom:1px solid var(--line)">
-      <span class="grow" style="text-align:right">${esc(g.h)}</span><b class="num" style="min-width:50px;text-align:center">${g.s ? `${g.s[0]}-${g.s[1]}` : 'vs'}</b><span class="grow">${esc(g.a)}</span></div>`).join('')}</div>` : '<p class="muted" style="margin:10px 4px">Première trêve internationale après la 9e journée.</p>'}
-    <div class="label">Classement mondial (Elo)</div>
-    <div class="card" style="padding:6px 8px;margin-top:0"><table class="tbl"><thead><tr><th class="l">#</th><th class="l">Nation</th><th>J</th><th>V-N-D</th><th>Elo</th></tr></thead><tbody>
-    ${rank.map((r, i) => `<tr><td class="l">${i + 1}</td><td class="l">${esc(r.name)}${mine.has(r.name) ? ' 🌍' : ''}</td><td>${r.p}</td><td>${r.w}-${r.d}-${r.l}</td><td><b>${r.elo}</b></td></tr>`).join('')}
-    </tbody></table><p class="muted" style="font-size:11px;margin:6px 4px 0">🌍 nation d'au moins un de vos internationaux</p></div>`;
+  const flag = nationFlag;
+  const natV = app?.ui.natView;
+  if (natV) return nationDetail(s, uc, natV);
+  const mine = clubPlayersOf(s, uc).filter((p) => p.nat && nationSquad(s, p.nat).some((x) => x.id === p.id));
+  const T = s.intlT || { last: {}, history: [] };
+  // Prochains grands tournois.
+  const up = [];
+  for (let y = summerYear(s); y < summerYear(s) + 3; y++) for (const k of tournamentsIn(y)) up.push({ k, y, d: TOURNAMENTS[k] });
+  const which = app?.ui.tournV && T.last[app.ui.tournV] ? app.ui.tournV : Object.values(T.last).sort((a, b) => b.year - a.year)[0]?.key;
+  const tr = which ? T.last[which] : null;
+  const team = (n, w) => `<span class="nt ${w ? 'w' : ''}" data-act="natv" data-v="${esc(n)}">${flag(n)} ${esc(n)}</span>`;
+  const score = (g) => `${g.s[0]}-${g.s[1]}${g.et ? ' <small>a.p.</small>' : ''}${g.pens ? ` <small>(${g.pens[0]}-${g.pens[1]} tab)</small>` : ''}`;
+  let html = `<div class="label">Prochains grands tournois</div><div class="tourn-up">${up.slice(0, 6).map((u) => `<div class="card tu"><div class="tu-ic">${u.d.icon}</div><div><b>${esc(u.d.name)} ${u.y}</b><small>${u.d.hosts[u.y] ? `${flag(u.d.hosts[u.y])} ${esc(u.d.hosts[u.y])} · ` : ''}${u.d.size} équipes · été ${u.y}</small></div></div>`).join('')}</div>
+    <p class="muted" style="font-size:12px;margin:2px 4px 8px">Les trêves internationales de la saison servent d'éliminatoires : elles font évoluer le classement Elo, qui décide des qualifiés (le pays hôte est qualifié d'office). Les tournois se jouent l'été, après la saison des clubs ; vos internationaux reviennent plus tard et plus fatigués.</p>`;
+  if (mine.length) html += `<div class="label">Vos internationaux (${mine.length})</div><div class="card" style="padding:4px 10px;margin-top:0">${mine.map((p) => `<div class="row" style="padding:6px 0;border-bottom:1px solid var(--line);gap:8px;cursor:pointer" data-act="player" data-id="${p.id}">${face(p, uc, 'sm')}<span class="grow"><b>${esc(p.name)}</b> <small class="muted">${posBadge(p.pos)}</small></span><span>${flag(p.nat)} ${esc(p.nat)}</span><small class="muted num">${p.caps || 0} sél. · ${p.intGoals || 0} b.</small></div>`).join('')}</div>`;
+  if (tr) {
+    html += `<div class="label">Derniers tournois</div><div class="chips">${Object.values(T.last).sort((a, b) => b.year - a.year).map((t) => `<button class="chip ${t.key === which ? 'on' : ''}" data-act="tourv" data-v="${t.key}">${t.icon} ${esc(t.name)} ${t.year}</button>`).join('')}</div>
+      <div class="card center winner-card tourn-win"><div class="tw-flag">${flag(tr.winner)}</div><div><small class="muted">${esc(tr.name)} ${tr.year} · ${tr.size} équipes${tr.host ? ` · organisé par ${esc(tr.host)}` : ''}</small><h3 style="margin:2px 0">${esc(tr.winner)} champion${tr.key === 'euro' ? " d'Europe" : tr.key === 'wc' ? ' du monde' : ''}</h3>
+      ${tr.final ? `<div>Finale : ${team(tr.final.h, tr.final.w === tr.final.h)} <b class="num">${score(tr.final)}</b> ${team(tr.final.a, tr.final.w === tr.final.a)}</div>` : ''}</div></div>
+      ${tr.top?.length ? `<div class="card" style="padding:6px 10px"><b style="font-size:13px">⚽ Meilleurs buteurs</b>${tr.top.map((x, i) => `<div class="row" style="padding:3px 0;cursor:pointer" data-act="player" data-id="${x.id}"><span class="grow">${i + 1}. ${esc(x.name)} <small class="muted">${flag(x.nation)} ${esc(x.nation || '')}</small></span><b class="num">${x.g}</b></div>`).join('')}</div>` : ''}
+      <div class="label">Phase finale</div><div class="bracket">${tr.rounds.map((r) => `<div class="br-col"><div class="br-h">${esc(r.label)}</div>${r.games.map((g) => `<div class="br-m"><div class="${g.w === g.h ? 'w' : ''}">${team(g.h)}<b>${g.s[0]}${g.pens ? `<sup>${g.pens[0]}</sup>` : ''}</b></div><div class="${g.w === g.a ? 'w' : ''}">${team(g.a)}<b>${g.s[1]}${g.pens ? `<sup>${g.pens[1]}</sup>` : ''}</b></div></div>`).join('')}</div>`).join('')}</div>
+      <details class="card"><summary><b>Phase de groupes (${tr.groups.length} groupes)</b></summary><div class="grp-grid">${tr.groups.map((g) => `<div class="grp"><div class="br-h">Groupe ${g.name}</div><table class="tbl mini"><tbody>${g.table.map((t, i) => `<tr class="${i < 2 ? 'q' : ''}"><td class="l">${team(t.n)}</td><td>${t.p}</td><td>${t.gf - t.ga > 0 ? '+' : ''}${t.gf - t.ga}</td><td><b>${t.pts}</b></td></tr>`).join('')}</tbody></table></div>`).join('')}</div></details>`;
+  } else html += `<div class="card"><p class="muted" style="margin:0">Aucun grand tournoi joué depuis le début de votre carrière. Le premier : ${up[0] ? `${esc(up[0].d.name)} ${up[0].y}` : '—'}, à la fin de la saison.</p></div>`;
+  if (T.history.length) html += `<div class="label">Palmarès</div><div class="card" style="padding:4px 10px;margin-top:0">${T.history.map((h) => `<div class="row" style="padding:5px 0;border-bottom:1px solid var(--line);gap:8px"><small class="muted num" style="min-width:36px">${h.year}</small><span class="grow">${esc(h.name)}</span>${team(h.winner, true)}${h.final ? `<small class="muted num">${h.final.s[0]}-${h.final.s[1]}${h.final.pens ? ' tab' : ''}</small>` : ''}${h.runnerUp ? `<small class="muted">vs ${esc(h.runnerUp)}</small>` : ''}</div>`).join('')}</div>`;
+  const last = [...(s.intl?.breaks || [])].reverse().find(Boolean);
+  if (last) html += `<div class="label">Dernière trêve internationale</div><div class="card" style="padding:4px 10px;margin-top:0">${last.map((g) => `<div class="row" style="padding:5px 0;border-bottom:1px solid var(--line)">
+      <span class="grow" style="text-align:right">${team(g.h)}</span><b class="num" style="min-width:50px;text-align:center">${g.s ? `${g.s[0]}-${g.s[1]}` : 'vs'}</b><span class="grow">${team(g.a)}</span></div>`).join('')}</div>`;
+  const titles = (n) => (T.history || []).filter((h) => h.winner === n).length;
+  html += `<div class="label">Classement mondial (Elo)</div>
+    <div class="card" style="padding:6px 8px;margin-top:0"><table class="tbl"><thead><tr><th class="l">#</th><th class="l">Nation</th><th>J</th><th>V-N-D</th><th>🏆</th><th>Elo</th></tr></thead><tbody>
+    ${rank.slice(0, 60).map((r, i) => `<tr><td class="l">${i + 1}</td><td class="l">${team(r.name)}${mine.some((p) => p.nat === r.name) ? ' 🌍' : ''}</td><td>${r.p}</td><td>${r.w}-${r.d}-${r.l}</td><td>${titles(r.name) || ''}</td><td><b>${r.elo}</b></td></tr>`).join('')}
+    </tbody></table><p class="muted" style="font-size:11px;margin:6px 4px 0">🌍 nation d'au moins un de vos internationaux · touchez une nation pour voir sa sélection</p></div>`;
+  return html;
+}
+
+/** Fiche d'une sélection : liste des convoqués, bilan, palmarès. */
+function nationDetail(s, uc, n) {
+  const sq = nationSquad(s, n);
+  const r = s.nations?.[n] || { elo: 1500, p: 0, w: 0, d: 0, l: 0 };
+  const T = s.intlT || { history: [] };
+  const titles = T.history.filter((h) => h.winner === n);
+  const runs = Object.values(T.last || {}).filter((t) => t.elim?.[n]).map((t) => `${t.name} ${t.year} : ${t.elim[n]}`);
+  return `<div class="chips"><button class="chip" data-act="natv" data-v="">← Toutes les sélections</button></div>
+    <div class="comp-hero" style="--cc:var(--accent)"><div style="font-size:54px">${nationFlag(n)}</div><div class="grow"><small>${esc(confedOf(n))}</small><h3>${esc(n)}</h3><p class="muted" style="margin:0">Elo ${r.elo} · ${r.p} match(s) : ${r.w} V, ${r.d} N, ${r.l} D${titles.length ? ` · 🏆 ${titles.map((t) => `${esc(t.name)} ${t.year}`).join(', ')}` : ''}</p>
+    ${runs.length ? `<p class="muted" style="margin:4px 0 0;font-size:12px">${runs.map(esc).join(' · ')}</p>` : ''}</div></div>
+    <div class="label">Sélection actuelle (${sq.length})</div><div class="card" style="padding:4px 10px;margin-top:0">${sq.length ? sq.map((p) => { const c = clubById(s, p.clubId); return `<div class="row" style="padding:6px 0;border-bottom:1px solid var(--line);gap:8px;cursor:pointer" data-act="player" data-id="${p.id}">${face(p, c, 'sm')}<span class="grow"><b>${esc(p.name)}</b> ${posBadge(p.pos)}<br><small class="muted">${c ? esc(c.name) : 'Libre'} · ${p.age} ans</small></span><small class="muted num">${p.caps || 0} sél. · ${p.intGoals || 0} b.</small>${c?.id === uc.id ? ' 🏠' : ''}</div>`; }).join('') : '<p class="muted">Aucun joueur de cette nation dans les championnats du jeu : la sélection s\'appuie sur son championnat local.</p>'}</div>`;
 }
 
 function managersView(s, uc, div) {
@@ -274,7 +315,9 @@ export function mount(app, root) {
 
 export const actions = {
   clubinfo(el, app) { import('./clubInfo.js').then((mod) => mod.showClub(app, +el.dataset.id)); },
-  stab(el, app) { app.ui.schedTab = el.dataset.v; app.render(); },
+  stab(el, app) { app.ui.schedTab = el.dataset.v; app.ui.natView = null; app.render(); },
+  natv(el, app) { app.ui.schedTab = 'nations'; app.ui.natView = el.dataset.v || null; app.render(); },
+  tourv(el, app) { app.ui.tournV = el.dataset.v; app.render(); },
   sdiv(el, app) { if (el.tagName === 'SELECT' && !el.value) return; app.ui.schedDiv = +(el.value || el.dataset.v); app.render(); },
   cupw(el, app) {
     if (el.dataset.v === 'league') { app.ui.schedTab = 'table'; app.ui.schedDiv = null; app.render(); return; }

@@ -2,6 +2,7 @@
  * Fiche joueur (feuille modale) : attributs (avec brouillard pour les joueurs
  * extérieurs), état, stats, sélection, contrat, actions de transfert.
  */
+import { nationFlag } from '../../data/nations.js';
 import { ATTRS, ATTR_LABELS, POSITION_LABELS } from '../../data/constants.js';
 import { overall } from '../../engine/ratings.js';
 import { money } from '../../game/economy.js';
@@ -27,6 +28,33 @@ function attrLine(label, [lo, hi]) {
 }
 const GROUPS = [['Technique', ['tir', 'pas', 'dri']], ['Mental', ['vis', 'sf', 'def']], ['Physique', ['vit', 'phy']], ['Gardien', ['arr']]];
 const moodWord = (v) => (v >= 85 ? 'Superbe' : v >= 70 ? 'Très bon' : v >= 55 ? 'Bon' : v >= 40 ? 'Correct' : v >= 25 ? 'Faible' : 'Très faible');
+
+const seasonLbl = (y) => `${y}-${String((+y + 1) % 100).padStart(2, '0')}`;
+
+/** Carrière complète : parcours avant la partie, saisons jouées, saison en cours, tournois, blessures. */
+function careerHtml(s, p, club) {
+  const rows = [];
+  for (const c of p.careerHist || []) rows.push(`<tr class="pre"><td class="l">${esc(c.y)}</td><td class="l">${esc(c.club)}</td><td>${c.apps || '—'}</td><td>${c.goals ?? '—'}</td><td>—</td><td>—</td></tr>`);
+  for (const h of p.hist || []) rows.push(`<tr><td class="l">${seasonLbl(h.y)}</td><td class="l">${esc(h.club)}${h.youth ? ' <small>(form.)</small>' : ''}${h.loan ? ' <small>(prêt)</small>' : ''}</td><td>${h.apps}</td><td>${h.goals}</td><td>${h.assists}</td><td>${h.avg ? h.avg.toFixed(2) : '—'}</td></tr>`);
+  const st = p.stats;
+  rows.push(`<tr class="cur"><td class="l">${seasonLbl(s.season)}</td><td class="l">${club ? esc(club.name) : 'Libre'} <small>(en cours)</small></td><td>${st.apps}</td><td>${st.goals}</td><td>${st.assists}</td><td>${st.apps ? (st.ratingSum / st.apps).toFixed(2) : '—'}</td></tr>`);
+  const preA = (p.careerHist || []).reduce((a, c) => a + (c.apps || 0), 0), preG = (p.careerHist || []).reduce((a, c) => a + (c.goals || 0), 0);
+  const inA = (p.hist || []).reduce((a, h) => a + h.apps, 0) + st.apps, inG = (p.hist || []).reduce((a, h) => a + h.goals, 0) + st.goals, inP = (p.hist || []).reduce((a, h) => a + h.assists, 0) + st.assists;
+  const tourns = (p.tourns || []).slice().reverse();
+  const inj = p.injHist || [];
+  const injDays = inj.reduce((a, x) => a + (x.n || 0), 0);
+  return `<details class="card" open><summary><b>📈 Carrière</b> <small class="muted">${preA + inA} matchs · ${preG + inG} buts${inP ? ` · ${inP} passes D. (depuis le début de la partie)` : ''}</small></summary>
+      <div style="overflow-x:auto"><table class="tbl car-tbl"><thead><tr><th class="l">Saison</th><th class="l">Club</th><th>MJ</th><th>B</th><th>PD</th><th>Note</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>
+      ${p.careerHist?.length ? '<p class="muted" style="font-size:11px;margin:4px 2px 0">Lignes grisées : parcours réel avant le début de la partie (championnat, source Wikipédia).</p>' : ''}
+    </details>
+    <details class="card" ${tourns.length ? 'open' : ''}><summary><b>🌍 Sélection${p.nat ? ` · ${nationFlag(p.nat)} ${esc(p.nat)}` : ''}</b> <small class="muted">${p.caps || 0} sélection(s) · ${p.intGoals || 0} but(s)</small></summary>
+      ${tourns.length ? tourns.map((t) => `<div class="inj-row"><span class="d">${t.y}</span><span class="grow"><b>${esc(t.name)}</b> · ${esc(t.stage)}${(p.honoursInt || []).includes(t.name) ? ' 🏆' : ''}</span><small class="muted num">${t.apps} m · ${t.goals} b · ${t.assists || 0} pd${t.avg ? ` · ${t.avg}` : ''}</small></div>`).join('') : '<p class="muted" style="margin:6px 0 0;font-size:13px">Aucun grand tournoi disputé depuis le début de la partie.</p>'}
+    </details>
+    <details class="card" ${p.injury > 0 ? 'open' : ''}><summary><b>✚ Historique des blessures</b> <small class="muted">${inj.length ? `${inj.length} blessure(s) · ${injDays} match(s) manqué(s)` : 'aucune'}</small></summary>
+      ${inj.length ? inj.map((x) => `<div class="inj-row"><span class="d">${esc(String(x.d).slice(0, 10).split('-').reverse().join('/'))}</span><span class="grow"><b>${esc(x.what)}</b>${x.where ? ` <small class="muted">· ${esc(x.where)}</small>` : ''}</span><small class="num ${x.n >= 10 ? 'neg-txt' : 'muted'}">${x.n} match(s)</small></div>`).join('') : '<p class="muted" style="margin:6px 0 0;font-size:13px">Aucune blessure depuis le début de la partie.</p>'}
+      ${inj.length >= 4 ? '<p class="muted" style="font-size:12px;margin:6px 0 0">⚠ Joueur souvent blessé : le staff médical recommande de gérer sa charge.</p>' : ''}
+    </details>`;
+}
 
 export function showPlayer(app, pid, onChange) {
   const s = app.state;
@@ -81,6 +109,7 @@ export function showPlayer(app, pid, onChange) {
         <div class="attr"><span>Forme</span>${gauge(p.form)}<span class="v" style="min-width:72px">${moodWord(p.form)}</span></div>
         <div class="attr"><span>Moral</span>${gauge(p.morale)}<span class="v" style="min-width:72px">${moodWord(p.morale)}</span></div>
         <div class="attr"><span>Condition</span>${gauge(100 - p.fatigue)}<span class="v" style="min-width:72px">${100 - Math.round(p.fatigue)} %</span></div>
+        ${p.sharp != null ? `<div class="attr"><span>Rythme</span>${gauge(p.sharp)}<span class="v" style="min-width:72px">${Math.round(p.sharp)}/100</span></div>` : ''}
       </div>` : ''}
       <div class="statgrid">
         <div><b>${apps}</b><small>Matchs</small></div><div><b>${p.stats.goals}</b><small>Buts</small></div>
@@ -102,6 +131,7 @@ export function showPlayer(app, pid, onChange) {
         ${mine && p.relapse ? `<div class="row between"><span>Risque de rechute</span><b class="bad">${Math.round(p.relapse.risk * 100)} % · ${p.relapse.matches} match(s)</b></div>` : ''}
         ${mine && p.promise ? `<div class="row between"><span>Statut promis</span><b>${PROMISE_ROLES[p.promise.role].label}${p.promise.strikes ? ' ⚠' : ''}</b></div>` : ''}
       </div>
+      ${careerHtml(s, p, club)}
       ${capRow}${actions}`;
   };
   const done = (r, close = false) => {

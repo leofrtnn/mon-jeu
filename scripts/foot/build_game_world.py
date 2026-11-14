@@ -237,6 +237,9 @@ def split(name):
     parts = name.split()
     return ('', parts[0]) if len(parts) == 1 else (parts[0], ' '.join(parts[1:]))
 
+# Noms abrégés ou mal formés dans les pages sources.
+NAME_FIX = {'JSK , JS Kabylie': 'JS Kabylie', 'MCO': 'MC Oran', 'OA': 'Olympique Akbou', 'ESS': 'Étoile du Sahel', 'Club Sportif Constantinois': 'CS Constantine',
+            'Jeunesse Sportive Kairouanaise': 'JS Kairouan', 'Guarani': 'Guaraní'}
 d = json.load(open(SRC, encoding='utf-8'))
 clubs = []
 used = set(SHORT.values())
@@ -244,6 +247,7 @@ for lg in d['leagues']:
     for cid in lg['clubs']:
         c = next(x for x in d['clubs'] if x['id'] == cid)
         name = c.get('shortName') if c.get('shortName') and len(c['name']) > 22 else c['name']
+        name = NAME_FIX.get(name, name)
         if cid in REP and lg['id'] in ('ENG1', 'ESP1', 'ITA1', 'GER1', 'FRA1'):
             rep, short = REP[cid], SHORT.get(cid)
         else:
@@ -469,6 +473,14 @@ for p in d['players']:
                     'cr': [f"{c.get('years') or ''}|{c.get('club') or ''}|{c.get('apps') or 0}|{c.get('goals') or 0}" for c in [c for c in (p.get('career') or []) if not re.search(r'\b(U-?\d\d|II|B|reserves?|youth|academy|Jong|Castilla|Primavera)\b', c.get('club') or '', re.I)][-6:]] or None})
 coaches = [{'club': c['club'], 'name': re.sub(r'\s*\([^)]*\)', '', c['name'] or '').strip() or None, 'nat': (c.get('nationality') or [''])[0], 'age': c.get('age') or 50,
             'ph': (c.get('photo') or {}).get('file')} for c in d['coaches']]
+# Clubs absents des sources (article introuvable) : ajoutés à la main, effectif complété par le jeu.
+EXTRA_CLUBS = {'PAR1': [{'id': 'par-general-caballero', 'name': 'General Caballero JLM', 'short': 'GCA', 'colors': ['#d71920', '#ffffff'], 'stadium': 8000, 'rep': 52, 'logo': None}]}
+for lg_id, extra in EXTRA_CLUBS.items():
+    n = sum(1 for c in clubs if c['league'] == lg_id)
+    for c in extra:
+        if n % 2 == 1 and not any(x['name'] == c['name'] for x in clubs):
+            clubs.append({**c, 'league': lg_id}); n += 1
+
 out = {'format': 'coach-de-poche-monde-reel-v1', 'season': d['meta']['season'], 'sources': d['meta']['sources'],
        'leagues': [{'id': lg['id'], 'name': lg['name'], 'country': lg['country']} for lg in d['leagues']],
        'clubs': clubs, 'players': players, 'coaches': coaches}

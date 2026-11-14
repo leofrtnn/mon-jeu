@@ -105,8 +105,15 @@ export function shouldRetire(p, rng) {
 }
 
 /** Remise à zéro des stats saisonnières (on garde un historique de carrière). */
-export function resetSeasonStats(p) {
+export function resetSeasonStats(p, season = null, club = null, youth = false) {
   p.career = p.career || { apps: 0, goals: 0, assists: 0 };
+  // Ligne de carrière de la saison écoulée (fiche du joueur).
+  if (season != null && club) {
+    const st = p.stats;
+    (p.hist ||= []).push({ y: season, club: club.name, cid: club.id, youth: youth || undefined, apps: st.apps, goals: st.goals, assists: st.assists,
+      avg: st.apps ? Math.round((st.ratingSum / st.apps) * 100) / 100 : null, min: st.minutes, y1: st.yellows, r: st.reds, motm: st.motm, cs: st.cs || 0, loan: p.onLoanFrom ? 1 : undefined });
+    if (p.hist.length > 25) p.hist.shift();
+  }
   p.career.apps += p.stats.apps; p.career.goals += p.stats.goals; p.career.assists += p.stats.assists;
   p.stats = { apps: 0, goals: 0, lgoals: 0, assists: 0, ratingSum: 0, yellows: 0, reds: 0, minutes: 0, motm: 0, starts: 0, shots: 0, kp: 0, passes: 0, passOk: 0, tackles: 0, saves: 0, cs: 0, conceded: 0 };
   p.yellowAcc = 0;

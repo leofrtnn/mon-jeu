@@ -83,6 +83,9 @@ function makeTeam(cfg, side) {
  * cfg : { home, away, seed, neutral, cup, varEnabled }
  * home/away : { club, players[], lineup[11 ids], bench[ids], tactics, isAI }
  */
+/** Rythme de match (préparation, temps de jeu) : un joueur « rouillé » rend jusqu'à 5 % de moins. */
+export const sharpFactor = (p) => (p.sharp == null ? 1 : 0.95 + 0.05 * Math.min(1, p.sharp / 85));
+
 export function createMatch(cfg) {
   const rng = createRng(cfg.seed ?? 1);
   const m = {
@@ -103,7 +106,7 @@ export function createMatch(cfg) {
   for (const t of m.teams) for (const mp of t.onPitch) if (mp) { sum += ratingAt(mp.p, t.slots[mp.slot].pos); n++; }
   m.level = n ? sum / n : 72;
   // Forme du jour : un joueur irrégulier alterne grands et petits matchs (régularité sur 20).
-  for (const t of m.teams) for (const mp of [...t.onPitch, ...t.bench]) if (mp) mp.dayForm = 1 + m.rng.normal(0, 0.008 + (20 - (mp.p.cons ?? 13)) * 0.0025);
+  for (const t of m.teams) for (const mp of [...t.onPitch, ...t.bench]) if (mp) mp.dayForm = (1 + m.rng.normal(0, 0.008 + (20 - (mp.p.cons ?? 13)) * 0.0025)) * sharpFactor(mp.p);
   return m;
 }
 

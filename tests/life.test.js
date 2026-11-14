@@ -279,15 +279,15 @@ test('intégration : une journée réelle crée l\'interview et fait vivre les s
   assert.ok(clubById(s, s.userClubId).owner);
 });
 
-test('monde réel : 50 championnats (dont 5 deuxièmes divisions), vrais clubs et joueurs, 18 à 38 journées', async () => {
+test('monde réel : 55 championnats (dont 5 deuxièmes divisions), vrais clubs et joueurs, 18 à 38 journées', async () => {
   const { loadRealData } = await import('../js/data/realWorld.js');
   const { DIVISIONS, DIV_IDS, applyWorld } = await import('../js/data/world.js');
   const { leagueRoundOf } = await import('../js/game/season.js');
   const s = newGame(11, { real: await loadRealData() });
   assert.equal(s.world, 'real');
   const sizes = [20, 20, 20, 18, 18, 18, 18, 18, 18, 16, 14, 16, 18, 12, 12, 12, 12, 16, 10, 14, 20, 18, 18, 20, 16, 16, 16, 12, 14, 14, 24, 22, 20, 18, 18,
-    12, 16, 12, 14, 12, 16, 18, 16, 20, 16, 30, 30, 20, 16, 16];
-  assert.equal(DIV_IDS.length, 50, `${DIV_IDS.length} championnats`);
+    12, 16, 12, 14, 12, 16, 18, 16, 20, 16, 30, 30, 20, 16, 16, 12, 16, 16, 16, 12];
+  assert.equal(DIV_IDS.length, 55, `${DIV_IDS.length} championnats`);
   assert.deepEqual(DIV_IDS.map((d) => s.clubs.filter((c) => c.div === d).length), sizes.slice(0, DIV_IDS.length));
   const { CONTI_SLOTS } = await import('../js/data/world.js');
   assert.equal(Object.values(CONTI_SLOTS).reduce((a, n) => a + n, 0), 16, '16 qualifiés continentaux');
@@ -297,6 +297,7 @@ test('monde réel : 50 championnats (dont 5 deuxièmes divisions), vrais clubs e
   assert.ok(Object.values(s.players).some((p) => p.last === 'Mbappé' || p.last === 'Bellingham'));
   assert.ok(['Al-Sadd', 'Wydad', 'Peñarol', 'Millonarios', 'Melbourne City'].every((k) => s.clubs.some((c) => c.name.includes(k))), 'grands clubs des championnats 36 à 45');
   assert.ok(['Inter Miami', 'Boca Juniors', 'River Plate', 'Al Ahly', 'Mamelodi Sundowns', 'LDU Quito'].every((k) => s.clubs.some((c) => c.name.includes(k))), 'grands clubs des championnats 46 à 50');
+  assert.ok(['Slovan Bratislava', 'Ludogorets', 'MC Alger', 'ES Tunis', 'Olimpia'].every((k) => s.clubs.some((c) => c.name.includes(k))), 'grands clubs des championnats 51 à 55');
   const { CONTI_COMPS } = await import('../js/data/world.js');
   assert.deepEqual(Object.keys(CONTI_COMPS), ['ucl', 'uel', 'uecl', 'lib', 'acl', 'ccc', 'caf'], 'les 7 coupes continentales');
   const { startCareer } = await import('../js/game/season.js');
@@ -341,4 +342,48 @@ test('messagerie : un joueur écrit, le coach répond (effets), le coach écrit 
   const r = writeChat(st, p.id, 'how');
   assert.ok(r.ok && t.msgs.length === 5, 'le joueur répond à « comment tu te sens »');
   assert.ok(Object.keys(TOPICS).length >= 6);
+});
+
+test('sélections : Coupe du monde, Euro, Copa, CAN… avec qualifiés par confédération, parcours des joueurs et palmarès', async () => {
+  const { loadRealData } = await import('../js/data/realWorld.js');
+  const { runSummerTournaments, tournamentsIn } = await import('../js/game/international.js');
+  const { confedOf } = await import('../js/data/nations.js');
+  const s = newGame(21, { real: await loadRealData() });
+  startCareer(s, s.clubs[0].id);
+  assert.deepEqual(tournamentsIn(2030), ['wc']);
+  assert.deepEqual(tournamentsIn(2028).sort(), ['copa', 'euro']);
+  assert.deepEqual(tournamentsIn(2027).sort(), ['afcon', 'asia', 'gold']);
+  // Nationalités normalisées en français.
+  assert.ok(!Object.values(s.players).some((p) => ['BRAZIL', 'SPAIN', 'SER', 'NGR'].includes(p.nat)), 'nationalités normalisées');
+  const t0 = Date.now();
+  const [wc] = runSummerTournaments(s, 2030);
+  assert.ok(Date.now() - t0 < 3000, 'tournoi rapide');
+  assert.equal(wc.size, 48);
+  assert.equal(wc.groups.length, 12);
+  assert.deepEqual(wc.rounds.map((r) => r.label), ['32es de finale', '8es de finale', 'Quarts de finale', 'Demi-finales', 'Finale']);
+  const euro = runSummerTournaments(s, 2028).find((t) => t.key === 'euro');
+  assert.ok(euro.groups.every((g) => g.table.every((t) => confedOf(t.n) === 'UEFA')), 'Euro : uniquement des nations européennes');
+  const p = Object.values(s.players).find((x) => x.tourns?.length);
+  assert.ok(p && p.caps > 0 && p.tourns[0].name, 'parcours en sélection enregistré');
+  assert.equal(s.intlT.history.length, 3);
+  assert.ok(s.intlT.history.every((h) => h.winner));
+});
+
+test('carrière et blessures : historique par saison, historique des blessures, rythme de match', async () => {
+  const s = newGame(5);
+  startCareer(s, s.clubs[0].id);
+  const uc = userClub(s);
+  const { logInjury } = await import('../js/game/injuries.js');
+  const p = clubPlayers(s, uc)[0];
+  p.injury = 4; p.injuryName = 'Élongation';
+  logInjury(s, p, 'Ligue 1');
+  assert.equal(p.injHist[0].what, 'Élongation');
+  while (s.day < s.calendar.length) completeDay(s);
+  endSeason(s);
+  const q = Object.values(s.players).find((x) => x.hist?.length && x.hist[0].apps > 10);
+  assert.ok(q, 'saison écoulée enregistrée dans la carrière');
+  assert.ok(q.hist[0].club && q.hist[0].y === 2026);
+  // Pré-saison : tests physiques → rythme de match.
+  const sharp = clubPlayers(s, userClub(s)).filter((x) => x.sharp != null);
+  assert.ok(sharp.length > 10 && sharp.every((x) => x.sharp < 80), 'reprise : joueurs en manque de rythme');
 });

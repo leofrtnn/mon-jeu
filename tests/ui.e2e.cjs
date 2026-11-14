@@ -80,8 +80,11 @@ function serve() {
     await page.click('[data-act=psmeeting]');
     await page.click('.sheet [data-act=ch][data-v=accept]');
     await page.click('.sheet [data-act=ok]');
+    await page.click('[data-act=pscamp][data-v=alps]');
+    await page.click('[data-act=psint][data-v=hard]');
     await page.click('[data-act=psadd] >> nth=0');
     await page.click('[data-act=pssim] >> nth=0');
+    assert.ok((await page.evaluate(() => window.__app.state.preseason.camp)) === 'alps', 'stage choisi');
     await page.click('[data-act=psstart]');
     // Journée 0 : supercoupe. Si le club n'y joue pas, on passe à la journée suivante.
     await page.waitForSelector('[data-act=play], [data-act=simulate]');
