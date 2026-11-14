@@ -13,6 +13,7 @@ import { face } from './images.js';
 import { createRng, hashSeed } from '../core/rng.js';
 import { randomName } from '../data/names.js';
 import { clockLabel, summarize } from '../engine/match.js';
+import { hourLabel, weatherEffectText } from '../game/weather.js';
 
 const WEATHER = [
   { k: 'sun', icon: '☀️', label: 'Ensoleillé' }, { k: 'clear', icon: '🌤️', label: 'Ciel dégagé' },
@@ -27,12 +28,14 @@ export function matchDay(m, cfg, date) {
   const winter = [11, 0, 1].includes(month), summer = [5, 6, 7].includes(month);
   const pool = winter ? ['cloud', 'rain', 'cold', 'snow', 'clear'] : summer ? ['sun', 'sun', 'clear', 'cloud'] : ['clear', 'cloud', 'rain', 'sun'];
   const wk = rng.pick(pool);
-  const w = WEATHER.find((x) => x.k === wk) || WEATHER[1];
-  const temp = Math.round((winter ? 4 : summer ? 25 : 14) + rng.range(-5, 5));
+  let w = WEATHER.find((x) => x.k === wk) || WEATHER[1];
+  let temp = Math.round((winter ? 4 : summer ? 25 : 14) + rng.range(-5, 5));
+  // Météo réelle du match (moteur) si elle existe : c'est elle qui compte.
+  if (cfg.weather) { w = { k: cfg.weather.kind, icon: cfg.weather.icon, label: cfg.weather.label }; temp = cfg.weather.temp; }
   const ref = randomName(rng, cfg.home.club.country || 'FRA');
   const cap = cfg.home.club.stadium || 20000;
   const fill = Math.min(1, 0.62 + (cfg.home.club.rep || 60) / 260 + (cfg.away.club.rep || 60) / 700 + rng.range(-0.04, 0.04));
-  return { weather: w, temp, referee: `${ref.first} ${ref.last}`, attendance: Math.round((cap * (cfg.neutral ? 0.7 : fill)) / 10) * 10, capacity: cap };
+  return { weather: w, temp, hour: cfg.weather?.hour ?? null, wind: cfg.weather?.wind ?? null, referee: `${ref.first} ${ref.last}`, attendance: Math.round((cap * (cfg.neutral ? 0.7 : fill)) / 10) * 10, capacity: cap };
 }
 
 export class Broadcast {
@@ -41,10 +44,26 @@ export class Broadcast {
    */
   constructor(el, ctx) {
     this.el = el; this.ctx = ctx;
-    el.innerHTML = `<div class="bc-bug" id="bc-bug"></div><div class="bc-lower" id="bc-lower"></div><div class="bc-board" id="bc-board"></div><div class="bc-full" id="bc-full"></div>`;
+    el.innerHTML = `<div class="bc-bug" id="bc-bug"></div><div class="bc-carrier" id="bc-car"></div><div class="bc-lower" id="bc-lower"></div><div class="bc-board" id="bc-board"></div><div class="bc-full" id="bc-full"></div>`;
     this.$ = (id) => el.querySelector('#' + id);
     this.score = [0, 0]; this.clock = '0\'';
     this.bug();
+    // Porteur du ballon (comme dans Football Manager) : visage, numéro, nom, couleur du club.
+    if (ctx.holderOf) {
+      this._carT = setInterval(() => {
+        if (!el.isConnected) { clearInterval(this._carT); return; }
+        const id = ctx.holderOf();
+        if (id === this._carId) return;
+        this._carId = id;
+        const box = this.$('bc-car');
+        const { mp, t } = id ? this.mpOf(id) : {};
+        if (!mp) { box.classList.remove('show'); return; }
+        const club = t.side ? ctx.ac : ctx.hc;
+        box.style.setProperty('--tc', ctx.colors[t.side]);
+        box.innerHTML = `${face(mp.p, club)}<em>${mp.number ?? ''}</em><b>${esc(mp.name)}</b><small>${esc(t.slots[mp.slot]?.pos || '')}</small>`;
+        box.classList.add('show');
+      }, 250);
+    }
   }
 
   /** Scorebug : sigles, couleurs, score, chrono. */
@@ -133,7 +152,7 @@ export class Broadcast {
       <div class="head">${crest(c)}<div><b>${esc(c.name)}</b><small>${esc(t.tactics.formation || '')}${coachOf(side) ? ` · ${esc(coachOf(side))}` : ''}</small></div>${coachImg ? `<span class="bc-coach">${coachImg(side) || ''}</span>` : ''}</div><ol>${xi(side)}</ol></div>`; };
     const el = this.$('bc-full');
     el.innerHTML = `<div class="intro">${col(0)}<div class="mid"><small>COMPOSITIONS</small>
-        <div class="facts"><span>${day.weather.icon} ${day.weather.label} · ${day.temp} °C</span><span>🏟️ ${day.attendance.toLocaleString('fr-FR')} spectateurs</span><span>🧑‍⚖️ Arbitre : ${esc(day.referee)}</span></div>
+        <div class="facts"><span>${day.hour != null ? `🕘 ${hourLabel(day.hour)} · ` : ''}${day.weather.icon} ${day.weather.label} · ${day.temp} °C${day.wind >= 30 ? ` · vent ${day.wind} km/h` : ''}</span><span>🏟️ ${day.attendance.toLocaleString('fr-FR')} spectateurs</span><span>🧑‍⚖️ Arbitre : ${esc(day.referee)}</span></div>
         <button class="btn sm" data-bc="skip">Passer ▸</button></div>${col(1)}</div>`;
     this.pop(el);
     return new Promise((res) => {

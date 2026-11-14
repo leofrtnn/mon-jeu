@@ -45,7 +45,7 @@ export function render(app) {
       <p>Le manager de foot qui tient dans une main.</p>
       <p class="muted" style="font-size:11px">Version ${APP_VERSION}</p>
       <p class="account-line">👤 <b>${esc(app.user?.username || '')}</b> <button class="btn sm ghost" data-act="logout">Se déconnecter</button></p>
-      <p class="muted" style="font-size:12px">50 championnats (dont les D2 des 5 grands) · vrais clubs, joueurs et entraîneurs · coupes nationales, supercoupes et 7 coupes continentales</p>
+      <p class="muted" style="font-size:12px">55 championnats (dont les D2 des 5 grands) · vrais clubs, joueurs et entraîneurs · coupes nationales, supercoupes et 7 coupes continentales</p>
     </div><div>
     ${legacySave() ? `<div class="card"><small>Une sauvegarde d'une ancienne version a été trouvée : elle n'est pas compatible avec le nouveau monde (3 pays, 80 clubs).</small>
       <button class="btn sm block" style="margin-top:8px" data-act="droplegacy">Supprimer l'ancienne sauvegarde</button></div>` : ''}
@@ -70,8 +70,8 @@ export function render(app) {
 
 /* ---------------- Choix du club ---------------- */
 
-const AMERICAS = ['BRA', 'ARG', 'USA', 'MEX', 'COL', 'CHI', 'URU', 'ECU', 'PER'];
-const OUTSIDE = [...AMERICAS, 'KSA', 'JPN', 'KOR', 'CHN', 'AUS', 'UAE', 'QAT', 'MAR', 'EGY', 'RSA'];
+const AMERICAS = ['BRA', 'ARG', 'USA', 'MEX', 'COL', 'CHI', 'URU', 'ECU', 'PER', 'PAR'];
+const OUTSIDE = [...AMERICAS, 'KSA', 'JPN', 'KOR', 'CHN', 'AUS', 'UAE', 'QAT', 'MAR', 'EGY', 'RSA', 'ALG', 'TUN'];
 /** Groupes de championnats affichés dans la colonne de gauche. */
 const GROUPS = [
   ['Les 5 grands championnats', (d) => d <= 5],
@@ -260,7 +260,7 @@ export const actions = {
     if (!s) { app.toast('Sauvegarde illisible ou d\'une version incompatible.'); return; }
     enter(app, n, s);
   },
-  /** Nouvelle partie : toujours le monde réel (50 championnats). */
+  /** Nouvelle partie : toujours le monde réel (55 championnats). */
   async new(el, app) {
     const slot = +el.dataset.v;
     busy(true, 'Chargement des championnats…');

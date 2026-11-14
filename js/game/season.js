@@ -35,6 +35,7 @@ import { BAL } from '../data/balance.js';
 import { captainCfg } from './captain.js';
 import { chatDaily } from './chat.js';
 import { opt, optInfo } from './options.js';
+import { matchConditions } from './weather.js';
 
 export const CUP_ROUND_NAMES = ['16es de finale', '8es de finale', 'Quarts de finale', 'Demi-finales', 'Finale'];
 export const CONTI_ROUND_NAMES = ['Groupes · J1', 'Groupes · J2', 'Groupes · J3', 'Quarts de finale', 'Demi-finales', 'Finale'];
@@ -186,7 +187,8 @@ const REAL_SOURCES = { ENG1: 1, ESP1: 2, ITA1: 3, GER1: 4, FRA1: 5, POR1: 6, NED
   BRA1: 21, KSA1: 22, MEX1: 23, JPN1: 24, RUS1: 25, UKR1: 26, ROU1: 27, HUN1: 28, CYP1: 29, ISR1: 30,
   ENG2: 31, ESP2: 32, ITA2: 33, GER2: 34, FRA2: 35,
   KOR1: 36, CHN1: 37, AUS1: 38, UAE1: 39, QAT1: 40, MAR1: 41, PER1: 42, CHI1: 43, COL1: 44, URU1: 45,
-  USA1: 46, ARG1: 47, EGY1: 48, ECU1: 49, RSA1: 50 };
+  USA1: 46, ARG1: 47, EGY1: 48, ECU1: 49, RSA1: 50,
+  SVK1: 51, BUL1: 52, ALG1: 53, TUN1: 54, PAR1: 55 };
 const REAL_DIVS = (data) => [...new Set(data.clubs.map((c) => REAL_SOURCES[c.league]).filter(Boolean))].sort((a, b) => a - b);
 
 const clubsOfDiv = (state, div) => state.clubs.filter((c) => c.div === div);
@@ -525,7 +527,10 @@ function nationCfg(state, nation, oppSquad, isHome) {
 
 /** Configuration moteur d'une rencontre (championnat, coupe, continentale, sélection). */
 export function matchCfgFor(state, f) {
-  const base = { seed: matchSeed(state, f.h, f.a), varEnabled: state.settings.var, neutral: !!f.neutral };
+  const entry = state.calendar?.[state.day];
+  const hostCountry = f.comp === 'intl' ? 'FRA' : clubById(state, f.h)?.country || 'FRA';
+  const weather = matchConditions({ seed: state.seed + state.season * 7, country: hostCountry, date: entry?.date, comp: f.comp, midweek: !!entry?.mid || (entry && entry.type !== 'league'), h: f.h, a: f.a });
+  const base = { seed: matchSeed(state, f.h, f.a), varEnabled: state.settings.var, neutral: !!f.neutral, weather };
   if (f.comp === 'intl') {
     const hs = nationSquad(state, f.h), as = nationSquad(state, f.a);
     return { ...base, home: nationCfg(state, f.h, as, true), away: nationCfg(state, f.a, hs, false), profile: {} };

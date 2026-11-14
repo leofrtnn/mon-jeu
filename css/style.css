@@ -1172,3 +1172,12 @@ ul.notes { margin: 4px 0 0; padding-left: 18px; font-size: 13px; line-height: 1.
 .offer-card:hover { border-color: var(--accent); }
 .offer-card small { display: block; color: var(--muted); font-size: 12px; }
 .offer-card b { font: 700 17px var(--display); }
+.pm-facts .wx-eff { color: #f4c430; }
+/* Porteur du ballon (bas gauche, style Football Manager) */
+.bc-carrier { left: 14px; bottom: 14px; display: flex; align-items: center; gap: 8px; padding: 5px 12px 5px 6px; border-radius: 10px; background: rgba(8,10,20,.82);
+  border-left: 4px solid var(--tc, #7c5cff); color: #fff; opacity: 0; transform: translateY(8px); transition: opacity .2s, transform .2s; }
+.bc-carrier.show { opacity: 1; transform: none; }
+.bc-carrier .face { width: 30px; height: 30px; }
+.bc-carrier em { font: 800 15px var(--display); font-style: normal; color: var(--tc, #fff); filter: brightness(1.6); }
+.bc-carrier b { font: 700 14px var(--display); letter-spacing: .02em; }
+.bc-carrier small { color: #aab; font-size: 11px; }

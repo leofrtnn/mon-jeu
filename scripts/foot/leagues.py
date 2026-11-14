@@ -60,6 +60,14 @@ LEAGUES = [
     {'id': 'ARG1', 'size': 30, 'name': 'Liga Profesional', 'country': 'Argentine', 'templates': [], 'article': '2026 Argentine Primera División'},
     {'id': 'EGY1', 'size': 20, 'name': 'Egyptian Premier League', 'country': 'Égypte', 'templates': [], 'article': '2025–26 Egyptian Premier League'},
     {'id': 'ECU1', 'size': 16, 'name': 'LigaPro', 'country': 'Équateur', 'templates': [], 'article': '2026 LigaPro Serie A'},
+    # Championnats 51 à 55 : Slovaquie, Bulgarie, Algérie, Tunisie, Paraguay.
+    {'id': 'SVK1', 'size': 12, 'name': 'Niké liga', 'country': 'Slovaquie', 'templates': [], 'article': '2025–26 Slovak First Football League'},
+    {'id': 'BUL1', 'size': 16, 'name': 'efbet Liga', 'country': 'Bulgarie', 'templates': [], 'article': '2025–26 First Professional Football League (Bulgaria)'},
+    {'id': 'ALG1', 'size': 16, 'name': 'Ligue 1 (ALG)', 'country': 'Algérie', 'templates': [], 'article': '2025–26 Algerian Ligue Professionnelle 1'},
+    {'id': 'TUN1', 'size': 16, 'name': 'Ligue 1 (TUN)', 'country': 'Tunisie', 'templates': [], 'article': '2025–26 Tunisian Ligue Professionnelle 1'},
+    {'id': 'PAR1', 'size': 12, 'name': 'Primera División (PAR)', 'country': 'Paraguay', 'templates': [], 'clubs': [
+        'Club Olimpia', 'Club Cerro Porteño', 'Club Libertad', 'Club Guaraní', 'Club Nacional (Paraguay)', 'Sportivo Luqueño',
+        'Sportivo Trinidense', 'Sportivo Ameliano', 'Club 2 de Mayo', 'General Caballero de Juan León Mallorquín', 'Deportivo Recoleta', 'Sportivo San Lorenzo']},
     {'id': 'RSA1', 'size': 16, 'name': 'Premiership (RSA)', 'country': 'Afrique du Sud', 'templates': [], 'clubs': [
         'Mamelodi Sundowns F.C.', 'Orlando Pirates F.C.', 'Kaizer Chiefs F.C.', 'Stellenbosch F.C.', 'Sekhukhune United F.C.', 'Polokwane City F.C.',
         'TS Galaxy F.C.', 'AmaZulu F.C.', 'Lamontville Golden Arrows F.C.', 'Chippa United F.C.', 'Richards Bay F.C.', 'Magesi F.C.',

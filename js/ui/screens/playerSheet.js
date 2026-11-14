@@ -95,6 +95,8 @@ export function showPlayer(app, pid, onChange) {
         ${mine && p.clause ? `<div class="row between"><span>Clause libératoire</span><b>${money(p.clause)}</b></div>` : ''}
         ${mine && p.goalBonus ? `<div class="row between"><span>Prime de but</span><b>${money(p.goalBonus)}</b></div>` : ''}
         ${p.sellOn ? `<div class="row between"><span>Revente</span><b>${Math.round(p.sellOn.pct * 100)} % à ${esc(clubById(s, p.sellOn.clubId)?.short || '?')}</b></div>` : ''}
+        ${p.foot ? `<div class="row between"><span>Pied fort</span><b>${p.foot === 'G' ? 'Gauche' : 'Droit'}</b></div>` : ''}
+        ${p.cons != null ? `<div class="row between"><span>Régularité</span><b>${p.cons}/20 · ${p.cons >= 15 ? 'très régulier' : p.cons >= 11 ? 'régulier' : 'irrégulier'}</b></div>` : ''}
         <div class="row between"><span>Personnalité</span><b>${persInfo(p).label}${mine ? ` · influence ${influence(s, p)}` : ''}</b></div>
         ${agentInfo(p) ? `<div class="row between"><span>Agent</span><b>${esc(agentInfo(p).name)} (${agentInfo(p).label})</b></div>` : ''}
         ${mine && p.relapse ? `<div class="row between"><span>Risque de rechute</span><b class="bad">${Math.round(p.relapse.risk * 100)} % · ${p.relapse.matches} match(s)</b></div>` : ''}

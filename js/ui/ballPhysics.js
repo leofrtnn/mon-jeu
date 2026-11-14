@@ -59,7 +59,7 @@ function sub(b, h, opts) {
       b.z = R;
       if (-b.vz > 0.9) {
         b.vz = -b.vz * BOUNCE_E;
-        b.vx *= BOUNCE_F; b.vy *= BOUNCE_F;
+        b.vx *= Math.min(0.97, BOUNCE_F * (b.skidK || 1)); b.vy *= Math.min(0.97, BOUNCE_F * (b.skidK || 1)); // pelouse mouillée : rebond rasant
         // L'effet « mord » l'herbe : il dévie un peu le rebond puis s'use.
         b.vx += -b.spin * 0.01 * b.vy; b.vy += b.spin * 0.01 * b.vx;
         b.spin *= 0.5; b.top *= 0.3;
@@ -70,7 +70,7 @@ function sub(b, h, opts) {
     b.z = R; b.vz = 0; b.rolling = true;
     const v = Math.hypot(b.vx, b.vy);
     if (v < 0.05) { b.vx = b.vy = 0; } else {
-      const dec = Math.min(v, (ROLL_DEC + K_DRAG * v * v) * h);
+      const dec = Math.min(v, (ROLL_DEC * (b.rollK || 1) + K_DRAG * v * v) * h); // pluie : le ballon fuse ; neige : il freine
       b.vx -= (b.vx / v) * dec; b.vy -= (b.vy / v) * dec;
       // Un ballon qui roule avec de l'effet tourne légèrement.
       b.vx += -b.spin * 0.002 * b.vy * h * 60; b.vy += b.spin * 0.002 * b.vx * h * 60;

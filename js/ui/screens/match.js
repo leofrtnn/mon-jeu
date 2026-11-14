@@ -11,6 +11,7 @@ import { FORMATION_NAMES, FORMATION_GROUPS, ROLES, rolesFor, MENTALITIES, MENTAL
 import { ratingAt } from '../../engine/ratings.js';
 import { MatchView } from '../matchView.js';
 import { Broadcast, matchDay } from '../broadcast.js';
+import { hourLabel, weatherEffectText } from '../../game/weather.js';
 import { currentDate } from '../../game/dates.js';
 import { coachName } from '../../game/coach.js';
 import { esc, crest, cmpBar, ratingChip, posBadge, seg, scaleColor, face } from '../components.js';
@@ -235,7 +236,7 @@ export function openMatch(app, opts = {}) {
   const view = new MatchView($('pitch'), m, { userSide, onEventStart, onIdle, live: replay ? true : s.settings.liveEngine !== false,
     beforeStep: replay ? (n) => applyJournal(n) : null, labelMode: s.settings.labels || ((s.settings.matchStyle || '3d') !== 'anim' ? 'num' : 'name'), style: s.settings.matchStyle || '3d', onPlayerTap: showTapCard,
     on3DFail: () => { app.toast('3D indisponible sur cet appareil : vue 2D.', 3500); s.settings.matchStyle = 'fm'; root.querySelector('[data-c=style]').textContent = '2D'; } });
-  bc = new Broadcast($('bcast'), { m, cfg, hc, ac, colors: view.colors, nameOf,
+  bc = new Broadcast($('bcast'), { m, cfg, hc, ac, colors: view.colors, nameOf, holderOf: () => (view.hl === 'skip' ? null : view.holder),
     coachOf: (side) => { const c = side === 0 ? hc : ac; if (c.id === s.userClubId && s.coach) return coachName(s.coach); const mg = managerOf(s, c); return mg ? (mg.fullName || mg.name) : ''; },
     coachImg: (side) => { const c = side === 0 ? hc : ac; if (c.id === s.userClubId && s.coach) return avatarSvg(s.coach.look, 40); const mg = managerOf(s, c); return mg?.photo ? face({ first: mg.first, last: mg.last, photo: mg.photo }, c, 'md') : ''; } });
   /** Présentation des équipes (caméra qui survole le stade), puis coup d'envoi. */
@@ -334,7 +335,7 @@ export function openMatch(app, opts = {}) {
         <b style="font-size:20px">VS</b>
         <div class="center grow">${crest(ac, 'lg')}<br><b>${esc(ac.name)}</b><br><small>${m.teams[1].tactics.formation}</small></div>
       </div>
-      ${(() => { const d = matchDay(m, cfg, currentDate(s)); return `<div class="pm-facts"><span>${d.weather.icon} ${d.weather.label} · ${d.temp} °C</span><span>🏟️ ${d.attendance.toLocaleString('fr-FR')} spectateurs attendus</span><span>🧑‍⚖️ ${esc(d.referee)}</span></div>`; })()}
+      ${(() => { const d = matchDay(m, cfg, currentDate(s)); return `<div class="pm-facts"><span>${d.hour != null ? `🕘 Coup d'envoi ${hourLabel(d.hour)} · ` : ''}${d.weather.icon} ${d.weather.label} · ${d.temp} °C${d.wind >= 30 ? ` · vent ${d.wind} km/h` : ''}</span><span class="wx-eff">⚠ ${esc(weatherEffectText(cfg.weather))}</span><span>🏟️ ${d.attendance.toLocaleString('fr-FR')} spectateurs attendus</span><span>🧑‍⚖️ ${esc(d.referee)}</span></div>`; })()}
       <div class="pm-xi">${[0, 1].map((sd) => `<ol>${m.teams[sd].onPitch.filter(Boolean).map((mp) => `<li><em>${mp.number ?? ''}</em><span>${esc(mp.name)}</span><small>${m.teams[sd].slots[mp.slot].pos}</small></li>`).join('')}</ol>`).join('')}</div>
       ${scoutReport()}
       <div class="btns"><button class="btn" data-act="back">Retour</button>${!opts.cfg ? '<button class="btn" data-act="press" id="pressbtn">🎤 Conférence de presse</button>' : ''}<button class="btn primary lg" data-act="go">Coup d'envoi</button></div>`,

@@ -7,6 +7,7 @@
  */
 import * as THREE from '../vendor/three.module.min.js';
 import { toLocal, localRect } from './viewport.js';
+import { personLook } from './avatar.js';
 
 const L = 105, W = 68;
 const K = 1.25;              // agrandissement des joueurs (lisibilité sur téléphone)
@@ -232,6 +233,9 @@ function loadFace(file) {
   return pr;
 }
 
+const BOOTS = new Map();
+const bootMat = (c) => { if (!BOOTS.has(c)) BOOTS.set(c, new THREE.MeshLambertMaterial({ color: c })); return BOOTS.get(c); };
+
 class Player3D {
   constructor(mats, skin, hair, num, shirtHex, inkHex, photo = null) {
     const G = geo();
@@ -249,7 +253,7 @@ class Player3D {
     limb(this.body, G.neck, skinM, 1.56);
     const head = limb(this.body, G.head, skinM, 1.7);
     head.scale.set(0.96, 1.1, 0.9);
-    const hairMesh = limb(this.body, G.hair, hairM, 1.72);
+    const hairMesh = this.hairMesh = limb(this.body, G.hair, hairM, 1.72);
     hairMesh.position.x = -0.012; hairMesh.scale.set(0.98, 1.08, 0.94);
     for (const z of [-0.105, 0.105]) { const e = limb(this.body, G.ear, skinM, 1.69); e.position.z = z; e.scale.set(0.6, 1, 0.5); }
     // Visage : photo du joueur (si disponible), posée face à l'avant (+X).
@@ -292,8 +296,8 @@ class Player3D {
       const el = new THREE.Group(); el.position.y = -0.27; sh.add(el);
       limb(el, G.elbow, skinM, 0);
       limb(el, G.fore, skinM, -0.13);
-      limb(el, G.hand, skinM, -0.28);
-      return { sh, el, sgn };
+      const hand = limb(el, G.hand, skinM, -0.28);
+      return { sh, el, sgn, hand };
     });
     this.shadow = new THREE.Mesh(G.shadow, mats.shadow);
     this.shadow.rotation.x = -Math.PI / 2; this.shadow.position.y = 0.02;
@@ -308,6 +312,19 @@ class Player3D {
    * Course : foulée qui s'allonge avec la vitesse, genou qui remonte, bras opposés aux jambes,
    * buste penché selon la vitesse et l'accélération, rebond vertical deux fois par cycle.
    */
+  /** Coiffure : crâne rasé, cheveux courts, afro, mi-longs… */
+  setHair(style) {
+    const h = this.hairMesh;
+    if (!h) return;
+    if (style === 'bald') { h.visible = false; return; }
+    if (style === 'buzz' || style === 'receding') h.scale.set(0.93, 0.98, 0.9);
+    else if (style === 'afro' || style === 'curly') h.scale.set(1.12, 1.22, 1.1);
+    else if (style === 'long' || style === 'dreads' || style === 'bun') { h.scale.set(1.05, 1.18, 1.0); h.position.y -= 0.03; }
+    else if (style === 'quiff' || style === 'mohawk') h.scale.set(0.98, 1.2, 0.92);
+  }
+  /** Gants du gardien. */
+  setGloves(c) { const m = new THREE.MeshLambertMaterial({ color: c }); for (const a of this.arms) if (a.hand) a.hand.material = m; }
+
   pose(p, flip, ctx = {}) {
     const face = flip ? p.face + Math.PI : p.face;
     this.root.rotation.y = -face;
@@ -526,11 +543,14 @@ export class Match3D {
     this.camMode = 'tv';
     this.camPos = new THREE.Vector3(0, 30, 70);
     this.camLook = new THREE.Vector3(0, 0, 0);
-    this.scene.add(new THREE.HemisphereLight('#e8f0ff', '#2f4a32', 1.1));
+    this.hemi = new THREE.HemisphereLight('#e8f0ff', '#2f4a32', 1.1);
+    this.scene.add(this.hemi);
     const sun = new THREE.DirectionalLight('#ffffff', 1.3);
+    this.sun = sun;
     sun.position.set(-30, 80, 40);
     this.scene.add(sun);
     this.buildStadium();
+    this.applyConditions(view.m.weather);
     this.buildBall();
     this.players = new Map(); // id -> { p3, label, side }
     // Arbitre : tenue noire.
@@ -559,7 +579,8 @@ export class Match3D {
   buildStadium() {
     const s = this.scene;
     const pt = pitchTexture(this.renderer.capabilities.getMaxAnisotropy());
-    const pitch = new THREE.Mesh(new THREE.PlaneGeometry(pt.w, pt.h), new THREE.MeshLambertMaterial({ map: pt.tex }));
+    this.pitchMat = new THREE.MeshLambertMaterial({ map: pt.tex });
+    const pitch = new THREE.Mesh(new THREE.PlaneGeometry(pt.w, pt.h), this.pitchMat);
     pitch.rotation.x = -Math.PI / 2;
     s.add(pitch);
     const apron = new THREE.Mesh(new THREE.PlaneGeometry(170, 130), new THREE.MeshLambertMaterial({ color: '#24603a' }));
@@ -642,7 +663,7 @@ export class Match3D {
       const l = new THREE.Mesh(new THREE.BoxGeometry(5, 2.5, 1), lamp); l.position.set(x, 34, z); l.lookAt(0, 0, 0); s.add(l);
       // Halo des projecteurs (visible dans le ciel du soir).
       const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: '#fff3c4', transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.85 }));
-      glow.scale.set(16, 16, 1); glow.position.set(x, 34, z); s.add(glow);
+      glow.scale.set(16, 16, 1); glow.position.set(x, 34, z); s.add(glow); (this.glows ||= []).push(glow);
     }
     // Buts : poteaux, transversale, filets.
     const post = new THREE.MeshLambertMaterial({ color: '#ffffff' });
@@ -665,6 +686,57 @@ export class Match3D {
       const p = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 1.6, 6), post); p.position.set(x, 0.8, z); s.add(p);
       const f = new THREE.Mesh(new THREE.PlaneGeometry(0.4, 0.3), flag); f.position.set(x + 0.2, 1.45, z); s.add(f);
     }
+  }
+
+  /**
+   * Météo et heure, visibles : jour (soleil, ciel bleu) ou nocturne (projecteurs), ciel gris,
+   * pluie ou neige qui tombent (inclinées par le vent), pelouse mouillée, brouillard.
+   */
+  applyConditions(w) {
+    if (!w) return;
+    const night = !!w.night, grey = ['cloud', 'rain', 'storm', 'snow', 'fog'].includes(w.kind);
+    const sky = night ? (grey ? ['#05070d', '#121a2a', '#2a2f3d', '#3d3d48'] : ['#060b1a', '#16264a', '#3a3f63', '#5b4a5e'])
+      : grey ? ['#6d7684', '#8d96a3', '#a9b0ba', '#c3c7cc'] : ['#2f6fd6', '#5d97e6', '#9cc4f0', '#d9e9f7'];
+    this.scene.background = canvasTex(4, 256, (g, ww, h) => { const gr = g.createLinearGradient(0, 0, 0, h); [0, 0.55, 0.85, 1].forEach((o, i) => gr.addColorStop(o, sky[i])); g.fillStyle = gr; g.fillRect(0, 0, ww, h); });
+    const fogC = night ? '#141d33' : grey ? '#9aa2ad' : '#b9d3ee';
+    this.scene.fog = new THREE.Fog(fogC, w.kind === 'fog' ? 45 : w.kind === 'storm' ? 90 : 150, w.kind === 'fog' ? 140 : w.kind === 'storm' ? 200 : 280);
+    if (!night) { this.sun.intensity = grey ? 0.9 : 1.9; this.sun.color.set(grey ? '#e6ebf2' : '#fff4dc'); this.hemi.intensity = grey ? 1.0 : 1.25; for (const g of this.glows || []) g.visible = false; }
+    else { this.sun.intensity = 1.1; this.hemi.intensity = 1.05; }
+    if (['rain', 'storm', 'snow'].includes(w.kind) && this.pitchMat) this.pitchMat.color.set(w.kind === 'snow' ? '#f2f6f8' : '#c4cec6'); // pelouse détrempée / poudrée
+    if (['rain', 'storm', 'snow'].includes(w.kind)) {
+      const n = w.kind === 'storm' ? 3600 : w.kind === 'rain' ? 1900 : 1500;
+      const snow = w.kind === 'snow';
+      const pos = new Float32Array(n * (snow ? 3 : 6));
+      for (let i = 0; i < n; i++) {
+        const x = (Math.random() - 0.5) * 150, y = Math.random() * 45, z = (Math.random() - 0.5) * 110;
+        if (snow) pos.set([x, y, z], i * 3); else pos.set([x, y, z, x, y - 0.9, z], i * 6);
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      this.precip = snow ? new THREE.Points(geo, new THREE.PointsMaterial({ color: '#ffffff', size: 0.35, transparent: true, opacity: 0.9, depthWrite: false }))
+        : new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color: night ? '#cfd8e6' : '#e8eef5', transparent: true, opacity: w.kind === 'storm' ? 0.55 : 0.42, depthWrite: false }));
+      this.precip.userData = { snow, speed: snow ? 2.2 : w.kind === 'storm' ? 30 : 22, slant: Math.min(0.6, (w.wind || 10) / 60) };
+      this.scene.add(this.precip);
+    }
+  }
+
+  /** Animation de la pluie / de la neige. */
+  stepPrecip(dt) {
+    const P = this.precip;
+    if (!P) return;
+    const a = P.geometry.attributes.position, arr = a.array, { snow, speed, slant } = P.userData;
+    const st = snow ? 3 : 6, t = (this._pt = (this._pt || 0) + dt);
+    for (let i = 0; i < arr.length; i += st) {
+      const dy = speed * dt, dx = slant * dy + (snow ? Math.sin(t * 1.3 + i) * 0.02 : 0);
+      arr[i] += dx; arr[i + 1] -= dy;
+      if (!snow) { arr[i + 3] += dx; arr[i + 4] -= dy; }
+      if (arr[i + 1] < 0) {
+        const x = (Math.random() - 0.5) * 150, z = (Math.random() - 0.5) * 110;
+        arr[i] = x; arr[i + 1] = 45; arr[i + 2] = z;
+        if (!snow) { arr[i + 3] = x - slant * 0.9; arr[i + 4] = 44.1; arr[i + 5] = z; }
+      }
+    }
+    a.needsUpdate = true;
   }
 
   buildBall() {
@@ -713,7 +785,12 @@ export class Match3D {
         const mats = p.gk ? { ...base, shirt: base.gk, socks: base.gk } : base;
         const shirtHex = p.gk ? v.gkColors[side] : v.colors[side];
         const ink = p.gk ? '#111' : v.textColors[side];
-        const p3 = new Player3D(mats, p.skin || '#c68642', p.hair || '#2b1d14', p.num, shirtHex, ink, p.mp?.p?.photo || null);
+        // Apparence réaliste : teint et cheveux selon la nationalité (stables), coiffure, crampons, gants.
+        const lk = personLook(id, p.mp?.p?.nat || '', p.mp?.p?.age || 25);
+        const bootC = ['#111111', '#111111', '#f2f2f2', '#d7263d', '#2d7ff9', '#e8ff3a', '#ff8c1a'][id % 7];
+        const p3 = new Player3D({ ...mats, boot: bootMat(bootC) }, lk.skin, lk.hairColor, p.num, shirtHex, ink, p.mp?.p?.photo || null);
+        p3.setHair(lk.hairStyle);
+        if (p.gk) p3.setGloves('#c6f432');
         // Morphologie du vrai joueur : taille (grand défenseur, petit ailier) et carrure (physique).
         const pl = p.mp?.p;
         const hgt = pl ? (pl.height || estHeight(pl)) : 180;
@@ -789,6 +866,7 @@ export class Match3D {
 
   render(dt) {
     const v = this.v;
+    this.stepPrecip(Math.min(0.05, dt || 0.016));
     // La foule se lève et saute après un but (la texture des tribunes « vibre »).
     if (this.crowdMat?.map) {
       const cheer = v.banner && v.banner.text === 'BUT !';

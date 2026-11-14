@@ -29,6 +29,7 @@ import { FORMATIONS, MAX_SUBS, positionFit, playerFit, DEFAULT_TACTICS, slotsOf,
 import { conditionFactor, ratingAt } from './ratings.js';
 import { aiManage } from './ai.js';
 import { tacticalEdge } from './tacticalEdge.js';
+import { weatherMods } from '../game/weather.js';
 import { formationPos, pitchDist } from './positions.js';
 
 const ZONE_DEPTH = [[0.1, 0.33], [0.33, 0.58], [0.58, 0.8], [0.81, 0.94]];
@@ -92,6 +93,7 @@ export function createMatch(cfg) {
     momentum: 0, momentumHistory: [], log: [], goals: [], lastPasser: null,
     shootout: null, extraTime: cfg.extraTime ?? !!cfg.cup,
     profile: { goals: 1, fouls: 1, cards: 1, ...(cfg.profile || {}) },
+    weather: cfg.weather || null, wx: weatherMods(cfg.weather || null),
     ball: { x: 0.5, y: 0.5 }, heat: [new Array(96).fill(0), new Array(96).fill(0)], xgTimeline: [],
   };
   m.added = [0, 0, 0, 0];
@@ -100,6 +102,8 @@ export function createMatch(cfg) {
   let sum = 0, n = 0;
   for (const t of m.teams) for (const mp of t.onPitch) if (mp) { sum += ratingAt(mp.p, t.slots[mp.slot].pos); n++; }
   m.level = n ? sum / n : 72;
+  // Forme du jour : un joueur irrégulier alterne grands et petits matchs (régularité sur 20).
+  for (const t of m.teams) for (const mp of [...t.onPitch, ...t.bench]) if (mp) mp.dayForm = 1 + m.rng.normal(0, 0.008 + (20 - (mp.p.cons ?? 13)) * 0.0025);
   return m;
 }
 
@@ -301,7 +305,7 @@ export function refreshMultipliers(m) {
       if (!mp) continue;
       const fit = playerFit(mp.p, t.slots[mp.slot].pos);
       const pm = { form: mp.p.form, morale: clamp(mp.morale + t.talk, 0, 100) };
-      mp.mult = conditionFactor(pm, mp.energy) * fit * home * numbers * cap * (t.cm ? t.cm.perf : 1) * (1 + (t.edge || 0) * (m.live ? TACTIC_WEIGHT : TACTIC_WEIGHT_QUICK));
+      mp.mult = conditionFactor(pm, mp.energy) * fit * home * numbers * cap * (mp.dayForm || 1) * (t.cm ? t.cm.perf : 1) * (1 + (t.edge || 0) * (m.live ? TACTIC_WEIGHT : TACTIC_WEIGHT_QUICK));
     }
   }
 }
@@ -649,7 +653,7 @@ function shoot(m, out, A, D, s, z, opts) {
     default: xg = [0.015, 0.024, 0.05, 0.13][z];
   }
   if (opts.type !== 'penalty') {
-    xg *= Math.exp(m.rng.normal(0, 0.55)) * 0.67 * m.profile.goals * (opts.bonus || 1);
+    xg *= Math.exp(m.rng.normal(0, 0.55)) * 0.67 * m.profile.goals * (opts.bonus || 1) * (m.wx?.aim || 1);
     const q = (eff(s, 'tir') * 0.7 + eff(s, 'sf') * 0.3) / (m.level - 8);
     xg *= Math.pow(q, 1.3);
     if (z >= 2) xg *= 1 - defContext(D, 3) * 0.6;
@@ -787,9 +791,9 @@ export function decayEnergy(m) {
         d = 0.42 - mp.p.attrs.phy * 0.0022 + pv * 0.06 + tv * 0.03 + (t.tactics.marking === 'man' ? 0.03 : 0);
         if (t.slots[mp.slot].pos === 'GB') d *= 0.35;
       }
-      mp.energy = clamp(mp.energy - d * (mp.work != null ? 1 : late) * (1 + (mp.p.age > 31 ? 0.1 : 0)) * (t.cm ? t.cm.fatigue : 1), 5, 100);
+      mp.energy = clamp(mp.energy - d * (mp.work != null ? 1 : late) * (1 + (mp.p.age > 31 ? 0.1 : 0)) * (t.cm ? t.cm.fatigue : 1) * (m.wx?.fatigue || 1), 5, 100);
       // Blessure "sans contact", plus fréquente quand le joueur est épuisé.
-      if (m.rng.chance(0.00005 * t.injuryMod * (mp.energy < 50 ? 2.5 : 1))) {
+      if (m.rng.chance(0.00005 * t.injuryMod * (m.wx?.injury || 1) * (mp.energy < 50 ? 2.5 : 1))) {
         m._pendingInjury = m._pendingInjury || [];
         m._pendingInjury.push([t, mp]);
       }

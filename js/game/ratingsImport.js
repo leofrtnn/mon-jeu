@@ -20,6 +20,7 @@ import { overall } from '../engine/ratings.js';
 import { fitToLevel } from '../data/generator.js';
 import { playerValue, playerWage } from './economy.js';
 import { TOP100 } from '../data/top100.js';
+import { TOP500 } from '../data/top500.js';
 
 const KEY = 'cdp-ratings-import';
 const fold = (t) => String(t ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
@@ -195,6 +196,12 @@ export function applyRatings(state, list, { best = false } = {}) {
     p.wage = Math.max(p.wage || 0, playerWage(p));
     p.value = playerValue(p);
     p.imported = true;
+    if (row.extra) {
+      // Pied fort, régularité (écarts de performance d'un match à l'autre), leadership.
+      if (row.extra.foot) p.foot = row.extra.foot;
+      if (row.extra.cons != null) p.cons = row.extra.cons;
+      if (row.extra.lead != null) p.lead = row.extra.lead;
+    }
     matched++;
   }
   return { matched, total: list.length, missing };
@@ -218,7 +225,7 @@ export function storedRatings() {
 export function clearStoredRatings() { try { localStorage.removeItem(KEY); } catch { /* ignore */ } }
 
 /* ---------- Top 100 intégré au jeu ---------- */
-export const TOP100_V = 3;
+export const TOP100_V = 4;
 
 /**
  * Attributs clés du top 100 (sur 20) → profil du jeu (sur 100), selon le poste du joueur :
@@ -240,8 +247,12 @@ function top100Attrs(p, [tech, ment, phys, pass, fin, plac]) {
 /** Applique le top 100 intégré (CA / PA → notes sur 100, attributs clés). Une fois par version. */
 export function applyTop100(state) {
   if (state.world !== 'real' || state.top100V === TOP100_V) return null;
-  const list = TOP100.map(([name, club, ca, pa, pos, raw]) => ({ name, club, pos, raw, note: abilityTo100(ca), pot: abilityTo100(pa), attrs: null }));
-  const r = applyRatings(state, list, { best: true });
+  // Ancien top 200 d'abord, puis la base de 500 joueurs (plus récente et plus complète) par-dessus.
+  const names500 = new Set(TOP500.map((r) => foldName(r[0])));
+  const list = TOP100.filter((r) => !names500.has(foldName(r[0]))).map(([name, club, ca, pa, pos, raw]) => ({ name, club, pos, raw, note: abilityTo100(ca), pot: abilityTo100(pa), attrs: null }));
+  applyRatings(state, list, { best: true });
+  const list5 = TOP500.map(([name, club, ca, pa, pos, attrs, foot, cons, lead]) => ({ name, club, pos: null, note: abilityTo100(ca), pot: abilityTo100(pa), attrs, extra: { foot, cons, lead } }));
+  const r = applyRatings(state, list5, { best: true });
   state.top100V = TOP100_V;
   return r;
 }

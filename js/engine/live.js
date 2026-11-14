@@ -62,6 +62,9 @@ export class LiveSim {
     this.rng = m.rng;
     this.players = opts.players || new Map();
     this.P = opts.ball || createBall();
+    // Météo : la surface agit sur le ballon (pluie : il fuse ; neige : il freine).
+    const wx = this.m?.wx || m.wx || {};
+    this.P.rollK = wx.roll || 1; this.P.skidK = wx.skid || 1;
     this.syncFn = opts.sync || null;
     this.now = 0; this.sec = 0; this.reshapeT = 1;
     this.holder = null; this.inHands = false;
@@ -635,7 +638,7 @@ export class LiveSim {
       const d = Math.hypot(ox - px, oy - py);
       const tb = (s * len) / vb + 0.15;
       const to = Math.max(0, d - 0.9) / 7.2 + 0.28;
-      let c = sig((tb - to) * 3.2 - 0.6) * (0.55 + eff(o.mp, 'def') / 220) * TUNE.passRisk;
+      let c = sig((tb - to) * 3.2 - 0.6) * (0.55 + eff(o.mp, 'def') / 220) * TUNE.passRisk * (this.m.wx?.passRisk || 1) * (lofted ? (this.m.wx?.air || 1) : 1);
       if (o.gk) c *= Math.abs(ox - this.goalX(1 - A.side)) < 16 ? 0.8 : 0.2;
       c *= 1.1 - vis / 300;
       if (c > 0.01) { p *= 1 - c; if (c > wc) { wc = c; worst = { o, x: px, y: py }; } }
@@ -850,7 +853,7 @@ export class LiveSim {
     if (blocker && this.rand() < pBlock) o = 'blocked';
     else if (this.rand() < goalP) o = 'goal';
     else {
-      const onP = kind === 'penalty' ? 0.7 : clamp(0.3 + (eff(h.mp, 'tir') - (m.level - 16)) / 220 + xg * 0.4, 0.18, 0.6);
+      const onP = kind === 'penalty' ? 0.7 : clamp((0.3 + (eff(h.mp, 'tir') - (m.level - 16)) / 220 + xg * 0.4) * (m.wx?.aim || 1), 0.15, 0.6);
       o = this.rand() < onP ? 'saved' : this.rand() < 0.07 ? 'post' : 'wide';
     }
     // Frappe non cadrée déviée par un défenseur : corner.
@@ -886,7 +889,7 @@ export class LiveSim {
     P.inGoal = 0; P.hitPost = false;
     const d = Math.hypot(tgt.x - P.x, tgt.y - P.y, tgt.z - P.z);
     const T = solveKick(P, tgt, { T: Math.max(0.25, d / speed), spin, top });
-    this.shot = { side: A.side, outcome: o, shooter: h, gk, at: this.now + T, kind, xg, blocker: blocker?.o, catchIt: speed < 27 && r2 < 0.55 };
+    this.shot = { side: A.side, outcome: o, shooter: h, gk, at: this.now + T, kind, xg, blocker: blocker?.o, catchIt: speed < 27 && r2 < 0.55 * (m.wx?.grip || 1) };
     this.pending = null;
     // Le gardien plonge vers le ballon au bon moment (trop tard s'il y a but).
     if (gk && o !== 'blocked') {
@@ -1536,7 +1539,7 @@ export class LiveSim {
       if (this.restart?.hurry) cap = Infinity;   // l'arbitre presse : on court se replacer
       else if (this.restart && p !== this.restart.taker) { const dd = Math.hypot((p.tx - p.x) * L, (p.ty - p.y) * W); cap = dd > 25 ? 6.4 : dd > 10 ? 5 : 3.4; }
       else if (this.restart) cap = Math.hypot((p.tx - p.x) * L, (p.ty - p.y) * W) > 12 ? 6.5 : 4.2;   // le tireur file vers le ballon
-      step(p, Math.min(cap, (6.6 + vit * 0.033) * (en > 70 ? 1 - (100 - en) * 0.002 : 0.94 - (70 - en) * 0.006) * withBall * (p.celeb > 0 ? 0.8 : 1)));
+      step(p, Math.min(cap, (6.6 + vit * 0.033) * (this.m.wx?.speed || 1) * (en > 70 ? 1 - (100 - en) * 0.002 : 0.94 - (70 - en) * 0.006) * withBall * (p.celeb > 0 ? 0.8 : 1)));
       // Effort réel : ce qu'il court (les sprints coûtent bien plus que le trot).
       if (p.mp && !p.celeb) { const v = p.speed || 0; p.mp.work = (p.mp.work || 0) + v * dt * (0.6 + (v / 6.5) ** 2 * 1.6); }
       const gd = dt / GS;

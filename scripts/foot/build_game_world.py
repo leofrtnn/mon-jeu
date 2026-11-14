@@ -144,6 +144,11 @@ REP_KEY = [
   ('independiente del valle', 63, 'IDV'), ('liga deportiva universitaria', 62, 'LDU'), ('ldu quito', 62, 'LDU'), ('barcelona sc', 61, 'BSC'),
   ('emelec', 59, 'EME'), ('aucas', 57, 'AUC'), ('universidad catolica del ecuador', 57, 'UCE'), ('delfin', 56, 'DEL'), ('el nacional', 56, 'ENA'),
   ('mamelodi sundowns', 64, 'SUN'), ('orlando pirates', 61, 'PIR'), ('kaizer chiefs', 60, 'KAI'), ('stellenbosch', 58, 'STB'), ('supersport', 57, 'SSU'),
+  ('slovan bratislava', 61, 'SLO2'), ('spartak trnava', 57, 'TRN'), ('dunajska streda', 58, 'DAC'), ('zilina', 56, 'ZIL'),
+  ('ludogorets', 63, 'LUD'), ('cska sofia', 58, 'CSKA'), ('levski', 58, 'LEV'), ('cherno more', 55, 'CHM'), ('botev plovdiv', 55, 'BOT'),
+  ('cr belouizdad', 59, 'CRB'), ('mc alger', 60, 'MCA'), ('js kabylie', 58, 'JSK'), ('es setif', 58, 'ESS2'), ('usm alger', 59, 'USMA'),
+  ('esperance', 62, 'EST2'), ('etoile sportive du sahel', 60, 'ESS'), ('club africain', 59, 'CA2'), ('cs sfaxien', 58, 'CSS'), ('monastir', 56, 'USM'),
+  ('olimpia', 62, 'OLI'), ('cerro porteno', 62, 'CCP'), ('libertad', 61, 'LIB2'), ('guarani', 57, 'GUA2'),
   ('amazulu', 56, 'AMZ'), ('cape town city', 56, 'CTC'), ('ts galaxy', 56, 'TSG'), ('sekhukhune', 56, 'SEK'), ('polokwane', 55, 'POL3'),
 ]
 DEFAULT_REP = {'POR1': 57, 'NED1': 58, 'BEL1': 57, 'TUR1': 59, 'CZE1': 55, 'GRE1': 55, 'NOR1': 55, 'POL1': 56, 'DEN1': 56, 'AUT1': 55,
@@ -151,7 +156,8 @@ DEFAULT_REP = {'POR1': 57, 'NED1': 58, 'BEL1': 57, 'TUR1': 59, 'CZE1': 55, 'GRE1
                'BRA1': 64, 'KSA1': 58, 'MEX1': 62, 'JPN1': 61, 'RUS1': 60, 'UKR1': 56, 'ROU1': 56, 'HUN1': 54, 'CYP1': 54, 'ISR1': 55,
                'ENG2': 62, 'ESP2': 59, 'ITA2': 59, 'GER2': 60, 'FRA2': 57,
                'KOR1': 57, 'CHN1': 56, 'AUS1': 55, 'UAE1': 56, 'QAT1': 56, 'MAR1': 54, 'PER1': 53, 'CHI1': 54, 'COL1': 56, 'URU1': 54,
-               'USA1': 56, 'ARG1': 58, 'EGY1': 54, 'ECU1': 54, 'RSA1': 53}
+               'USA1': 56, 'ARG1': 58, 'EGY1': 54, 'ECU1': 54, 'RSA1': 53,
+               'SVK1': 53, 'BUL1': 53, 'ALG1': 53, 'TUN1': 53, 'PAR1': 54}
 PREFIX = {'fc', 'sc', 'sk', 'fk', 'ac', 'kv', 'k', 'r', 'rsc', 'sl', 'cd', 'cf', 'gd', 'ud', 'kaa', 'krc', 'kvc', 'rc', 'sv', 'afc', 'f', 'c', 's', 'a',
           'royal', 'royale', 'club', 'cs', 'pec', 'ado', 'sfk', '1', 'raal', 'fsv', 'ksv', 'vv', 'sint', 'oud'}
 
@@ -440,15 +446,27 @@ for cid, ps in by_club.items():
             if x != prim and x not in sec: sec.append(x)
         POSITIONS[p['id']] = (prim, sec[:3])
 
+# Nationalités écrites en anglais ou en code dans certaines pages : ramenées au nom français.
+NAT_FIX = {'SER': 'Serbie', 'SLO': 'Slovénie', 'SPA': 'Espagne', 'KVX': 'Kosovo', 'NGR': 'Nigeria', 'CAF': 'Centrafrique', 'CUR': 'Curaçao', 'JAP': 'Japon',
+  'DRC': 'RD Congo', 'ROM': 'Roumanie', 'SWI': 'Suisse', 'CHE': 'Suisse', 'DNK': 'Danemark', 'TTO': 'Trinité-et-Tobago', 'GMB': 'Gambie', 'BRAZIL': 'Brésil',
+  'COLOMBIA': 'Colombie', 'ARGENTINA': 'Argentine', 'URUGUAY': 'Uruguay', 'ECUADOR': 'Équateur', 'GUINEA': 'Guinée', 'VENEZUELA': 'Venezuela', 'MOROCCO': 'Maroc',
+  'PANAMA': 'Panama', 'ANGOLA': 'Angola', 'PORTUGAL': 'Portugal', 'BELGIUM': 'Belgique', 'CHILE': 'Chili', 'SPAIN': 'Espagne', 'ITALY': 'Italie', 'PARAGUAY': 'Paraguay',
+  'BOLIVIA': 'Bolivie', 'GIN': 'Guinée', 'SUD': 'Soudan', 'GBS': 'Guinée-Bissau', 'YEM': 'Yémen', 'LIT': 'Lituanie', 'JAPAN': 'Japon', 'SYRIA': 'Syrie',
+  'MALAYSIA': 'Malaisie', 'AUSTRALIA': 'Australie', 'SLV': 'Salvador', 'COG': 'Congo', 'CAR': 'Centrafrique', 'MLD': 'Moldavie', 'LAT': 'Lettonie', 'GHANA': 'Ghana',
+  'TGO': 'Togo', 'TOGO': 'Togo', 'HKG': 'Hong Kong', 'BHR': 'Bahreïn', 'BOTSWANA': 'Botswana', 'FRANCE': 'France', 'NETHERLANDS': 'Pays-Bas', 'SENEGAL': 'Sénégal',
+  'ENGLAND': 'Angleterre', 'GERMANY': 'Allemagne', 'PERU': 'Pérou', 'PRY': 'Paraguay', 'CRI': 'Costa Rica', 'CHL': 'Chili', 'EGYPT': 'Égypte', 'PSE': 'Palestine',
+  'MRT': 'Mauritanie', 'NIGERIA': 'Nigeria', 'ESW': 'Eswatini', 'PHL': 'Philippines', 'TPE': 'Taïwan', 'SGP': 'Singapour', 'BAN': 'Bangladesh'}
 players = []
 for p in d['players']:
     first, last = split(p['name'])
     intl = p.get('international') or {}
     prim, sec = POSITIONS.get(p['id'], (p['position']['game'], []))
     players.append({'club': p['club'], 'f': first, 'l': last, 'pos': prim, 'p2': sec, 'h': p.get('heightCm'), 'gr': (round(goal_ratio(p), 3) if goal_ratio(p) is not None else None), 'age': p.get('age') or 0,
-                    'nat': (p.get('nationality') or {}).get('name') or '', 'num': p.get('number') or 0,
+                    'nat': NAT_FIX.get((p.get('nationality') or {}).get('name') or '', (p.get('nationality') or {}).get('name') or ''), 'num': p.get('number') or 0,
                     'caps': intl.get('caps') or 0, 'ig': intl.get('goals') or 0, 'apps': (p.get('clubStats') or {}).get('apps') or 0,
-                    'ph': (p.get('photo') or {}).get('file'), 'lv': levels.get(p['id'])})
+                    'ph': (p.get('photo') or {}).get('file'), 'lv': levels.get(p['id']),
+                    # Carrière en club (6 dernières étapes, hors équipes de jeunes) : « années|club|matchs|buts ».
+                    'cr': [f"{c.get('years') or ''}|{c.get('club') or ''}|{c.get('apps') or 0}|{c.get('goals') or 0}" for c in [c for c in (p.get('career') or []) if not re.search(r'\b(U-?\d\d|II|B|reserves?|youth|academy|Jong|Castilla|Primavera)\b', c.get('club') or '', re.I)][-6:]] or None})
 coaches = [{'club': c['club'], 'name': re.sub(r'\s*\([^)]*\)', '', c['name'] or '').strip() or None, 'nat': (c.get('nationality') or [''])[0], 'age': c.get('age') or 50,
             'ph': (c.get('photo') or {}).get('file')} for c in d['coaches']]
 out = {'format': 'coach-de-poche-monde-reel-v1', 'season': d['meta']['season'], 'sources': d['meta']['sources'],
