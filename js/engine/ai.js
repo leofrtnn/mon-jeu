@@ -2,7 +2,7 @@
  * IA des entraîneurs : choix de formation/mentalité avant-match,
  * remplacements et ajustements selon le score pendant le match.
  */
-import { FORMATION_NAMES, MAX_SUBS } from '../data/constants.js';
+import { FORMATION_NAMES, COMMON_FORMATIONS, MAX_SUBS } from '../data/constants.js';
 import { autoLineup, lineupStrength, squadStrength } from './ratings.js';
 
 /**
@@ -15,7 +15,11 @@ const pick = (o, keys) => Object.fromEntries(Object.entries(o || {}).filter(([k]
 export function aiPrepare(players, opponentPlayers, isHome, rng, pref = null) {
   let best = null;
   const prefOf = pref;
-  for (const f of FORMATION_NAMES) {
+  // Candidats : systèmes standard, celui de l'entraîneur, et trois autres tirés au sort (variété, sans tout évaluer).
+  const cand = new Set(['4-4-2', '4-3-3', '4-2-3-1']);
+  if (prefOf?.formation && FORMATION_NAMES.includes(prefOf.formation)) cand.add(prefOf.formation);
+  for (let i = 0; i < 3; i++) cand.add(rng ? COMMON_FORMATIONS[Math.floor(rng.next() * COMMON_FORMATIONS.length)] : '3-5-2');
+  for (const f of cand) {
     const lu = autoLineup(players, f);
     // Petite préférence pour les systèmes "standard" + bruit pour la variété.
     const pref = f === '4-4-2' || f === '4-3-3' || f === '4-2-3-1' ? 0.6 : 0;

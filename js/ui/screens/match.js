@@ -5,15 +5,16 @@
  * pause (changements, tactique), mi-temps (stats + causerie), fin de match.
  */
 import { userMatchCfg, completeDay, today, fixtureKey } from '../../game/season.js';
-import { createMatch, stepMinute, makeSub, changeFormation, swapSlots, setTactic, snapshotMatch, restoreMatch, replayCfg, applyPlan, teamTalk, summarize, penaltyShootout, clockLabel, activePlayers } from '../../engine/match.js';
+import { createMatch, stepMinute, makeSub, changeFormation, swapSlots, moveSlot, setRole, setTactic, snapshotMatch, restoreMatch, replayCfg, applyPlan, teamTalk, summarize, penaltyShootout, clockLabel, activePlayers } from '../../engine/match.js';
 import { describe, iconFor } from '../../engine/commentary.js';
-import { FORMATION_NAMES, MENTALITIES, MENTALITY_LABELS, LEVELS, PRESSING_LABELS, TEMPO_LABELS, MAX_SUBS, POSITION_GROUP, TEAM_INSTRUCTIONS, DEFAULT_TACTICS, PLAYER_INSTRUCTIONS, WIDTH_LABELS } from '../../data/constants.js';
+import { FORMATION_NAMES, FORMATION_GROUPS, ROLES, rolesFor, MENTALITIES, MENTALITY_LABELS, LEVELS, PRESSING_LABELS, TEMPO_LABELS, MAX_SUBS, POSITION_GROUP, TEAM_INSTRUCTIONS, DEFAULT_TACTICS, PLAYER_INSTRUCTIONS, WIDTH_LABELS } from '../../data/constants.js';
 import { ratingAt } from '../../engine/ratings.js';
 import { MatchView } from '../matchView.js';
 import { Broadcast, matchDay } from '../broadcast.js';
 import { currentDate } from '../../game/dates.js';
 import { coachName } from '../../game/coach.js';
 import { esc, crest, cmpBar, ratingChip, posBadge, seg, scaleColor, face } from '../components.js';
+import { avatarSvg } from '../avatar.js';
 import { MatchAudio } from '../audio.js';
 import { xgChart, heatmap } from '../charts.js';
 import { userClub } from '../../game/state.js';
@@ -236,7 +237,8 @@ export function openMatch(app, opts = {}) {
     beforeStep: replay ? (n) => applyJournal(n) : null, labelMode: s.settings.labels || ((s.settings.matchStyle || '3d') !== 'anim' ? 'num' : 'name'), style: s.settings.matchStyle || '3d', onPlayerTap: showTapCard,
     on3DFail: () => { app.toast('3D indisponible sur cet appareil : vue 2D.', 3500); s.settings.matchStyle = 'fm'; root.querySelector('[data-c=style]').textContent = '2D'; } });
   bc = new Broadcast($('bcast'), { m, cfg, hc, ac, colors: view.colors, nameOf,
-    coachOf: (side) => { const c = side === 0 ? hc : ac; if (c.id === s.userClubId && s.coach) return coachName(s.coach); const mg = managerOf(s, c); return mg ? (mg.fullName || mg.name) : ''; } });
+    coachOf: (side) => { const c = side === 0 ? hc : ac; if (c.id === s.userClubId && s.coach) return coachName(s.coach); const mg = managerOf(s, c); return mg ? (mg.fullName || mg.name) : ''; },
+    coachImg: (side) => { const c = side === 0 ? hc : ac; if (c.id === s.userClubId && s.coach) return avatarSvg(s.coach.look, 40); const mg = managerOf(s, c); return mg?.photo ? face({ first: mg.first, last: mg.last, photo: mg.photo }, c, 'md') : ''; } });
   /** Présentation des équipes (caméra qui survole le stade), puis coup d'envoi. */
   const kickoffShow = () => {
     if (view.r3d) { view.r3d.camMode = 'intro'; view.r3d._introT = 0; }
@@ -392,6 +394,8 @@ export function openMatch(app, opts = {}) {
       if (op === 'sub') { const r = makeSub(m, a.side, a.out, a.in); if (r.ok) { view.live?.handle(r.events, []); for (const ev of r.events) view.liveEvent?.(ev); } }
       else if (op === 'form') { changeFormation(m, a.side, a.f); syncPitch(); }
       else if (op === 'swap') { swapSlots(m, a.side, a.x, a.y); syncPitch(); }
+      else if (op === 'move') moveSlot(m, a.side, a.slot, a.x, a.y);
+      else if (op === 'role') setRole(m, a.side, a.slot, a.role);
       else if (op === 'pi') { const T = m.teams[a.side]; T.pi[a.slot] = { ...(T.pi[a.slot] || {}), [a.k]: a.v }; }
       else if (op === 'ti') setTactic(m, a.side, a.k, a.v);
       else if (op === 'plan') { applyPlan(m, a.side, a.plan); syncPitch(); }
@@ -437,7 +441,7 @@ export function openMatch(app, opts = {}) {
     const pitchHtml = () => {
       const T = t();
       const club = userClub(s);
-      return `<div class="tpitch mpitch">${T.slots.map((sl, i) => {
+      return `<div class="tpitch mpitch ${sel ? 'moving' : ''}" data-act="moveto" id="mpitch">${T.slots.map((sl, i) => {
         const mp = T.onPitch[i];
         const gone = !mp || !mp.onPitch || mp.red || mp.injured;
         const fitC = mp && !gone ? scaleColor(Math.min(100, ratingAt(mp.p, sl.pos) * 1.2)) : '#555';
@@ -466,7 +470,8 @@ export function openMatch(app, opts = {}) {
       if (!mp) return `<p class="muted mhelp">Touchez un joueur sur le terrain : puis un remplaçant pour le faire entrer, ou un autre joueur pour échanger leurs postes.</p>`;
       const pi = T.pi[mp.slot] = { duty: 'sup', shoot: 'normal', dribble: 'normal', runs: 'normal', ...(T.pi[mp.slot] || {}) };
       return `<div class="card msel"><div class="row between"><b>${esc(mp.name)}</b><small>${T.slots[mp.slot].pos} · énergie ${Math.round(mp.energy)} % · note ${mp.rating.toFixed(1)}</small></div>
-        <p class="muted mhelp">Touchez un remplaçant pour le faire entrer, ou un autre joueur du terrain pour échanger leurs postes.</p>
+        <p class="muted mhelp">Touchez un remplaçant pour le faire entrer, un autre joueur pour échanger leurs postes, ou <b>un endroit libre du terrain pour le déplacer</b> (son poste s'adapte à la zone).</p>
+        <div class="mrow"><span>Rôle</span><div class="seg sm wrap">${rolesFor(T.slots[mp.slot].pos).map((r) => `<button data-act="role" data-v="${r}" class="${(T.roles[mp.slot] || 'std') === r ? 'on' : ''}" title="${esc(ROLES[r].desc)}">${ROLES[r].label}</button>`).join('')}</div></div>
         ${PLAYER_INSTRUCTIONS.map((pd) => `<div class="mrow"><span>${pd.label}</span><div class="seg sm">${Object.entries(pd.opts).map(([v, l]) => `<button data-act="pi" data-k="${pd.key}" data-v="${v}" class="${pi[pd.key] === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>`).join('')}</div>`;
     };
     const tacHtml = () => {
@@ -493,7 +498,7 @@ export function openMatch(app, opts = {}) {
       return `<div class="row between"><h2>${isHT ? 'Vestiaire' : 'Banc de touche'} · ${clockLabel(m.minute, m.extra)}</h2><b class="num" style="font-size:20px">${m.score[0]} - ${m.score[1]}</b></div>
         <div style="margin:8px 0">${seg('ptab', ['compo', 'tac', 'stats'], tab, { compo: `Compo & changements (${MAX_SUBS - T.subsUsed})`, tac: 'Tactique', stats: 'Stats' })}</div>
         ${tab === 'compo' ? `
-          <div class="chips">${FORMATION_NAMES.map((f) => `<button class="chip ${T.tactics.formation === f && !T.tactics.custom ? 'on' : ''}" data-act="form" data-v="${f}">${f}</button>`).join('')}</div>
+          <div class="form-groups">${FORMATION_GROUPS.map(([g, fs]) => `<div class="fg"><small>${g}</small><div class="chips wrap">${fs.map((f) => `<button class="chip sm ${T.tactics.formation === f && !T.tactics.custom ? 'on' : ''}" data-act="form" data-v="${f}">${f}</button>`).join('')}</div></div>`).join('')}${T.tactics.custom ? '<span class="tag ok">Système personnalisé</span>' : ''}</div>
           <div class="mlay"><div>${pitchHtml()}</div><div>${selPanel()}${benchHtml()}</div></div>`
         : tab === 'tac' ? tacHtml()
         : `${edgeHtml()}${statsHtml()}${adviceHtml()}`}
@@ -527,6 +532,22 @@ export function openMatch(app, opts = {}) {
           if (!mp) return;
           T.pi[mp.slot] = { ...(T.pi[mp.slot] || {}), [el.dataset.k]: el.dataset.v };
           rec('pi', { side: userSide, slot: mp.slot, k: el.dataset.k, v: el.dataset.v });
+          h.update(html());
+        },
+        moveto: (el, ap, hh, e) => {
+          if (!sel || e.target.closest('.slot')) return;
+          const T = t(), mp = T.onPitch.find((x) => x && x.id === sel);
+          if (!mp) return;
+          const q = pitchPoint(root.ownerDocument.getElementById('mpitch'), T, e);
+          if (!q) return;
+          if (!moveSlot(m, userSide, mp.slot, q.x, q.y)) { app.toast('Le gardien reste dans son but.'); return; }
+          rec('move', { side: userSide, slot: mp.slot, x: T.slots[mp.slot].x, y: T.slots[mp.slot].y });
+          syncPitch(); app.toast(`${mp.name.split(' ').slice(-1)[0]} : nouveau poste ${T.slots[mp.slot].pos}`); h.update(html());
+        },
+        role: (el) => {
+          const T = t(), mp = T.onPitch.find((x) => x && x.id === sel);
+          if (!mp) return;
+          setRole(m, userSide, mp.slot, el.dataset.v); rec('role', { side: userSide, slot: mp.slot, role: el.dataset.v });
           h.update(html());
         },
         form: (el) => { changeFormation(m, userSide, el.dataset.v); rec('form', { side: userSide, f: el.dataset.v }); syncPitch(); sel = null; h.update(html()); },
@@ -689,3 +710,31 @@ export function openMatch(app, opts = {}) {
 }
 
 export { activePlayers };
+
+/**
+ * Point du terrain (x profondeur, y largeur) sous le doigt, quelle que soit l'orientation :
+ * on déduit la transformation à partir de la position affichée de trois postes connus.
+ */
+function pitchPoint(pitch, T, e) {
+  if (!pitch) return null;
+  const els = [...pitch.querySelectorAll('.slot')];
+  const pts = els.map((el, i) => { const r = el.querySelector('.tok').getBoundingClientRect(); return { x: T.slots[i].x, y: T.slots[i].y, X: r.left + r.width / 2, Y: r.top + r.height / 2 }; });
+  if (pts.length < 3) return null;
+  // Moindres carrés : X = a·x + b·y + c ; Y = d·x + e·y + f.
+  const fit = (key) => {
+    let sxx = 0, sxy = 0, syy = 0, sx = 0, sy = 0, n = pts.length, sxk = 0, syk = 0, sk = 0;
+    for (const p of pts) { sxx += p.x * p.x; sxy += p.x * p.y; syy += p.y * p.y; sx += p.x; sy += p.y; sxk += p.x * p[key]; syk += p.y * p[key]; sk += p[key]; }
+    const M = [[sxx, sxy, sx], [sxy, syy, sy], [sx, sy, n]], v = [sxk, syk, sk];
+    const det = (A) => A[0][0] * (A[1][1] * A[2][2] - A[1][2] * A[2][1]) - A[0][1] * (A[1][0] * A[2][2] - A[1][2] * A[2][0]) + A[0][2] * (A[1][0] * A[2][1] - A[1][1] * A[2][0]);
+    const D = det(M);
+    if (Math.abs(D) < 1e-9) return null;
+    return [0, 1, 2].map((c) => det(M.map((row, r) => row.map((x, k) => (k === c ? v[r] : x)))) / D);
+  };
+  const fx = fit('X'), fy = fit('Y');
+  if (!fx || !fy) return null;
+  const [a, b, c] = fx, [d, f, g] = fy;
+  const det = a * f - b * d;
+  if (Math.abs(det) < 1e-9) return null;
+  const X = e.clientX - c, Y = e.clientY - g;
+  return { x: (f * X - b * Y) / det, y: (a * Y - d * X) / det };
+}

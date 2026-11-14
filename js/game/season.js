@@ -34,6 +34,7 @@ import { aiSeasonBudget, finHealth } from './owners.js';
 import { BAL } from '../data/balance.js';
 import { captainCfg } from './captain.js';
 import { chatDaily } from './chat.js';
+import { opt, optInfo } from './options.js';
 
 export const CUP_ROUND_NAMES = ['16es de finale', '8es de finale', 'Quarts de finale', 'Demi-finales', 'Finale'];
 export const CONTI_ROUND_NAMES = ['Groupes · J1', 'Groupes · J2', 'Groupes · J3', 'Quarts de finale', 'Demi-finales', 'Finale'];
@@ -478,7 +479,7 @@ export function teamCfg(state, club, opponent, isHome, isUser) {
     validateUserLineup(state);
     return { club, players, lineup: club.lineup.slice(), bench: club.bench.slice(), tactics: { ...club.tactics }, isAI: false, talk: matchMods(state)?.me || 0,
       roles: (club.roles || []).slice(), setPieces: { ...(club.setPieces || {}) }, pi: (club.pi || []).map((x) => ({ ...x })), injuryMod: staffEffects(club).injuryMod,
-      coachMods: (() => { const cm = coachMods(state.coach); return { ...cm, perf: cm.perf * staffEffects(club).perf * familiarityMult(club) }; })(), ...captainCfg(state, club) };
+      coachMods: (() => { const cm = coachMods(state.coach); return { ...cm, perf: cm.perf * staffEffects(club).perf * familiarityMult(club) * (optInfo(state, 'difficulty').perf || 1) }; })(), ...captainCfg(state, club) };
   }
   const rng = createRng(hashSeed(`${state.seed}-${state.season}-${state.day}-${club.id}`));
   const style = managerStyle(state, club);
@@ -508,12 +509,16 @@ export function matchCfgFor(state, f) {
   const prof = { ...(f.comp === 'league' ? DIVISIONS[f.div].profile : f.comp === 'cup' || f.comp === 'super' ? DIVISIONS[h.div].profile : {}) };
   const tens = tension(state, h.id, a.id);
   if (tens > 1) { prof.fouls = (prof.fouls ?? 1) * tens; prof.cards = (prof.cards ?? 1) * tens; }
-  return {
+  const cfg = {
     ...base, cup: knockout, extraTime: knockout, homeAdv: f.neutral ? 1 : homeAdvantage(h),
     profile: prof,
     home: sideCfg(state, h, a, true, uid),
     away: sideCfg(state, a, h, false, uid),
   };
+  // Paramètre de partie : fréquence des blessures (les deux équipes).
+  const im = optInfo(state, 'injuries').mult || 1;
+  if (im !== 1) for (const sd of [cfg.home, cfg.away]) sd.injuryMod = (sd.injuryMod ?? 1) * im;
+  return cfg;
 }
 
 /** Équipe d'une rencontre : un club d'un manager humain (en ligne) garde SA compo et SA tactique. */
@@ -669,6 +674,7 @@ export function completeDay(state, userMatch = null) {
     let tp, eff = null, cmod = null;
     if (isUser) withHuman(state, hu, () => { eff = staffEffects(c); cmod = coachMods(state.coach); tp = trainingParams(c, true); tp.youthMult = cmod.youth; tp.gkMult = eff.gkMult; });
     else tp = trainingParams(c, false);
+    tp = { ...tp, mult: tp.mult * (optInfo(state, 'progression').mult || 1) };
     for (const id of c.playerIds) {
       const p = state.players[id];
       if (!p) continue;
@@ -1029,7 +1035,7 @@ export function endSeason(state) {
     report.met = userPos <= target;
     state.board.confidence = clamp(state.board.confidence + (report.met ? 15 + (target - userPos) * 2 : -(userPos - target) * 5), 0, 100);
     report.confidence = state.board.confidence;
-    report.sacked = !state.online && state.board.confidence < 15; // en ligne : pas de renvoi (chacun garde son club)
+    report.sacked = !state.online && opt(state, 'sacking') !== 'off' && state.board.confidence < optInfo(state, 'difficulty').sack; // en ligne : pas de renvoi (chacun garde son club)
     coachRep(state, report.met ? 3 : -3);
     if (userPos === 1) { state.coach.trophies.push(`${DIVISIONS[userDiv].name} ${state.season}`); coachRep(state, DIVISIONS[userDiv].level === 1 ? 10 : 5, 'Titre de champion !'); }
     if (report.sacked) coachRep(state, -8, 'Limogeage');
@@ -1113,7 +1119,7 @@ export function endSeason(state) {
   for (const c of state.clubs) {
     const hu = humanOfClub(state, c.id);
     const rep = hu !== undefined ? R[hu] : null;
-    const mult = trainingParams(c, !!rep).mult;
+    const mult = trainingParams(c, !!rep).mult * (optInfo(state, 'progression').mult || 1);
     for (const id of c.playerIds.slice()) {
       const p = state.players[id];
       const dev = seasonDevelopment(p, rng, mult);

@@ -48,6 +48,7 @@ const ICONS = {
   table: '<rect x="3.5" y="4" width="17" height="16" rx="2"/><path d="M3.5 9h17M3.5 14h17M8.5 4v16"/>',
   stats: '<path d="M4 20V10M10 20V4M16 20v-7M21 20H3"/>',
   world: '<circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.5 2.6 3.6 5.4 3.6 8.5s-1.1 5.9-3.6 8.5c-2.5-2.6-3.6-5.4-3.6-8.5s1.1-5.9 3.6-8.5z"/>',
+  back: '<path d="M15 5l-7 7 7 7"/>',
   friends: '<circle cx="8" cy="9" r="3"/><circle cx="16" cy="9" r="3"/><path d="M2.5 20c0-3 2.5-5 5.5-5s5.5 2 5.5 5M12.5 15.4c1-.3 2.2-.4 3.5-.4 3 0 5.5 2 5.5 5"/>',
 };
 const TABS = [
@@ -89,6 +90,21 @@ const NAV = [
 const svg = (k, w = 1.8) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round">${ICONS[k]}</svg>`;
 const BRAND = '<svg class="brand-ball" viewBox="0 0 100 100"><path d="M50 4 88 18v34c0 22-16 38-38 44C28 90 12 74 12 52V18z" fill="none" stroke="currentColor" stroke-width="6"/><circle cx="50" cy="48" r="22" fill="currentColor"/><path d="M50 34l9 7-3.5 11h-11L41 41z" fill="#0b0e1c"/></svg>';
 
+/**
+ * Réécrit un bloc sans perdre la position de défilement de ses listes (et du bloc lui-même) :
+ * cliquer sur un filtre, un choix ou un onglet ne fait plus remonter en haut.
+ */
+const pathOf = (el, root) => { const p = []; while (el && el !== root) { p.unshift([...el.parentNode.children].indexOf(el)); el = el.parentNode; } return p; };
+const atPath = (root, p) => p.reduce((el, i) => el?.children?.[i], root);
+export function keepScroll(root, fn) {
+  const saved = [];
+  if (root) for (const el of [root, ...root.querySelectorAll('*')]) if (el.scrollTop > 0 || el.scrollLeft > 0) saved.push([el === root ? [] : pathOf(el, root), el.scrollTop, el.scrollLeft]);
+  fn();
+  for (const [p, t, l] of saved) { const el = p.length ? atPath(root, p) : root; if (el) { el.scrollTop = t; el.scrollLeft = l; } }
+}
+/** États d'interface qui définissent « où l'on est » (pour le bouton Retour). */
+const NAV_KEYS = ['schedTab', 'clubTab', 'statTab', 'cupWhich', 'tacTab', 'schedDiv', 'stDiv', 'squadSort'];
+
 export const app = {
   state: null,
   tab: 'home',
@@ -107,6 +123,8 @@ export const app = {
     this.$tabs.innerHTML = `<div class="brand">${BRAND}<b>Coach<br>de Poche</b></div>
       <div class="inner">${NAV.filter((n) => !n.bottom).map((n) => (n.group ? `<div class="nav-group">${n.group}</div>` : item(n))).join('')}</div>
       <div class="nav-foot">${NAV.filter((n) => n.bottom).map(item).join('')}</div>`;
+    // Bouton Retour du navigateur / du téléphone : même effet que ◂.
+    window.addEventListener('popstate', () => { if (this.state?.userClubId && !document.querySelector('.match-screen')) this.back(); });
     this.$tabs.addEventListener('click', (e) => {
       const b = e.target.closest('[data-nav]');
       if (!b) return;
@@ -120,6 +138,7 @@ export const app = {
     document.addEventListener('keydown', (e) => {
       if (e.ctrlKey || e.metaKey || e.altKey || /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
       if (e.key === 'Escape' && this.sheets.length) { const s = this.sheets[this.sheets.length - 1]; if (s) s.close(); return; }
+      if ((e.key === 'Escape' || (e.altKey && e.key === 'ArrowLeft')) && !document.querySelector('.match-screen')) { this.back(); return; }
       if (!this.state?.userClubId || this.sheets.length || document.querySelector('.match-screen')) return;
       if (e.key === ' ' || e.key === 'Enter') { const a = home.primaryAction(this); if (a) { e.preventDefault(); a.run(); } return; }
       const n = /^[1-9]$/.test(e.key) ? this.$tabs.querySelectorAll('[data-nav]')[+e.key - 1] : null;
@@ -136,6 +155,7 @@ export const app = {
     this.$top.addEventListener('click', (e) => {
       if (e.target.closest('#topcoach')) { openCoachEditor(this, { mode: 'edit' }); return; }
       if (e.target.closest('[data-act="topgo"]')) { home.primaryAction(this)?.run(); return; }
+      if (e.target.closest('[data-act="navback"]')) { this.back(); return; }
       if (e.target.closest('[data-act="topclub"]')) { this.ui.schedTab = 'table'; this.go('schedule'); return; }
       this.dispatch(e, this.current()?.actions);
     });
@@ -206,6 +226,7 @@ export const app = {
       const dt = currentDate(this.state);
       const cont = home.primaryAction(this);
       this.$top.innerHTML = `
+        <button class="top-back" id="navback" data-act="navback" aria-label="Retour" title="Retour (Échap)">${svg('back', 2.2)}</button>
         <button class="top-club" data-act="topclub" aria-label="Classement">${crest(c)}
           <span class="club"><b>${esc(c.name)}</b><small>${esc(DIVISIONS[c.div]?.name || '')} <i class="chev">▾</i></small></span></button>
         <span class="grow"></span>
@@ -231,7 +252,21 @@ export const app = {
     const key = `${started ? 1 : 0}|${this.tab}|${active}`;
     const changed = key !== this._screenKey;
     this._screenKey = key;
-    this.$screen.innerHTML = mod.render(this);
+    if (changed) this.$screen.innerHTML = mod.render(this);
+    else keepScroll(this.$screen, () => { this.$screen.innerHTML = mod.render(this); });
+    // Historique de navigation (bouton ◂ Retour, touche Retour du téléphone).
+    if (started) {
+      const here = { tab: this.tab, ui: Object.fromEntries(NAV_KEYS.map((k) => [k, this.ui[k]])) };
+      const sig = JSON.stringify(here);
+      if (this._navSig && sig !== this._navSig && !this._restoring) {
+        (this.navStack ||= []).push(JSON.parse(this._navSig));
+        if (this.navStack.length > 40) this.navStack.shift();
+        try { history.pushState({ cdp: this.navStack.length }, ''); } catch { /* ignore */ }
+      }
+      this._navSig = sig;
+      this._restoring = false;
+      document.getElementById('navback')?.toggleAttribute('disabled', !(this.navStack?.length || this.sheets.length));
+    }
     if (changed) {
       this.$screen.classList.remove('enter');
       void this.$screen.offsetWidth;
@@ -264,7 +299,7 @@ export const app = {
   sheet(opts) {
     const wrap = document.createElement('div');
     wrap.className = 'sheet-wrap';
-    wrap.innerHTML = `<div class="sheet-bg"></div><div class="sheet ${opts.full ? 'full' : ''}">${opts.full ? '' : '<div class="grab"></div>'}<div class="sheet-body"></div></div>`;
+    wrap.innerHTML = `<div class="sheet-bg"></div><div class="sheet ${opts.full ? 'full' : ''}">${opts.full ? '' : '<div class="grab"></div>'}${opts.dismissable === false ? '' : '<button class="sheet-x" data-act="close" aria-label="Fermer" title="Fermer (Échap)">✕</button>'}<div class="sheet-body"></div></div>`;
     const body = wrap.querySelector('.sheet-body');
     const handle = {
       el: wrap, body, actions: opts.actions || {},
@@ -274,7 +309,7 @@ export const app = {
         this.sheets = this.sheets.filter((s) => s !== handle);
         opts.onClose?.();
       },
-      update: (html) => { body.innerHTML = html; opts.mount?.(body, handle); },
+      update: (html) => { keepScroll(body, () => { body.innerHTML = html; }); opts.mount?.(body, handle); },
     };
     handle.update(typeof opts.html === 'function' ? opts.html() : opts.html);
     wrap.addEventListener('click', (e) => {
@@ -294,6 +329,18 @@ export const app = {
     (opts.root || this.$overlay).appendChild(wrap);
     this.sheets.push(handle);
     return handle;
+  },
+
+  /** Retour arrière : ferme la fenêtre ouverte, sinon revient à l'écran précédent. */
+  back() {
+    if (this.sheets.length) { this.sheets[this.sheets.length - 1].close(); return true; }
+    const prev = this.navStack?.pop();
+    if (!prev) return false;
+    this._restoring = true;
+    for (const k of NAV_KEYS) this.ui[k] = prev.ui[k];
+    this.tab = prev.tab;
+    this.render();
+    return true;
   },
 
   closeSheets() { for (const s of this.sheets.slice()) s.close(); },

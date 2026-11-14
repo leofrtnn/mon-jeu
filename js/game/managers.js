@@ -9,7 +9,7 @@ import { isHumanClub } from './humans.js';
 import { COUNTRIES } from '../data/world.js';
 import { clamp, createRng, hashSeed } from '../core/rng.js';
 import { randomName } from '../data/names.js';
-import { FORMATION_NAMES } from '../data/constants.js';
+import { FORMATION_NAMES, COMMON_FORMATIONS } from '../data/constants.js';
 import { squadStrength } from '../engine/ratings.js';
 import { SKILL_KEYS, PHILOSOPHIES } from './coach.js';
 import { userClub, clubById, clubPlayers, pushMessage, gameRng } from './state.js';
@@ -30,7 +30,7 @@ function makeManager(rng, state, rep, country) {
   const id = 'M' + (state.nextManagerId = (state.nextManagerId || 0) + 1);
   return {
     id, first, last, name: `${first[0]}. ${last}`, nat, age: rng.int(36, 66), rep: clamp(Math.round(rep), 15, 95),
-    skills, philosophy: rng.pick(PHILO_KEYS), formation: rng.pick(FORMATION_NAMES), clubId: null,
+    skills, philosophy: rng.pick(PHILO_KEYS), formation: rng.pick(COMMON_FORMATIONS), clubId: null,
     contract: rng.int(1, 3), history: [], conf: 60, w: 0, d: 0, l: 0,
   };
 }

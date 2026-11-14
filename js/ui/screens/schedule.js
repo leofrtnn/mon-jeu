@@ -7,7 +7,7 @@ import { CONTI_COMPS, cupPrizes, LEAGUE_WEALTH } from '../../data/world.js';
 import { trophySvg, trophyArt, leagueTrophy } from '../trophies.js';
 import { money, prizeMoney } from '../../game/economy.js';
 import { userClub, clubById } from '../../game/state.js';
-import { esc, crest, seg, posBadge } from '../components.js';
+import { esc, crest, seg, posBadge, face } from '../components.js';
 import { ensureManagers, freeManagers, applyForJob } from '../../game/managers.js';
 import { changeClub, leagueRoundOf } from '../../game/season.js';
 import { PHILOSOPHIES, randomLook, coachName } from '../../game/coach.js';
@@ -246,7 +246,7 @@ function managersView(s, uc, div) {
   const vac = s.clubs.filter((c) => c.vacantSince && c.id !== uc.id);
   const look = (m) => randomLook(createRng(hashSeed(m.id)).next);
   const confC = (v) => (v >= 55 ? 'var(--good)' : v >= 30 ? 'var(--ok)' : 'var(--bad)');
-  const row = (c, m) => `<div class="prow" style="cursor:default">${m ? avatarSvg(look(m), 44) : avatarSvg(s.coach.look, 44)}
+  const row = (c, m) => `<div class="prow" style="cursor:default">${m ? (m.photo ? face({ first: m.first, last: m.last, photo: m.photo }, c, 'md') : avatarSvg(look(m), 44)) : avatarSvg(s.coach.look, 44)}
       <div class="pname"><b>${m ? esc(m.first + ' ' + m.last) : esc(coachName(s.coach)) + ' <small>(vous)</small>'}</b>
         <small>${c ? esc(c.name) + ' · ' : ''}${esc(m ? m.nat : s.coach.nationality)} · ${m ? m.age : s.coach.age} ans · ${esc(PHILOSOPHIES[m ? m.philosophy : s.coach.philosophy].label)} · ${esc(m ? m.formation : s.coach.formation)}</small></div>
       <div class="center" style="min-width:58px"><b style="font-family:var(--display);font-size:18px">${Math.round(m ? m.rep : s.coach.rep)}</b><br>

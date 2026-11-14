@@ -11,6 +11,7 @@ import { userClub, clubPlayers, pushMessage, gameRng } from './state.js';
 import { wageBill, money } from './economy.js';
 import { trainingUpgradeCost, stadiumCost } from './career.js';
 import { academyCost } from './transfers.js';
+import { opt, optInfo } from './options.js';
 
 export const IDENTITIES = {
   attack: { label: 'Jeu offensif', desc: 'Marquer beaucoup de buts.' },
@@ -77,8 +78,9 @@ export function updateBoardParts(state, { pos, target, matchDiff, leagueRound })
   const b = ensureBoard(state);
   const uc = userClub(state);
   const P = b.parts;
-  if (matchDiff != null) P.results += matchDiff > 0 ? 3 : matchDiff < 0 ? -3.5 : 0;
-  if (leagueRound != null && leagueRound >= 5) P.results += pos <= target ? 0.8 : -Math.min(3, (pos - target) * 0.35);
+  const pat = optInfo(state, 'difficulty').patience || 1; // direction plus ou moins patiente
+  if (matchDiff != null) P.results += matchDiff > 0 ? 3 : matchDiff < 0 ? -3.5 / pat : 0;
+  if (leagueRound != null && leagueRound >= 5) P.results += pos <= target ? 0.8 : -Math.min(3, (pos - target) * 0.35) / pat;
   const bill = wageBill(clubPlayers(state, uc));
   P.finances += (uc.budget < 0 ? -3 : 0.6) + (bill > b.wageBudget * 1.02 ? -2 : 0.4);
   const st = state.seasonStats;
@@ -97,8 +99,8 @@ export function updateBoardParts(state, { pos, target, matchDiff, leagueRound })
 /** Limogeage en cours de saison si la confiance s'effondre. */
 export function checkMidSeasonSack(state, leagueRound) {
   const b = state.board;
-  if (state.online) return false; // carrière en ligne : chaque manager garde son club
-  if (state.sacked || leagueRound < 10 || b.confidence >= 14 / (b.patience ?? 1)) return false;
+  if (state.online || opt(state, 'sacking') === 'off') return false; // carrière en ligne / paramètre : pas de renvoi
+  if (state.sacked || leagueRound < 10 || b.confidence >= optInfo(state, 'difficulty').sack / (b.patience ?? 1)) return false;
   const rng = gameRng(state);
   if (!rng.chance(b.confidence < 8 ? 0.6 : 0.25)) return false;
   state.sacked = { season: state.season, day: state.day, club: userClub(state).name };

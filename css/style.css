@@ -1119,3 +1119,38 @@ ul.notes { margin: 4px 0 0; padding-left: 18px; font-size: 13px; line-height: 1.
 .bub .note { display: block; margin-top: 4px; font-size: 11px; opacity: .75; font-style: italic; }
 .quick { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
 .quick .btn { text-align: left; white-space: normal; }
+
+/* Bouton retour (barre du haut) et croix de fermeture des fenêtres */
+.top-back { width: 38px; height: 38px; flex: none; display: inline-flex; align-items: center; justify-content: center; border-radius: 12px; border: 1px solid var(--line2); background: var(--card); color: var(--text); cursor: pointer; margin-right: 4px; }
+.top-back svg { width: 20px; height: 20px; }
+.top-back:hover:not([disabled]) { background: var(--card2); }
+.top-back[disabled] { opacity: .35; cursor: default; }
+.sheet-x { position: sticky; float: right; top: 4px; margin: 0 -4px 0 8px; z-index: 3; width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--line2); background: var(--card2); color: var(--muted); font-size: 14px; cursor: pointer; }
+.sheet-x:hover { color: var(--text); background: var(--card3); }
+/* Visages : la photo est recadrée sur la tête (portrait en pied → zoom en haut, photo large → zoom au tiers supérieur). */
+.face > img { transition: opacity .25s; }
+.face > img.tall { object-position: 50% 0; transform: scale(1.9); transform-origin: 50% 4%; }
+.face > img.sq { object-position: 50% 10%; transform: scale(1.45); transform-origin: 50% 14%; }
+.face > img.wide { object-position: 50% 12%; transform: scale(1.3); transform-origin: 50% 18%; }
+.face.lg > img.tall { transform: scale(1.7); }
+.face.md { width: 44px; height: 44px; font-size: 14px; } .bc-coach { margin-left: auto; } .bc-coach svg { border-radius: 50%; }
+/* Choix du système (groupes) et déplacement des postes en match */
+.form-groups { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
+.form-groups .fg small { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .1em; }
+.form-groups .chips { padding-bottom: 2px; }
+.mpitch.moving { cursor: crosshair; box-shadow: inset 0 0 0 2px rgba(167, 139, 250, .6); }
+.seg.wrap { flex-wrap: wrap; }
+.form-pick { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.form-pick .chips { flex: 1; min-width: 0; padding: 2px 0; }
+.fgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 8px; }
+.fcard { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px; border-radius: 12px; border: 1px solid var(--line2); background: var(--card); color: var(--text); cursor: pointer; }
+.fcard.on { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
+.fcard b { font: 700 14px var(--display); }
+.fmini { width: 100%; }
+.fmini rect { fill: #1f6b3b; stroke: rgba(255,255,255,.5); }
+.fmini circle { fill: #fff; } .fmini circle.gk { fill: #f4c430; }
+.opt-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 8px; }
+.opt-card { text-align: left; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--line2); background: var(--card); color: var(--text); cursor: pointer; display: flex; flex-direction: column; gap: 3px; }
+.opt-card.on { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--card)); }
+.opt-card small { color: var(--muted); font-size: 12px; } .opt-card span { font-size: 11px; color: #c9bbff; }
+.opt-card[disabled] { opacity: .55; cursor: default; }

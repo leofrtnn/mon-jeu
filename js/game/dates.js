@@ -60,6 +60,7 @@ export function currentDate(state) {
 
 /** État du mercato : ouvert ?, dernier jour ?, date de fermeture. */
 export function windowInfo(state) {
+  if (state?.opts?.windows === 'always') return { open: true, name: 'permanent', closes: null, deadline: false, label: 'Mercato ouvert toute l\'année (paramètre de partie)' };
   const d = currentDate(state);
   for (const w of windows(state.season)) {
     if (d >= w.from && d <= w.to) {

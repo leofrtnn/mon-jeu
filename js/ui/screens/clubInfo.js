@@ -55,7 +55,7 @@ export function showClub(app, clubId) {
     const rivals = rivalsOf(s, c).slice(0, 4);
     const coach = (s.managers || {})[c.managerId];
     return `${head}
-      ${coach ? `<div class="card row" style="gap:12px;align-items:center">${face({ first: coach.first, last: coach.last, photo: coach.photo }, c)}
+      ${coach ? `<div class="card row" style="gap:12px;align-items:center">${face({ first: coach.first, last: coach.last, photo: coach.photo }, c, 'lg')}
         <div class="grow"><small class="muted">Entraîneur</small><br><b>${esc(coach.fullName || coach.name || '')}</b>${coach.nat ? ` <small class="muted">· ${esc(coach.nat)}</small>` : ''}</div></div>` : ''}
       <div class="card"><div class="row between"><span>🏛 Propriétaire</span><b>${esc(c.owner?.name || '—')}</b></div><small class="muted">${ot.label}${c.owner?.group ? ' · groupe multi-clubs' : ''}${c.owner?.since ? ` · depuis ${c.owner.since}` : ''}</small>
         ${line('Santé financière', finHealth(s, c))}${line('Ambiance du stade', c.atmosphere ?? 55)}${line('Image', c.image ?? 50)}

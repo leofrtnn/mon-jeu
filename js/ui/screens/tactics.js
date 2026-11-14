@@ -2,7 +2,7 @@
  * Tactique : formation, consignes, compo en glisser-déposer (ou tap-tap), compo auto.
  */
 import { userClub, clubPlayers } from '../../game/state.js';
-import { FORMATIONS, FORMATION_NAMES, MENTALITIES, MENTALITY_LABELS, LEVELS, PRESSING_LABELS, TEMPO_LABELS, WIDTH_LABELS, positionFit, playerFit, BENCH_SIZE, ROLES, rolesFor, DEFAULT_TACTICS, TEAM_INSTRUCTIONS, PLAYER_INSTRUCTIONS, slotsOf, posFromXY } from '../../data/constants.js';
+import { FORMATIONS, FORMATION_NAMES, FORMATION_GROUPS, MENTALITIES, MENTALITY_LABELS, LEVELS, PRESSING_LABELS, TEMPO_LABELS, WIDTH_LABELS, positionFit, playerFit, BENCH_SIZE, ROLES, rolesFor, DEFAULT_TACTICS, TEAM_INSTRUCTIONS, PLAYER_INSTRUCTIONS, slotsOf, posFromXY } from '../../data/constants.js';
 import { autoLineup, ratingAt, isAvailable, overall, lineupStrength } from '../../engine/ratings.js';
 import { esc, playerRow, seg, posBadge } from '../components.js';
 import { face } from '../images.js';
@@ -57,8 +57,8 @@ export function render(app) {
   else side = setPiecesTab(uc, byId);
   return `
     <div class="tac-layout"><div class="tac-main">
-    <div class="chips" style="margin-top:6px">${FORMATION_NAMES.map((f) => `<button class="chip ${f === t.formation && !t.custom ? 'on' : ''}" data-act="formation" data-v="${f}">${f}</button>`).join('')}
-      ${t.custom ? '<button class="chip on" data-act="noop">Perso</button>' : ''}</div>
+    <div class="form-pick"><button class="btn sm" data-act="formpick">Système : <b>${t.custom ? 'Perso' : esc(t.formation)}</b> ▾</button>
+      <div class="chips">${['4-4-2', '4-3-3', '4-2-3-1', '3-5-2', '4-1-4-1', '3-4-3', '5-3-2'].map((f) => `<button class="chip sm ${f === t.formation && !t.custom ? 'on' : ''}" data-act="formation" data-v="${f}">${f}</button>`).join('')}</div></div>
     <div class="row between" style="margin:8px 2px">
       <small>Force du onze : <b style="color:var(--text)">${strength.toFixed(1)}</b></small>
       <small class="fam" title="Les automatismes se construisent semaine après semaine (plus vite avec un entraînement tactique). Changer de système les fait chuter.">Maîtrise tactique <b style="color:${scaleColor(uc.fam ?? 60)}">${Math.round(uc.fam ?? 60)} %</b></small>
@@ -296,6 +296,15 @@ export const actions = {
     app.save(); app.render();
   },
   noop() {},
+  /** Tous les systèmes, par famille, avec un aperçu du placement. */
+  formpick(el, app) {
+    const uc = userClub(app.state);
+    const mini = (f) => `<svg viewBox="0 0 100 64" class="fmini"><rect x="1" y="1" width="98" height="62" rx="4"/>${FORMATIONS[f].map((sl) => `<circle cx="${(4 + sl.x * 92).toFixed(1)}" cy="${(4 + sl.y * 56).toFixed(1)}" r="3.6" class="${sl.pos === 'GB' ? 'gk' : ''}"/>`).join('')}</svg>`;
+    const h = app.sheet({
+      html: `<h2>Choisir un système</h2>${FORMATION_GROUPS.map(([g, fs]) => `<div class="label">${g}</div><div class="fgrid">${fs.map((f) => `<button class="fcard ${uc.tactics.formation === f && !uc.tactics.custom ? 'on' : ''}" data-act="pickf" data-v="${f}">${mini(f)}<b>${f}</b></button>`).join('')}</div>`).join('')}`,
+      actions: { pickf: (b) => { h.close(); actions.formation(b, app); } },
+    });
+  },
   auto(el, app) {
     const uc = userClub(app.state);
     const lu = autoLineup(clubPlayers(app.state, uc), slotsOf(uc.tactics));

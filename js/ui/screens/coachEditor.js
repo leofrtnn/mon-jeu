@@ -7,14 +7,14 @@
  * téléphone se ferme et le bouton « Commencer » disparaît sous le doigt) : l'aperçu est mis à
  * jour directement.
  */
-import { COACH_SKILLS, SKILL_KEYS, START_POINTS, SKILL_MIN, SKILL_MAX, PHILOSOPHIES, LOOK, COACH_NATIONS, randomLook, skillsTotal, ensureCoachProfile, coachName } from '../../game/coach.js';
-import { FORMATION_NAMES } from '../../data/constants.js';
+import { COACH_SKILLS, SKILL_KEYS, START_POINTS, SKILL_MIN, SKILL_MAX, PHILOSOPHIES, LOOK, COACH_NATIONS, BACKGROUNDS, LICENCES, PERSONALITIES, randomLook, skillsTotal, ensureCoachProfile, coachName } from '../../game/coach.js';
+import { FORMATION_NAMES, FORMATION_GROUPS } from '../../data/constants.js';
 import { esc } from '../components.js';
 import { avatarSvg } from '../avatar.js';
 import { randomName } from '../../data/names.js';
 import { createRng } from '../../core/rng.js';
 
-const STEPS = [['id', 'Identité'], ['look', 'Apparence'], ['style', 'Style de jeu'], ['skills', 'Compétences']];
+const STEPS = [['id', 'Identité'], ['career', 'Parcours'], ['look', 'Apparence'], ['style', 'Style de jeu'], ['skills', 'Compétences']];
 /** Profils de compétences tout prêts (50 points). */
 const PRESETS = {
   balanced: { label: '⚖ Équilibré', skills: { tactics: 10, motivation: 10, discipline: 10, youth: 10, fitness: 10 } },
@@ -30,7 +30,15 @@ export function openCoachEditor(app, { mode = 'edit', onDone } = {}) {
   const d = JSON.parse(JSON.stringify(coach)); // brouillon
   const base = { ...coach.skills };
   let step = 0;
-  const remaining = () => (mode === 'create' ? START_POINTS - skillsTotal(d.skills) : coach.points - (skillsTotal(d.skills) - skillsTotal(base)));
+  const startPts = () => START_POINTS + (BACKGROUNDS[d.background]?.points || 0) + (LICENCES[d.licence]?.points || 0);
+  const remaining = () => (mode === 'create' ? startPts() - skillsTotal(d.skills) : coach.points - (skillsTotal(d.skills) - skillsTotal(base)));
+  const fixPts = () => {
+    while (mode === 'create' && remaining() < 0) {
+      const k = SKILL_KEYS.filter((x) => d.skills[x] > SKILL_MIN).sort((a, b) => d.skills[b] - d.skills[a])[0];
+      if (!k) break;
+      d.skills[k]--;
+    }
+  };
   const sw = (act, list, cur) => `<div class="swatches">${list.map((c) => `<button class="sw ${c === cur ? 'on' : ''}" data-act="${act}" data-v="${c}" style="background:${c}" aria-label="${c}"></button>`).join('')}</div>`;
   const chips = (act, obj, cur) => `<div class="chips wrap">${Object.entries(obj).map(([k, v]) => `<button class="chip ${k === cur ? 'on' : ''}" data-act="${act}" data-v="${k}">${esc(typeof v === 'string' ? v : v.label)}</button>`).join('')}</div>`;
   const nameText = () => esc(coachName(d)) || '<span class="muted">Votre nom</span>';
@@ -46,18 +54,34 @@ export function openCoachEditor(app, { mode = 'edit', onDone } = {}) {
         <label class="field"><span>Nationalité</span><select data-act="nat">${COACH_NATIONS.map((n) => `<option ${n === d.nationality ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></label>
         <label class="field"><span>Âge : <b id="c-age">${d.age} ans</b></span><input type="range" min="28" max="72" value="${d.age}" id="c-agein"></label>
       </div>`;
+    if (k === 'career') return `
+      ${mode === 'create' ? '' : '<p class="muted" style="margin-top:0">Votre parcours est écrit : il ne se modifie plus en cours de carrière.</p>'}
+      <div class="label" style="margin-top:0">Parcours</div>
+      <div class="opt-cards">${Object.entries(BACKGROUNDS).map(([kk, b]) => `<button class="opt-card ${d.background === kk ? 'on' : ''}" data-act="bg" data-v="${kk}" ${mode === 'create' ? '' : 'disabled'}>
+        <b>${esc(b.label)}</b><small>${esc(b.desc)}</small><span>Réputation ${b.rep >= 0 ? '+' : ''}${b.rep} · vestiaire ${b.dressing >= 0 ? '+' : ''}${b.dressing} · ${b.points >= 0 ? '+' : ''}${b.points} pts</span></button>`).join('')}</div>
+      <div class="label">Diplôme</div>${chips('lic', Object.fromEntries(Object.entries(LICENCES).map(([kk, l]) => [kk, `${l.label} (${l.rep >= 0 ? '+' : ''}${l.rep} rép., +${l.points} pts)`])), d.licence)}
+      <div class="label">Caractère</div>
+      <div class="opt-cards">${Object.entries(PERSONALITIES).map(([kk, pp]) => `<button class="opt-card ${d.personality === kk ? 'on' : ''}" data-act="pers" data-v="${kk}"><b>${esc(pp.label)}</b><small>${esc(pp.desc)}</small></button>`).join('')}</div>`;
     if (k === 'look') return `
-      <div class="label" style="margin-top:0">Teint</div>${sw('skin', LOOK.skins, d.look.skin)}
+      <div class="ce-grid">
+        <div><div class="label" style="margin-top:0">Teint</div>${sw('skin', LOOK.skins, d.look.skin)}</div>
+        <div><div class="label" style="margin-top:0">Fond</div>${sw('bgc', LOOK.bgs, d.look.bg || LOOK.bgs[0])}</div>
+      </div>
+      <div class="label">Visage</div>${chips('faceS', LOOK.faces, d.look.face || 'oval')}
+      <div class="ce-grid"><div><div class="label">Yeux</div>${sw('eyes', LOOK.eyes, d.look.eyes || LOOK.eyes[0])}</div><div><div class="label">Expression</div>${chips('mouth', LOOK.mouths, d.look.mouth || 'neutral')}</div></div>
+      <div class="label">Sourcils</div>${chips('brows', LOOK.brows, d.look.brows || 'normal')}
       <div class="label">Coiffure</div>${chips('hairStyle', LOOK.hairStyles, d.look.hairStyle)}
-      <div class="label">Couleur des cheveux</div>${sw('hairColor', LOOK.hairColors, d.look.hairColor)}
+      <div class="label">Couleur des cheveux et de la barbe</div>${sw('hairColor', LOOK.hairColors, d.look.hairColor)}
       <div class="label">Barbe</div>${chips('beard', LOOK.beards, d.look.beard)}
+      <div class="label">Lunettes</div>${chips('glassesS', LOOK.glasses, d.look.glasses === true ? 'square' : d.look.glasses || 'none')}
+      <div class="label">Accessoire</div>${chips('accS', LOOK.accessories, d.look.acc || 'none')}
       <div class="label">Tenue</div>${chips('outfit', LOOK.outfits, d.look.outfit)}
       <div class="label">Couleur de la tenue</div>${sw('outfitColor', LOOK.outfitColors, d.look.outfitColor)}
-      <div class="btns" style="margin-top:12px"><button class="btn sm" data-act="glasses">${d.look.glasses ? '👓 Sans lunettes' : '👓 Avec lunettes'}</button><button class="btn sm" data-act="random">🎲 Apparence au hasard</button></div>`;
+      <div class="btns" style="margin-top:12px"><button class="btn sm" data-act="random">🎲 Apparence au hasard</button></div>`;
     if (k === 'style') return `
       <div class="label" style="margin-top:0">Philosophie de jeu</div>${chips('philo', PHILOSOPHIES, d.philosophy)}
       <p class="muted" style="font-size:12px;margin:6px 2px">Appliquée à la tactique de votre club (modifiable ensuite).</p>
-      <div class="label">Formation préférée</div>${chips('form', Object.fromEntries(FORMATION_NAMES.map((f) => [f, f])), d.formation)}`;
+      <div class="label">Formation préférée</div>${FORMATION_GROUPS.map(([g, fs]) => `<small class="muted">${g}</small>${chips('form', Object.fromEntries(fs.map((f) => [f, f])), d.formation)}`).join('')}`;
     return `
       ${mode === 'create' ? `<div class="label" style="margin-top:0">Profil tout prêt</div><div class="chips wrap">${Object.entries(PRESETS).map(([pk, p]) => `<button class="chip" data-act="preset" data-v="${pk}">${p.label}</button>`).join('')}</div>` : ''}
       <div class="row between" style="margin:12px 2px 4px"><small class="muted">${mode === 'create' ? 'Ou répartissez vous-même (4 à 20 par compétence).' : 'Points gagnés au fil des saisons et des trophées.'}</small>
@@ -134,7 +158,16 @@ export function openCoachEditor(app, { mode = 'edit', onDone } = {}) {
       beard: (el) => { d.look.beard = el.dataset.v; refresh(); },
       outfit: (el) => { d.look.outfit = el.dataset.v; refresh(); },
       outfitColor: (el) => { d.look.outfitColor = el.dataset.v; refresh(); },
-      glasses: () => { d.look.glasses = !d.look.glasses; refresh(); },
+      glassesS: (el) => { d.look.glasses = el.dataset.v; refresh(); },
+      accS: (el) => { d.look.acc = el.dataset.v; refresh(); },
+      faceS: (el) => { d.look.face = el.dataset.v; refresh(); },
+      eyes: (el) => { d.look.eyes = el.dataset.v; refresh(); },
+      brows: (el) => { d.look.brows = el.dataset.v; refresh(); },
+      mouth: (el) => { d.look.mouth = el.dataset.v; refresh(); },
+      bgc: (el) => { d.look.bg = el.dataset.v; refresh(); },
+      bg: (el) => { if (mode !== 'create') return; d.background = el.dataset.v; fixPts(); refresh(); },
+      lic: (el) => { if (mode !== 'create') return; d.licence = el.dataset.v; fixPts(); refresh(); },
+      pers: (el) => { d.personality = el.dataset.v; refresh(); },
       random: () => { d.look = randomLook(); refresh(); },
       philo: (el) => { d.philosophy = el.dataset.v; refresh(); },
       form: (el) => { d.formation = el.dataset.v; refresh(); },
@@ -153,8 +186,13 @@ export function openCoachEditor(app, { mode = 'edit', onDone } = {}) {
           }
         }
         const spent = skillsTotal(d.skills) - skillsTotal(base);
+        if (mode === 'create') {
+          // Parcours et diplôme : réputation de départ et respect du vestiaire.
+          coach.rep = Math.max(5, Math.min(90, (coach.rep ?? 40) + (BACKGROUNDS[d.background]?.rep || 0) + (LICENCES[d.licence]?.rep || 0)));
+          coach.dressing = Math.max(20, Math.min(95, (coach.dressing ?? 60) + (BACKGROUNDS[d.background]?.dressing || 0)));
+        }
         Object.assign(coach, { firstName: d.firstName, lastName: d.lastName, nationality: d.nationality, age: d.age, look: d.look,
-          philosophy: d.philosophy, formation: d.formation, skills: d.skills, created: true });
+          philosophy: d.philosophy, formation: d.formation, skills: d.skills, created: true, background: d.background, licence: d.licence, personality: d.personality });
         if (mode === 'edit') coach.points = Math.max(0, coach.points - spent);
         app.save(true);
         h.close();

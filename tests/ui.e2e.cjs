@@ -53,6 +53,10 @@ function serve() {
     assert.ok(await page.isVisible('text=Testeur'));
     step('compte créé, connexion');
     await page.click('[data-act=new][data-v="1"]');
+    // Paramètres de la partie : budget généreux, puis choix du club.
+    await page.waitForSelector('.sheet [data-act=set][data-k=budget][data-v=high]', { timeout: 60000 });
+    await page.click('.sheet [data-act=set][data-k=budget][data-v=high]');
+    await page.click('.sheet [data-act=go]');
     await page.waitForSelector('[data-act=div][data-v="5"]');
     await page.click('[data-act=div][data-v="5"]');
     await page.click('.club-card >> nth=3');
@@ -64,8 +68,10 @@ function serve() {
     await page.fill('.sheet #c-ln', 'Fortin');
     assert.equal(await page.textContent('.sheet #cname'), 'Léo Fortin');
     await page.click('.sheet [data-act=next]');
+    await page.click('.sheet [data-act=pers][data-v=calm]');   // étape Parcours : caractère
+    await page.click('.sheet [data-act=next]');
     await page.click('.sheet [data-act=random]');
-    await page.click('.sheet [data-act=step][data-v="3"]');
+    await page.click('.sheet [data-act=step][data-v="4"]');
     await page.click('.sheet [data-act=dec][data-v=discipline]');
     await page.click('.sheet [data-act=inc][data-v=tactics]');
     await page.click('.sheet [data-act=ok]');
@@ -262,8 +268,8 @@ function serve() {
     await page.click('[data-act=opick] >> nth=0');
     await page.waitForSelector('[data-act=ostart]:not([disabled])');
     await page.click('[data-act=ostart]');
-    await page.waitForSelector('.sheet [data-act=step][data-v="3"]', { timeout: 60000 });
-    await page.click('.sheet [data-act=step][data-v="3"]');
+    await page.waitForSelector('.sheet [data-act=step][data-v="4"]', { timeout: 60000 });
+    await page.click('.sheet [data-act=step][data-v="4"]');
     await page.click('.sheet [data-act=ok]');
     await page.waitForSelector('[data-act=oready]');
     await page.click('[data-act=oready]');

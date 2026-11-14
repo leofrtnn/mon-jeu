@@ -16,7 +16,7 @@ import { creditSale } from './board.js';
 /** Connaissance (0-100) d'un joueur par le club de l'utilisateur. */
 export function knowledge(state, p) {
   const uc = userClub(state);
-  if (!uc || p.clubId === uc.id || uc.youthIds?.includes(p.id) || p.onLoanFrom === uc.id) return 100;
+  if (!uc || p.clubId === uc.id || uc.youthIds?.includes(p.id) || p.onLoanFrom === uc.id || state.opts?.fog === 'off') return 100;
   const club = p.clubId ? clubById(state, p.clubId) : null;
   // Les joueurs célèbres (internationaux, grands clubs) sont connus de tous : fourchette serrée.
   const fame = Math.min(45, (p.caps || 0) * 0.8) + (club ? (club.rep >= 85 ? 15 : club.rep >= 75 ? 8 : 0) : 0);

@@ -11,6 +11,8 @@ import { esc, crest, playerRow, noteChip } from '../components.js';
 import { DIVISIONS, DIV_IDS, COUNTRIES } from '../../data/world.js';
 import { readFileAsText } from '../files.js';
 import { openCoachEditor } from './coachEditor.js';
+import { GAME_OPTIONS, defaultOptions, optInfo } from '../../game/options.js';
+import { ensureBoard, setBoardSeason } from '../../game/board.js';
 import { PHILOSOPHIES } from '../../game/coach.js';
 import { autoLineup } from '../../engine/ratings.js';
 import { userClub } from '../../game/state.js';
@@ -151,8 +153,29 @@ function clubSheet(app, id) {
   });
 }
 
+/** Paramètres de la nouvelle partie (difficulté, budget, mercato, blessures…). */
+function setupSheet(app, st, done) {
+  const o = st.opts = st.opts || defaultOptions();
+  const html = () => `<h2>Paramètres de la partie</h2>
+    <p class="muted" style="margin-top:0">Réglez l'expérience à votre goût. Par défaut : le football tel qu'il est.</p>
+    ${Object.entries(GAME_OPTIONS).map(([k, g]) => `<div class="label">${g.label}</div>
+      <div class="opt-cards">${Object.entries(g.opts).map(([v, x]) => `<button class="opt-card ${o[k] === v ? 'on' : ''}" data-act="set" data-k="${k}" data-v="${v}"><b>${esc(x.label)}${v === g.def ? ' <small>(défaut)</small>' : ''}</b><small>${esc(x.desc)}</small></button>`).join('')}</div>`).join('')}
+    <div class="btns" style="margin-top:16px"><button class="btn" data-act="reset">Valeurs par défaut</button><button class="btn primary lg" data-act="go">Choisir mon club ▸</button></div>`;
+  const h = app.sheet({
+    html, dismissable: false,
+    actions: {
+      set: (el) => { o[el.dataset.k] = el.dataset.v; h.update(html()); },
+      reset: () => { Object.assign(o, defaultOptions()); h.update(html()); },
+      go: () => { h.close(); done(); },
+    },
+  });
+}
+
 function takeClub(app, id) {
   startCareer(app.state, id);
+  // Budget de départ (paramètre de partie) : les enveloppes du CA suivent.
+  const bm = optInfo(app.state, 'budget').mult || 1;
+  if (bm !== 1) { const uc = app.state.clubs.find((c) => c.id === id); uc.budget = Math.round(uc.budget * bm / 100000) * 100000; ensureBoard(app.state); setBoardSeason(app.state, true); }
   const slot = app.ui.start.slot || 1;
   enter(app, slot, app.state);
   app.save(true);
@@ -224,7 +247,8 @@ export const actions = {
       // Notes importées par l'utilisateur (Réglages → Notes des joueurs) : appliquées à la nouvelle partie.
       const rl = storedRatings();
       if (rl) applyRatings(st, rl);
-      startNew(app, slot, st);
+      busy(false);
+      setupSheet(app, st, () => startNew(app, slot, st));
     } catch (e) { app.toast('Impossible de charger les championnats (vérifiez la connexion).', 4000); }
     finally { busy(false); }
   },

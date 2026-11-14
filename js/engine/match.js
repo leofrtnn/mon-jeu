@@ -25,7 +25,7 @@
  *  summarize(m)     -> résumé (score, stats, notes, homme du match)
  */
 import { createRng, clamp } from '../core/rng.js';
-import { FORMATIONS, MAX_SUBS, positionFit, playerFit, DEFAULT_TACTICS, slotsOf } from '../data/constants.js';
+import { FORMATIONS, MAX_SUBS, positionFit, playerFit, DEFAULT_TACTICS, slotsOf, posFromXY } from '../data/constants.js';
 import { conditionFactor, ratingAt } from './ratings.js';
 import { aiManage } from './ai.js';
 import { tacticalEdge } from './tacticalEdge.js';
@@ -943,6 +943,24 @@ export function swapSlots(m, side, idA, idB) {
   [a.slot, b.slot] = [b.slot, a.slot];
   refreshMultipliers(m);
   return true;
+}
+
+/** Déplace un poste (le joueur garde sa place, son poste s'adapte à la zone). */
+export function moveSlot(m, side, slot, x, y) {
+  const T = m.teams[side];
+  const sl = T.slots[slot];
+  if (!sl || sl.pos === 'GB') return false;
+  x = Math.max(0.12, Math.min(0.88, x)); y = Math.max(0.04, Math.min(0.96, y));
+  T.slots[slot] = { ...sl, x: +x.toFixed(3), y: +y.toFixed(3), pos: posFromXY(x, y, false) };
+  T.tactics.custom = T.slots.map((s) => ({ ...s }));
+  refreshMultipliers(m);
+  return true;
+}
+/** Rôle d'un joueur (meneur, pivot, piston…). */
+export function setRole(m, side, slot, role) {
+  const T = m.teams[side];
+  T.roles[slot] = role;
+  refreshMultipliers(m);
 }
 
 /** Change la formation en réaffectant au mieux les joueurs présents. */

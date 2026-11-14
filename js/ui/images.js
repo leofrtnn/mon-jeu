@@ -56,7 +56,7 @@ export function imgTag(file, w, kind = 'logo') {
   const first = thumbUrl(file, s, kind === 'logo' ? 'en' : 'commons');
   const second = kind === 'logo' ? thumbUrl(file, s, 'commons') : filePathUrl(file, s);
   return `<img src="${escAttr(first)}" data-alt="${escAttr(second)}" data-alt2="${escAttr(filePathUrl(file, s))}" alt="" loading="lazy" decoding="async" crossorigin="anonymous" referrerpolicy="no-referrer"
-    onload="this.parentNode&&this.parentNode.classList.add('img-ok')"
+    onload="this.classList.add(this.naturalHeight>this.naturalWidth*1.15?'tall':this.naturalWidth>this.naturalHeight*1.15?'wide':'sq');this.parentNode&&this.parentNode.classList.add('img-ok')"
     onerror="if(this.dataset.alt){this.src=this.dataset.alt;this.dataset.alt=this.dataset.alt2||'';this.dataset.alt2=''}else{this.remove()}">`;
 }
 
@@ -64,7 +64,7 @@ export function imgTag(file, w, kind = 'logo') {
 export function face(p, club, sz = '') {
   const ini = `${(p.first || '')[0] || ''}${(p.last || '')[0] || ''}`.toUpperCase();
   const bg = club?.color || '#2a3340', fg = club?.color2 || '#fff';
-  return `<span class="face ${sz} ${p.photo ? 'has-img' : ''}" style="background:${bg};color:${fg}">${p.photo ? imgTag(p.photo, sz === 'lg' ? 240 : 96, 'photo') : ''}<i>${escAttr(ini)}</i></span>`;
+  return `<span class="face ${sz} ${p.photo ? 'has-img' : ''}" style="background:${bg};color:${fg}">${p.photo ? imgTag(p.photo, 250, 'photo') : ''}<i>${escAttr(ini)}</i></span>`;
 }
 
 /**

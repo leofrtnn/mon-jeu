@@ -124,13 +124,13 @@ export class Broadcast {
    * Résout la promesse à la fin (ou quand on touche « Passer »).
    */
   intro(day, ms = 7000) {
-    const { m, hc, ac, colors, coachOf } = this.ctx;
+    const { m, hc, ac, colors, coachOf, coachImg } = this.ctx;
     const xi = (side) => {
       const t = m.teams[side];
       return t.onPitch.filter(Boolean).map((mp) => `<li>${face(mp.p, side ? ac : hc)}<em>${mp.number ?? ''}</em><span>${esc(mp.name)}${mp.id === t.captain ? ' <b class="xi-tag cap">C</b>' : ''}</span><small>${t.slots[mp.slot].pos}</small></li>`).join('');
     };
     const col = (side) => { const c = side ? ac : hc, t = m.teams[side]; return `<div class="side" style="--tc:${colors[side]}">
-      <div class="head">${crest(c)}<div><b>${esc(c.name)}</b><small>${esc(t.tactics.formation || '')}${coachOf(side) ? ` · ${esc(coachOf(side))}` : ''}</small></div></div><ol>${xi(side)}</ol></div>`; };
+      <div class="head">${crest(c)}<div><b>${esc(c.name)}</b><small>${esc(t.tactics.formation || '')}${coachOf(side) ? ` · ${esc(coachOf(side))}` : ''}</small></div>${coachImg ? `<span class="bc-coach">${coachImg(side) || ''}</span>` : ''}</div><ol>${xi(side)}</ol></div>`; };
     const el = this.$('bc-full');
     el.innerHTML = `<div class="intro">${col(0)}<div class="mid"><small>COMPOSITIONS</small>
         <div class="facts"><span>${day.weather.icon} ${day.weather.label} · ${day.temp} °C</span><span>🏟️ ${day.attendance.toLocaleString('fr-FR')} spectateurs</span><span>🧑‍⚖️ Arbitre : ${esc(day.referee)}</span></div>
