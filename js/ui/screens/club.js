@@ -3,7 +3,8 @@
  * objectifs & carrière, amis (multijoueur), paramètres (sauvegardes, données).
  */
 import { userClub, clubPlayers, clubById } from '../../game/state.js';
-import { money, wageBill, sponsorIncome } from '../../game/economy.js';
+import { money, wageBill, sponsorIncome, prizeMoney } from '../../game/economy.js';
+import { DIVISIONS } from '../../data/world.js';
 import { marketList, windowOpen, academyCost, upgradeAcademy, sellPlayer, counterIncoming } from '../../game/transfers.js';
 import { tablePosition, DIV_NAMES, CONTI_NAME } from '../../game/season.js';
 import { STAFF_ROLES, staffWages, hireStaff, fireStaff, bestStaff, staffEffects, trainingUpgradeCost, upgradeTraining, STADIUM_OPTIONS, stadiumCost, expandStadium, TRAINING_FOCUS, INTENSITY, staffDemand, staffOffer } from '../../game/career.js';
@@ -12,7 +13,8 @@ import { createRng, hashSeed } from '../../core/rng.js';
 import { estimate, rangeLabel, mid, REGIONS, MISSION_DAYS, startMission } from '../../game/scouting.js';
 import { gameRng } from '../../game/state.js';
 import { overall } from '../../engine/ratings.js';
-import { POSITIONS } from '../../data/constants.js';
+import { POSITIONS, ATTR_LABELS, POSITION_GROUP } from '../../data/constants.js';
+import { posBadge } from '../components.js';
 import { esc, seg, playerRow, gauge, stars, scaleColor, ovrChip, noteChip } from '../components.js';
 import { showPlayer } from './playerSheet.js';
 import * as settings from './settings.js';
@@ -62,13 +64,30 @@ function finances(s) {
   const cats = [
     ['Billetterie', sum((h) => h.label.startsWith('Billetterie'))],
     ['Sponsors', sum((h) => h.label === 'Sponsors')],
-    ['Primes', sum((h) => h.label.startsWith('Prime'))],
-    ['Transferts', sum((h) => /Transfert|Vente|Prêt|Indemnité|Commission|Clause/.test(h.label))],
+    ['Primes (championnat, coupes)', sum((h) => h.label.startsWith('Prime') || h.label.includes(' · '))],
+    ['Transferts', sum((h) => /Transfert|Vente|Prêt|Indemnité|Commission|Clause|Échéance/.test(h.label))],
     ['Salaires', sum((h) => h.label === 'Salaires')],
     ['Staff & infrastructures', sum((h) => /staff|Centre|stade/i.test(h.label))],
   ];
+  // Projection : semaines restantes × (sponsors − salaires), billetterie moyenne × matchs à domicile restants, prime de classement.
+  const left = Math.max(0, s.calendar.length - s.day);
+  const weekly = userSponsorIncome(s) - wages - staffWages(uc);
+  const gates = hist.filter((h) => h.label.startsWith('Billetterie'));
+  const gateAvg = gates.length ? gates.reduce((a, h) => a + h.amount, 0) / gates.length : 0;
+  const leagueLeft = s.calendar.slice(s.day).filter((e) => e.type === 'league').length;
+  const homeLeft = Math.round(leagueLeft / 2);
+  const pos = tablePosition(s, uc.id);
+  const prize = DIVISIONS[uc.div] ? prizeMoney(DIVISIONS[uc.div].level, pos, uc) : 0;
+  const owedNow = (uc.debts || []).filter((d) => d.season <= s.season + 1).reduce((a, d) => a + d.amount, 0);
+  const proj = uc.budget + weekly * left + gateAvg * homeLeft + prize - owedNow;
+  const projRows = [['Budget actuel', uc.budget], [`Sponsors − salaires (${left} sem.)`, weekly * left], [`Billetterie (~${homeLeft} matchs à domicile)`, Math.round(gateAvg * homeLeft)], [`Prime de classement (${pos}e)`, prize], ['Échéances de transferts', -owedNow]];
   return `<div class="card center"><h3>Budget</h3><div class="big ${uc.budget < 0 ? 'neg-txt' : ''}">${money(uc.budget)}</div>
     <small>Joueurs ${money(wages)}/sem · Staff ${money(staffWages(uc))}/sem · Sponsors ${money(userSponsorIncome(s))}/sem · Santé financière ${finHealth(s, uc)}/100</small></div>
+    <div class="card"><h3>📈 Projection de fin de saison</h3>
+      ${projRows.map(([l, v]) => `<div class="row between" style="padding:4px 0"><span>${l}</span><b class="${v >= 0 ? '' : 'neg-txt'}">${v > 0 && l !== 'Budget actuel' ? '+' : ''}${money(v)}</b></div>`).join('')}
+      <div class="row between proj-total"><span>Solde estimé fin mai</span><b class="${proj >= 0 ? 'pos-txt' : 'neg-txt'}">${money(Math.round(proj))}</b></div>
+      <small class="muted">Hors transferts à venir et parcours en coupe. ${weekly < 0 ? `La masse salariale coûte ${money(-weekly)} de plus par semaine que les sponsors.` : ''}</small></div>
+    ${(uc.debts || []).length ? `<div class="card"><h3>🧾 Échéancier des transferts</h3>${uc.debts.slice().sort((a, b) => a.season - b.season).map((d) => `<div class="row between" style="padding:4px 0"><span>${esc(d.name)} <small class="muted">→ ${esc(clubById(s, d.to)?.short || '')}</small></span><span><small class="muted">fin ${d.season - 1}-${String(d.season).slice(2)}</small> <b class="neg-txt">${money(d.amount)}</b></span></div>`).join('')}</div>` : ''}
     <div class="card"><h3>Billetterie & sponsors</h3>
       <div class="label" style="margin-top:0">Prix des places · ambiance ${Math.round(uc.atmosphere ?? 55)}/100</div>${seg('ticket', Object.keys(TICKETS), uc.ticket || 'normal', TICKETS)}
       <small class="muted">Des places chères rapportent plus mais refroidissent le stade (avantage à domicile, pression sur le board).</small>
@@ -249,7 +268,42 @@ function training(s) {
     <div class="card"><h3>Effets actuels</h3>
       <div class="row between"><span>Centre d'entraînement</span>${stars(uc.facilities.training)}</div>
       <div class="row between"><span>Entraîneur adjoint</span><b>${bestStaff(uc, 'assistant') || '—'}/20</b></div>
-      <div class="row between"><span>Préparateur physique</span><b>${bestStaff(uc, 'fitness') || '—'}/20</b></div></div>`;
+      <div class="row between"><span>Préparateur physique</span><b>${bestStaff(uc, 'fitness') || '—'}/20</b></div>
+      <div class="row between"><span>Maîtrise tactique</span><b style="color:${scaleColor(uc.fam ?? 60)}">${Math.round(uc.fam ?? 60)} %</b></div></div>
+    ${trainReport(s, uc)}
+    ${individualTraining(s, uc)}`;
+}
+
+/** Rapport d'entraînement : les dernières progressions (et baisses) observées. */
+function trainReport(s, uc) {
+  const log = (uc.trainLog || []).filter((x) => s.players[x.pid]).slice(0, 12);
+  return `<div class="card"><h3>📋 Rapport d'entraînement</h3>${log.length ? log.map((x) => {
+    const p = s.players[x.pid];
+    const what = x.learned ? `a appris le poste <b>${x.learned}</b>` : `${x.down ? '<span class="neg-txt">▼</span>' : '<span class="pos-txt">▲</span>'} ${ATTR_LABELS[x.attr] || x.attr} <b>${Math.round((p.attrs[x.attr] || 0) / 5)}</b>/20`;
+    return `<div class="row between tr-row" data-act="player" data-id="${p.id}"><span>${posBadge(p.pos)} ${esc(p.name)}</span><span>${what} <small class="muted">· J${x.day + 1}</small></span></div>`;
+  }).join('') : '<p class="muted">Les progrès des joueurs s\'afficheront ici au fil des semaines.</p>'}</div>`;
+}
+
+/** Entraînement individuel : un attribut à travailler, ou un nouveau poste à apprendre. */
+function individualTraining(s, uc) {
+  const ps = clubPlayers(s, uc).slice().sort((a, b) => POSITIONS.indexOf(a.pos) - POSITIONS.indexOf(b.pos));
+  const opts = (p) => {
+    const cur = p.tFocus || '';
+    const attrs = Object.keys(ATTR_LABELS).filter((k) => k !== 'arr' || p.pos === 'GB');
+    const poss = POSITIONS.filter((x) => x !== p.pos && !(p.pos2 || []).includes(x) && (x === 'GB') === (p.pos === 'GB'));
+    return `<option value="" ${!cur ? 'selected' : ''}>Programme collectif</option>
+      <optgroup label="Travailler un point">${attrs.map((k) => `<option value="${k}" ${cur === k ? 'selected' : ''}>${ATTR_LABELS[k]}</option>`).join('')}</optgroup>
+      ${poss.length ? `<optgroup label="Apprendre un poste">${poss.map((x) => `<option value="pos:${x}" ${cur === 'pos:' + x ? 'selected' : ''}>Poste : ${x}</option>`).join('')}</optgroup>` : ''}`;
+  };
+  const prog = (p) => {
+    if (!p.tFocus?.startsWith('pos:')) return '';
+    const v = Math.min(100, Math.round(((p.posXp || {})[p.tFocus.slice(4)] || 0) / 24 * 100));
+    return `<span class="mini" title="Apprentissage ${v} %"><i style="width:${v}%;background:var(--info)"></i></span>`;
+  };
+  return `<div class="card"><h3>🎯 Entraînement individuel</h3>
+    <p class="muted" style="font-size:12px;margin-top:0">Chaque joueur peut travailler un point précis (progression ciblée, surtout avant 27 ans) ou apprendre un nouveau poste (environ 20 semaines, plus vite chez les jeunes).</p>
+    <div class="ind-list">${ps.map((p) => `<div class="ind-row">${posBadge(p.pos)}<span class="grow">${esc(p.name)} <small class="muted">${p.age} ans${(p.pos2 || []).length ? ` · aussi ${p.pos2.join(', ')}` : ''}</small></span>${prog(p)}
+      <select class="sel" data-act="tind" data-id="${p.id}">${opts(p)}</select></div>`).join('')}</div></div>`;
 }
 
 function youth(s) {
@@ -270,7 +324,7 @@ function career(s) {
   const ok = pos <= o.league.target;
   const cup = s.cups[uc.country];
   const cupState = !o.cup ? null : cup.alive.includes(uc.id) ? 'En course' : 'Éliminé';
-  const contiState = !o.conti ? null : s.conti.alive.includes(uc.id) ? 'En course' : 'Éliminé';
+  const contiState = !o.conti ? null : (s.contis?.[o.conti.id] || Object.values(s.contis || {}).find((c) => c.teams.includes(uc.id)))?.alive.includes(uc.id) ? 'En course' : 'Éliminé';
   const c = ensureCoachProfile(s.coach);
   return `<div class="card"><h3>Confiance du board</h3>
       <div class="row between"><b style="font-size:22px;color:${scaleColor(s.board.confidence)}">${Math.round(s.board.confidence)}%</b>
@@ -346,6 +400,7 @@ export const actions = {
   },
   tfocus(el, app) { userClub(app.state).training.focus = el.dataset.v; app.save(); app.render(); },
   tint(el, app) { userClub(app.state).training.intensity = el.dataset.v; app.save(); app.render(); },
+  tind(el, app) { if (el.tagName !== 'SELECT') return; const p = app.state.players[+el.dataset.id]; if (p) { p.tFocus = el.value || null; app.save(); app.toast(el.value ? `${p.name} : programme individuel enregistré.` : `${p.name} suit le programme collectif.`); } },
   accept(el, app) {
     const o = app.state.pendingOffers.find((x) => x.pid === +el.dataset.id);
     done(app, sellPlayer(app.state, o));

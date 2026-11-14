@@ -7,12 +7,12 @@ import { createRng, hashSeed, clamp } from '../core/rng.js';
 import { createWorld, createYouth, getNextId, setNextId, assignNumbers } from '../data/generator.js';
 import { createRealWorld } from '../data/realWorld.js';
 import { applyTop100 } from './ratingsImport.js';
-import { DIVISIONS, DIV_IDS, COUNTRIES, CONTI_SLOTS, CONTI_NAME, DIV_NAMES, applyWorld } from '../data/world.js';
+import { DIVISIONS, DIV_IDS, COUNTRIES, CONTI_SLOTS, CONTI_NAME, DIV_NAMES, applyWorld, CONTI_COMPS, superCupName, cupPrizes, LEAGUE_WEALTH } from '../data/world.js';
 import { NATION_COLORS } from '../data/names.js';
 import { autoLineup, isAvailable, overall, squadStrength, ratingAt } from '../engine/ratings.js';
 import { aiPrepare } from '../engine/ai.js';
 import { simulateMatch, summarize, penaltyShootout, allPlayers, createMatch, restoreMatch } from '../engine/match.js';
-import { wageBill, matchdayRevenue, sponsorIncome, prizeMoney, CUP_PRIZES, money, playerValue } from './economy.js';
+import { wageBill, matchdayRevenue, sponsorIncome, prizeMoney, money, playerValue } from './economy.js';
 import { weeklyTraining, seasonDevelopment, shouldRetire, resetSeasonStats } from './progression.js';
 import { aiTransferActivity, userTransferOffers, fillSquad, logFinance, checkPromises } from './transfers.js';
 import { forEachHuman, withHuman, humanOfClub, isHumanClub, curHuman, humanIds, switchTo } from './humans.js';
@@ -40,7 +40,45 @@ const CUP_AFTER = [5, 12, 20, 28, 34];
 const CONTI_AFTER = [3, 9, 15, 23, 30, 36];
 const INTL_AFTER = [8, 18, 27];
 const CONTI_GROUP_PAIRS = [[[0, 1], [2, 3]], [[0, 2], [1, 3]], [[0, 3], [1, 2]]];
-const CONTI_PRIZES = { win: 2_800_000, draw: 900_000, ko: [9_000_000, 12_000_000, 20_000_000] };
+const DEFAULT_PRIZE = { part: 3_000_000, win: 900_000, draw: 300_000, qf: 6_000_000, sf: 9_000_000, final: 12_000_000, champ: 8_000_000 };
+const prizeOf = (id) => CONTI_COMPS[id]?.prize || DEFAULT_PRIZE;
+
+/** Verse une prime à un club (et l'inscrit dans les finances de son manager s'il est humain). */
+function payPrize(state, clubId, amount, label) {
+  if (!amount) return;
+  const c = clubById(state, clubId);
+  if (!c) return;
+  c.budget += amount;
+  const hu = humanOfClub(state, clubId);
+  if (hu !== undefined) withHuman(state, hu, () => logFinance(state, amount, label));
+}
+
+/** Palmarès d'un club (titres gagnés pendant la partie). */
+function addHonour(state, clubId, name, kind) {
+  const c = clubById(state, clubId);
+  if (c) (c.honours ||= []).push({ name, kind, season: state.season });
+}
+
+/** Coupes continentales de la saison (migration des anciennes sauvegardes à une seule coupe). */
+export function ensureContis(state) {
+  if (state.contis) return state.contis;
+  state.contis = {};
+  if (state.conti) {
+    const id = Object.keys(CONTI_COMPS)[0] || 'star';
+    state.contis[id] = { ...state.conti, id, name: CONTI_COMPS[id]?.name || state.conti.name };
+    delete state.conti;
+  }
+  return state.contis;
+}
+/** Coupe continentale du club de l'utilisateur (ou null). */
+export function userConti(state, clubId = state.userClubId) {
+  return Object.values(ensureContis(state)).find((c) => c.teams.includes(clubId)) || null;
+}
+/** Zones de qualification continentale d'un championnat : [{ id, name, short, color, from, to }]. */
+export function contiZones(div) {
+  return Object.values(CONTI_COMPS).filter((c) => c.byDiv[div]).map((c) => ({ id: c.id, name: c.name, short: c.short, color: c.color, from: c.byDiv[div].from, to: c.byDiv[div].from + c.byDiv[div].n }))
+    .sort((a, b) => a.from - b.from);
+}
 
 /* ---------------- Création ---------------- */
 
@@ -118,7 +156,8 @@ const REAL_SOURCES = { ENG1: 1, ESP1: 2, ITA1: 3, GER1: 4, FRA1: 5, POR1: 6, NED
   GRE1: 11, NOR1: 12, POL1: 13, DEN1: 14, AUT1: 15, SUI1: 16, SCO1: 17, SWE1: 18, CRO1: 19, SRB1: 20,
   BRA1: 21, KSA1: 22, MEX1: 23, JPN1: 24, RUS1: 25, UKR1: 26, ROU1: 27, HUN1: 28, CYP1: 29, ISR1: 30,
   ENG2: 31, ESP2: 32, ITA2: 33, GER2: 34, FRA2: 35,
-  KOR1: 36, CHN1: 37, AUS1: 38, UAE1: 39, QAT1: 40, MAR1: 41, PER1: 42, CHI1: 43, COL1: 44, URU1: 45 };
+  KOR1: 36, CHN1: 37, AUS1: 38, UAE1: 39, QAT1: 40, MAR1: 41, PER1: 42, CHI1: 43, COL1: 44, URU1: 45,
+  USA1: 46, ARG1: 47, EGY1: 48, ECU1: 49, RSA1: 50 };
 const REAL_DIVS = (data) => [...new Set(data.clubs.map((c) => REAL_SOURCES[c.league]).filter(Boolean))].sort((a, b) => a - b);
 
 const clubsOfDiv = (state, div) => state.clubs.filter((c) => c.div === div);
@@ -146,6 +185,8 @@ export function createSeason(state) {
     // Petits championnats : 3 ou 4 confrontations par saison, comme en vrai (Écosse 33 journées, Croatie 36).
     const cycles = ids.length <= 10 ? 4 : ids.length <= 12 ? 3 : 2;
     let fx = roundRobin(ids, rng);
+    // Très grands championnats (MLS, Argentine : 30 clubs) : une seule confrontation (29 journées).
+    if (ids.length >= 26) fx = fx.slice(0, ids.length - 1);
     if (cycles > 2) fx = fx.concat(roundRobin(ids, rng).slice(0, (cycles - 2) * (ids.length - 1)));
     state.fixtures[div] = fx;
     state.tables[div] = {};
@@ -159,6 +200,8 @@ export function createSeason(state) {
   const at = (r38) => Math.round(r38 * L / 38);
   const mid = new Set(Array.from({ length: L - 38 }, (_, k) => Math.round((k + 1) * L / (L - 38 + 1))));
   state.calendar = [];
+  createSupers(state);
+  if (Object.keys(state.supers).length) state.calendar.push({ type: 'super', round: 0, lr: 0 });
   for (let r = 0; r < L; r++) {
     state.calendar.push({ type: 'league', round: r, lr: r, mid: mid.has(r), wb: r === at(18) });
     const k = CUP_AFTER.findIndex((x) => at(x) === r);
@@ -175,7 +218,7 @@ export function createSeason(state) {
     const n = Math.min(32, Math.pow(2, Math.floor(Math.log2(Math.max(2, clubs.length))))); // 32 ou 16 clubs selon le pays
     state.cups[country] = { name: COUNTRIES[country].cup, alive: clubs.slice(0, n).map((c) => c.id), rounds: [], nRounds: Math.log2(n), winner: null };
   }
-  createConti(state, rng);
+  createContis(state, rng);
   state.intl = { breaks: [] };
   assignDates(state.calendar, state.season);
   state.day = 0;
@@ -189,25 +232,52 @@ export function createSeason(state) {
   });
 }
 
-/** Coupe continentale : qualification (classement final précédent ou réputation), tirage des groupes. */
-function createConti(state, rng) {
-  const teams = [];
-  for (const [div, n] of Object.entries(CONTI_SLOTS)) {
-    const order = state.lastFinal?.[div]?.filter((id) => clubById(state, id)?.div === +div)
-      || clubsOfDiv(state, +div).sort((a, b) => b.rep - a.rep).map((c) => c.id);
-    teams.push(...order.slice(0, n));
+/** Supercoupes : champion contre vainqueur de la coupe (ou dauphin) de la saison précédente. */
+function createSupers(state) {
+  const prev = state.supers || {};
+  state.supers = {};
+  for (const country of Object.keys(COUNTRIES)) {
+    const name = superCupName(country);
+    const div = DIV_IDS.find((d) => DIVISIONS[d].country === country && DIVISIONS[d].level === 1);
+    if (!name || !div) continue;
+    const order = state.lastFinal?.[div]?.filter((id) => clubById(state, id)?.div === div)
+      || clubsOfDiv(state, div).sort((a, b) => b.rep - a.rep).map((c) => c.id);
+    const champ = order[0];
+    let other = state.cups?.[country]?.winner;
+    if (!other || other === champ || !clubById(state, other)) other = order[1];
+    if (!champ || !other) continue;
+    state.supers[country] = { name, h: champ, a: other, s: null, prev: prev[country]?.w || null };
   }
-  const seeded = teams.map((id) => clubById(state, id)).sort((a, b) => b.rep - a.rep).map((c) => c.id);
-  const pots = [0, 1, 2, 3].map((k) => rng.shuffle(seeded.slice(k * 4, k * 4 + 4)));
-  const groups = [0, 1, 2, 3].map((g) => pots.map((p) => p[g]));
-  const gfix = CONTI_GROUP_PAIRS.map((pairs) => groups.flatMap((g, gi) => pairs.map(([a, b]) => ({ h: g[a], a: g[b], s: null, g: gi }))));
-  const table = {};
-  groups.forEach((g, gi) => g.forEach((id) => { table[id] = { p: 0, w: 0, d: 0, l: 0, gf: 0, ga: 0, pts: 0, g: gi }; }));
-  state.conti = { name: CONTI_NAME, teams, groups, gfix, table, ko: [], alive: teams.slice(), winner: null };
 }
 
-export function contiGroupTable(state, g) {
-  const c = state.conti;
+/** Coupes continentales : qualification (classement final précédent ou réputation), tirage des groupes, prime de participation. */
+function createContis(state, rng) {
+  delete state.conti;
+  state.contis = {};
+  for (const def of Object.values(CONTI_COMPS)) {
+    const teams = [];
+    for (const [div, { from, n }] of Object.entries(def.byDiv)) {
+      if (!DIV_IDS.includes(+div)) continue;
+      const order = state.lastFinal?.[div]?.filter((id) => clubById(state, id)?.div === +div)
+        || clubsOfDiv(state, +div).sort((a, b) => b.rep - a.rep).map((c) => c.id);
+      teams.push(...order.slice(from, from + n));
+    }
+    if (teams.length < 16) continue;
+    const t16 = teams.slice(0, 16);
+    const seeded = t16.map((id) => clubById(state, id)).sort((a, b) => b.rep - a.rep).map((c) => c.id);
+    const pots = [0, 1, 2, 3].map((k) => rng.shuffle(seeded.slice(k * 4, k * 4 + 4)));
+    const groups = [0, 1, 2, 3].map((g) => pots.map((p) => p[g]));
+    const gfix = CONTI_GROUP_PAIRS.map((pairs) => groups.flatMap((g, gi) => pairs.map(([a, b]) => ({ h: g[a], a: g[b], s: null, g: gi }))));
+    const table = {};
+    groups.forEach((g, gi) => g.forEach((id) => { table[id] = { p: 0, w: 0, d: 0, l: 0, gf: 0, ga: 0, pts: 0, g: gi }; }));
+    state.contis[def.id] = { id: def.id, name: def.name, teams: t16, groups, gfix, table, ko: [], alive: t16.slice(), winner: null };
+    for (const id of t16) payPrize(state, id, def.prize.part, `${def.name} · participation`);
+  }
+}
+
+export function contiGroupTable(state, g, id = null) {
+  const cs = ensureContis(state);
+  const c = cs[id] || userConti(state) || Object.values(cs)[0];
   return c.groups[g].map((id) => ({ id, club: clubById(state, id), ...c.table[id], gd: c.table[id].gf - c.table[id].ga }))
     .sort((a, b) => b.pts - a.pts || b.gd - a.gd || b.gf - a.gf);
 }
@@ -237,11 +307,11 @@ export function setObjectives(state) {
   const cup = state.cups[club.country];
   const inCup = cup.alive.includes(club.id);
   const cupTarget = !inCup ? null : expected <= 3 && level === 1 ? cup.nRounds - 2 : level === 1 ? 1 : 0;
-  const inConti = state.conti.teams.includes(club.id);
+  const myConti = userConti(state, club.id);
   state.objectives = {
     league: { target, label, expected },
     cup: cupTarget == null ? null : { target: cupTarget, label: `${cup.name} : passer ${cupTarget + 1} tour(s)` },
-    conti: inConti ? { target: expected <= 2 ? 4 : 3, label: `${CONTI_NAME} : ${expected <= 2 ? 'atteindre les demies' : 'sortir des poules'}` } : null,
+    conti: myConti ? { target: expected <= 2 ? 4 : 3, label: `${myConti.name} : ${expected <= 2 ? 'atteindre les demies' : 'sortir des poules'}`, id: myConti.id } : null,
     finance: { label: 'Respecter la masse salariale et garder un budget positif' },
   };
   setBoardSeason(state, true);
@@ -332,13 +402,12 @@ function ensureCupDraw(state, key, round) {
   cup.rounds[round] = ties;
 }
 
-function ensureContiDraw(state, k) {
-  const c = state.conti;
+function ensureContiDraw(state, k, c) {
   const r = k - 3;
   if (c.ko[r]) return;
   const rng = gameRng(state);
   if (r === 0) {
-    const t = [0, 1, 2, 3].map((g) => contiGroupTable(state, g));
+    const t = [0, 1, 2, 3].map((g) => contiGroupTable(state, g, c.id));
     c.alive = t.flatMap((g) => [g[0].id, g[1].id]);
     c.ko[0] = [[0, 1], [1, 0], [2, 3], [3, 2]].map(([a, b]) => ({ h: t[a][0].id, a: t[b][1].id, s: null }));
   } else {
@@ -376,12 +445,19 @@ export function today(state) {
     const ucr = entry.round - (5 - ucup.nRounds);
     if (ucr >= 0) label = `${ucup.name} · ${CUP_ROUND_NAMES[ucr + (5 - ucup.nRounds)]}`;
   } else if (entry.type === 'conti') {
-    if (entry.round < 3) fixtures = state.conti.gfix[entry.round].map((f) => ({ h: f.h, a: f.a, s: f.s, comp: 'conti', group: true, ref: f }));
-    else {
-      ensureContiDraw(state, entry.round);
-      fixtures = state.conti.ko[entry.round - 3].map((f) => ({ h: f.h, a: f.a, s: f.s, comp: 'conti', ko: true, neutral: f.neutral, ref: f }));
+    for (const c of Object.values(ensureContis(state))) {
+      if (entry.round < 3) fixtures.push(...c.gfix[entry.round].map((f) => ({ h: f.h, a: f.a, s: f.s, comp: 'conti', key: c.id, group: true, ref: f })));
+      else {
+        ensureContiDraw(state, entry.round, c);
+        fixtures.push(...(c.ko[entry.round - 3] || []).map((f) => ({ h: f.h, a: f.a, s: f.s, comp: 'conti', key: c.id, ko: true, neutral: f.neutral, ref: f })));
+      }
     }
-    label = `${CONTI_NAME} · ${CONTI_ROUND_NAMES[entry.round]}`;
+    const uco = state.userClubId ? userConti(state) : null;
+    label = `${uco ? uco.name : 'Coupes continentales'} · ${CONTI_ROUND_NAMES[entry.round]}`;
+  } else if (entry.type === 'super') {
+    for (const [key, sc] of Object.entries(state.supers || {})) fixtures.push({ h: sc.h, a: sc.a, s: sc.s, comp: 'super', key, neutral: true, ref: sc });
+    const us = state.userClubId ? state.supers?.[userClub(state).country] : null;
+    label = us ? us.name : 'Supercoupes';
   } else {
     ensureIntlDraw(state, entry.round);
     fixtures = state.intl.breaks[entry.round].map((f) => ({ h: f.h, a: f.a, s: f.s, comp: 'intl', ref: f }));
@@ -391,6 +467,9 @@ export function today(state) {
   return { entry, fixtures, label, userFixture: uf };
 }
 
+/** Maîtrise tactique (0-100) → rendement : 0,97 (plan tout neuf) à 1,01 (automatismes). */
+export const familiarityMult = (club) => 0.97 + 0.04 * ((club.fam ?? 60) / 100);
+
 /** Configuration d'équipe pour le moteur. */
 export function teamCfg(state, club, opponent, isHome, isUser) {
   const players = clubPlayers(state, club);
@@ -398,7 +477,7 @@ export function teamCfg(state, club, opponent, isHome, isUser) {
     validateUserLineup(state);
     return { club, players, lineup: club.lineup.slice(), bench: club.bench.slice(), tactics: { ...club.tactics }, isAI: false, talk: matchMods(state)?.me || 0,
       roles: (club.roles || []).slice(), setPieces: { ...(club.setPieces || {}) }, pi: (club.pi || []).map((x) => ({ ...x })), injuryMod: staffEffects(club).injuryMod,
-      coachMods: (() => { const cm = coachMods(state.coach); return { ...cm, perf: cm.perf * staffEffects(club).perf }; })(), ...captainCfg(state, club) };
+      coachMods: (() => { const cm = coachMods(state.coach); return { ...cm, perf: cm.perf * staffEffects(club).perf * familiarityMult(club) }; })(), ...captainCfg(state, club) };
   }
   const rng = createRng(hashSeed(`${state.seed}-${state.season}-${state.day}-${club.id}`));
   const style = managerStyle(state, club);
@@ -424,8 +503,8 @@ export function matchCfgFor(state, f) {
   }
   const h = clubById(state, f.h), a = clubById(state, f.a);
   const uid = state.userClubId;
-  const knockout = f.comp === 'cup' || (f.comp === 'conti' && f.ko);
-  const prof = { ...(f.comp === 'league' ? DIVISIONS[f.div].profile : f.comp === 'cup' ? DIVISIONS[h.div].profile : {}) };
+  const knockout = f.comp === 'cup' || f.comp === 'super' || (f.comp === 'conti' && f.ko);
+  const prof = { ...(f.comp === 'league' ? DIVISIONS[f.div].profile : f.comp === 'cup' || f.comp === 'super' ? DIVISIONS[h.div].profile : {}) };
   const tens = tension(state, h.id, a.id);
   if (tens > 1) { prof.fouls = (prof.fouls ?? 1) * tens; prof.cards = (prof.cards ?? 1) * tens; }
   return {
@@ -557,7 +636,7 @@ export function completeDay(state, userMatch = null) {
       }
       for (const h of hh) withHuman(state, h, () => { if (state.playedMatch?.key === key) state.playedMatch = null; });
     }
-    if ((f.comp === 'cup' || f.ko) && m.score[0] === m.score[1] && !m.shootout) penaltyShootout(m);
+    if ((f.comp === 'cup' || f.comp === 'super' || f.ko) && m.score[0] === m.score[1] && !m.shootout) penaltyShootout(m);
     const sum = summarize(m);
     applyResult(state, f, sum, m, ctx);
     lifeAfterFixture(state, f, sum);
@@ -573,13 +652,14 @@ export function completeDay(state, userMatch = null) {
       recordUserMatch(state, sum, side, m);
       seeInMatch(state, m, 1 - side);
       lifeAfterUserMatch(state, digestMatch(state, sum, m, side, f), rng, f, t.entry);
-      state.lastResult = { h: f.h, a: f.a, s: sum.score, pens: sum.shootout ? sum.shootout.score : null, label: t.label,
+      state.lastResult = { day: state.day, h: f.h, a: f.a, s: sum.score, pens: sum.shootout ? sum.shootout.score : null, label: t.label,
         scorers: sum.goals.map((g) => ({ side: g.side, name: g.name, minute: g.minute, pen: g.pen })), motm: sum.motm?.name };
     });
   }
 
   if (t.entry.type === 'cup') finishCupRound(state, t, report);
   if (t.entry.type === 'conti') finishContiRound(state, t, report);
+  if (t.entry.type === 'super') finishSupers(state, t, report);
 
   // Mise à jour quotidienne des joueurs (blessures, suspensions, récupération, entraînement).
   for (const c of state.clubs) {
@@ -596,12 +676,23 @@ export function completeDay(state, userMatch = null) {
       p.fatigue = clamp((p.fatigue || 0) - (20 + p.attrs.phy * 0.08 + (isUser ? eff.recovery + cmod.recovery : 0)) + tp.fatigue, 0, 90);
       if (tp.morale) p.morale = clamp(p.morale + tp.morale, 5, 99);
       if (tp.form) p.form = clamp(p.form + tp.form, 5, 95);
-      weeklyTraining(p, rng, p._mins || 0, tp);
+      const tev = weeklyTraining(p, rng, p._mins || 0, tp);
+      if (tev && isUser) (c.trainLog ||= []).unshift({ pid: p.id, day: state.day, ...tev });
       if (tp.injury && p.injury === 0 && rng.chance(tp.injury)) {
         p.injury = rng.int(1, 3); p.injuryName = 'Blessure à l\'entraînement';
         withHuman(state, hu, () => pushMessage(state, { prio: 2, icon: '✚', title: `${p.name} blessé à l'entraînement`, text: `${p.injury} match(s). Entraînement intense…` }));
       }
       p._mins = 0;
+    }
+    if (isUser) {
+      // Rapport d'entraînement (40 dernières progressions) et postes appris.
+      if (c.trainLog?.length > 40) c.trainLog.length = 40;
+      for (const ev of (c.trainLog || []).filter((x) => x.day === state.day && x.learned)) {
+        const p = state.players[ev.pid];
+        if (p) withHuman(state, hu, () => pushMessage(state, { prio: 2, icon: '🎓', title: `${p.name} maîtrise un nouveau poste`, text: `Il peut désormais jouer ${ev.learned} sans pénalité.` }));
+      }
+      // Maîtrise tactique : progresse chaque semaine (plus vite avec un thème tactique et un bon adjoint).
+      c.fam = clamp((c.fam ?? 60) + (2.5 + (tp.focus === 'tactical' ? 2.5 : 0)) * (eff?.progression || 1), 0, 100);
     }
   }
 
@@ -689,18 +780,16 @@ function finishCupRound(state, t, report) {
     const cr = t.entry.round - (5 - cup.nRounds);
     if (cr < 0 || !cup.rounds[cr] || cup.winner) continue;
     const winners = cup.rounds[cr].map((f) => f.w);
-    const prize = CUP_PRIZES[cr + (5 - cup.nRounds)];
+    const prize = cupPrizes(key)[cr + (5 - cup.nRounds)];
     if (cup.alive.includes(uc.id) && !winners.includes(uc.id)) {
       report.cupOut = true;
       pushMessage(state, { prio: 2, icon: '🏆', title: `Élimination en ${cup.name}`, text: CUP_ROUND_NAMES[cr + (5 - cup.nRounds)] });
     }
-    for (const w of winners) {
-      clubById(state, w).budget += prize;
-      if (w === uc.id) logFinance(state, prize, `Prime de coupe (${CUP_ROUND_NAMES[cr + (5 - cup.nRounds)]})`);
-    }
+    for (const w of winners) payPrize(state, w, prize, `${cup.name} · ${cr === cup.nRounds - 1 ? 'vainqueur' : CUP_ROUND_NAMES[cr + (5 - cup.nRounds)]}`);
     cup.alive = winners;
     if (cr === cup.nRounds - 1) {
       cup.winner = winners[0];
+      addHonour(state, winners[0], cup.name, 'cup');
       const wc = clubById(state, winners[0]);
       if (wc.id === uc.id) { state.coach.trophies.push(`${cup.name} ${state.season}`); coachRep(state, 6, `Victoire en ${cup.name}`); }
       pushMessage(state, { prio: wc.id === uc.id ? 1 : 3, icon: '🏆', title: `${wc.name} remporte la ${cup.name} !`, text: '' });
@@ -709,32 +798,54 @@ function finishCupRound(state, t, report) {
 }
 
 function finishContiRound(state, t, report) {
-  const c = state.conti;
   const uc = userClub(state);
   const r = t.entry.round;
-  if (r < 3) {
-    if (r === 2 && c.teams.includes(uc.id)) {
-      const g = c.table[uc.id].g;
-      const pos = contiGroupTable(state, g).findIndex((x) => x.id === uc.id) + 1;
-      pushMessage(state, { prio: 1, icon: '⭐', title: pos <= 2 ? `Qualifié pour les quarts de la ${CONTI_NAME} !` : `Éliminé en phase de groupes`, text: `${pos}e du groupe ${'ABCD'[g]}` });
-      if (pos <= 2) coachRep(state, 2);
+  for (const c of Object.values(ensureContis(state))) {
+    const P = prizeOf(c.id);
+    const tier = CONTI_COMPS[c.id]?.tier || 1;
+    const mine = c.teams.includes(uc.id);
+    if (r < 3) {
+      if (r !== 2) continue;
+      const tabs = [0, 1, 2, 3].map((g) => contiGroupTable(state, g, c.id));
+      for (const g of tabs) for (const x of g.slice(0, 2)) payPrize(state, x.id, P.qf, `${c.name} · qualification pour les quarts`);
+      if (mine) {
+        const g = c.table[uc.id].g;
+        const pos = tabs[g].findIndex((x) => x.id === uc.id) + 1;
+        pushMessage(state, { prio: 1, icon: '⭐', title: pos <= 2 ? `Qualifié pour les quarts de la ${c.name} !` : `Éliminé en phase de groupes (${c.name})`, text: `${pos}e du groupe ${'ABCD'[g]}${pos <= 2 ? ` · prime de ${money(P.qf)}` : ''}` });
+        if (pos <= 2) coachRep(state, tier === 1 ? 2 : 1);
+      }
+      continue;
     }
-    return;
+    const k = r - 3;
+    if (!c.ko[k]) continue;
+    const winners = c.ko[k].map((f) => f.w);
+    const prize = [P.sf, P.final, P.champ][k];
+    for (const w of winners) payPrize(state, w, prize, `${c.name} · ${['accès aux demies', 'accès à la finale', 'vainqueur'][k]}`);
+    if (c.alive.includes(uc.id) && !winners.includes(uc.id)) pushMessage(state, { prio: 2, icon: '⭐', title: `Élimination en ${c.name}`, text: CONTI_ROUND_NAMES[r] });
+    c.alive = winners;
+    if (k === 2) {
+      c.winner = winners[0];
+      addHonour(state, c.winner, c.name, 'conti');
+      const wc = clubById(state, c.winner);
+      wc.rep = clamp(wc.rep + (tier === 1 ? 3 : tier === 2 ? 2 : 1), 30, 95);
+      if (wc.id === uc.id) { state.coach.trophies.push(`${c.name} ${state.season}`); coachRep(state, tier === 1 ? 12 : tier === 2 ? 7 : 5, `Victoire en ${c.name} !`); }
+      pushMessage(state, { prio: wc.id === uc.id ? 1 : 2, icon: '⭐', title: `${wc.name} remporte la ${c.name} !`, text: '' });
+    }
   }
-  const k = r - 3;
-  const winners = c.ko[k].map((f) => f.w);
-  for (const w of winners) {
-    clubById(state, w).budget += CONTI_PRIZES.ko[k];
-    if (w === uc.id) logFinance(state, CONTI_PRIZES.ko[k], `Prime ${CONTI_NAME}`);
-  }
-  if (c.alive.includes(uc.id) && !winners.includes(uc.id)) pushMessage(state, { prio: 2, icon: '⭐', title: `Élimination en ${CONTI_NAME}`, text: CONTI_ROUND_NAMES[r] });
-  c.alive = winners;
-  if (k === 2) {
-    c.winner = winners[0];
-    const wc = clubById(state, c.winner);
-    wc.rep = clamp(wc.rep + 3, 30, 95);
-    if (wc.id === uc.id) { state.coach.trophies.push(`${CONTI_NAME} ${state.season}`); coachRep(state, 12, `Victoire en ${CONTI_NAME} !`); }
-    pushMessage(state, { prio: wc.id === uc.id ? 1 : 2, icon: '⭐', title: `${wc.name} remporte la ${CONTI_NAME} !`, text: '' });
+}
+
+/** Supercoupes : trophée, prime, réputation. */
+function finishSupers(state, t, report) {
+  const uc = userClub(state);
+  for (const [country, sc] of Object.entries(state.supers || {})) {
+    if (!sc.w) continue;
+    addHonour(state, sc.w, sc.name, 'super');
+    payPrize(state, sc.w, Math.round((1_000_000 * (LEAGUE_WEALTH[country] ?? 0.4)) / 50_000) * 50_000, `${sc.name} · vainqueur`);
+    const wc = clubById(state, sc.w);
+    if (sc.h === uc.id || sc.a === uc.id) {
+      if (wc.id === uc.id) { state.coach.trophies.push(`${sc.name} ${state.season}`); coachRep(state, 2, `${sc.name} remporté`); }
+      pushMessage(state, { prio: 1, icon: '🏆', title: wc.id === uc.id ? `${sc.name} remporté !` : `${sc.name} perdu`, text: `${clubById(state, sc.h).name} ${sc.s[0]}-${sc.s[1]} ${clubById(state, sc.a).name}${sc.pens ? ` (${sc.pens[0]}-${sc.pens[1]} t.a.b.)` : ''}` });
+    }
   }
 }
 
@@ -784,11 +895,12 @@ function applyResult(state, f, sum, m, ctx) {
   };
   if (f.comp === 'league') { updRow(state.tables[f.div], f.h, g0, g1); updRow(state.tables[f.div], f.a, g1, g0); }
   else if (f.comp === 'conti' && f.group) {
-    updRow(state.conti.table, f.h, g0, g1); updRow(state.conti.table, f.a, g1, g0);
+    const C = ensureContis(state)[f.key];
+    updRow(C.table, f.h, g0, g1); updRow(C.table, f.a, g1, g0);
+    const P = prizeOf(f.key);
     for (const [id, gf, ga] of [[f.h, g0, g1], [f.a, g1, g0]]) {
-      const prize = gf > ga ? CONTI_PRIZES.win : gf === ga ? CONTI_PRIZES.draw : 0;
-      clubById(state, id).budget += prize;
-      if (id === state.userClubId && prize) logFinance(state, prize, `Prime ${CONTI_NAME}`);
+      const prize = gf > ga ? P.win : gf === ga ? P.draw : 0;
+      payPrize(state, id, prize, `${C.name} · ${gf > ga ? 'victoire' : 'nul'} en groupe`);
     }
   } else if (f.comp === 'intl') {
     const a = nationRow(state, f.h), b = nationRow(state, f.a);
@@ -873,7 +985,7 @@ function applyResult(state, f, sum, m, ctx) {
 function updateBoard(state, t, report) {
   const uc = userClub(state);
   let matchDiff = null;
-  if (report.userSummary) {
+  if (report.userSummary && state.lastResult?.day === state.day && (state.lastResult.h === uc.id || state.lastResult.a === uc.id)) {
     const sd = state.lastResult.h === uc.id ? 0 : 1;
     matchDiff = report.userSummary.score[sd] - report.userSummary.score[1 - sd];
   }
@@ -904,7 +1016,8 @@ export function endSeason(state) {
       season: state.season,
       champions: DIV_IDS.map((d) => ({ div: d, name: tables[d][0].club.name })),
       cups: Object.values(state.cups).map((c) => ({ name: c.name, winner: c.winner ? clubById(state, c.winner).name : '—' })),
-      conti: state.conti.winner ? clubById(state, state.conti.winner).name : '—',
+      conti: Object.values(ensureContis(state)).map((c) => ({ name: c.name, winner: c.winner ? clubById(state, c.winner).name : '—' })),
+      supers: Object.values(state.supers || {}).filter((x) => x.w).map((x) => ({ name: x.name, winner: clubById(state, x.w)?.name || '—' })),
       relegated, promoted,
       userDiv, userPos, objective: state.objectives.league, progress: [], retired: [], youth: [], left: [],
       topScorer: topScorers(state, userDiv, 1)[0], prize: 0,
@@ -934,6 +1047,7 @@ export function endSeason(state) {
     }
   });
   state.lastFinal = Object.fromEntries(DIV_IDS.map((d) => [d, tables[d].map((r) => r.id)]));
+  for (const d of DIV_IDS) if (tables[d][0]) addHonour(state, tables[d][0].id, DIVISIONS[d].name, DIVISIONS[d].level === 1 ? 'league' : 'league2');
   refreshStaffPool(state, rng);
 
   // Carrousel des entraîneurs (avant les montées/descentes).
@@ -979,7 +1093,7 @@ export function endSeason(state) {
     if (report.userNewDiv < report.userDiv) coachRep(state, 5, 'Promotion !');
     if (report.userNewDiv > report.userDiv) coachRep(state, -6, 'Relégation');
     state.history.push({ season: state.season, div: report.userDiv, pos: report.userPos, club: uc.name,
-      cup: state.cups[uc.country].winner === uc.id ? 'Coupe' : '', conti: state.conti.winner === uc.id ? CONTI_NAME : '' });
+      cup: state.cups[uc.country].winner === uc.id ? 'Coupe' : '', conti: Object.values(ensureContis(state)).find((c) => c.winner === uc.id)?.name || '' });
   });
 
   // Retour des prêts.
@@ -1061,6 +1175,18 @@ export function endSeason(state) {
     }
   });
 
+  // Échéances des transferts payés en plusieurs fois.
+  forEachHuman(state, () => {
+    const uc = userClub(state);
+    const due = (uc.debts || []).filter((d) => d.season <= state.season + 1);
+    for (const d of due) {
+      uc.budget -= d.amount;
+      const to = d.to != null ? clubById(state, d.to) : null;
+      if (to) to.budget += d.amount;
+      logFinance(state, -d.amount, `Échéance de transfert : ${d.name}`);
+    }
+    if (due.length) uc.debts = uc.debts.filter((d) => !due.includes(d));
+  });
   state.season++;
   forEachHuman(state, () => {
     state.messages = state.messages.filter((m) => m.prio === 1 && !m.read && m.action?.type !== 'offer').slice(0, 5);
@@ -1105,7 +1231,8 @@ export function changeClub(state, clubId) {
 export function compLabel(state, r) {
   if (r.comp === 'league') return DIVISIONS[r.div].name;
   if (r.comp === 'cup') return state.cups[r.key]?.name || 'Coupe';
-  if (r.comp === 'conti') return CONTI_NAME;
+  if (r.comp === 'conti') return state.contis?.[r.key]?.name || CONTI_NAME;
+  if (r.comp === 'super') return state.supers?.[r.key]?.name || 'Supercoupe';
   return 'Sélections';
 }
 

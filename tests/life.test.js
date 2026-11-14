@@ -279,15 +279,15 @@ test('intégration : une journée réelle crée l\'interview et fait vivre les s
   assert.ok(clubById(s, s.userClubId).owner);
 });
 
-test('monde réel : 45 championnats (dont 5 deuxièmes divisions), vrais clubs et joueurs, 18 à 38 journées', async () => {
+test('monde réel : 50 championnats (dont 5 deuxièmes divisions), vrais clubs et joueurs, 18 à 38 journées', async () => {
   const { loadRealData } = await import('../js/data/realWorld.js');
   const { DIVISIONS, DIV_IDS, applyWorld } = await import('../js/data/world.js');
   const { leagueRoundOf } = await import('../js/game/season.js');
   const s = newGame(11, { real: await loadRealData() });
   assert.equal(s.world, 'real');
   const sizes = [20, 20, 20, 18, 18, 18, 18, 18, 18, 16, 14, 16, 18, 12, 12, 12, 12, 16, 10, 14, 20, 18, 18, 20, 16, 16, 16, 12, 14, 14, 24, 22, 20, 18, 18,
-    12, 16, 12, 14, 12, 16, 18, 16, 20, 16];
-  assert.equal(DIV_IDS.length, 45, `${DIV_IDS.length} championnats`);
+    12, 16, 12, 14, 12, 16, 18, 16, 20, 16, 30, 30, 20, 16, 16];
+  assert.equal(DIV_IDS.length, 50, `${DIV_IDS.length} championnats`);
   assert.deepEqual(DIV_IDS.map((d) => s.clubs.filter((c) => c.div === d).length), sizes.slice(0, DIV_IDS.length));
   const { CONTI_SLOTS } = await import('../js/data/world.js');
   assert.equal(Object.values(CONTI_SLOTS).reduce((a, n) => a + n, 0), 16, '16 qualifiés continentaux');
@@ -296,6 +296,14 @@ test('monde réel : 45 championnats (dont 5 deuxièmes divisions), vrais clubs e
   assert.ok(['Flamengo', 'Al Hilal', 'Zenit', 'Shakhtar', 'Ferencváros'].every((k) => s.clubs.some((c) => c.name.includes(k))), 'grands clubs des championnats 21 à 30');
   assert.ok(Object.values(s.players).some((p) => p.last === 'Mbappé' || p.last === 'Bellingham'));
   assert.ok(['Al-Sadd', 'Wydad', 'Peñarol', 'Millonarios', 'Melbourne City'].every((k) => s.clubs.some((c) => c.name.includes(k))), 'grands clubs des championnats 36 à 45');
+  assert.ok(['Inter Miami', 'Boca Juniors', 'River Plate', 'Al Ahly', 'Mamelodi Sundowns', 'LDU Quito'].every((k) => s.clubs.some((c) => c.name.includes(k))), 'grands clubs des championnats 46 à 50');
+  const { CONTI_COMPS } = await import('../js/data/world.js');
+  assert.deepEqual(Object.keys(CONTI_COMPS), ['ucl', 'uel', 'uecl', 'lib', 'acl', 'ccc', 'caf'], 'les 7 coupes continentales');
+  const { startCareer } = await import('../js/game/season.js');
+  startCareer(s, s.clubs[0].id);
+  assert.equal(Object.keys(s.contis).length, 7);
+  assert.ok(Object.values(s.contis).every((c) => c.teams.length === 16 && new Set(c.teams).size === 16));
+  assert.ok(Object.keys(s.supers).length >= 10, 'supercoupes nationales');
   assert.equal(new Set(s.clubs.map((c) => c.key)).size, s.clubs.length, 'identifiants de clubs uniques (Liverpool, Everton…)');
   // Le Championship (24 clubs) impose 46 créneaux : les championnats à 34 journées en sautent 12.
   const { syncLeagueSlots } = await import('../js/game/season.js');

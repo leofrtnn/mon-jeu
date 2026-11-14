@@ -131,12 +131,27 @@ REP_KEY = [
   ('atletico nacional', 64, 'ATN'), ('millonarios', 63, 'MIL3'), ('america de cali', 62, 'AME2'), ('junior', 62, 'JUN'), ('independiente santa fe', 61, 'SFE'),
   ('deportivo cali', 60, 'CAL'), ('independiente medellin', 60, 'DIM'), ('once caldas', 59, 'ONC'), ('atletico bucaramanga', 59, 'BUC'), ('tolima', 59, 'TOL2'),
   ('penarol', 63, 'PEN'), ('defensor sporting', 59, 'DEF'), ('liverpool montevideo', 58, 'LIV2'), ('danubio', 57, 'DAN'), ('wanderers', 56, 'MWA'),
+  # Championnats 46 à 50.
+  ('inter miami', 64, 'MIA'), ('los angeles fc', 63, 'LAFC'), ('la galaxy', 62, 'LAG'), ('columbus crew', 61, 'CLB'), ('seattle sounders', 61, 'SEA'),
+  ('philadelphia union', 61, 'PHI'), ('fc cincinnati', 60, 'CIN'), ('new york city', 60, 'NYC'), ('new york red bulls', 59, 'NYRB'), ('atlanta united', 60, 'ATL'),
+  ('vancouver whitecaps', 60, 'VAN'), ('san diego', 59, 'SD'), ('orlando city', 59, 'ORL'), ('nashville', 59, 'NSH'), ('real salt lake', 58, 'RSL'),
+  ('portland timbers', 58, 'POR2'), ('minnesota united', 58, 'MIN'), ('charlotte', 58, 'CLT'), ('austin', 57, 'ATX'), ('toronto', 57, 'TOR'),
+  ('boca juniors', 66, 'BOC'), ('river plate', 67, 'RIV'), ('racing club', 64, 'RAC'), ('independiente', 62, 'IND2'), ('san lorenzo', 61, 'SLO'),
+  ('estudiantes de la plata', 62, 'EST'), ('velez', 61, 'VEL'), ('talleres', 62, 'TAL'), ('lanus', 61, 'LAN'), ('rosario central', 61, 'RCE'),
+  ('argentinos juniors', 60, 'ARJ'), ('newell', 59, 'NOB'), ('huracan', 59, 'HUR'), ('defensa y justicia', 59, 'DYJ'), ('belgrano', 59, 'BEL3'),
+  ('al ahly', 66, 'AHL'), ('pyramids', 64, 'PYR'), ('zamalek', 63, 'ZAM'), ('al masry', 59, 'MSR'), ('future', 58, 'FUT'), ('modern sport', 58, 'MOD'),
+  ('ceramica cleopatra', 58, 'CER'), ('smouha', 57, 'SMO'), ('enppi', 56, 'ENP'), ('ismaily', 56, 'ISM'),
+  ('independiente del valle', 63, 'IDV'), ('liga deportiva universitaria', 62, 'LDU'), ('ldu quito', 62, 'LDU'), ('barcelona sc', 61, 'BSC'),
+  ('emelec', 59, 'EME'), ('aucas', 57, 'AUC'), ('universidad catolica del ecuador', 57, 'UCE'), ('delfin', 56, 'DEL'), ('el nacional', 56, 'ENA'),
+  ('mamelodi sundowns', 64, 'SUN'), ('orlando pirates', 61, 'PIR'), ('kaizer chiefs', 60, 'KAI'), ('stellenbosch', 58, 'STB'), ('supersport', 57, 'SSU'),
+  ('amazulu', 56, 'AMZ'), ('cape town city', 56, 'CTC'), ('ts galaxy', 56, 'TSG'), ('sekhukhune', 56, 'SEK'), ('polokwane', 55, 'POL3'),
 ]
 DEFAULT_REP = {'POR1': 57, 'NED1': 58, 'BEL1': 57, 'TUR1': 59, 'CZE1': 55, 'GRE1': 55, 'NOR1': 55, 'POL1': 56, 'DEN1': 56, 'AUT1': 55,
                'SUI1': 56, 'SCO1': 54, 'SWE1': 55, 'CRO1': 54, 'SRB1': 53,
                'BRA1': 64, 'KSA1': 58, 'MEX1': 62, 'JPN1': 61, 'RUS1': 60, 'UKR1': 56, 'ROU1': 56, 'HUN1': 54, 'CYP1': 54, 'ISR1': 55,
                'ENG2': 62, 'ESP2': 59, 'ITA2': 59, 'GER2': 60, 'FRA2': 57,
-               'KOR1': 57, 'CHN1': 56, 'AUS1': 55, 'UAE1': 56, 'QAT1': 56, 'MAR1': 54, 'PER1': 53, 'CHI1': 54, 'COL1': 56, 'URU1': 54}
+               'KOR1': 57, 'CHN1': 56, 'AUS1': 55, 'UAE1': 56, 'QAT1': 56, 'MAR1': 54, 'PER1': 53, 'CHI1': 54, 'COL1': 56, 'URU1': 54,
+               'USA1': 56, 'ARG1': 58, 'EGY1': 54, 'ECU1': 54, 'RSA1': 53}
 PREFIX = {'fc', 'sc', 'sk', 'fk', 'ac', 'kv', 'k', 'r', 'rsc', 'sl', 'cd', 'cf', 'gd', 'ud', 'kaa', 'krc', 'kvc', 'rc', 'sv', 'afc', 'f', 'c', 's', 'a',
           'royal', 'royale', 'club', 'cs', 'pec', 'ado', 'sfk', '1', 'raal', 'fsv', 'ksv', 'vv', 'sint', 'oud'}
 
@@ -146,7 +161,13 @@ def ascii_low(s):
 
 LEAGUE_KEY = {('FRA2', 'red star'): (57, 'RSFC'), ('ENG2', 'queens park'): (61, 'QPR'), ('ESP2', 'sporting'): (62, 'SPG'),
               ('URU1', 'nacional'): (63, 'NAC'), ('URU1', 'liverpool'): (58, 'LIV2'), ('CHI1', 'everton'): (56, 'EVE2'), ('UAE1', 'al ahli'): (66, 'SAA'), ('URU1', 'river plate'): (56, 'RPM'),
-              ('MAR1', 'union'): (55, 'UYM'), ('CHI1', 'union'): (56, 'ULC')}   # homonymes (Red Star de Paris ≠ Étoile rouge de Belgrade)
+              ('MAR1', 'union'): (55, 'UYM'), ('CHI1', 'union'): (56, 'ULC'),
+              ('ARG1', 'boca'): (66, 'BOC'), ('ARG1', 'estudiantes (lp)'): (62, 'EST'), ('ARG1', 'estudiantes lp'): (62, 'EST'), ('ARG1', 'rivadavia'): (57, 'IRM'),
+              ('ARG1', 'argentinos'): (60, 'ARJ'), ('USA1', 'philadelphia'): (61, 'PHI'), ('USA1', 'colorado'): (57, 'COR'), ('ECU1', 'leones'): (55, 'LEO'),
+              ('ECU1', 'tecnico'): (56, 'TEC'),
+              ('ARG1', 'river plate'): (67, 'RIV'), ('ARG1', 'independiente'): (62, 'IND2'), ('ARG1', 'union'): (57, 'USF'), ('ARG1', 'gimnasia y esgrima la plata'): (57, 'GLP'),
+              ('ARG1', 'estudiantes de rio cuarto'): (54, 'ERC'), ('ARG1', 'central cordoba'): (56, 'CCO'), ('ECU1', 'independiente'): (63, 'IDV'),
+              ('ECU1', 'universidad catolica'): (57, 'UCE'), ('USA1', 'galaxy'): (62, 'LAG'), ('RSA1', 'galaxy'): (56, 'TSG'), ('RSA1', 'city'): (56, 'CTC')}   # homonymes (Red Star de Paris ≠ Étoile rouge de Belgrade)
 def rep_short(c, league):
     n = ascii_low(c['name'] + ' ' + c['id'].replace('-', ' '))
     for (lg, key), v in LEAGUE_KEY.items():

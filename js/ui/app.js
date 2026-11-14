@@ -9,7 +9,7 @@ import { esc, clubAccent, refreshStarRef, crest } from './components.js';
 import { DIVISIONS } from '../data/world.js';
 import { scrollTop } from './viewport.js';
 import { applyTop100, TOP100_V } from '../game/ratingsImport.js';
-import { today } from '../game/season.js';
+import { today, ensureContis } from '../game/season.js';
 import { currentDate, longDate } from '../game/dates.js';
 import { avatarSvg } from './avatar.js';
 import { ensureCoachProfile } from '../game/coach.js';
@@ -74,7 +74,7 @@ const NAV = [
   { group: 'Compétitions' },
   { key: 'fixtures', tab: 'schedule', sub: ['schedTab', 'fixtures'], label: 'Calendrier', icon: 'calendar' },
   { key: 'table', tab: 'schedule', sub: ['schedTab', 'table'], label: 'Championnat', icon: 'table', main: true },
-  { key: 'cups', tab: 'schedule', sub: ['schedTab', 'cup'], label: 'Coupes & trophées', icon: 'schedule' },
+  { key: 'cups', tab: 'schedule', sub: ['schedTab', 'cup'], label: 'Coupes', icon: 'schedule' },
   { key: 'stats', tab: 'stats', label: 'Statistiques', icon: 'stats' },
   { key: 'world', tab: 'schedule', sub: ['schedTab', 'news'], label: 'Monde du foot', icon: 'world' },
   { group: 'Mercato' },
@@ -113,6 +113,7 @@ export const app = {
       const n = NAV.find((x) => x.key && x.key === b.dataset.nav);
       if (n.key === 'mail') { if (this.state?.userClubId) home.actions.allmsgs(b, this); return; }
       if (n.sub) this.ui[n.sub[0]] = n.sub[1];
+      if (n.key === 'cups') this.ui.cupWhich = 'home';
       this.go(n.tab);
     });
     // Clavier (mode PC) : Espace/Entrée = bouton principal, 1-9 = menu, Échap = fermer.
@@ -180,6 +181,7 @@ export const app = {
       ensureStaff(this.state);
       ensureBoard(this.state);
       ensureLife(this.state);
+      ensureContis(this.state);
       refreshStarRef(this.state);
       // Parties « monde réel » créées avant l'ajout des logos/photos : on les complète une fois.
       if (this.state.world === 'real' && this.state.mediaV !== MEDIA_V && !this._enriching) {

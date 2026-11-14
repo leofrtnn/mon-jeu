@@ -144,12 +144,12 @@ test('protocole serveur (local) : création, code, choix des clubs, prêts, publ
   off();
 });
 
-test('un invité qui reçoit la partie retrouve les 45 championnats', async () => {
+test('un invité qui reçoit la partie retrouve les 50 championnats', async () => {
   const { applyWorld, DIV_IDS, DIVISIONS } = await import('../js/data/world.js');
   const host = createOnlineCareer(data, 13, [{ user_id: 'A', username: 'Alice', club_id: 1 }, { user_id: 'B', username: 'Bob', club_id: 79 }], 'g6');
   const blob = JSON.stringify(host);
   applyWorld('fictional'); // l'appareil de l'invité n'a encore rien chargé
   const b = adoptOnline(JSON.parse(blob), 'B');
-  assert.equal(DIV_IDS.length, 45);
+  assert.equal(DIV_IDS.length, 50);
   assert.equal(DIVISIONS[clubById(b, b.userClubId).div].name, 'Ligue 1');
 });

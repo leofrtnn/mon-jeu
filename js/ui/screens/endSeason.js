@@ -26,7 +26,8 @@ export function showEndSeason(app, report = null) {
       <div class="card"><h3>Palmarès</h3>
         ${r.champions.map((c) => `<div class="row between"><span>🏆 ${esc(DIV_NAMES[c.div])}</span><b>${esc(c.name)}</b></div>`).join('')}
         ${r.cups.map((c) => `<div class="row between"><span>🏆 ${esc(c.name)}</span><b>${esc(c.winner)}</b></div>`).join('')}
-        <div class="row between"><span>⭐ ${CONTI_NAME}</span><b>${esc(r.conti)}</b></div>
+        ${(Array.isArray(r.conti) ? r.conti : [{ name: CONTI_NAME, winner: r.conti }]).map((c) => `<div class="row between"><span>⭐ ${esc(c.name)}</span><b>${esc(c.winner)}</b></div>`).join('')}
+        ${(r.supers || []).map((c) => `<div class="row between"><span>🛡️ ${esc(c.name)}</span><b>${esc(c.winner)}</b></div>`).join('')}
         ${r.topScorer ? `<div class="row between"><span>⚽ Meilleur buteur</span><b>${esc(r.topScorer.name)}</b></div>` : ''}
         <div style="margin-top:8px;font-size:13px"><span class="pos-txt">⬆</span> ${r.promoted.map(esc).join(', ')}<br><span class="neg-txt">⬇</span> ${r.relegated.map(esc).join(', ')}</div></div>
       <div class="card"><h3>Évolution des joueurs</h3>

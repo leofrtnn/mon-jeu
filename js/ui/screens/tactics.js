@@ -8,9 +8,14 @@ import { esc, playerRow, seg, posBadge } from '../components.js';
 import { face } from '../images.js';
 import { toLocal, localRect } from '../viewport.js';
 import { captains } from '../../game/captain.js';
+import { today, matchCfgFor } from '../../game/season.js';
+import { createMatch } from '../../engine/match.js';
+import { tacticalEdge } from '../../engine/tacticalEdge.js';
+import { clubById } from '../../game/state.js';
+import { crest, gauge, scaleColor } from '../components.js';
 const stars = (r) => `${Math.round(r)}`;
 
-const TABS = [['team', 'Équipe'], ['players', 'Joueurs'], ['squad', 'Compo'], ['sp', 'Coups francs']];
+const TABS = [['team', 'Équipe'], ['analysis', 'Analyse'], ['players', 'Joueurs'], ['squad', 'Compo'], ['sp', 'Coups francs']];
 
 /** Copie profonde d'un plan tactique. */
 const clonePlan = (uc) => JSON.parse(JSON.stringify({ tactics: uc.tactics, roles: uc.roles || [], pi: uc.pi || [], setPieces: uc.setPieces || {} }));
@@ -48,6 +53,7 @@ export function render(app) {
   if (tab === 'team') side = teamTab(app, uc, t);
   else if (tab === 'players') side = playersTab(uc, slots, byId);
   else if (tab === 'squad') side = squadTab(uc, players, byId);
+  else if (tab === 'analysis') side = analysisTab(app, uc);
   else side = setPiecesTab(uc, byId);
   return `
     <div class="tac-layout"><div class="tac-main">
@@ -55,6 +61,7 @@ export function render(app) {
       ${t.custom ? '<button class="chip on" data-act="noop">Perso</button>' : ''}</div>
     <div class="row between" style="margin:8px 2px">
       <small>Force du onze : <b style="color:var(--text)">${strength.toFixed(1)}</b></small>
+      <small class="fam" title="Les automatismes se construisent semaine après semaine (plus vite avec un entraînement tactique). Changer de système les fait chuter.">Maîtrise tactique <b style="color:${scaleColor(uc.fam ?? 60)}">${Math.round(uc.fam ?? 60)} %</b></small>
       <button class="btn sm ${edit ? 'primary' : ''}" data-act="editpos" title="Déplacer les postes">✥ ${edit ? 'Terminer' : 'Postes'}</button>
       <button class="btn sm primary" data-act="auto">⚡ Auto</button>
     </div>
@@ -276,6 +283,11 @@ export function mount(app, root) {
 export const actions = {
   formation(el, app) {
     const uc = userClub(app.state);
+    if (uc.tactics.formation !== el.dataset.v || uc.tactics.custom) {
+      const before = Math.round(uc.fam ?? 60);
+      uc.fam = Math.round(before * 0.55);
+      app.toast(`Nouveau système : maîtrise tactique ${before} % → ${uc.fam} %. Les automatismes reviendront avec l'entraînement.`, 3500);
+    }
     uc.tactics.formation = el.dataset.v;
     delete uc.tactics.custom;
     uc.roles = []; uc.pi = [];
@@ -337,4 +349,50 @@ export const actions = {
   tempo(el, app) { setT(app, 'tempo', el.dataset.v); },
   width(el, app) { setT(app, 'width', el.dataset.v); },
 };
-function setT(app, k, v) { userClub(app.state).tactics[k] = v; app.save(); app.render(); }
+function setT(app, k, v) {
+  const uc = userClub(app.state);
+  if (uc.tactics[k] !== v && ['mentality', 'pressing', 'line', 'passing', 'tempo', 'width'].includes(k)) uc.fam = Math.max(0, (uc.fam ?? 60) - 2);
+  uc.tactics[k] = v; app.save(); app.render();
+}
+
+/**
+ * Analyse du prochain match : duel tactique (notre plan contre le plan probable de l'adversaire),
+ * points forts / faibles détaillés, et conseils.
+ */
+function analysisTab(app, uc) {
+  const s = app.state;
+  const t = today(s);
+  const f = t?.userFixture;
+  if (!f || f.comp === 'intl') return '<div class="card"><p class="muted">Pas de match officiel à analyser pour le moment.</p></div>';
+  let duel;
+  try {
+    const cfg = matchCfgFor(s, f);
+    const m = createMatch(cfg);
+    const me = f.h === uc.id ? 0 : 1;
+    const a = tacticalEdge(m.teams[me], m.teams[1 - me]), b = tacticalEdge(m.teams[1 - me], m.teams[me]);
+    duel = { a, b, opp: m.teams[1 - me], mine: m.teams[me] };
+  } catch { return '<div class="card"><p class="muted">Analyse indisponible.</p></div>'; }
+  const opp = clubById(s, f.h === uc.id ? f.a : f.h);
+  const net = duel.a.edge - duel.b.edge * 0.5;
+  const pct = Math.max(0, Math.min(100, 50 + net * 140));
+  const verdict = net > 0.06 ? 'Notre plan prend le dessus' : net < -0.06 ? 'Leur plan nous pose problème' : 'Duel tactique équilibré';
+  const ot = duel.opp.tactics;
+  const notes = (arr, sign) => arr.filter((n) => Math.sign(n.v) === sign).slice(0, 4).map((n) => `<li>${esc(n.text)}</li>`).join('');
+  // Notes vues de l'adversaire : on retourne le point de vue (nous ↔ eux).
+  const flip = (t) => {
+    const W = [['Nous ', '§Ils '], ['Ils ', '§Nous '], ['Notre ', '§Leur '], ['Nos ', '§Leurs '], ['Leur ', '§Notre '], ['Leurs ', '§Nos '], [' notre ', ' §leur '], [' nos ', ' §leurs '], [' leur ', ' §notre '], [' leurs ', ' §nos '], ['les frustre', '§nous frustre'], ['trouvent', '§trouvons']];
+    for (const [a, b] of W) t = t.split(a).join(b);
+    return t.replace(/§/g, '').replace(/^Nous trouvent/, 'Nous trouvons');
+  };
+  const theirs = (sign) => duel.b.notes.filter((n) => Math.sign(n.v) === sign).slice(0, 2).map((n) => `<li><small class="muted">Chez eux :</small> ${esc(flip(n.text))}</li>`).join('');
+  const good = notes(duel.a.notes, 1) + theirs(-1);
+  const bad = notes(duel.a.notes, -1) + theirs(1);
+  return `<div class="card"><div class="row" style="gap:10px">${crest(opp, 'sm')}<b class="grow">Prochain adversaire : ${esc(opp.name)}</b></div>
+      <small class="muted">Plan probable : ${esc(ot.formation || '')} · ${MENTALITY_LABELS[ot.mentality] || ''} · pressing ${PRESSING_LABELS[ot.pressing] || ''}</small>
+      <div class="duel"><span>Nous</span><div class="duel-bar"><i style="width:${pct}%"></i></div><span>Eux</span></div>
+      <b style="color:${net > 0.06 ? 'var(--good)' : net < -0.06 ? 'var(--bad)' : 'var(--ok)'}">${verdict}</b></div>
+    <div class="card"><h3 style="color:var(--good)">✔ Ce qui joue pour nous</h3><ul class="notes">${good || '<li class="muted">Rien de marquant.</li>'}</ul></div>
+    <div class="card"><h3 style="color:var(--bad)">✖ Points de vigilance</h3><ul class="notes">${bad || '<li class="muted">Rien de marquant.</li>'}</ul></div>
+    <div class="card"><h3>Automatismes</h3><div class="attr"><span>Maîtrise tactique</span>${gauge(uc.fam ?? 60)}<span class="v">${Math.round(uc.fam ?? 60)}</span></div>
+      <small class="muted">De −3 % (système tout neuf) à +1 % de rendement collectif. Un entraînement « Tactique » et un bon adjoint accélèrent la progression.</small></div>`;
+}

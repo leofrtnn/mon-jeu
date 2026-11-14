@@ -77,7 +77,7 @@ def squad_section(text):
     """Premier bloc {{Fs start}}…{{Fs end}} de la section effectif (équipe première, hors prêts)."""
     heads = [(m.start(), m.end(), len(m.group(1)), m.group(2).strip()) for m in re.finditer(r'\n(={2,4})([^=\n]+)\1', text)]
     for i, (hs, he, lvl, title) in enumerate(heads):
-        if not re.search(r'squad|players', title, re.I) or SKIP.search(title):
+        if not re.search(r'squad|players|roster', title, re.I) or SKIP.search(title):
             continue
         stop = next((h[0] for h in heads[i + 1:] if h[2] <= lvl), len(text))
         sec = text[he:stop]

@@ -55,6 +55,15 @@ LEAGUES = [
     {'id': 'CHI1', 'size': 16, 'name': 'Primera División (CHI)', 'country': 'Chili', 'templates': ['Template:Chilean Primera División'], 'season': '2026'},
     {'id': 'COL1', 'size': 20, 'name': 'Primera A', 'country': 'Colombie', 'templates': ['Template:Categoría Primera A'], 'season': '2026'},
     {'id': 'URU1', 'size': 16, 'name': 'Primera División (URU)', 'country': 'Uruguay', 'templates': ['Template:Uruguayan Primera División'], 'season': '2026'},
+    # Championnats 46 à 50 : États-Unis, Argentine, Égypte, Équateur, Afrique du Sud.
+    {'id': 'USA1', 'size': 30, 'name': 'Major League Soccer', 'country': 'États-Unis', 'templates': [], 'article': '2026 Major League Soccer season'},
+    {'id': 'ARG1', 'size': 30, 'name': 'Liga Profesional', 'country': 'Argentine', 'templates': [], 'article': '2026 Argentine Primera División'},
+    {'id': 'EGY1', 'size': 20, 'name': 'Egyptian Premier League', 'country': 'Égypte', 'templates': [], 'article': '2025–26 Egyptian Premier League'},
+    {'id': 'ECU1', 'size': 16, 'name': 'LigaPro', 'country': 'Équateur', 'templates': [], 'article': '2026 LigaPro Serie A'},
+    {'id': 'RSA1', 'size': 16, 'name': 'Premiership (RSA)', 'country': 'Afrique du Sud', 'templates': [], 'clubs': [
+        'Mamelodi Sundowns F.C.', 'Orlando Pirates F.C.', 'Kaizer Chiefs F.C.', 'Stellenbosch F.C.', 'Sekhukhune United F.C.', 'Polokwane City F.C.',
+        'TS Galaxy F.C.', 'AmaZulu F.C.', 'Lamontville Golden Arrows F.C.', 'Chippa United F.C.', 'Richards Bay F.C.', 'Magesi F.C.',
+        'Marumo Gallants F.C.', 'Durban City F.C. (2024)', 'Orbit College F.C.', 'Siwelele F.C.']},
 ]
 CLUB_BOX = re.compile(r'\{\{\s*Infobox football club', re.I)
 

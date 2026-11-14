@@ -38,6 +38,8 @@ export function negotiateTransfer(app, pid, onDone) {
       <div class="btns"><button class="btn sm" data-act="d" data-v="-100000">−100 k</button><button class="btn sm" data-act="d" data-v="-25000">−25 k</button>
         <button class="btn sm" data-act="d" data-v="25000">+25 k</button><button class="btn sm" data-act="d" data-v="100000">+100 k</button></div>
       <div class="formrow"><span>% à la revente (vendeur)</span><select data-act="sellon">${[0, 0.1, 0.2].map((k) => `<option value="${k}" ${neg.sellOn === k ? 'selected' : ''}>${k ? `${k * 100} % (prix plancher plus bas)` : 'Aucun'}</option>`).join('')}</select></div>
+      <div class="formrow"><span>Paiement</span><select data-act="plan"><option value="cash" ${neg.plan !== 'inst' ? 'selected' : ''}>Comptant</option><option value="inst" ${neg.plan === 'inst' ? 'selected' : ''}>Échelonné : 40 % maintenant, 30 % + 30 % les deux saisons suivantes</option></select></div>
+      ${neg.plan === 'inst' ? `<small class="muted">Le vendeur réclame environ 5 % de plus pour être payé en plusieurs fois. Versement immédiat : <b>${money(Math.round(offer * 0.4 / 25000) * 25000)}</b>.</small>` : ''}
     </div>
     ${log.map((l) => `<div class="msg"><span class="ic">${l.icon}</span><div class="grow">${esc(l.text)}</div></div>`).join('')}
     ${neg.status === 'open' ? `<div class="btns" style="margin-top:10px"><button class="btn" data-act="close">Abandonner</button><button class="btn primary" data-act="send">Faire l'offre</button></div>
@@ -48,7 +50,8 @@ export function negotiateTransfer(app, pid, onDone) {
     html,
     actions: {
       fee: (el) => { offer = +el.value; h.update(html()); },
-      sellon: (el) => { setSellOn(neg, +el.value); },
+      sellon: (el) => { setSellOn(neg, +el.value); if (neg.plan === 'inst') neg.min = Math.round(neg.min * 1.05 / 25000) * 25000; },
+      plan: (el) => { if (el.tagName !== 'SELECT') return; neg.plan = el.value; setSellOn(neg, neg.sellOn); if (neg.plan === 'inst') neg.min = Math.round(neg.min * 1.05 / 25000) * 25000; h.update(html()); },
       d: (el) => { offer = step25k(offer + +el.dataset.v); h.update(html()); },
       send: () => {
         const r = clubRespond(neg, offer);
@@ -56,13 +59,13 @@ export function negotiateTransfer(app, pid, onDone) {
         h.update(html());
       },
       takecounter: () => { offer = neg.counter; const r = clubRespond(neg, offer); log.push({ icon: '✅', text: r.msg }); h.update(html()); },
-      contract: () => { h.close(); negotiateContract(app, pid, neg.fee, onDone, false, neg.sellOn); },
+      contract: () => { h.close(); negotiateContract(app, pid, neg.fee, onDone, false, neg.sellOn, neg.plan); },
     },
   });
 }
 
 /** Contrat (recrue si fee != null, sinon prolongation via renew=true). */
-export function negotiateContract(app, pid, fee, onDone, renew = false, sellOn = 0) {
+export function negotiateContract(app, pid, fee, onDone, renew = false, sellOn = 0, plan = 'cash') {
   const s = app.state;
   const p = s.players[pid];
   const dem = playerDemands(s, p, gameRng(s));
@@ -101,7 +104,7 @@ export function negotiateContract(app, pid, fee, onDone, renew = false, sellOn =
         if (!ra.ok) { log.push({ icon: '❌', text: ra.msg }); h.update(html()); return; }
         const r = evaluateContract(p, dem, offer);
         if (r.kind === 'accept') {
-          const res = renew ? completeRenewal(s, pid, offer) : completeTransfer(s, pid, fee || 0, offer, dem, sellOn);
+          const res = renew ? completeRenewal(s, pid, offer) : completeTransfer(s, pid, fee || 0, offer, dem, sellOn, plan);
           log.push({ icon: res.ok ? '✍' : '⚠', text: res.msg });
           done = true;
           app.toast(res.msg);

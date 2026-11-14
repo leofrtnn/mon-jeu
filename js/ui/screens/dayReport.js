@@ -21,7 +21,7 @@ export function showDayReport(app, report) {
       <b class="num" style="min-width:50px;text-align:center">${r.s[0]} - ${r.s[1]}</b>
       ${crest(a, 'sm')}<span class="grow">${esc(a.short)}${r.pens ? ` <small>(${r.pens[0]}-${r.pens[1]} tab)</small>` : ''}</span></div>`;
   };
-  const results = report.results.filter((r) => (r.comp === 'league' && r.div === uc.div) || (r.comp === 'cup' && r.key === uc.country) || r.comp === 'conti' || r.comp === 'intl');
+  const results = report.results.filter((r) => (r.comp === 'league' && r.div === uc.div) || (r.comp === 'cup' && r.key === uc.country) || (r.comp === 'conti' && s.contis?.[r.key]?.teams.includes(uc.id)) || (r.comp === 'super' && r.key === uc.country) || r.comp === 'intl');
   const html = () => `<h2>${esc(report.label)}</h2>
     <p class="muted" style="margin-top:0">Gestion rapide</p>
     ${report.injuries.length || report.suspensions.length ? `<div class="card"><h3>Infirmerie & discipline</h3>

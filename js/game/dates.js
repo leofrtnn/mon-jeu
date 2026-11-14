@@ -12,7 +12,9 @@ export function assignDates(calendar, season) {
   while (new Date(cur).getUTCDay() !== 6) cur += DAY; // premier samedi
   let lastLeague = cur;
   for (const e of calendar) {
-    if (e.type === 'league' && e.mid) {
+    if (e.type === 'super') {
+      e.date = iso(cur - 7 * DAY); // supercoupe : le week-end avant la reprise
+    } else if (e.type === 'league' && e.mid) {
       e.date = iso(lastLeague + 3 * DAY); // journée de championnat en semaine
     } else if (e.type === 'league') {
       e.date = iso(cur); lastLeague = cur; cur += 7 * DAY;

@@ -33,20 +33,37 @@ export function weeklyTraining(p, rng, playedMinutes = 0, tp = null) {
   const gap = p.pot - o;
   const mult = (tp?.mult ?? 1) * (p.age <= 21 ? tp?.youthMult ?? 1 : 1) * (p.pos === 'GB' ? tp?.gkMult ?? 1 : 1);
   const focus = tp?.focus && FOCUS_ATTRS[tp.focus];
+  // Entraînement individuel (clubs des managers) : un attribut ou un nouveau poste.
+  const ind = tp?.individual ? p.tFocus : null;
+  let ev = null;
+  if (ind && ind.startsWith('pos:')) {
+    const pos = ind.slice(4);
+    if (pos !== p.pos && !(p.pos2 || []).includes(pos)) {
+      p.posXp = p.posXp || {};
+      p.posXp[pos] = (p.posXp[pos] || 0) + (1 + (playedMinutes > 0 ? 0.3 : 0)) * Math.min(1.6, mult) * (p.age <= 24 ? 1.3 : p.age >= 30 ? 0.7 : 1);
+      if (p.posXp[pos] >= 24) { (p.pos2 ||= []).push(pos); delete p.posXp[pos]; p.tFocus = null; ev = { learned: pos }; }
+    } else p.tFocus = null;
+  }
+  const indAttr = ind && !ind.startsWith('pos:') ? ind : null;
   if (p.age <= 26 && gap > 0) {
     const chance = (0.015 + gap * 0.003 + (playedMinutes > 45 ? 0.02 : 0)) * mult;
     if (rng.chance(chance)) {
       const w = POSITION_WEIGHTS[p.pos];
       let keys = Object.keys(w);
-      // Le thème d'entraînement oriente la progression.
-      if (focus && rng.chance(0.65)) keys = focus.filter((k) => k !== 'arr' || p.pos === 'GB');
+      // Le thème d'entraînement oriente la progression ; l'entraînement individuel encore plus.
+      if (indAttr && rng.chance(0.6)) keys = [indAttr];
+      else if (focus && rng.chance(0.65)) keys = focus.filter((k) => k !== 'arr' || p.pos === 'GB');
       const k = keys[rng.weightedIndex(keys.map((x) => w[x] || 0.15))];
-      p.attrs[k] = clamp(p.attrs[k] + 1, 1, 99);
+      if (p.attrs[k] < 99) { p.attrs[k] = clamp(p.attrs[k] + 1, 1, 99); ev = ev || { attr: k }; }
     }
-  } else if (p.age >= 32 && rng.chance(0.03)) {
+  } else if (indAttr && p.age <= 31 && rng.chance(0.012 * mult)) {
+    // Un joueur confirmé peut encore travailler un point précis (lentement).
+    p.attrs[indAttr] = clamp(p.attrs[indAttr] + 1, 1, 99); ev = { attr: indAttr };
+  } else if (p.age >= 32 && rng.chance(indAttr === 'vit' || indAttr === 'phy' ? 0.015 : 0.03)) {
     const k = rng.pick(['vit', 'phy']);
-    p.attrs[k] = clamp(p.attrs[k] - 1, 1, 99);
+    p.attrs[k] = clamp(p.attrs[k] - 1, 1, 99); ev = { attr: k, down: true };
   }
+  return ev;
 }
 
 /**

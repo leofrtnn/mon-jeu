@@ -40,7 +40,7 @@ Chaque championnat a son propre profil : style plus technique en Ibérie, plus p
 ## Fonctionnalités
 
 ### Monde
-- **Monde réel** (le seul mode de jeu) : 45 championnats (dont 10 d'Asie, d'Océanie, du Golfe, du Maroc et d'Amérique du Sud), avec leur vrai format.
+- **Monde réel** (le seul mode de jeu) : 50 championnats (dont 10 d'Asie, d'Océanie, du Golfe, du Maroc et d'Amérique du Sud), avec leur vrai format.
   - Angleterre, Espagne, Italie, Allemagne, France, Portugal, Pays-Bas, Belgique, Turquie, Tchéquie, Grèce, Norvège, Pologne, Danemark, Autriche, Suisse, Écosse, Suède, Croatie, Serbie,
     Brésil, Arabie saoudite, Mexique, Japon, Russie, Ukraine, Roumanie, Hongrie, Chypre, Israël,
     et les deuxièmes divisions des 5 grands (Championship, LaLiga 2, Serie B, 2. Bundesliga, Ligue 2) : 586 clubs, 16 672 joueurs.
@@ -67,7 +67,7 @@ Chaque championnat a son propre profil : style plus technique en Ibérie, plus p
   - **Logos et visages** : affichés depuis Wikipédia / Wikimedia Commons (non copiés dans le jeu, connexion nécessaire). À défaut : écusson aux couleurs du club, initiales du joueur.
   - Données : `data/real-world.json`, généré depuis `data/foot5/foot5.json` par `scripts/foot/build_game_world.py`.
 - **80 clubs fictifs, 3 pays, 4 championnats** : France D1/D2 (promotions et relégations), Liga Ibérica, Albion Premier.
-- **Compétitions** : une coupe nationale par pays et une coupe continentale, la *Ligue des Étoiles* (4 groupes, puis quarts, demies et finale).
+- **Compétitions** : coupes nationales (dotations réelles), supercoupes, et 7 coupes continentales réelles (Ligue des champions, Ligue Europa, Ligue Europa Conférence, Copa Libertadores, Ligue des champions de l'AFC, de la CONCACAF et de la CAF) avec leurs primes ; armoire à trophées du club.
 - **Sélections nationales** : nationalités, 3 trêves internationales, classement Elo, capes. Les internationaux reviennent fatigués, et parfois blessés.
 - **Vrais noms** : le jeu n'embarque aucun vrai nom. Il permet en revanche l'**import/export JSON des noms** de clubs et de joueurs (Club → Réglages).
 

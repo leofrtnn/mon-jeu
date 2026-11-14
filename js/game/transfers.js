@@ -3,7 +3,7 @@
  * + activité de l'IA (achats entre clubs, offres pour vos joueurs).
  */
 import { overall, squadStrength } from '../engine/ratings.js';
-import { playerValue, playerWage, money } from './economy.js';
+import { playerValue, playerWage, money, wealthOf } from './economy.js';
 import { clubById, userClub, clubPlayers, pushMessage } from './state.js';
 import { assignNumbers, createPlayer } from '../data/generator.js';
 import { clamp, hashSeed } from '../core/rng.js';
@@ -32,7 +32,12 @@ export function askingPrice(state, p, buyer = null) {
   const club = clubById(state, p.clubId);
   const rank = squadOveralls(state, club).indexOf(overall(p));
   const key = rank >= 0 && rank < 11 ? 1.2 : 1.05;
-  return Math.round(playerValue(p) * key * (p.listed ? 0.85 : 1) * pol.mult * hypeMult(state, p) / 25000) * 25000;
+  // Durée de contrat restante : un long contrat donne tout pouvoir au vendeur.
+  const len = p.contract >= 4 ? 1.12 : p.contract === 3 ? 1.05 : p.contract === 2 ? 0.95 : 1;
+  // Un acheteur riche (Angleterre, Arabie saoudite…) paie plus cher.
+  const b = buyer || userClub(state);
+  const rich = b ? 0.94 + 0.08 * Math.min(1.5, wealthOf(b)) : 1;
+  return Math.round(playerValue(p) * key * len * rich * (p.listed ? 0.85 : 1) * pol.mult * hypeMult(state, p) / 25000) * 25000;
 }
 
 /**
@@ -434,19 +439,26 @@ export function evaluateContract(p, dem, offer) {
 export const expectedGoals = (p) => ({ BU: 0.45, AG: 0.25, AD: 0.25, MO: 0.2 }[p.pos] ?? (p.pos?.startsWith('M') ? 0.08 : 0.03));
 
 /** Finalise un transfert négocié (fee = 0 pour un joueur libre). */
-export function completeTransfer(state, pid, fee, offer, dem, sellOn = 0) {
+export function completeTransfer(state, pid, fee, offer, dem, sellOn = 0, plan = 'cash') {
   const p = state.players[pid];
   const club = userClub(state);
   if (!windowOpen(state)) return { ok: false, msg: 'Le mercato est fermé.' };
   if (club.playerIds.length >= MAX_SQUAD) return { ok: false, msg: `Effectif complet (${MAX_SQUAD} max).` };
   const agentFee = Math.round((fee ? fee * dem.agentFeeRate : offer.wage * 4) / 1000) * 1000;
-  const cost = fee + (offer.bonus || 0) + agentFee;
+  // Paiement échelonné : 40 % à la signature, puis 30 % à chacune des deux fins de saison suivantes.
+  const inst = plan === 'inst' && fee > 0;
+  const upfront = inst ? Math.round(fee * 0.4 / 25000) * 25000 : fee;
+  const cost = upfront + (offer.bonus || 0) + agentFee;
   if (club.budget < cost) return { ok: false, msg: `Budget insuffisant (${money(cost)}).` };
   const chk = boardAllows(state, { fee: cost, addWage: offer.wage });
   if (!chk.ok) return chk;
   spendTransfer(state, cost);
   const seller = p.clubId ? clubById(state, p.clubId) : null;
-  if (seller) { seller.budget += fee; paySellOn(state, p, seller, fee); relationsAfterTransfer(state, seller, club, p, fee); }
+  if (seller) { seller.budget += upfront; paySellOn(state, p, seller, fee); relationsAfterTransfer(state, seller, club, p, fee); }
+  if (inst) {
+    const rest = fee - upfront, a = Math.round(rest / 2 / 25000) * 25000;
+    (club.debts ||= []).push({ to: seller?.id ?? null, pid: p.id, name: p.name, amount: a, season: state.season + 1 }, { to: seller?.id ?? null, pid: p.id, name: p.name, amount: rest - a, season: state.season + 2 });
+  }
   removeFromClub(state, p);
   addToClub(state, p, club);
   club.budget -= cost;
@@ -454,10 +466,10 @@ export function completeTransfer(state, pid, fee, offer, dem, sellOn = 0) {
   if (seller && sellOn) p.sellOn = { clubId: seller.id, pct: sellOn };
   p.morale = clamp(p.morale + 12, 0, 100);
   news(state, 'transfer', `${p.first} ${p.last} rejoint ${club.name}${fee ? ` · ${money(fee)}` : ' (libre)'}.`, { pid: p.id });
-  logFinance(state, -fee, `Transfert : ${p.name}`);
+  logFinance(state, -upfront, `Transfert : ${p.name}${inst ? ' (1er versement sur 3)' : ''}`);
   if (offer.bonus) logFinance(state, -offer.bonus, `Prime à la signature : ${p.name}`);
   logFinance(state, -agentFee, `Commission d'agent : ${p.name}`);
-  pushMessage(state, { prio: 2, icon: '✍', title: `${p.name} signe au club`, text: `Indemnité ${money(fee)}, ${money(offer.wage)}/sem, ${offer.years} an(s).` });
+  pushMessage(state, { prio: 2, icon: '✍', title: `${p.name} signe au club`, text: `Indemnité ${money(fee)}${inst ? ` (dont ${money(fee - upfront)} payés sur deux saisons)` : ''}, ${money(offer.wage)}/sem, ${offer.years} an(s).` });
   return { ok: true, msg: `${p.name} a signé !` };
 }
 

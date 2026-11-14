@@ -77,6 +77,13 @@ function serve() {
     await page.click('[data-act=psadd] >> nth=0');
     await page.click('[data-act=pssim] >> nth=0');
     await page.click('[data-act=psstart]');
+    // Journée 0 : supercoupe. Si le club n'y joue pas, on passe à la journée suivante.
+    await page.waitForSelector('[data-act=play], [data-act=simulate]');
+    if (!(await page.$('[data-act=play]'))) {
+      await page.click('[data-act=simulate] >> nth=0');
+      await page.waitForSelector('.sheet [data-act=close]', { timeout: 30000 });
+      await page.click('.sheet [data-act=close]');
+    }
     await page.waitForSelector('[data-act=play]');
     const coach = await page.evaluate(() => window.__app.state.coach);
     assert.equal(coach.skills.tactics, 11);

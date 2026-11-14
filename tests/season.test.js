@@ -23,7 +23,7 @@ test('deux saisons complètes sans erreur', () => {
       completeDay(state, m);
     }
     assert.equal(state.day, state.calendar.length);
-    assert.equal(state.calendar.length, 52);
+    assert.equal(state.calendar.length, 53); // 52 + supercoupe
     for (const div of [1, 2, 3, 4]) {
       const tab = sortedTable(state, div);
       assert.equal(tab.length, 20);
@@ -33,7 +33,8 @@ test('deux saisons complètes sans erreur', () => {
       assert.ok(avg > 2 && avg < 3.3, `buts/match div ${div} = ${avg}`);
     }
     for (const c of Object.values(state.cups)) assert.ok(c.winner, `vainqueur ${c.name}`);
-    assert.ok(state.conti.winner, 'vainqueur continental');
+    assert.ok(Object.values(state.contis).length && Object.values(state.contis).every((c) => c.winner), 'vainqueurs continentaux');
+    assert.ok(Object.values(state.supers).every((x) => x.w), 'supercoupes jouées');
     assert.ok(Object.values(state.nations).some((n) => n.p >= 3), 'matchs internationaux joués');
     const rep = endSeason(state);
     assert.equal(rep.promoted.length, 3);

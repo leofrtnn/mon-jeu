@@ -39,7 +39,9 @@ export function setBoardSeason(state, fresh = true) {
   const uc = userClub(state);
   const bill = wageBill(clubPlayers(state, uc));
   b.wageBudget = Math.round(bill * (1.04 + uc.rep / 1000) / 1000) * 1000;
-  b.transferBudget = Math.max(0, Math.round(Math.max(0, uc.budget) * (0.35 + uc.rep / 400) / 50000) * 50000);
+  // Les échéances de transferts déjà engagées sont déduites de l'enveloppe.
+  const owed = (uc.debts || []).reduce((a, d) => a + d.amount, 0);
+  b.transferBudget = Math.max(0, Math.round(Math.max(0, uc.budget - owed) * (0.35 + uc.rep / 400) / 50000) * 50000);
   const rng = gameRng(state);
   if (fresh || !b.identity) b.identity = uc.academy >= 4 && rng.chance(0.6) ? 'youth' : uc.rep >= 75 ? rng.pick(['attack', 'possession']) : uc.rep < 55 ? 'solid' : rng.pick(Object.keys(IDENTITIES));
   b.youthTarget = b.identity === 'youth' ? 15 : 5;

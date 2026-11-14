@@ -64,6 +64,11 @@ const REAL = {
     CHI: { name: 'Chili', flag: '🇨🇱', cup: 'Copa Chile' },
     COL: { name: 'Colombie', flag: '🇨🇴', cup: 'Copa Colombia' },
     URU: { name: 'Uruguay', flag: '🇺🇾', cup: 'Copa AUF Uruguay' },
+    USA: { name: 'États-Unis', flag: '🇺🇸', cup: 'U.S. Open Cup' },
+    ARG: { name: 'Argentine', flag: '🇦🇷', cup: 'Copa Argentina' },
+    EGY: { name: 'Égypte', flag: '🇪🇬', cup: 'Coupe d\'Égypte' },
+    ECU: { name: 'Équateur', flag: '🇪🇨', cup: 'Copa Ecuador' },
+    RSA: { name: 'Afrique du Sud', flag: '🇿🇦', cup: 'Nedbank Cup' },
   },
   divisions: {
     1: { name: 'Premier League', short: 'PL', country: 'ENG', level: 1, source: 'ENG1', profile: { goals: 1.0, fouls: 0.85, cards: 0.8 }, down: 3, lower: 31 },
@@ -113,10 +118,78 @@ const REAL = {
     43: { name: 'Primera División (CHI)', short: 'CL', country: 'CHI', level: 1, source: 'CHI1', profile: { goals: 1.02, fouls: 1.1, cards: 1.2 } },
     44: { name: 'Primera A', short: 'CO', country: 'COL', level: 1, source: 'COL1', profile: { goals: 0.92, fouls: 1.15, cards: 1.25 } },
     45: { name: 'Primera División (URU)', short: 'UY', country: 'URU', level: 1, source: 'URU1', profile: { goals: 0.95, fouls: 1.15, cards: 1.3 } },
+    // Championnats 46 à 50.
+    46: { name: 'Major League Soccer', short: 'MLS', country: 'USA', level: 1, source: 'USA1', profile: { goals: 1.12, fouls: 0.9, cards: 0.9 } },
+    47: { name: 'Liga Profesional', short: 'LPF', country: 'ARG', level: 1, source: 'ARG1', profile: { goals: 0.88, fouls: 1.2, cards: 1.35 } },
+    48: { name: 'Egyptian Premier League', short: 'EPL', country: 'EGY', level: 1, source: 'EGY1', profile: { goals: 0.85, fouls: 1.05, cards: 1.05 } },
+    49: { name: 'LigaPro', short: 'EC', country: 'ECU', level: 1, source: 'ECU1', profile: { goals: 1, fouls: 1.1, cards: 1.2 } },
+    50: { name: 'Premiership (RSA)', short: 'PSL', country: 'RSA', level: 1, source: 'RSA1', profile: { goals: 0.9, fouls: 1, cards: 1 } },
   },
-  // 16 qualifiés pour la Ligue des Étoiles.
   conti: { 1: 3, 2: 2, 3: 2, 4: 2, 5: 2, 6: 1, 7: 1, 8: 1, 9: 1, 10: 1 },
 };
+
+/* ------------------------------------------------------------------ */
+/* Compétitions réelles : continentales, supercoupes, dotations         */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Coupes continentales (format du jeu : 16 clubs, 4 groupes de 4, puis quarts, demies, finale).
+ * slots : places par pays (clubs de l'élite, dans l'ordre du classement final précédent) ;
+ * les compétitions d'un même continent se partagent les places (la C1 prend les premiers, la C3 les suivants…).
+ * prize (€) : participation, victoire / nul en groupe, accès aux quarts, demies, finale, titre
+ * (ordres de grandeur des dotations réelles 2024-2025, ramenés au format du jeu).
+ */
+export const CONTI_DEFS = [
+  { id: 'ucl', name: 'Ligue des champions', short: 'LDC', org: 'UEFA', icon: '⭐', tier: 1, trophy: 'ears', color: '#1d3fbb', nick: 'la coupe aux grandes oreilles',
+    slots: { ENG: 3, ESP: 3, ITA: 2, GER: 2, FRA: 2, POR: 1, NED: 1, BEL: 1, TUR: 1 },
+    prize: { part: 18_600_000, win: 2_100_000, draw: 700_000, qf: 23_500_000, sf: 15_000_000, final: 18_500_000, champ: 6_500_000 } },
+  { id: 'uel', name: 'Ligue Europa', short: 'C3', org: 'UEFA', icon: '🟠', tier: 2, trophy: 'vase', color: '#f26a1b', nick: 'la coupe UEFA',
+    slots: { ENG: 2, ESP: 2, ITA: 2, GER: 2, FRA: 1, POR: 1, NED: 1, BEL: 1, TUR: 1, SCO: 1, AUT: 1, CZE: 1 },
+    prize: { part: 4_300_000, win: 450_000, draw: 150_000, qf: 4_250_000, sf: 2_800_000, final: 4_000_000, champ: 6_000_000 } },
+  { id: 'uecl', name: 'Ligue Europa Conférence', short: 'C4', org: 'UEFA', icon: '🟢', tier: 3, trophy: 'cup', color: '#1fbf72', nick: '',
+    slots: { ENG: 1, ESP: 1, ITA: 1, GER: 1, FRA: 1, POR: 1, NED: 1, BEL: 1, TUR: 1, GRE: 1, NOR: 1, POL: 1, DEN: 1, SUI: 1, SWE: 1, CRO: 1 },
+    prize: { part: 3_200_000, win: 400_000, draw: 133_000, qf: 2_100_000, sf: 2_000_000, final: 3_000_000, champ: 2_000_000 } },
+  { id: 'lib', name: 'Copa Libertadores', short: 'LIB', org: 'CONMEBOL', icon: '🏆', tier: 1, trophy: 'lib', color: '#c9a227', nick: 'la Gloria Eterna',
+    slots: { BRA: 4, ARG: 4, COL: 2, CHI: 2, ECU: 2, URU: 1, PER: 1 },
+    prize: { part: 2_800_000, win: 300_000, draw: 0, qf: 2_700_000, sf: 2_100_000, final: 6_500_000, champ: 16_000_000 } },
+  { id: 'acl', name: 'Ligue des champions de l\'AFC', short: 'ACL', org: 'AFC', icon: '🌏', tier: 1, trophy: 'cup', color: '#0d7c66', nick: '',
+    slots: { KSA: 3, JPN: 3, KOR: 2, CHN: 2, UAE: 2, QAT: 2, AUS: 2 },
+    prize: { part: 800_000, win: 100_000, draw: 50_000, qf: 1_300_000, sf: 1_800_000, final: 3_700_000, champ: 5_500_000 } },
+  { id: 'ccc', name: 'Coupe des champions de la CONCACAF', short: 'CCC', org: 'CONCACAF', icon: '🌎', tier: 1, trophy: 'cup', color: '#2b6cb0', nick: '',
+    slots: { MEX: 8, USA: 8 },
+    prize: { part: 250_000, win: 50_000, draw: 25_000, qf: 500_000, sf: 750_000, final: 1_000_000, champ: 3_000_000 } },
+  { id: 'caf', name: 'Ligue des champions de la CAF', short: 'CAF', org: 'CAF', icon: '🌍', tier: 1, trophy: 'cup', color: '#2f855a', nick: '',
+    slots: { EGY: 6, MAR: 5, RSA: 5 },
+    prize: { part: 650_000, win: 50_000, draw: 25_000, qf: 250_000, sf: 300_000, final: 800_000, champ: 2_000_000 } },
+];
+/** Compétitions continentales actives (selon les championnats présents). Remplie par applyWorld. */
+export const CONTI_COMPS = {};
+
+/** Supercoupes nationales (champion contre vainqueur de la coupe, en août, terrain neutre). */
+export const SUPER_CUPS = {
+  ENG: 'Community Shield', ESP: 'Supercopa de España', ITA: 'Supercoppa italiana', GER: 'DFL-Supercup', FRA: 'Trophée des Champions',
+  POR: 'Supertaça Cândido de Oliveira', NED: 'Johan Cruijff Schaal', BEL: 'Supercoupe de Belgique', TUR: 'Süper Kupa', SCO: '',
+  BRA: 'Supercopa do Brasil', ARG: 'Supercopa Argentina', MEX: 'Campeón de Campeones', KSA: 'Supercoupe d\'Arabie saoudite',
+  JPN: 'Supercoupe du Japon', USA: '', AUS: '', EGY: 'Supercoupe d\'Égypte', MAR: '', RSA: '',
+};
+export const superCupName = (country) => (SUPER_CUPS[country] === '' ? null : SUPER_CUPS[country] || `Supercoupe (${COUNTRIES[country]?.name || country})`);
+
+/**
+ * Dotation des coupes nationales (€ par tour gagné ; le dernier = vainqueur de la finale).
+ * Ordres de grandeur réels ; les autres pays suivent la richesse de leur championnat.
+ */
+export const CUP_PRIZE_TABLE = {
+  ENG: [140_000, 260_000, 530_000, 1_200_000, 2_350_000],
+  GER: [420_000, 840_000, 1_670_000, 3_350_000, 4_320_000],
+  ITA: [250_000, 500_000, 1_000_000, 2_000_000, 4_500_000],
+  ESP: [80_000, 160_000, 320_000, 650_000, 1_500_000],
+  FRA: [60_000, 120_000, 250_000, 500_000, 1_500_000],
+};
+export function cupPrizes(country) {
+  if (CUP_PRIZE_TABLE[country]) return CUP_PRIZE_TABLE[country];
+  const w = LEAGUE_WEALTH[country] ?? 0.4;
+  return [40_000, 80_000, 160_000, 320_000, 800_000].map((v) => Math.round(v * w * 2 / 10_000) * 10_000);
+}
 
 /**
  * Richesse des championnats (droits TV, sponsors) : à réputation égale, un club anglais
@@ -127,6 +200,7 @@ export const LEAGUE_WEALTH = {
   BRA: 0.62, MEX: 0.55, JPN: 0.5, RUS: 0.62, USA: 0.7, SCO: 0.45, AUT: 0.5, SUI: 0.5, DEN: 0.45, GRE: 0.45,
   CZE: 0.38, POL: 0.42, NOR: 0.4, SWE: 0.4, CRO: 0.35, SRB: 0.33, UKR: 0.4, ROU: 0.35, HUN: 0.38, CYP: 0.38, ISR: 0.38,
   KOR: 0.45, CHN: 0.55, AUS: 0.4, UAE: 0.6, QAT: 0.65, MAR: 0.3, PER: 0.25, CHI: 0.3, COL: 0.3, URU: 0.25,
+  ARG: 0.42, EGY: 0.3, ECU: 0.25, RSA: 0.3,
 };
 
 export const COUNTRIES = {};
@@ -154,6 +228,28 @@ export function applyWorld(kind = 'fictional', divs = null) {
   replace(COUNTRIES, Object.fromEntries(Object.entries(def.countries).filter(([c]) => Object.values(keep).some((d) => d.country === c))));
   replace(DIVISIONS, keep);
   replace(CONTI_SLOTS, conti);
+  // Compétitions continentales réelles : seulement si au moins 16 clubs peuvent y prendre part.
+  const comps = {};
+  if (kind === 'real') {
+    const used = {}; // places déjà prises par pays (C1 avant C3…)
+    const eliteOf = (c) => Object.entries(keep).find(([, d]) => d.country === c && d.level === 1);
+    for (const def of CONTI_DEFS) {
+      const slots = {};
+      for (const [c, n] of Object.entries(def.slots)) if (eliteOf(c)) slots[c] = n;
+      // Places des pays absents : redistribuées aux pays présents, dans l'ordre.
+      let missing = 16 - Object.values(slots).reduce((a, n) => a + n, 0);
+      const order = Object.keys(slots);
+      for (let i = 0; missing > 0 && order.length && i < 64; i++) { const c = order[i % order.length]; if (slots[c] < 8) { slots[c]++; missing--; } }
+      if (Object.values(slots).reduce((a, n) => a + n, 0) < 16) continue;
+      const byDiv = {};
+      for (const c of Object.keys(slots)) { byDiv[+eliteOf(c)[0]] = { from: used[c] || 0, n: slots[c] }; used[c] = (used[c] || 0) + slots[c]; }
+      comps[def.id] = { ...def, slots, byDiv };
+    }
+  } else {
+    // Monde fictif : une seule coupe continentale.
+    comps.star = { ...CONTI_DEFS[0], id: 'star', name: CONTI_NAME, short: 'LDE', nick: '', byDiv: Object.fromEntries(Object.entries(conti).map(([d, n]) => [+d, { from: 0, n }])) };
+  }
+  replace(CONTI_COMPS, comps);
   DIV_IDS.length = 0;
   DIV_IDS.push(...Object.keys(DIVISIONS).map(Number));
   replace(DIV_NAMES, Object.fromEntries(DIV_IDS.map((d) => [d, DIVISIONS[d].name])));
