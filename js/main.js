@@ -43,11 +43,16 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   // Un nouveau service worker a pris la main : on recharge une fois (fichiers à jour).
   let reloaded = false;
   const hadController = !!navigator.serviceWorker.controller;
+  // Jamais en plein match : on attend la fin du match pour recharger (sinon la partie serait coupée).
+  const reloadWhenIdle = () => {
+    if (document.querySelector('.match-screen')) { setTimeout(reloadWhenIdle, 5000); return; }
+    if (app.state?.userClubId) saveSync(app.state);
+    location.reload();
+  };
   navigator.serviceWorker.addEventListener('controllerchange', () => {
     if (!hadController || reloaded) return;
     reloaded = true;
-    if (app.state?.userClubId) saveSync(app.state);
-    location.reload();
+    reloadWhenIdle();
   });
   window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' })
     .then((reg) => { reg.update(); setInterval(() => reg.update(), 5 * 60 * 1000); })

@@ -1,5 +1,6 @@
 /**
- * Accueil : prochain match, forme de l'équipe, messages importants (3 max).
+ * Accueil : prochain match, forme de l'équipe, messages import { countryFlag } from '../../data/nations.js';
+importants (3 max).
  */
 import { today, tablePosition, DIV_NAMES, nationSquad, eligibleNations, changeClub, leagueRoundOf, onlineMustPlay } from '../../game/season.js';
 import { DIVISIONS, COUNTRIES } from '../../data/world.js';
@@ -38,7 +39,7 @@ export function render(app) {
   const row = s.tables[uc.div][uc.id];
   const pos = tablePosition(s, uc.id);
   const dv = DIVISIONS[uc.div];
-  const flag = COUNTRIES[uc.country]?.flag || '';
+  const flag = countryFlag(uc.country);
   const diff = row.gf - row.ga;
   let col1 = `<div class="card club-hero">
     <div class="hero-crest">${crest(uc, 'xl')}</div>

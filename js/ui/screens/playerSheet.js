@@ -4,7 +4,7 @@
  */
 import { dealFor, STAGE_LABEL } from '../../game/deals.js';
 import { playerLinks } from '../../game/cohesion.js';
-import { nationFlag } from '../../data/nations.js';
+import { nationFlag, flagImg } from '../../data/nations.js';
 import { ATTRS, ATTR_LABELS, POSITION_LABELS } from '../../data/constants.js';
 import { overall } from '../../engine/ratings.js';
 import { money } from '../../game/economy.js';
@@ -62,7 +62,7 @@ function careerHtml(s, p, club) {
       <div style="overflow-x:auto"><table class="tbl car-tbl"><thead><tr><th class="l">Saison</th><th class="l">Club</th><th>MJ</th><th>B</th><th>PD</th><th>Note</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>
       ${p.careerHist?.length ? '<p class="muted" style="font-size:11px;margin:4px 2px 0">Lignes grisées : parcours réel avant le début de la partie (championnat, source Wikipédia).</p>' : ''}
     </details>
-    <details class="card" ${tourns.length ? 'open' : ''}><summary><b>🌍 Sélection${p.nat ? ` · ${nationFlag(p.nat)} ${esc(p.nat)}` : ''}</b> <small class="muted">${p.caps || 0} sélection(s) · ${p.intGoals || 0} but(s)</small></summary>
+    <details class="card" ${tourns.length ? 'open' : ''}><summary><b>🌍 Sélection${p.nat ? ` · ${flagImg(p.nat)} ${esc(p.nat)}` : ''}</b> <small class="muted">${p.caps || 0} sélection(s) · ${p.intGoals || 0} but(s)</small></summary>
       ${tourns.length ? tourns.map((t) => `<div class="inj-row"><span class="d">${t.y}</span><span class="grow"><b>${esc(t.name)}</b> · ${esc(t.stage)}${(p.honoursInt || []).includes(t.name) ? ' 🏆' : ''}</span><small class="muted num">${t.apps} m · ${t.goals} b · ${t.assists || 0} pd${t.avg ? ` · ${t.avg}` : ''}</small></div>`).join('') : '<p class="muted" style="margin:6px 0 0;font-size:13px">Aucun grand tournoi disputé depuis le début de la partie.</p>'}
     </details>
     <details class="card" ${p.injury > 0 ? 'open' : ''}><summary><b>✚ Historique des blessures</b> <small class="muted">${inj.length ? `${inj.length} blessure(s) · ${injDays} match(s) manqué(s)` : 'aucune'}</small></summary>

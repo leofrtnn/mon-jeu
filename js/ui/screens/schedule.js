@@ -2,6 +2,7 @@
  * Calendrier & classements : championnats, matchs du club, buteurs,
  * coupes (nationales + continentale), sélections nationales.
  */
+import { countryFlag } from '../../data/nations.js';
 import { sortedTable, topScorers, CUP_ROUND_NAMES, CONTI_ROUND_NAMES, contiGroupTable, nationRanking, DIVISIONS, DIV_IDS, COUNTRIES, CONTI_NAME, ensureContis, userConti, contiZones } from '../../game/season.js';
 import { CONTI_COMPS, cupPrizes, LEAGUE_WEALTH } from '../../data/world.js';
 import { trophySvg, trophyArt, leagueTrophy, leagueLogo } from '../trophies.js';
@@ -18,7 +19,7 @@ import { divPicker } from './stats.js';
 import { nationSquad } from '../../game/season.js';
 import { newspaperHtml } from '../newspaper.js';
 import { TOURNAMENTS, tournamentsIn, summerYear } from '../../game/international.js';
-import { nationFlag, confedOf } from '../../data/nations.js';
+import { nationFlag, confedOf, flagImg } from '../../data/nations.js';
 import { clubPlayers as clubPlayersOf } from '../../game/state.js';
 
 export function render(app) {
@@ -70,7 +71,7 @@ function table(s, div, uc) {
         <small class="muted">${me.pts} pts · ${me.w}V ${me.d}N ${me.l}D · ${me.gf}-${me.ga} · ${Math.max(0, left)} journée(s) restante(s)</small></div>
       ${top ? `<div class="top-sc" data-act="player" data-id="${top.id}"><small>Meilleur buteur</small><b>${esc(top.name)}</b><span>${top.stats.lgoals} buts</span></div>` : ''}</div>`;
   }
-  return `${hero}<div class="card league-card" style="padding:6px 8px"><div class="lc-head">${leagueLogo(div, 30)}<span class="flag">${COUNTRIES[D.country].flag}</span><b>${esc(D.name)}</b><small>${esc(COUNTRIES[D.country].name)} · journée ${rows[0]?.p || 0}</small></div>
+  return `${hero}<div class="card league-card" style="padding:6px 8px"><div class="lc-head">${leagueLogo(div, 30)}<span class="flag">${countryFlag(D.country)}</span><b>${esc(D.name)}</b><small>${esc(COUNTRIES[D.country].name)} · journée ${rows[0]?.p || 0}</small></div>
     <table class="tbl ltbl">
     <thead><tr><th class="l">#</th><th class="l">Club</th><th>J</th><th>V</th><th>N</th><th>D</th><th class="hide-s">BP</th><th class="hide-s">BC</th><th>Diff</th><th>Pts</th><th class="l">Forme</th></tr></thead>
     <tbody>${rows.map((r, i) => `<tr class="${r.id === uc.id ? 'me' : ''} ${nDown && i === rows.length - nDown ? 'cut' : ''} ${nEu && i === nEu ? 'cut' : ''}" data-act="clubinfo" data-id="${r.id}" style="cursor:pointer">
@@ -198,7 +199,7 @@ function cups(app, s, uc) {
       <div class="comp-grid">${cards.slice(0, 3 + (mine ? 1 : 0)).filter(Boolean).join('')}</div>
       <div class="label">${mine ? 'Autres coupes continentales' : 'Coupes continentales'}</div><div class="comp-grid">${cards.slice(3 + (mine ? 1 : 0)).join('')}</div>
       <div class="label">Coupes nationales</div>
-      <div class="chips wrap">${Object.keys(s.cups).map((k) => `<button class="chip" data-act="cupw" data-v="${k}">${COUNTRIES[k].flag} ${esc(s.cups[k].name)}</button>`).join('')}</div>
+      <div class="chips wrap">${Object.keys(s.cups).map((k) => `<button class="chip" data-act="cupw" data-v="${k}">${countryFlag(k)} ${esc(s.cups[k].name)}</button>`).join('')}</div>
       <p class="muted" style="font-size:11px;margin:10px 4px">Dotations : ordres de grandeur des primes réelles (saison 2024-2025), adaptés au format du jeu (16 clubs, groupes puis quarts).</p>`;
   }
   const back = '<button class="chip" data-act="cupw" data-v="home">◂ Toutes les compétitions</button>';
@@ -217,7 +218,7 @@ function cups(app, s, uc) {
     if (!c) return html + '<div class="card"><p class="muted">Pas de participants cette saison.</p></div>';
     html += `<div class="grid2">${[0, 1, 2, 3].map((g) => `<div class="card" style="padding:6px 8px;margin-top:0"><div class="label" style="margin:4px">Groupe ${'ABCD'[g]}</div><table class="tbl"><tbody>
       ${contiGroupTable(s, g, c.id).map((r, i) => `<tr class="${r.id === uc.id ? 'me' : ''}" data-act="clubinfo" data-id="${r.id}" style="cursor:pointer"><td class="l ${i < 2 ? 'zone-up' : ''}">${i + 1}</td>
-        <td class="l"><span class="clubcell">${crest(r.club, 'sm')}${esc(r.club.name)} <small class="muted">${COUNTRIES[r.club.country]?.flag || ''}</small></span></td><td>${r.p}</td><td>${r.gd > 0 ? '+' : ''}${r.gd}</td><td><b>${r.pts}</b></td></tr>`).join('')}
+        <td class="l"><span class="clubcell">${crest(r.club, 'sm')}${esc(r.club.name)} <small class="muted">${countryFlag(r.club.country)}</small></span></td><td>${r.p}</td><td>${r.gd > 0 ? '+' : ''}${r.gd}</td><td><b>${r.pts}</b></td></tr>`).join('')}
       </tbody></table></div>`).join('')}</div>`;
     html += c.ko.map((ties, r) => `<div class="label">${CONTI_ROUND_NAMES[r + 3]}</div><div class="card" style="padding:4px 10px;margin-top:0">${ties.map((t) => tie(s, t, uc)).join('')}</div>`).join('');
     if (c.winner) html += `<div class="card center winner-card">${trophyArt(which, def.trophy || 'ears', 54)}<div><b>${esc(clubById(s, c.winner).name)}</b> remporte la ${esc(c.name)}</div></div>`;
@@ -225,7 +226,7 @@ function cups(app, s, uc) {
   }
   const k = s.cups[which] ? which : uc.country;
   const cp = s.cups[k];
-  let html = `<div class="chips">${back}</div><div class="comp-hero" style="--cc:#e3b341">${trophyArt(`cup:${k}`, 'cup', 70)}<div class="grow"><small>${COUNTRIES[k].flag} Coupe nationale · ${esc(COUNTRIES[k].name)}</small><h3>${esc(cp.name)}</h3><p class="muted" style="margin:0">${cp.alive.length} club(s) en course · élimination directe, finale sur terrain neutre.</p></div>
+  let html = `<div class="chips">${back}</div><div class="comp-hero" style="--cc:#e3b341">${trophyArt(`cup:${k}`, 'cup', 70)}<div class="grow"><small>${countryFlag(k)} Coupe nationale · ${esc(COUNTRIES[k].name)}</small><h3>${esc(cp.name)}</h3><p class="muted" style="margin:0">${cp.alive.length} club(s) en course · élimination directe, finale sur terrain neutre.</p></div>
     <div class="prize-box"><b>Dotation</b>${cupPrizeRows(k, cp.nRounds)}</div></div>`;
   if (!cp.rounds.length) return html + `<div class="card"><p class="muted">Premier tour après la 6e journée. ${cp.alive.includes(uc.id) ? 'Vous êtes qualifié.' : ''}</p></div>`;
   html += cp.rounds.map((ties, r) => `<div class="label">${CUP_ROUND_NAMES[r + (5 - cp.nRounds)]}</div><div class="card" style="padding:4px 10px;margin-top:0">${ties.map((t) => tie(s, t, uc)).join('')}</div>`).join('');
@@ -235,7 +236,7 @@ function cups(app, s, uc) {
 
 function nations(s, uc, app) {
   const rank = nationRanking(s);
-  const flag = nationFlag;
+  const flag = flagImg;
   const natV = app?.ui.natView;
   if (natV) return nationDetail(s, uc, natV);
   const mine = clubPlayersOf(s, uc).filter((p) => p.nat && nationSquad(s, p.nat).some((x) => x.id === p.id));
@@ -278,7 +279,7 @@ function nationDetail(s, uc, n) {
   const titles = T.history.filter((h) => h.winner === n);
   const runs = Object.values(T.last || {}).filter((t) => t.elim?.[n]).map((t) => `${t.name} ${t.year} : ${t.elim[n]}`);
   return `<div class="chips"><button class="chip" data-act="natv" data-v="">← Toutes les sélections</button></div>
-    <div class="comp-hero" style="--cc:var(--accent)"><div style="font-size:54px">${nationFlag(n)}</div><div class="grow"><small>${esc(confedOf(n))}</small><h3>${esc(n)}</h3><p class="muted" style="margin:0">Elo ${r.elo} · ${r.p} match(s) : ${r.w} V, ${r.d} N, ${r.l} D${titles.length ? ` · 🏆 ${titles.map((t) => `${esc(t.name)} ${t.year}`).join(', ')}` : ''}</p>
+    <div class="comp-hero" style="--cc:var(--accent)"><div style="font-size:54px">${flagImg(n)}</div><div class="grow"><small>${esc(confedOf(n))}</small><h3>${esc(n)}</h3><p class="muted" style="margin:0">Elo ${r.elo} · ${r.p} match(s) : ${r.w} V, ${r.d} N, ${r.l} D${titles.length ? ` · 🏆 ${titles.map((t) => `${esc(t.name)} ${t.year}`).join(', ')}` : ''}</p>
     ${runs.length ? `<p class="muted" style="margin:4px 0 0;font-size:12px">${runs.map(esc).join(' · ')}</p>` : ''}</div></div>
     <div class="label">Sélection actuelle (${sq.length})</div><div class="card" style="padding:4px 10px;margin-top:0">${sq.length ? sq.map((p) => { const c = clubById(s, p.clubId); return `<div class="row" style="padding:6px 0;border-bottom:1px solid var(--line);gap:8px;cursor:pointer" data-act="player" data-id="${p.id}">${face(p, c, 'sm')}<span class="grow"><b>${esc(p.name)}</b> ${posBadge(p.pos)}<br><small class="muted">${c ? esc(c.name) : 'Libre'} · ${p.age} ans</small></span><small class="muted num">${p.caps || 0} sél. · ${p.intGoals || 0} b.</small>${c?.id === uc.id ? ' 🏠' : ''}</div>`; }).join('') : '<p class="muted">Aucun joueur de cette nation dans les championnats du jeu : la sélection s\'appuie sur son championnat local.</p>'}</div>`;
 }

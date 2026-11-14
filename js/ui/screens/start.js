@@ -1,6 +1,7 @@
 /**
  * Écran de démarrage : 3 emplacements de sauvegarde (continuer, nouvelle partie,
- * importer, supprimer), puis choix du club.
+ * import { countryFlag } from '../../data/nations.js';
+importer, supprimer), puis choix du club.
  */
 import { storedRatings, applyRatings } from '../../game/ratingsImport.js';
 import { newGame, startCareer, startingOffers } from '../../game/season.js';
@@ -115,7 +116,7 @@ function pickerHtml(app, ui) {
   const avg = vals.reduce((a, x) => a + x, 0) / Math.max(1, vals.length);
   const D = DIVISIONS[ui.div];
   const head = q ? `<h3 class="pk-title">Recherche : « ${esc(ui.q)} » <small>${list.length} club(s)</small></h3>`
-    : `<h3 class="pk-title"><span class="flag">${COUNTRIES[D.country].flag}</span> ${esc(D.name)} <small>${esc(COUNTRIES[D.country].name)}${D.down ? ` · ${D.down} relégués` : ''}${D.up ? ` · ${D.up} promus` : ''}</small></h3>`;
+    : `<h3 class="pk-title"><span class="flag">${countryFlag(D.country)}</span> ${esc(D.name)} <small>${esc(COUNTRIES[D.country].name)}${D.down ? ` · ${D.down} relégués` : ''}${D.up ? ` · ${D.up} promus` : ''}</small></h3>`;
   const cards = list.map((c) => `<button class="club-card ${c.id === ui.sel ? 'on' : ''}" data-act="sel" data-id="${c.id}">
       ${crest(c, 'lg')}
       <b>${esc(c.name)}</b>
@@ -148,7 +149,7 @@ function clubSheet(app, id) {
     : rank <= 2 ? 'Jouer le titre' : rank <= 5 ? 'Viser l\'Europe' : rank <= n / 2 ? 'Finir dans la première moitié' : 'Se maintenir';
   const h = app.sheet({
     html: `<div class="row" style="gap:14px">${crest(c, 'lg')}<div class="grow"><h2>${esc(c.name)}</h2>
-        <small>${COUNTRIES[D.country].flag} ${esc(D.name)} · réputation ${REP_WORD(c.rep)}</small></div></div>
+        <small>${countryFlag(D.country)} ${esc(D.name)} · réputation ${REP_WORD(c.rep)}</small></div></div>
       <div class="pk-facts">
         <div><small>Budget</small><b>${money(c.budget)}</b></div>
         <div><small>Stade</small><b>${Number(c.stadium).toLocaleString('fr-FR')} places</b></div>
@@ -195,7 +196,7 @@ function offersSheet(app, slot, st) {
     html: `<h2>Vos premières offres</h2>
       <p class="muted" style="margin-top:0">Réputation de ${esc(coachName(coach))} : <b>${Math.round(coach.rep)}</b>/100. Ces clubs vous proposent leur banc. Les plus grands viendront… si vous faites vos preuves.</p>
       <div class="offer-list">${offers.map((o) => { const c = st.clubs.find((x) => x.id === o.id); const D = DIVISIONS[c.div];
-        return `<button class="offer-card" data-act="pick" data-id="${c.id}">${crest(c, 'lg')}<div class="grow"><b>${esc(c.name)}</b><small>${COUNTRIES[c.country]?.flag || ''} ${esc(D.name)} · réputation ${c.rep}</small>
+        return `<button class="offer-card" data-act="pick" data-id="${c.id}">${crest(c, 'lg')}<div class="grow"><b>${esc(c.name)}</b><small>${countryFlag(c.country)} ${esc(D.name)} · réputation ${c.rep}</small>
           <small>Budget ${money(c.budget)} · salaire proposé ${money(o.wage)}/sem</small></div><span class="btn sm primary">Signer ▸</span></button>`; }).join('')}</div>`,
     actions: { pick: (el) => { h.close(); takeClub(app, +el.dataset.id, coach); } },
   });

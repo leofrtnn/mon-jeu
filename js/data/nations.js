@@ -1,3 +1,4 @@
+import { COUNTRIES } from './world.js';
 /**
  * NATIONS : noms français normalisés, drapeaux et confédérations.
  * Certaines pages sources donnent la nationalité en anglais (« BRAZIL ») ou en code (« SER ») :
@@ -37,6 +38,18 @@ const ISO = {
   Yémen: 'YE', 'Hong Kong': 'HK', Bahreïn: 'BH', Philippines: 'PH', Malaisie: 'MY',
 };
 const SUB = { Angleterre: 'gbeng', Écosse: 'gbsct', 'Pays de Galles': 'gbwls' };
+const SUB_ISO = { Angleterre: 'gb-eng', Écosse: 'gb-sct', 'Pays de Galles': 'gb-wls', 'Irlande du Nord': 'gb-nir' };
+/** Code ISO (minuscules) d'une nation, pour les images de drapeaux. */
+export const isoOf = (n) => SUB_ISO[n] || (ISO[n] ? ISO[n].toLowerCase() : null);
+/**
+ * Drapeau en image (les émojis drapeaux ne s'affichent pas sous Windows) : servi par flagcdn,
+ * rien n'est copié dans le jeu. Repli sur l'émoji si la nation est inconnue.
+ */
+export function flagImg(n, h = 16) {
+  const iso = isoOf(n);
+  if (!iso) return `<span class="flag-e">${nationFlag(n)}</span>`;
+  return `<img class="flag" src="https://flagcdn.com/h40/${iso}.png" alt="${n}" title="${n}" height="${h}" loading="lazy" referrerpolicy="no-referrer" onerror="this.replaceWith(document.createTextNode(''))">`;
+}
 export function nationFlag(n) {
   if (SUB[n]) return String.fromCodePoint(0x1f3f4, ...[...SUB[n]].map((c) => 0xe0000 + c.charCodeAt(0)), 0xe007f);
   const iso = ISO[n];
@@ -55,3 +68,9 @@ export const confedOf = (n) => CONF[n] || 'UEFA';
 
 /** Pays hôte (code climat du jeu) pour la météo des tournois. */
 export const NATION_COUNTRY = { France: 'FRA', Espagne: 'ESP', Allemagne: 'GER', Italie: 'ITA', Angleterre: 'ENG', Portugal: 'POR', Brésil: 'BRA', Argentine: 'ARG', 'États-Unis': 'USA', Mexique: 'MEX', Maroc: 'MAR', Égypte: 'EGY', Qatar: 'QAT', 'Arabie saoudite': 'KSA', Japon: 'JPN', 'Corée du Sud': 'KOR', Chili: 'CHI', Colombie: 'COL', Turquie: 'TUR', 'Pays-Bas': 'NED', Belgique: 'BEL' };
+
+/** Drapeau (image) d'un pays du jeu, à partir de son code de championnat (FRA, ENG…). */
+export function countryFlag(code, h = 14) {
+  const c = COUNTRIES[code]?.name;
+  return c ? flagImg(c, h) : '';
+}

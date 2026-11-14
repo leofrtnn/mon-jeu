@@ -1362,3 +1362,5 @@ ul.notes { margin: 4px 0 0; padding-left: 18px; font-size: 13px; line-height: 1.
 .cm-card .grow small { display: block; color: var(--muted); }
 .cm-rep { text-align: center; min-width: 52px; }
 .cm-rep b { font-family: var(--display); font-size: 22px; display: block; }
+.flag { display: inline-block; vertical-align: -2px; border-radius: 2px; box-shadow: 0 0 0 1px rgba(255,255,255,.12); height: 1em; width: auto; margin-right: 2px; }
+.tw-flag .flag { height: 48px; } .comp-hero .flag { height: 40px; }

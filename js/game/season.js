@@ -379,7 +379,17 @@ export function topScorers(state, div, n = 15) {
 /* ---------------- Sélections nationales ---------------- */
 
 /** Joueurs sélectionnables par nation (joueurs sous contrat). */
+const POOL_CACHE = new WeakMap();
 export function nationPools(state) {
+  // Mis en cache par journée (l'écran Sélections l'appelait des dizaines de fois : très lent).
+  const key = `${state.season}-${state.day}-${state.preseason?.date || ''}-${state.freeAgents?.length || 0}`;
+  const hit = POOL_CACHE.get(state);
+  if (hit && hit.key === key) return hit.pools;
+  const pools = computePools(state);
+  POOL_CACHE.set(state, { key, pools });
+  return pools;
+}
+function computePools(state) {
   const pools = {};
   for (const c of state.clubs) for (const id of c.playerIds) {
     const p = state.players[id];

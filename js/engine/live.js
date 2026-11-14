@@ -1211,6 +1211,18 @@ export class LiveSim {
 
   ballStep(dt, out) {
     const P = this.P, h = this.holder;
+    // Ballon ramené pour une remise en jeu : trajectoire en cloche jusqu'au point exact.
+    const F = this.restart?.fetch;
+    if (F) {
+      F.t += dt;
+      const k = Math.min(1, F.t / F.T), rs = this.restart;
+      const nx = F.x0 + (rs.x - F.x0) * k, ny = F.y0 + (rs.y - F.y0) * k;
+      const nz = Math.max(BR, F.z0 * (1 - k) + BR * k + 4 * F.h * k * (1 - k));
+      P.vx = (nx - P.x) / Math.max(dt, 1e-4); P.vy = (ny - P.y) / Math.max(dt, 1e-4); P.vz = (nz - P.z) / Math.max(dt, 1e-4);
+      P.x = nx; P.y = ny; P.z = nz; P.rot.a += Math.hypot(P.vx, P.vy) / BR * dt;
+      if (k >= 1) { Object.assign(P, { x: rs.x, y: rs.y, z: BR, vx: 0, vy: 0, vz: 0 }); rs.fetch = null; }
+      return;
+    }
     let glued = false;
     if (h && this.inHands) {
       const f = this.foot(h, 0.3);
@@ -1316,7 +1328,11 @@ export class LiveSim {
     let taker;
     const mates = this.list(side);
     if (kind === 'goalkick') taker = mates.find((p) => p.gk);
-    else if (kind === 'corner') taker = this.players.get(setPieceTaker(T, 'corner', (mp) => eff(mp, 'pas')).id);
+    else if (kind === 'corner') {
+      taker = this.players.get(setPieceTaker(T, 'corner', (mp) => eff(mp, 'pas')).id);
+      // Spécialiste trop loin : le meilleur centreur parmi les joueurs proches du corner s'en charge.
+      if (!taker || this.dist(taker, x, y) > 30) taker = mates.filter((p) => !p.gk && this.dist(p, x, y) < 32).sort((a, b) => eff(b.mp, 'pas') - eff(a.mp, 'pas'))[0] || taker;
+    }
     else if (kind === 'penalty') taker = this.players.get(setPieceTaker(T, 'pen', (mp) => eff(mp, 'tir') * 0.5 + eff(mp, 'sf') * 0.5).id);
     else taker = mates.filter((p) => !p.gk).sort((a, b) => this.dist(a, x, y) - this.dist(b, x, y))[0];
     // Coup franc direct : le spécialiste est désigné dès la faute et vient poser le ballon.
@@ -1340,8 +1356,13 @@ export class LiveSim {
     if (kind === 'penalty' && out) emit(m, out, { type: 'penalty', side, pid: taker.mp.id, x: x / L, y: y / W, zone: 3 });
     if (kind === 'freekick' && out) emit(m, out, { type: 'freekick', side, pid: taker.mp.id, x: x / L, y: y / W, zone: m.zone });
     if (kind === 'freekick' || kind === 'penalty') m.stoppages += kind === 'penalty' ? 0.8 : 0.1;
-    // Le ballon est posé (ou ramené) à l'endroit de la remise en jeu.
-    Object.assign(this.P, { x, y, z: BR, vx: 0, vy: 0, vz: 0, spin: 0, top: 0, inGoal: 0, hitPost: false });
+    // Le ballon revient à l'endroit de la remise en jeu (renvoyé par un ramasseur ou le joueur),
+    // jamais téléporté : il fait le trajet, en cloche s'il est loin.
+    const P = this.P, d0 = Math.hypot(P.x - x, P.y - y);
+    if (d0 > 1.2 && kind !== 'penalty') {
+      this.restart.fetch = { x0: P.x, y0: P.y, z0: Math.max(BR, P.z), t: 0, T: clamp(d0 / 13, 0.45, 1.7), h: clamp(d0 * 0.09, 0.3, 3) };
+      Object.assign(P, { spin: 0, top: 0, inGoal: 0, hitPost: false });
+    } else Object.assign(P, { x, y, z: BR, vx: 0, vy: 0, vz: 0, spin: 0, top: 0, inGoal: 0, hitPost: false });
     this.positioning();
   }
 
@@ -1362,9 +1383,11 @@ export class LiveSim {
       // Attaquants dans la surface, défenseurs au marquage ; penalty : tout le monde hors de la surface.
       const spots = [[6, -3], [8, 3], [11, 0], [5, 6], [13, -6], [16, 2]];
       const att = this.list(rs.side).filter((p) => p !== t && !p.gk).sort((a, b) => eff(b.mp, 'phy') - eff(a.mp, 'phy'));
+      // En attendant le ballon, ça bouge : appels, feintes, on se décale pour perdre son marqueur.
+      const jig = (i) => (rs.kind === 'penalty' ? [0, 0] : [Math.cos(this.now * 1.3 + i * 1.7) * 0.9, Math.sin(this.now * 1.1 + i * 2.3) * 1.4]);
       att.forEach((p, i) => {
         if (rs.kind === 'penalty') { p.tx = (gx - dir * (18.5 + (i % 3))) / L; p.ty = (W / 2 + ((i % 6) - 2.5) * 5) / W; return; }
-        if (i < spots.length) { p.tx = (gx - dir * spots[i][0]) / L; p.ty = (W / 2 + spots[i][1]) / W; }
+        if (i < spots.length) { const [jx, jy] = jig(i); p.tx = (gx - dir * (spots[i][0] + jx)) / L; p.ty = (W / 2 + spots[i][1] + jy) / W; }
       });
       const defs = this.list(D.side).filter((p) => !p.gk);
       defs.forEach((p, i) => {
@@ -1446,7 +1469,7 @@ export class LiveSim {
     // ballon posé, mur formé, joueurs placés, signal du tireur.
     const nearGoal = Math.hypot(this.goalX(rs.side) - rs.x, W / 2 - rs.y) < 32;
     const minT = { kickoff: 2.4, throw: 1.4, goalkick: 3.0, corner: 4.2, freekick: nearGoal ? 5.5 : 3.2, penalty: 4.5 }[rs.kind] * (this.tacticalMood(rs.taker?.team || this.m.teams[rs.side]).wasting ? 1.8 : 1);
-    const atBall = this.dist(t, rs.x, rs.y) < 1.4;
+    const atBall = this.dist(t, rs.x, rs.y) < 1.4 && !rs.fetch;
     if (atBall && !rs.placed && rs.kind !== 'throw' && rs.kind !== 'kickoff') { rs.placed = true; t.place = 0.9; t.face = Math.atan2(rs.y - t.y * W, rs.x - t.x * L); }
     if (rs.kind === 'corner' && rs.placed && rs.t > minT - 1.4 && !rs.signal) { rs.signal = true; t.signal = 1.1; }
     t.hold = rs.kind === 'throw' && atBall ? 1 : 0;   // touche : ballon pris à deux mains
@@ -1455,7 +1478,10 @@ export class LiveSim {
     // Engagement : chacun doit être dans sa moitié.
     let settled = true;
     if (rs.kind === 'kickoff' || rs.kind === 'penalty' || rs.kind === 'corner' || (rs.kind === 'freekick' && nearGoal)) {
+      const gxR = this.goalX(rs.side);
       for (const p of this.players.values()) {
+        // Corner / coup franc : seuls comptent les joueurs attendus dans la zone de vérité.
+        if (rs.kind !== 'kickoff' && rs.kind !== 'penalty' && Math.abs(p.tx * L - gxR) > 24 && p !== t) continue;
         if (Math.hypot((p.tx - p.x) * L, (p.ty - p.y) * W) > (rs.kind === 'kickoff' ? 7 : 4.5)) { settled = false; break; }
         // Engagement : tout le monde dans sa moitié (et l'adversaire hors du rond central).
         if (rs.kind === 'kickoff' && (p.x * L - L / 2) * this.dir(p.side) > 0.02) { settled = false; break; }
