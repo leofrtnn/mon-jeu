@@ -92,7 +92,7 @@ export function openMatch(app, opts = {}) {
   const rec = (op, a) => { if (!replay) journal.push({ n: view.liveSteps || 0, op, a }); };
   const resuming = official && pendingLiveMatch(s);
   const saveSnap = () => {
-    if (!official || !s.liveLock) return;
+    if (!official || !s.liveLock || view.replayLive) return; // pas pendant un ralenti (positions rejouées)
     try { localStorage.setItem(LIVE_KEY, JSON.stringify({ sig: liveSig(s), snap: { m: snapshotMatch(m), live: view.live ? view.live.snapshot() : null } })); } catch { /* stockage plein : tant pis */ }
   };
   const onHide = () => { if (document.visibilityState === 'hidden') saveSnap(); };

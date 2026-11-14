@@ -86,7 +86,7 @@ function crowdTexture(c1, c2) {
 function boardsTexture(names) {
   return canvasTex(2048, 64, (g, w, h) => {
     const cols = ['#0b3d91', '#c1121f', '#111', '#f4a261', '#2a9d8f', '#6a4c93'];
-    const words = ['COACH DE POCHE', ...names, 'LIGUE DES ÉTOILES'];
+    const words = ['COACH DE POCHE', ...names, 'FAIR PLAY', 'RESPECT'];
     let x = 0, i = 0;
     while (x < w) {
       const t = words[i % words.length];
@@ -432,6 +432,13 @@ class Player3D {
     if (p.card > 0) { const a = this.arms[1]; a.sh.rotation.x = -a.sgn * 3.0; a.sh.rotation.z = 0; a.el.rotation.z = 0; }
     if (p.point > 0) { const a = this.arms[0]; a.sh.rotation.z = 1.5; a.el.rotation.z = 0.05; }
     if (p.whistle > 0) { const a = this.arms[1]; a.sh.rotation.z = 0.6; a.el.rotation.z = 2.3; }
+    // Contact d'épaule : il est déséquilibré sur le côté, bras écartés, puis se rétablit.
+    if (p.bump > 0 && !(p.fall > 0) && !(p.slide > 0)) {
+      const k = Math.sin(Math.min(1, p.bump / 0.35) * Math.PI);
+      const side = Math.sign(Math.sin((p.bumpDir ?? 0) - (p.face || 0))) || 1;
+      this.body.rotation.x += (flip ? -1 : 1) * side * 0.32 * k;
+      for (const a of this.arms) { a.sh.rotation.x += a.sgn * 0.6 * k; a.el.rotation.z = Math.max(a.el.rotation.z, 0.4 * k); }
+    }
     // Fauché : il tombe en avant, reste au sol un instant, puis se relève.
     if (p.fall > 0) {
       const dur = p.fall > 0.6 || this._fallDur > 0.6 ? 1.1 : 0.6;

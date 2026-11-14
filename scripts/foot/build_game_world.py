@@ -269,6 +269,9 @@ def lead_bonus(n):
     import math
     return max(-1.5, min(4.5, (math.log10(n) - 2.3) * 3.2))   # 200 car. → 0, 1000 → 2,2, 3000 → 3,7
 
+def gp_pos(p):
+    return (p.get('position') or {}).get('game')
+
 def player_score(p, rep_club, rep_of):
     caps = ((p.get('international') or {}).get('caps')) or 0
     nat = (p.get('nationality') or {}).get('code') or ''
@@ -292,11 +295,41 @@ def player_score(p, rep_club, rep_of):
     if age_k < 0 and age <= 23: age_k *= max(0, 1 - max(0, fame) / 3.5)   # les jeunes déjà reconnus (Yamal…) ne sont pas pénalisés
     exp = min(2.5, senior / 160) - (2.5 if senior < 15 else 0)
     pedigree = max(0, best - rep_club) * (.16 if age < 30 else .08)
+    # --- Forme récente (saisons 2023-2026) : niveau des clubs fréquentés, pondéré par les matchs joués.
+    NOW = 2026
+    rw = rs = 0
+    for c in p.get('career') or []:
+        a = c.get('apps') or 0
+        if a < 5 or re.search(r'\b(U-?\d\d|II|B|reserves?|youth|academy|Jong|Castilla|Primavera)\b', c.get('club') or '', re.I): continue
+        ys = [int(y) for y in re.findall(r'(\d{4})', c.get('years') or '')]
+        if not ys: continue
+        end = NOW if re.search(r'[–-]\s*$', c.get('years') or '') else ys[-1]
+        if end < NOW - 3: continue
+        r = rep_of.get(norm_club(c.get('club') or ''))
+        if not r: continue
+        yrs = max(1, end - ys[0] + 1)
+        w = a * min(1, 3 / yrs)            # seules les 3 dernières saisons comptent pleinement
+        rw += w; rs += w * r
+    recent = (rs / rw - rep_club) * (.12 if age < 31 else .06) if rw >= 20 else 0
+    # --- Statut dans le club actuel : titulaire indiscutable, rotation ou remplaçant (matchs par saison).
+    cs = p.get('clubStats') or {}
+    since = re.findall(r'(\d{4})', cs.get('since') or '')
+    status = 0
+    if since and cs.get('apps') is not None:
+        seasons = max(.6, NOW - int(since[0]) + .3)
+        per = (cs.get('apps') or 0) / seasons
+        status = 1.4 if per >= 30 else .7 if per >= 22 else 0 if per >= 12 else (-1.2 if age >= 21 else -.4)
+        if gp_pos(p) in ('BU', 'AG', 'AD', 'MO') and (cs.get('apps') or 0) >= 25:
+            status += max(-.6, min(1.6, ((cs.get('goals') or 0) / cs['apps'] - (.3 if gp_pos(p) == 'BU' else .17)) * 6))   # efficacité récente
+    # --- Sélection : international en activité (années « 2020– ») = niveau actuel reconnu.
+    yrs_i = ((p.get('international') or {}).get('years') or '')
+    active = 1 if re.search(r'[–-]\s*$', yrs_i) and caps >= 5 else 0
+    intl += active * (.4 + 1.6 * strn)
     gp = (p.get('position') or {}).get('game')
     scorer = 0
     if gp in ('BU', 'AG', 'AD', 'MO') and senior >= 40:
         scorer = max(-1, min(3.5, (goals / senior - .25) * 9 if gp == 'BU' else (goals / senior - .15) * 9))
-    return intl + exp + pedigree + age_k + scorer + fame
+    return intl + exp + pedigree + age_k + scorer + fame + recent + status
 
 def stable_noise(key):
     import hashlib

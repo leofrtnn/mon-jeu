@@ -114,7 +114,8 @@ export function showPlayer(app, pid, onChange) {
       loanin: () => done(loanIn(s, pid), true),
       observe: () => done({ ...observe(s, pid), ok: true }),
       renew: () => { h.close(); negotiateContract(app, pid, null, onChange, true); },
-      talk: () => {
+      talk: () => { import('./mailbox.js').then((mod) => mod.openMailbox(app, { tab: 'chats', pid })); },
+      talkOld: () => {
         const ts = app.sheet({
           html: `<h2>💬 Discussion avec ${esc(s.players[pid].name)}</h2><p class="muted">Forme ${s.players[pid].form} · moral ${s.players[pid].morale}</p>
             <div class="btns" style="flex-direction:column">${Object.entries(TALKS).map(([k, l]) => `<button class="btn block" data-act="say" data-v="${k}">${l}</button>`).join('')}</div>`,

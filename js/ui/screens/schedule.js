@@ -4,7 +4,7 @@
  */
 import { sortedTable, topScorers, CUP_ROUND_NAMES, CONTI_ROUND_NAMES, contiGroupTable, nationRanking, DIVISIONS, DIV_IDS, COUNTRIES, CONTI_NAME, ensureContis, userConti, contiZones } from '../../game/season.js';
 import { CONTI_COMPS, cupPrizes, LEAGUE_WEALTH } from '../../data/world.js';
-import { trophySvg, leagueTrophy } from '../trophies.js';
+import { trophySvg, trophyArt, leagueTrophy } from '../trophies.js';
 import { money, prizeMoney } from '../../game/economy.js';
 import { userClub, clubById } from '../../game/state.js';
 import { esc, crest, seg, posBadge } from '../components.js';
@@ -162,9 +162,9 @@ function cupPrizeRows(country, nRounds) {
 const holder = (s, id) => (id ? clubById(s, id) : null);
 
 /** Carte d'une compétition (trophée, nom, statut du club, dotation maximale). */
-function compCard(s, { key, kind, title, sub, status, total, color }) {
+function compCard(s, { key, tkey, kind, title, sub, status, total, color }) {
   return `<button class="comp-card" data-act="cupw" data-v="${key}" style="--cc:${color || '#7c5cff'}">
-    <div class="tro">${trophySvg(kind, 46)}</div><div class="grow"><small>${esc(sub)}</small><b>${esc(title)}</b>
+    <div class="tro">${trophyArt(tkey, kind, 46)}</div><div class="grow"><small>${esc(sub)}</small><b>${esc(title)}</b>
     ${status ? `<span class="st">${status}</span>` : ''}</div>${total ? `<div class="pz"><small>Dotation max.</small><b>${money(total)}</b></div>` : ''}</button>`;
 }
 
@@ -182,13 +182,13 @@ function cups(app, s, uc) {
   const st = (alive, winner, id) => (winner ? (winner === id ? '<b class="pos-txt">🏆 Vainqueur</b>' : `Vainqueur : ${esc(clubById(s, winner)?.name || '')}`) : alive ? '<span class="pos-txt">En course</span>' : '<span class="neg-txt">Éliminé</span>');
   if (which === 'home') {
     const cards = [
-      compCard(s, { key: 'league', kind: leagueTrophy(D.country), title: D.name, sub: 'Championnat', status: `${sortedTable(s, uc.div).findIndex((r) => r.id === uc.id) + 1}e · ${sortedTable(s, uc.div)[0]?.club.short || ''} en tête`, total: D.level === 1 ? prizeMoney(1, 1, uc) : 0, color: '#7c5cff' }),
-      cup ? compCard(s, { key: uc.country, kind: 'cup', title: cup.name, sub: 'Coupe nationale', status: cup.alive.includes(uc.id) || cup.winner ? st(cup.alive.includes(uc.id), cup.winner, uc.id) : 'Non qualifié', total: cupTotal(uc.country), color: '#e3b341' }) : '',
-      sup ? compCard(s, { key: 'super:' + uc.country, kind: 'shield', title: sup.name, sub: 'Supercoupe', status: sup.h === uc.id || sup.a === uc.id ? (sup.w ? st(false, sup.w, uc.id) : 'Qualifié · en août') : `${esc(clubById(s, sup.h)?.short || '')} - ${esc(clubById(s, sup.a)?.short || '')}`, color: '#4cc9f0' }) : '',
-      ...Object.values(contis).sort((a, b) => (b === mine) - (a === mine)).map((c) => compCard(s, { key: c.id, kind: CONTI_COMPS[c.id]?.trophy || 'cup', title: c.name, sub: `${CONTI_COMPS[c.id]?.org || ''} · coupe continentale`, status: c.teams.includes(uc.id) ? st(c.alive.includes(uc.id), c.winner, uc.id) : (c.winner ? `Vainqueur : ${esc(clubById(s, c.winner).name)}` : `${c.alive.length} clubs en course`), total: contiTotal(c.id), color: CONTI_COMPS[c.id]?.color })),
+      compCard(s, { key: 'league', tkey: `league:${D.country}`, kind: leagueTrophy(D.country), title: D.name, sub: 'Championnat', status: `${sortedTable(s, uc.div).findIndex((r) => r.id === uc.id) + 1}e · ${sortedTable(s, uc.div)[0]?.club.short || ''} en tête`, total: D.level === 1 ? prizeMoney(1, 1, uc) : 0, color: '#7c5cff' }),
+      cup ? compCard(s, { key: uc.country, tkey: `cup:${uc.country}`, kind: 'cup', title: cup.name, sub: 'Coupe nationale', status: cup.alive.includes(uc.id) || cup.winner ? st(cup.alive.includes(uc.id), cup.winner, uc.id) : 'Non qualifié', total: cupTotal(uc.country), color: '#e3b341' }) : '',
+      sup ? compCard(s, { key: 'super:' + uc.country, tkey: `super:${uc.country}`, kind: 'shield', title: sup.name, sub: 'Supercoupe', status: sup.h === uc.id || sup.a === uc.id ? (sup.w ? st(false, sup.w, uc.id) : 'Qualifié · en août') : `${esc(clubById(s, sup.h)?.short || '')} - ${esc(clubById(s, sup.a)?.short || '')}`, color: '#4cc9f0' }) : '',
+      ...Object.values(contis).sort((a, b) => (b === mine) - (a === mine)).map((c) => compCard(s, { key: c.id, tkey: c.id, kind: CONTI_COMPS[c.id]?.trophy || 'cup', title: c.name, sub: `${CONTI_COMPS[c.id]?.org || ''} · coupe continentale`, status: c.teams.includes(uc.id) ? st(c.alive.includes(uc.id), c.winner, uc.id) : (c.winner ? `Vainqueur : ${esc(clubById(s, c.winner).name)}` : `${c.alive.length} clubs en course`), total: contiTotal(c.id), color: CONTI_COMPS[c.id]?.color })),
     ];
     return `<div class="cabinet"><div class="cab-head"><b>🏆 Armoire à trophées · ${esc(uc.name)}</b><small>${cabinet.length ? `${cabinet.length} titre(s) remporté(s) pendant votre partie` : 'Aucun titre pour l\'instant : à vous d\'écrire l\'histoire !'}</small></div>
-      <div class="cab-row">${cabinet.map((h) => `<div class="cab-item" title="${esc(h.name)} ${h.season}-${h.season + 1}">${trophySvg(h.kind === 'conti' ? (Object.values(CONTI_COMPS).find((c) => c.name === h.name)?.trophy || 'cup') : h.kind === 'super' ? 'shield' : h.kind === 'cup' ? 'cup' : leagueTrophy(uc.country), 40)}<small>${esc(h.name)}<br>${h.season}-${String(h.season + 1).slice(2)}</small></div>`).join('') || '<div class="cab-empty">Vitrine vide</div>'}</div></div>
+      <div class="cab-row">${cabinet.map((h) => `<div class="cab-item" title="${esc(h.name)} ${h.season}-${h.season + 1}">${(() => { const cc = Object.values(CONTI_COMPS).find((c) => c.name === h.name); return h.kind === 'conti' ? trophyArt(cc?.id, cc?.trophy || 'cup', 40) : h.kind === 'super' ? trophyArt(`super:${uc.country}`, 'shield', 40) : h.kind === 'cup' ? trophyArt(`cup:${uc.country}`, 'cup', 40) : trophyArt(`league:${uc.country}`, leagueTrophy(uc.country), 40); })()}<small>${esc(h.name)}<br>${h.season}-${String(h.season + 1).slice(2)}</small></div>`).join('') || '<div class="cab-empty">Vitrine vide</div>'}</div></div>
       <div class="label">Mes compétitions</div>
       <div class="comp-grid">${cards.slice(0, 3 + (mine ? 1 : 0)).filter(Boolean).join('')}</div>
       <div class="label">${mine ? 'Autres coupes continentales' : 'Coupes continentales'}</div><div class="comp-grid">${cards.slice(3 + (mine ? 1 : 0)).join('')}</div>
@@ -200,13 +200,13 @@ function cups(app, s, uc) {
   if (which.startsWith('super:')) {
     const k = which.slice(6), x = s.supers?.[k];
     if (!x) return back;
-    return `<div class="chips">${back}</div><div class="comp-hero" style="--cc:#4cc9f0">${trophySvg('shield', 70)}<div><small>Supercoupe · ${esc(COUNTRIES[k]?.name || '')}</small><h3>${esc(x.name)}</h3><p class="muted">Le champion affronte le vainqueur de la coupe (ou le dauphin), en août, sur terrain neutre.</p></div></div>
+    return `<div class="chips">${back}</div><div class="comp-hero" style="--cc:#4cc9f0">${trophyArt(`super:${k}`, 'shield', 70)}<div><small>Supercoupe · ${esc(COUNTRIES[k]?.name || '')}</small><h3>${esc(x.name)}</h3><p class="muted">Le champion affronte le vainqueur de la coupe (ou le dauphin), en août, sur terrain neutre.</p></div></div>
       <div class="card">${tie(s, x, uc)}</div>`;
   }
   if (CONTI_COMPS[which] || contis[which]) {
     const c = contis[which];
     const def = CONTI_COMPS[which] || {};
-    let html = `<div class="chips">${back}</div><div class="comp-hero" style="--cc:${def.color || '#1d3fbb'}">${trophySvg(def.trophy || 'ears', 70)}
+    let html = `<div class="chips">${back}</div><div class="comp-hero" style="--cc:${def.color || '#1d3fbb'}">${trophyArt(which, def.trophy || 'ears', 70)}
       <div class="grow"><small>${esc(def.org || '')} · coupe continentale</small><h3>${esc(def.name || c?.name || '')}</h3>${def.nick ? `<p class="muted" style="margin:0">Surnommée ${esc(def.nick)}.</p>` : ''}</div>
       ${def.prize ? `<div class="prize-box"><b>Dotation</b>${contiPrizeRows(def.prize)}</div>` : ''}</div>`;
     if (!c) return html + '<div class="card"><p class="muted">Pas de participants cette saison.</p></div>';
@@ -215,16 +215,16 @@ function cups(app, s, uc) {
         <td class="l"><span class="clubcell">${crest(r.club, 'sm')}${esc(r.club.name)} <small class="muted">${COUNTRIES[r.club.country]?.flag || ''}</small></span></td><td>${r.p}</td><td>${r.gd > 0 ? '+' : ''}${r.gd}</td><td><b>${r.pts}</b></td></tr>`).join('')}
       </tbody></table></div>`).join('')}</div>`;
     html += c.ko.map((ties, r) => `<div class="label">${CONTI_ROUND_NAMES[r + 3]}</div><div class="card" style="padding:4px 10px;margin-top:0">${ties.map((t) => tie(s, t, uc)).join('')}</div>`).join('');
-    if (c.winner) html += `<div class="card center winner-card">${trophySvg(def.trophy || 'ears', 54)}<div><b>${esc(clubById(s, c.winner).name)}</b> remporte la ${esc(c.name)}</div></div>`;
+    if (c.winner) html += `<div class="card center winner-card">${trophyArt(which, def.trophy || 'ears', 54)}<div><b>${esc(clubById(s, c.winner).name)}</b> remporte la ${esc(c.name)}</div></div>`;
     return html;
   }
   const k = s.cups[which] ? which : uc.country;
   const cp = s.cups[k];
-  let html = `<div class="chips">${back}</div><div class="comp-hero" style="--cc:#e3b341">${trophySvg('cup', 70)}<div class="grow"><small>${COUNTRIES[k].flag} Coupe nationale · ${esc(COUNTRIES[k].name)}</small><h3>${esc(cp.name)}</h3><p class="muted" style="margin:0">${cp.alive.length} club(s) en course · élimination directe, finale sur terrain neutre.</p></div>
+  let html = `<div class="chips">${back}</div><div class="comp-hero" style="--cc:#e3b341">${trophyArt(`cup:${k}`, 'cup', 70)}<div class="grow"><small>${COUNTRIES[k].flag} Coupe nationale · ${esc(COUNTRIES[k].name)}</small><h3>${esc(cp.name)}</h3><p class="muted" style="margin:0">${cp.alive.length} club(s) en course · élimination directe, finale sur terrain neutre.</p></div>
     <div class="prize-box"><b>Dotation</b>${cupPrizeRows(k, cp.nRounds)}</div></div>`;
   if (!cp.rounds.length) return html + `<div class="card"><p class="muted">Premier tour après la 6e journée. ${cp.alive.includes(uc.id) ? 'Vous êtes qualifié.' : ''}</p></div>`;
   html += cp.rounds.map((ties, r) => `<div class="label">${CUP_ROUND_NAMES[r + (5 - cp.nRounds)]}</div><div class="card" style="padding:4px 10px;margin-top:0">${ties.map((t) => tie(s, t, uc)).join('')}</div>`).join('');
-  if (cp.winner) html += `<div class="card center winner-card">${trophySvg('cup', 54)}<div><b>${esc(clubById(s, cp.winner).name)}</b> remporte la ${esc(cp.name)}</div></div>`;
+  if (cp.winner) html += `<div class="card center winner-card">${trophyArt(`cup:${k}`, 'cup', 54)}<div><b>${esc(clubById(s, cp.winner).name)}</b> remporte la ${esc(cp.name)}</div></div>`;
   return html;
 }
 

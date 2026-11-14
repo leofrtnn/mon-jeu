@@ -1,3 +1,4 @@
+import { imgTag } from './images.js';
 /**
  * TROPHÉES : illustrations vectorielles originales (formes génériques, aucun logo officiel copié).
  *  ears  : grande coupe à larges anses (Coupe d'Europe des clubs champions)
@@ -61,3 +62,35 @@ export function trophySvg(kind = 'cup', size = 64, metal = 'gold') {
 
 /** Type de trophée d'un championnat (plateau pour l'Allemagne). */
 export const leagueTrophy = (country) => (country === 'GER' ? 'plate' : 'league');
+
+/**
+ * Photos réelles des trophées (Wikimedia Commons / Wikipédia), affichées comme les logos des clubs :
+ * l'image est chargée depuis Wikimedia (rien n'est copié dans le dépôt) ; tant qu'elle n'est pas
+ * chargée (ou si elle est indisponible), le dessin vectoriel reste visible.
+ */
+const TROPHY_PHOTOS = {
+  ucl: 'Trofeo UEFA Champions League.jpg',
+  uel: 'PSV tegen Bastia, Uefacup Willy van de Kuylen met de beker, Bestanddeelnr 929-7082.jpg',
+  acl: 'AFC Champions League trophy.jpg',
+  caf: '1 c1 trophe Kwame Nkrumah.jpg',
+  'cup:ENG': 'The FA Cup Trophy.jpg',
+  'cup:GER': '2018-09-17 Eintracht Frankfurt Golf Open DFB Pokal-8909.jpg',
+  'cup:SCO': 'Scottish cup.jpg',
+  'cup:POR': 'Taça de Portugal Trophy.svg',
+  'league:ENG': 'Trophy of FA Premier League in Singapore, 2023.jpg',
+  'league:GER': 'Trophy of Fußball-Bundesliga in Singapore, 2023.jpg',
+  'league:FRA': 'Ligue 1 Trophy 2024.png',
+  'league:TUR': '2014–15 Süper Lig Cup.jpg',
+  'super:ENG': 'FA Community Shield.JPG',
+  'super:FRA': 'Trophée des champions.jpeg',
+  'super:GER': 'Replik des DFL Supercup, FC Bayern Erlebniswelt.jpg',
+};
+export const trophyPhoto = (key) => TROPHY_PHOTOS[key] || null;
+
+/** Trophée : photo réelle si disponible, dessin sinon (et en attendant le chargement). */
+export function trophyArt(key, kind, size = 64) {
+  const file = TROPHY_PHOTOS[key];
+  const svg = trophySvg(kind, size);
+  if (!file) return svg;
+  return `<span class="tro-art" style="--ts:${size}px">${svg}${imgTag(file, size * 2, 'photo')}</span>`;
+}

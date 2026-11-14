@@ -1092,3 +1092,30 @@ ul.notes { margin: 4px 0 0; padding-left: 18px; font-size: 13px; line-height: 1.
 .ind-row .sel { background: var(--card2); color: var(--text); border: 1px solid var(--line2); border-radius: 8px; padding: 4px 6px; font: 500 12px var(--body); max-width: 160px; }
 .tr-row { padding: 5px 0; border-bottom: 1px solid var(--line); font-size: 13px; cursor: pointer; }
 .proj-total { margin-top: 6px; padding-top: 8px; border-top: 2px solid var(--line2); font-size: 15px; } .proj-total b { font: 800 20px var(--display); }
+.tro-art { position: relative; display: inline-flex; width: var(--ts); height: calc(var(--ts) * 1.2); align-items: center; justify-content: center; }
+.tro-art img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border-radius: 10px; opacity: 0; transition: opacity .3s; box-shadow: 0 6px 16px rgba(0,0,0,.45); }
+.tro-art.img-ok img { opacity: 1; }
+.tro-art.img-ok .trophy { opacity: 0; }
+
+/* ==========================================================================
+   MESSAGERIE (messages + conversations avec les joueurs)
+   ========================================================================== */
+.mb-tabs { display: flex; gap: 8px; margin: 4px 0; }
+.nb { font-style: normal; display: inline-block; min-width: 18px; padding: 0 5px; margin-left: 4px; border-radius: 9px; background: var(--bad); color: #fff; font-size: 11px; font-weight: 700; text-align: center; }
+.chip.sm { padding: 5px 10px; font-size: 12px; }
+.mb-list { max-height: 62vh; overflow-y: auto; }
+.chat-row { display: flex; align-items: center; gap: 10px; padding: 9px 6px; border-bottom: 1px solid var(--line); cursor: pointer; border-radius: 10px; }
+.chat-row:hover { background: rgba(255,255,255,.03); }
+.chat-row small { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
+.chat-row.unread b { color: #fff; } .chat-row.unread small { color: var(--text); }
+.chat-row .posb { transform: scale(.85); }
+.chat-head { display: flex; align-items: center; gap: 10px; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
+.chat-head small { display: block; color: var(--muted); font-size: 12px; }
+.chat { display: flex; flex-direction: column; gap: 8px; padding: 12px 2px; max-height: 48vh; overflow-y: auto; }
+.bub { position: relative; max-width: 78%; padding: 9px 12px 16px; border-radius: 16px; font-size: 14px; line-height: 1.4; }
+.bub.them { align-self: flex-start; background: var(--card2); border-bottom-left-radius: 4px; }
+.bub.me { align-self: flex-end; background: var(--grad); color: #fff; border-bottom-right-radius: 4px; }
+.bub .when { position: absolute; right: 10px; bottom: 3px; font-size: 9px; opacity: .6; }
+.bub .note { display: block; margin-top: 4px; font-size: 11px; opacity: .75; font-style: italic; }
+.quick { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.quick .btn { text-align: left; white-space: normal; }

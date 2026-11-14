@@ -243,19 +243,11 @@ export const actions = {
   msg(el, app) {
     const m = app.state.messages.find((x) => String(x.id) === el.dataset.id);
     if (!m) return;
+    if (m.action?.type === 'chat') { m.read = true; app.save(); import('./mailbox.js').then((mod) => mod.openMailbox(app, { tab: 'chats', pid: m.action.pid, legacy: (mm) => legacyOpen(app, mm) })); return; }
     openMessage(app, m, (mm) => legacyOpen(app, mm));
   },
-  allmsgs(el, app) {
-    const ms = app.state.messages.slice(0, 40);
-    const h = app.sheet({
-      html: `<h2>Boîte de réception</h2>${ms.map(msgRow).join('') || '<p class="muted">Aucun message.</p>'}
-        <button class="btn block" data-act="readall" style="margin-top:12px">Tout marquer comme lu</button>`,
-      actions: {
-        readall: () => { app.state.messages.forEach((m) => (m.read = true)); app.save(); h.close(); app.render(); },
-        msg: (e) => { const m = app.state.messages.find((x) => String(x.id) === e.dataset.id); if (!m) return; h.close(); openMessage(app, m, (mm) => legacyOpen(app, mm)); },
-      },
-    });
-  },
+  allmsgs(el, app) { import('./mailbox.js').then((mod) => mod.openMailbox(app, { legacy: (mm) => legacyOpen(app, mm) })); },
+
 };
 
 function legacyOpen(app, m) {

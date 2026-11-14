@@ -13,7 +13,7 @@
 /** Données propres à chaque manager humain. */
 export const HUMAN_KEYS = ['userClubId', 'coach', 'board', 'life', 'objectives', 'seasonStats', 'sponsorDeals', 'preseason',
   'pendingOffers', 'scout', 'scoutQueue', 'missions', 'scoutReports', 'sacked', 'lastResult', 'history', 'messages', 'mediaV', 'mediaReady',
-  'playedMatch', 'matchLog'];   // match joué en direct par ce manager (en ligne), avant de cliquer « Prêt »
+  'playedMatch', 'matchLog', 'chats'];   // match joué en direct par ce manager (en ligne), avant de cliquer « Prêt »
 
 export const SOLO = '__solo';
 

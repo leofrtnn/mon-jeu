@@ -318,3 +318,27 @@ test('monde réel : 50 championnats (dont 5 deuxièmes divisions), vrais clubs e
   assert.ok(DIVISIONS[5].name === 'Ligue 1');
   applyWorld('fictional');
 });
+
+test('messagerie : un joueur écrit, le coach répond (effets), le coach écrit en premier', async () => {
+  const { chatDaily, replyChat, writeChat, thread, TOPICS } = await import('../js/game/chat.js');
+  const { createRng } = await import('../js/core/rng.js');
+  const st = newGame(77);
+  startCareer(st, st.clubs[3].id);
+  const uc = st.clubs.find((c) => c.id === st.userClubId);
+  const p = st.players[uc.playerIds[5]];
+  p.lastRating = 8.6; p.lastRatingDay = st.day;
+  for (const id of uc.playerIds) if (id !== p.id) st.players[id].chatDay = st.day; // seul p peut écrire
+  st.players[p.id].chatDay = null;
+  chatDaily(st, createRng(3));
+  const t = thread(st, p.id);
+  assert.equal(t.pending, 'greatgame', 'le joueur écrit après un grand match');
+  assert.ok(st.messages.some((m) => m.action?.type === 'chat' && m.action.pid === p.id), 'notification dans la boîte de réception');
+  const before = p.morale;
+  replyChat(st, p.id, 'praise');
+  assert.ok(p.morale > before, 'le moral monte');
+  assert.equal(t.pending, null);
+  assert.equal(t.msgs.length, 3);
+  const r = writeChat(st, p.id, 'how');
+  assert.ok(r.ok && t.msgs.length === 5, 'le joueur répond à « comment tu te sens »');
+  assert.ok(Object.keys(TOPICS).length >= 6);
+});

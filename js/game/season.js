@@ -33,6 +33,7 @@ import { injuryLength, noteInjury, SEVERE_NAMES } from './injuries.js';
 import { aiSeasonBudget, finHealth } from './owners.js';
 import { BAL } from '../data/balance.js';
 import { captainCfg } from './captain.js';
+import { chatDaily } from './chat.js';
 
 export const CUP_ROUND_NAMES = ['16es de finale', '8es de finale', 'Quarts de finale', 'Demi-finales', 'Finale'];
 export const CONTI_ROUND_NAMES = ['Groupes · J1', 'Groupes · J2', 'Groupes · J3', 'Quarts de finale', 'Demi-finales', 'Finale'];
@@ -729,6 +730,7 @@ export function completeDay(state, userMatch = null) {
     if (uc.budget < 0 && budgetBefore[h] >= 0) pushMessage(state, { prio: 1, icon: '⚠', title: 'Budget dans le rouge', text: 'Le board demande de vendre ou de réduire la masse salariale.' });
     if (h === cur) report.finance = uc.budget - budgetBefore[h];
     lifeUserDaily(state, rng, t);
+    chatDaily(state, rng);
     updateBoard(state, t, report);
   });
   state.day++;
@@ -933,6 +935,7 @@ function applyResult(state, f, sum, m, ctx) {
         p.stats.goals += mp.goals; p.stats.assists += mp.assists; p.stats.ratingSum += mp.rating;
         if (f.comp === 'league') p.stats.lgoals += mp.goals;
         if (sum.motm && sum.motm.id === p.id) p.stats.motm++;
+        p.lastRating = Math.round(mp.rating * 10) / 10; p.lastRatingDay = state.day;
         const st = p.stats, pos = t.slots[mp.slot]?.pos || p.pos;
         st.starts = (st.starts || 0) + (mp.minIn === 0 ? 1 : 0);
         st.shots = (st.shots || 0) + mp.shots; st.kp = (st.kp || 0) + mp.keyPasses;

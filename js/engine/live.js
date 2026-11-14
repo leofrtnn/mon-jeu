@@ -711,7 +711,7 @@ export class LiveSim {
   kickBall(h, tx, ty, lofted, z = null) {
     const P = this.P;
     const f = this.foot(h);
-    if (Math.hypot(f.x - P.x, f.y - P.y) < 1.8 && P.z < 0.5) { P.x = f.x; P.y = f.y; }
+    if (Math.hypot(f.x - P.x, f.y - P.y) < 0.4 && P.z < 0.5) { P.x = f.x; P.y = f.y; }
     const len = Math.hypot(tx - P.x, ty - P.y);
     if (h.throwIn > 0) P.z = 2.0;                       // touche : le ballon part des mains, au-dessus de la tête
     else if (!(h.kick > 0)) { h.kick = 0.32; h.kickPow = lofted ? 0.85 : 0.5; h.kickSide = !lofted; }
@@ -736,7 +736,7 @@ export class LiveSim {
     const tx = clamp(this.X(r) + dir * 1, gx - dir * 14, gx - dir * 4), ty = clamp(this.Y(r), W / 2 - 9, W / 2 + 9);
     const vy = ty - P.y, swing = this.rand() < 0.65 ? 1 : -1;
     const f = this.foot(h);
-    if (Math.hypot(f.x - P.x, f.y - P.y) < 1.8) { P.x = f.x; P.y = f.y; }
+    if (Math.hypot(f.x - P.x, f.y - P.y) < 0.4) { P.x = f.x; P.y = f.y; }
     if (!(h.kick > 0)) { h.kick = 0.32; h.kickPow = 0.85; } h.face = Math.atan2(ty - P.y, tx - P.x);
     this.lastTouch = h.side;
     const len = Math.hypot(tx - P.x, ty - P.y);
@@ -873,7 +873,7 @@ export class LiveSim {
     else tgt = r2 < 0.35 ? { x: gx + gdir * 0.6, y: cy + side * r3 * GOAL_HALF, z: 2.6 + r1 * 0.9 } : { x: gx + gdir * 0.6, y: cy + side * (GOAL_HALF + 0.5 + r1 * 3.5), z: 0.2 + r2 * 1.5 };
     if (tech === 'chip') speed = Math.max(11, Math.hypot(tgt.x - P.x, tgt.y - P.y) / 1.5);
     const f = this.foot(h);
-    if (kind !== 'header' && Math.hypot(f.x - P.x, f.y - P.y) < 1.8 && P.z < 0.5) { P.x = f.x; P.y = f.y; }
+    if (kind !== 'header' && Math.hypot(f.x - P.x, f.y - P.y) < 0.4 && P.z < 0.5) { P.x = f.x; P.y = f.y; }
     if (kind === 'header') h.jump = 0.45; else if (!(h.kick > 0)) { h.kick = 0.32; h.kickPow = tech === 'drive' ? 1 : 0.8; h.kickSide = tech === 'finesse'; }
     h.lastTech = tech;
     h.face = Math.atan2(tgt.y - P.y, tgt.x - P.x);
@@ -1306,8 +1306,18 @@ export class LiveSim {
     else if (kind === 'corner') taker = this.players.get(setPieceTaker(T, 'corner', (mp) => eff(mp, 'pas')).id);
     else if (kind === 'penalty') taker = this.players.get(setPieceTaker(T, 'pen', (mp) => eff(mp, 'tir') * 0.5 + eff(mp, 'sf') * 0.5).id);
     else taker = mates.filter((p) => !p.gk).sort((a, b) => this.dist(a, x, y) - this.dist(b, x, y))[0];
+    // Coup franc direct : le spécialiste est désigné dès la faute et vient poser le ballon.
+    let direct = false;
+    if (kind === 'freekick') {
+      const dG = Math.hypot(this.goalX(side) - x, W / 2 - y);
+      if (dG < 30 && Math.abs(y - W / 2) < 18 && this.rand() < 0.4) {
+        direct = true;
+        const fk = this.players.get(setPieceTaker(T, 'fk', (mp) => eff(mp, 'tir') + eff(mp, 'sf')).id);
+        if (fk) taker = fk;
+      }
+    }
     if (!taker) taker = mates[0];
-    this.restart = { kind, side, x, y, taker, t: 0 };
+    this.restart = { kind, side, x, y, taker, t: 0, direct };
     this.poss = side;
     changePossession(m, side, m.zone, taker?.mp);
     if (kind === 'corner') {
@@ -1438,15 +1448,11 @@ export class LiveSim {
         if (rs.kind === 'kickoff' && (p.x * L - L / 2) * this.dir(p.side) > 0.02) { settled = false; break; }
       }
     }
-    if (rs.t > 14 && !rs.forced) { // trop long : on reprend, seuls les retardataires gênants sont replacés
-      rs.forced = true;
-      for (const p of this.players.values()) {
-        // Seul un joueur encore dans la mauvaise moitié à l'engagement est replacé.
-        const wrongHalf = rs.kind === 'kickoff' && (p.x * L - L / 2) * this.dir(p.side) > 0.02;
-        if (wrongHalf) { p.x = p.tx; p.y = p.ty; p.vx = p.vy = 0; }
-      }
-      if (!atBall) { t.x = (rs.x - this.dir(rs.side) * 0.4) / L; t.y = rs.y / W; }
-    } else if (!rs.forced && !(atBall && rs.t >= minT && settled && !(t.place > 0))) return;
+    // Trop long : l'arbitre presse les retardataires, qui sprintent (personne n'est jamais déplacé
+    // d'un coup) ; on reprend dès que le tireur est au ballon et que l'engagement est réglementaire.
+    if (rs.t > 12) rs.hurry = true;
+    const kickoffOk = rs.kind !== 'kickoff' || [...this.players.values()].every((p) => (p.x * L - L / 2) * this.dir(p.side) <= 0.02);
+    if (!(atBall && rs.t >= minT && (settled || (rs.hurry && kickoffOk) || rs.t > 30) && !(t.place > 0))) return;
     // Armé de la jambe avant de jouer le ballon (le geste précède le départ du ballon).
     if (rs.kind !== 'throw') {
       if (rs.go == null) { rs.go = this.now + 0.12 * GS; t.kick = 0.28; t.kickPow = ['goalkick', 'corner', 'penalty'].includes(rs.kind) ? 1 : 0.55; t.kickSide = rs.kind === 'kickoff'; t.face = Math.atan2(W / 2 - this.P.y, this.goalX(rs.side) - this.P.x); return; }
@@ -1466,11 +1472,7 @@ export class LiveSim {
     }
     if (rs.kind === 'freekick') {
       const dG = Math.hypot(this.goalX(rs.side) - rs.x, W / 2 - rs.y);
-      if (dG < 30 && Math.abs(rs.y - W / 2) < 18 && this.rand() < 0.4) {
-        const taker = this.players.get(setPieceTaker(t.team, 'fk', (mp) => eff(mp, 'tir') + eff(mp, 'sf')).id) || t;
-        if (taker !== t) { taker.x = t.x; taker.y = t.y; }
-        this.holder = taker; this.doShot(taker, 'freekick', out); return;
-      }
+      if (rs.direct) { this.doShot(t, 'freekick', out); return; }
       if (dG < 40) {
         const inBox = mates.filter((p) => Math.abs(this.X(p) - this.goalX(rs.side)) < 16);
         if (inBox.length) { this.doCross(t, inBox[Math.floor(this.rand() * inBox.length)], out); return; }
@@ -1526,14 +1528,15 @@ export class LiveSim {
       if (p.fall > 0.3 || p.slide > 0.2) { p.tx = p.x; p.ty = p.y; }
       // Arrêt de jeu : on se replace en trottinant (on ne sprinte pas pour un coup franc).
       let cap = Infinity;
-      if (this.restart && p !== this.restart.taker) { const dd = Math.hypot((p.tx - p.x) * L, (p.ty - p.y) * W); cap = dd > 25 ? 6.4 : dd > 10 ? 5 : 3.4; }
+      if (this.restart?.hurry) cap = Infinity;   // l'arbitre presse : on court se replacer
+      else if (this.restart && p !== this.restart.taker) { const dd = Math.hypot((p.tx - p.x) * L, (p.ty - p.y) * W); cap = dd > 25 ? 6.4 : dd > 10 ? 5 : 3.4; }
       else if (this.restart) cap = Math.hypot((p.tx - p.x) * L, (p.ty - p.y) * W) > 12 ? 6.5 : 4.2;   // le tireur file vers le ballon
       step(p, Math.min(cap, (6.6 + vit * 0.033) * (en > 70 ? 1 - (100 - en) * 0.002 : 0.94 - (70 - en) * 0.006) * withBall * (p.celeb > 0 ? 0.8 : 1)));
       // Effort réel : ce qu'il court (les sprints coûtent bien plus que le trot).
       if (p.mp && !p.celeb) { const v = p.speed || 0; p.mp.work = (p.mp.work || 0) + v * dt * (0.6 + (v / 6.5) ** 2 * 1.6); }
       const gd = dt / GS;
       if (p.diveDelay != null) { p.diveDelay -= dt; if (p.diveDelay <= 0) { p.diveDelay = null; p.dive = 0.75; } }
-      for (const k of ['kick', 'slide', 'dive', 'jump', 'celeb', 'touch', 'fall', 'block', 'throwIn', 'ctrl', 'place', 'signal']) if (p[k] > 0) p[k] = Math.max(0, p[k] - gd);
+      for (const k of ['kick', 'slide', 'dive', 'jump', 'celeb', 'touch', 'fall', 'block', 'throwIn', 'ctrl', 'place', 'signal', 'bump']) if (p[k] > 0) p[k] = Math.max(0, p[k] - gd);
     }
     // Contacts : on ne se traverse pas.
     const arr = [...this.players.values()];
@@ -1543,9 +1546,20 @@ export class LiveSim {
         if (a.slide > 0 || c.slide > 0 || a.celeb > 0 || c.celeb > 0) continue;
         const dx = (c.x - a.x) * L, dy = (c.y - a.y) * W, d = Math.hypot(dx, dy);
         if (d > 1.0 || d < 1e-4) continue;
-        const push = (1.0 - d) * 0.5, ux = dx / d, uy = dy / d;
-        a.x -= (ux * push) / L; a.y -= (uy * push) / W;
-        c.x += (ux * push) / L; c.y += (uy * push) / W;
+        const ux = dx / d, uy = dy / d;
+        // Le plus costaud déplace l'autre (poids ≈ physique).
+        const wa = 0.5 + (a.mp?.p?.attrs?.phy ?? 60) / 200, wc = 0.5 + (c.mp?.p?.attrs?.phy ?? 60) / 200;
+        const ka = wc / (wa + wc), kc = wa / (wa + wc);
+        const push = 1.0 - d;
+        a.x -= (ux * push * ka) / L; a.y -= (uy * push * ka) / W;
+        c.x += (ux * push * kc) / L; c.y += (uy * push * kc) / W;
+        // Vitesses : la composante qui les rapproche est absorbée (pas de traversée ni de rebond).
+        const rv = (c.vx - a.vx) * ux + (c.vy - a.vy) * uy;
+        if (rv < 0) {
+          a.vx += ux * rv * ka; a.vy += uy * rv * ka;
+          c.vx -= ux * rv * kc; c.vy -= uy * rv * kc;
+          if (-rv > 4.5) { a.bump = Math.max(a.bump || 0, 0.35 * ka * 2); c.bump = Math.max(c.bump || 0, 0.35 * kc * 2); a.bumpDir = Math.atan2(-uy, -ux); c.bumpDir = Math.atan2(uy, ux); }
+        }
       }
     }
   }

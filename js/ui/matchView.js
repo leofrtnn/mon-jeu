@@ -93,6 +93,7 @@ export class MatchView {
     this.trail = [];
     this.selected = null;
     this._tap = (e) => {
+      if (this.replayLive) { this.skipReplay(); return; } // toucher pendant le ralenti : on le passe
       const id = this.playerAt(e.clientX, e.clientY);
       this.selected = id === this.selected ? null : id;
       this.opts.onPlayerTap?.(this.selected);
@@ -480,6 +481,9 @@ export class MatchView {
 
   /** Fait avancer la simulation en direct et affiche ses événements. */
   updateLive(dt, realDt) {
+    // Ralenti du but en cours : la simulation est figée, on rejoue les images enregistrées.
+    if (this.replayLive) { this.playReplay(realDt); return; }
+    if (this.replayPlan && this.replayPlan.frames && (this.replayPlan.wait -= realDt) <= 0) { this.startReplay(); return; }
     // Événements venus de l'écran (remplacement manuel) : annoncés, joueurs resynchronisés.
     if (this.queue.length) {
       const evs = this.queue.splice(0).filter((e) => !e.replay);
@@ -501,6 +505,7 @@ export class MatchView {
       for (const ev of this.live.step(LIVE_STEP)) this.liveEvent(ev);
       if (this.paused) break; // mi-temps / fin : l'écran a mis en pause
     }
+    this.recordFrame();
     this.holder = this.live.holder ? this.live.holder.mp.id : null;
     this.inHands = this.live.inHands;
     // Remises en jeu annoncées à l'écran (après la bannière en cours, s'il y en a une).
@@ -519,8 +524,76 @@ export class MatchView {
     this.updateFx(realDt);
   }
 
+  /* ---------------- Ralentis (moteur en direct) ---------------- */
+
+  /** Enregistre l'image courante (ballon + joueurs) : les 7 dernières secondes de jeu sont gardées. */
+  recordFrame() {
+    if (this.replayLive) return;
+    const P = this.phys, t = this.liveSteps || 0;
+    const rec = (this._rec ||= []);
+    if (rec.length && rec[rec.length - 1].t === t) return;
+    const ps = [];
+    for (const [id, p] of this.players) ps.push([id, p.x, p.y, p.face || 0, p.speed || 0, p.phase || 0, p.kick || 0, p.slide || 0, p.dive || 0, p.diveDir || 1, p.jump || 0, p.fall || 0, p.kickPow || 0, p.bump || 0]);
+    rec.push({ t, b: [P.x, P.y, P.z, P.vx || 0, P.vy || 0, P.vz || 0], ps });
+    while (rec.length > 2 && t - rec[0].t > 7 * 96) rec.shift();
+    // But marqué : on fige la séquence un peu après le but (le ballon au fond des filets).
+    const plan = this.replayPlan;
+    if (plan && !plan.frames && t >= plan.cut) plan.frames = rec.filter((f) => f.t >= plan.cut - 4.6 * 96).slice();
+  }
+
+  /** Lance le ralenti : sauvegarde l'état réel, puis rejoue la séquence enregistrée. */
+  startReplay() {
+    const frames = this.replayPlan.frames;
+    this.replayPlan = null;
+    if (!frames || frames.length < 10) return;
+    const save = new Map();
+    for (const [id, p] of this.players) save.set(id, { ...p });
+    this.replayLive = { frames, pos: 0, end: (frames[frames.length - 1].t - frames[0].t) / 96, save, P: { ...this.phys, rot: { ...(this.phys.rot || {}) } } };
+    this.replaying = true;
+  }
+
+  /** Avance le ralenti (vitesse 0,45) ; à la fin, tout revient exactement à l'état réel. */
+  playReplay(realDt) {
+    const R = this.replayLive;
+    R.pos += realDt * 0.5;
+    const t = R.frames[0].t + R.pos * 96;
+    let i = R.frames.findIndex((f) => f.t > t);
+    if (i < 0 || R.pos >= R.end) { this.endReplay(); return; }
+    const a = R.frames[Math.max(0, i - 1)], b = R.frames[i];
+    const k = b.t === a.t ? 0 : (t - a.t) / (b.t - a.t);
+    const mix = (u, v) => u + (v - u) * k;
+    const P = this.phys;
+    P.x = mix(a.b[0], b.b[0]); P.y = mix(a.b[1], b.b[1]); P.z = mix(a.b[2], b.b[2]); P.vx = b.b[3]; P.vy = b.b[4]; P.vz = b.b[5];
+    const bi = new Map(b.ps.map((r) => [r[0], r]));
+    for (const ra of a.ps) {
+      const p = this.players.get(ra[0]), rb = bi.get(ra[0]);
+      if (!p || !rb) continue;
+      let df = rb[3] - ra[3]; while (df > Math.PI) df -= 2 * Math.PI; while (df < -Math.PI) df += 2 * Math.PI;
+      p.x = mix(ra[1], rb[1]); p.y = mix(ra[2], rb[2]); p.face = ra[3] + df * k; p.speed = mix(ra[4], rb[4]); p.phase = mix(ra[5], rb[5]);
+      p.kick = rb[6]; p.slide = rb[7]; p.dive = rb[8]; p.diveDir = rb[9]; p.jump = rb[10]; p.fall = rb[11]; p.kickPow = rb[12]; p.bump = rb[13]; p.celeb = 0;
+    }
+    const bl = this.ball;
+    bl.x = P.x / PITCH_L; bl.y = P.y / PITCH_W; bl.h = Math.max(0, P.z - BALL_R) / 26;
+    this.updateFx(realDt);
+  }
+
+  endReplay() {
+    const R = this.replayLive;
+    if (!R) return;
+    for (const [id, saved] of R.save) { const p = this.players.get(id); if (p) Object.assign(p, saved); }
+    Object.assign(this.phys, R.P);
+    const bl = this.ball, P = this.phys;
+    bl.x = P.x / PITCH_L; bl.y = P.y / PITCH_W; bl.h = Math.max(0, P.z - BALL_R) / 26;
+    this.replayLive = null; this.replaying = false;
+    this._rec = [];
+  }
+
+  /** Passe le ralenti (bouton ou toucher). */
+  skipReplay() { if (this.replayLive) this.endReplay(); this.replayPlan = null; }
+
   /** Effets visuels et annonce d'un événement du moteur en direct. */
   liveEvent(ev) {
+    if (ev.type === 'ht' || ev.type === 'ft' || ev.type === 'et' || ev.type === 'eht') this.replayPlan = null; // pas de ralenti après la pause
     if (ev.period && ev.period !== this.period) {
       this.period = ev.period;
       this.banner = { text: '⇅ Changement de côté', color: null, t: 0, dur: 1.6, small: true };
@@ -528,6 +601,8 @@ export class MatchView {
     if (ev.type === 'goal') {
       this.banner = { text: 'BUT !', color: this.colors[ev.side], t: 0, dur: 2.8 };
       this.cam.shake = 1; this.flash = 1;
+      // Ralenti du but, après la célébration (pas en accéléré, ni en revoyant un match).
+      if (this.speed <= 2 && this.opts.replays !== false) this.replayPlan = { cut: (this.liveSteps || 0) + Math.round(0.9 * 96), wait: 3.2, frames: null };
       const [sx, sy] = this.toScreen(ev.side === 0 ? 1 : 0, 0.5);
       for (let i = 0; i < 70; i++) {
         this.particles.push({ x: sx, y: sy, vx: (Math.random() - 0.5) * 9, vy: (Math.random() - 0.5) * 9,
@@ -1299,7 +1374,9 @@ export class MatchView {
     if (this.replaying) {
       g.fillStyle = 'rgba(0,0,0,0.35)'; g.fillRect(0, 0, W, H * 0.05); g.fillRect(0, H * 0.95, W, H * 0.05);
       g.fillStyle = '#fff'; g.font = `700 ${Math.round(H * 0.024)}px system-ui, sans-serif`; g.textAlign = 'left'; g.textBaseline = 'middle';
-      g.fillText('● RALENTI', W * 0.03, H * 0.026); g.textBaseline = 'alphabetic';
+      g.fillText('● RALENTI', W * 0.03, H * 0.026);
+      if (this.replayLive) { g.textAlign = 'right'; g.font = `600 ${Math.round(H * 0.02)}px system-ui, sans-serif`; g.fillText('Toucher pour passer ▸', W * 0.97, H * 0.026); }
+      g.textBaseline = 'alphabetic';
     }
   }
 
@@ -1465,30 +1542,27 @@ export class MatchView {
     g.textBaseline = 'alphabetic';
   }
 
+  /**
+   * Bandeaux (BUT, faute, carton, hors-jeu…) : en HAUT de l'écran, compacts, pour ne jamais
+   * masquer le jeu (le centre du terrain reste toujours visible).
+   */
   drawBanner(g, W, H) {
     const b = this.banner;
-    const k = Math.min(1, b.t / 0.25) * Math.min(1, (b.dur - b.t) / 0.3);
-    g.globalAlpha = Math.max(0, k);
-    if (b.small) {
-      const fs = Math.round(W * 0.07);
-      g.font = `800 ${fs}px system-ui, sans-serif`;
-      const w = g.measureText(b.text).width + fs;
-      g.fillStyle = b.color || 'rgba(10,14,22,0.7)';
-      g.fillRect(W / 2 - w / 2, H * 0.44, w, fs * 1.5);
-      g.fillStyle = '#fff'; g.textAlign = 'center'; g.textBaseline = 'middle';
-      g.fillText(b.text, W / 2, H * 0.44 + fs * 0.78);
-    } else {
-      const fs = Math.round(W * 0.2 * (0.8 + 0.2 * Math.min(1, b.t * 3)));
-      g.fillStyle = 'rgba(0,0,0,0.35)';
-      g.fillRect(0, H * 0.4, W, H * 0.2);
-      g.font = `900 italic ${fs}px system-ui, sans-serif`;
-      g.textAlign = 'center'; g.textBaseline = 'middle';
-      g.lineWidth = fs * 0.08; g.strokeStyle = '#fff';
-      g.fillStyle = b.color;
-      g.strokeText(b.text, W / 2, H / 2);
-      g.fillText(b.text, W / 2, H / 2);
-    }
+    const k = Math.max(0, Math.min(1, b.t / 0.2) * Math.min(1, (b.dur - b.t) / 0.3));
+    g.globalAlpha = k;
+    const big = !b.small;
+    const fs = Math.round(Math.min(W * (big ? 0.042 : 0.022), H * (big ? 0.075 : 0.042)));
+    g.font = `${big ? '900 italic' : '800'} ${fs}px system-ui, sans-serif`;
+    const w = g.measureText(b.text).width + fs * 1.6, h = fs * 1.55;
+    const x = W / 2 - w / 2, y = H * 0.035 + (1 - Math.min(1, b.t / 0.2)) * -h;
+    g.fillStyle = 'rgba(8,10,20,0.78)';
+    g.beginPath(); g.roundRect ? g.roundRect(x, y, w, h, h / 2) : g.rect(x, y, w, h); g.fill();
+    g.fillStyle = b.color || '#7c5cff';
+    g.beginPath(); g.roundRect ? g.roundRect(x, y, h * 0.32, h, [h / 2, 0, 0, h / 2]) : g.rect(x, y, h * 0.32, h); g.fill();
+    g.fillStyle = '#fff'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillText(b.text, W / 2 + h * 0.12, y + h * 0.53);
     g.textBaseline = 'alphabetic';
     g.globalAlpha = 1;
   }
+
 }

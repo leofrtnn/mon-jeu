@@ -215,7 +215,7 @@ export const app = {
         <button class="topcoach" id="topcoach" aria-label="Mon coach">${avatarSvg(this.state.coach?.look, 40)}</button>
         ${cont ? `<button class="btn primary top-go" data-act="topgo"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 4.5v15l12.5-7.5z"/></svg><span>${esc(cont.label)}</span><i>→</i></button>` : ''}`;
       this.$top.classList.remove('hidden');
-      const unread = (this.state.messages || []).filter((m) => !m.read).length;
+      const unread = (this.state.messages || []).filter((m) => !m.read).length + Object.values(this.state.chats || {}).filter((t) => t.unread).length;
       const mb = document.getElementById('mailbadge');
       if (mb) { mb.textContent = unread > 99 ? '99+' : String(unread); mb.classList.toggle('hidden', !unread); }
     } else {
