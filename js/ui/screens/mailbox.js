@@ -56,7 +56,7 @@ export function openMailbox(app, { tab = 'msgs', pid = null, legacy = null } = {
       reply: (el) => {
         const r = replyChat(s, cur.pid, el.dataset.v);
         app.save(); h.update(html()); app.render();
-        if (r.open === 'renew') import('./negotiation.js').then((mod) => mod.negotiateContract(app, cur.pid, null, () => app.render(), true));
+        if (r.open === 'renew') import('./deals.js').then((mod) => mod.openDealFlow(app, cur.pid, 'renew', () => app.render()));
       },
       write: () => { cur.writing = !cur.writing; h.update(html()); },
       say: (el) => {

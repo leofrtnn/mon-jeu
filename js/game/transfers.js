@@ -16,6 +16,8 @@ import { favouriteLeaves } from './fans.js';
 import { BAL } from '../data/balance.js';
 import { isHumanClub } from './humans.js';
 import { DIVISIONS } from '../data/world.js';
+import { playerDecision } from './deals.js';
+import { cohOnArrival, cohOnDeparture } from './cohesion.js';
 
 export const MAX_SQUAD = 32;
 const MIN_SQUAD = 20;
@@ -74,6 +76,7 @@ function removeFromClub(state, p) {
     c.youthIds = (c.youthIds || []).filter((id) => id !== p.id);
     if (c.lineup) c.lineup = c.lineup.map((id) => (id === p.id ? null : id));
     if (c.bench) c.bench = c.bench.filter((id) => id !== p.id);
+    cohOnDeparture(state, c, p);
   } else {
     state.freeAgents = state.freeAgents.filter((id) => id !== p.id);
   }
@@ -85,6 +88,7 @@ function addToClub(state, p, club) {
   p.number = 0;
   assignNumbers(clubPlayers(state, club));
   p.listed = false; p.requested = false; p.clause = 0;
+  cohOnArrival(state, club, p);
 }
 
 /** Achat par l'utilisateur. Retourne { ok, msg }. */
@@ -320,7 +324,8 @@ function aiTransferRound(state, rng, deadline) {
       pool = marketList(state, { pos: weakest[0], maxPrice: c.budget * 0.6, buyer: c, minOvr: weakest[1] + 3, maxOvr: strength + 8, limit: 20,
         where: (p) => p.clubId !== c.id });
     }
-    pool = pool.slice(0, 20).filter((x) => !isHumanClub(state, x.p.clubId) && playerInterest(state, x.p, c).ok && sellerAccepts(state, x.p, c)).slice(0, 6);
+    // Chaque joueur décide selon ses priorités (prestige, temps de jeu, championnat, pays…).
+    pool = pool.slice(0, 20).filter((x) => !isHumanClub(state, x.p.clubId) && playerInterest(state, x.p, c).ok && sellerAccepts(state, x.p, c) && playerDecision(state, x.p, c).score > -5).slice(0, 6);
     if (!pool.length) continue;
     const pick = rng.pick(pool);
     const p = pick.p;
@@ -461,7 +466,7 @@ export const expectedGoals = (p) => ({ BU: 0.45, AG: 0.25, AD: 0.25, MO: 0.2 }[p
 export function completeTransfer(state, pid, fee, offer, dem, sellOn = 0, plan = 'cash') {
   const p = state.players[pid];
   const club = userClub(state);
-  if (!windowOpen(state)) return { ok: false, msg: 'Le mercato est fermé.' };
+  if (!windowOpen(state) && p.clubId) return { ok: false, msg: 'Le mercato est fermé.' };
   if (club.playerIds.length >= MAX_SQUAD) return { ok: false, msg: `Effectif complet (${MAX_SQUAD} max).` };
   const agentFee = Math.round((fee ? fee * dem.agentFeeRate : offer.wage * 4) / 1000) * 1000;
   // Paiement échelonné : 40 % à la signature, puis 30 % à chacune des deux fins de saison suivantes.

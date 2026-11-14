@@ -1216,3 +1216,34 @@ ul.notes { margin: 4px 0 0; padding-left: 18px; font-size: 13px; line-height: 1.
 .camp-opt .ci { font-size: 26px; }
 .camp-opt small { color: var(--muted); font-size: 12px; }
 .controls .btn.hl-on { background: linear-gradient(135deg, #f4c430, #ff8a3d); color: #1a1205; border-color: transparent; }
+
+/* ---------- Mercato : recherche filtrée ---------- */
+.search-box .mkt-tools { display: flex; gap: 8px; align-items: center; }
+.search-box .mkt-tools select { max-width: 46%; }
+.pos-chips { flex-wrap: wrap; margin-top: 8px; }
+.pos-chips .sep { width: 1px; background: var(--line); margin: 0 4px; align-self: stretch; }
+.filters summary { display: flex; align-items: center; gap: 8px; cursor: pointer; list-style: none; }
+.filters summary::-webkit-details-marker { display: none; }
+.fgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px 16px; margin: 10px 0; }
+.fgrid .fr { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+.fgrid .fr b { color: var(--text, #fff); }
+.fgrid .fr.chk { flex-direction: row; align-items: center; gap: 8px; color: inherit; }
+.fgrid input[type=range] { width: 100%; }
+/* ---------- Dossiers de transfert ---------- */
+.deal-steps { display: flex; align-items: center; gap: 4px; margin: 6px 0 2px; }
+.deal-steps i { flex: 1; height: 2px; background: var(--line); }
+.deal-steps .ds { font-size: 11px; padding: 4px 9px; border-radius: 99px; border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
+.deal-steps .ds.on { border-color: var(--accent); color: var(--accent); font-weight: 700; }
+.deal-steps .ds.ok { background: color-mix(in srgb, var(--good) 22%, transparent); border-color: var(--good); color: inherit; }
+.deal-steps .ds.x { border-color: var(--bad); color: var(--bad); }
+.deal-wait { display: flex; gap: 12px; align-items: center; }
+.deal-wait .spin { font-size: 26px; animation: dealspin 2.4s linear infinite; }
+@keyframes dealspin { 50% { transform: rotate(180deg); } 100% { transform: rotate(180deg); } }
+.deal-log { display: flex; flex-direction: column; gap: 2px; }
+.deal-log .dl { display: flex; gap: 8px; align-items: baseline; font-size: 13px; padding: 5px 2px; border-bottom: 1px solid var(--line); }
+.deal-log .dl small { color: var(--muted); min-width: 40px; font-variant-numeric: tabular-nums; }
+.deal-row { padding: 8px 0; border-bottom: 1px solid var(--line); gap: 10px; cursor: pointer; }
+/* Cohésion */
+.coh-card summary { list-style: none; cursor: pointer; }
+.coh-card summary::-webkit-details-marker { display: none; }
+.coh-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 4px 18px; }

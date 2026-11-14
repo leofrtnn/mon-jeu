@@ -99,7 +99,19 @@ export function resetClubStaff(state, club) {
   club.staffMembers = Object.keys(STAFF_ROLES).map((role) => makeStaff(rng, role, base + rng.normal(0, 2)));
 }
 
-export const staffWages = (club) => (club.staffMembers || []).reduce((a, m) => a + m.wage, 0);
+/**
+ * Budgets de fonctionnement (répartition fine du budget) : recrutement, formation, médical.
+ * Niveau 1 = standard (compris dans le budget) ; 0 = économies ; 2-3 = investissement hebdomadaire.
+ */
+export const ALLOC = {
+  scout: { label: 'Cellule de recrutement', icon: '🔭', desc: 'Déplacements, vidéo, données : rapports plus précis et plus nombreux.' },
+  youth: { label: 'Centre de formation', icon: '🌱', desc: 'Éducateurs, détection : jeunes au potentiel plus élevé.' },
+  medical: { label: 'Pôle médical & performance', icon: '🩺', desc: 'Kinés, cryothérapie, GPS : récupération plus rapide, blessures plus courtes.' },
+};
+export const ALLOC_LEVELS = ['Économies', 'Standard', 'Renforcé', 'Élite'];
+export const allocUnit = (club) => Math.round((1500 + (club.rep ?? 60) * 110) / 500) * 500;
+export const allocWeekly = (club) => Object.keys(ALLOC).reduce((a, k) => a + ((club.alloc?.[k] ?? 1) - 1) * allocUnit(club), 0);
+export const staffWages = (club) => (club.staffMembers || []).reduce((a, m) => a + m.wage, 0) + (club.alloc ? allocWeekly(club) : 0);
 export const bestStaff = (club, role) => Math.max(0, ...(club?.staffMembers || []).filter((m) => m.role === role).map((m) => m.rating));
 
 export function hireStaff(state, id) {
@@ -136,15 +148,16 @@ export function staffEffects(club) {
   const def = clamp((club?.rep ?? 60) / 6, 4, 16);
   const r = (role) => (ai ? def : bestStaff(club, role));
   const scouts = ai ? 1 : club.staffMembers.filter((m) => m.role === 'scout').length;
+  const al = (k) => (club?.alloc?.[k] ?? 1) - 1; // -1 … +2
   return {
     progression: 1 + (Math.max(4, r('assistant')) - 4) * 0.02,
-    recovery: r('fitness') * 0.3,
-    injuryMod: 1 - r('fitness') * 0.018,
-    injuryDays: 1 - r('physio') * 0.025,
-    scoutBase: 10 + r('scout') * 2.5,
-    scoutGain: 15 + r('scout') * 1.8,
-    scoutReports: Math.max(1, scouts),
-    youthPot: (r('youth') - 8) * 0.5,
+    recovery: r('fitness') * 0.3 + al('medical') * 1.2,
+    injuryMod: 1 - r('fitness') * 0.018 - al('medical') * 0.04,
+    injuryDays: (1 - r('physio') * 0.025) * (1 - al('medical') * 0.08),
+    scoutBase: 10 + r('scout') * 2.5 + al('scout') * 3,
+    scoutGain: 15 + r('scout') * 1.8 + al('scout') * 4,
+    scoutReports: Math.max(1, scouts + (al('scout') >= 2 ? 1 : 0)),
+    youthPot: (r('youth') - 8) * 0.5 + al('youth') * 1.5,
     gkMult: 0.85 + r('gk') * 0.02,
     analyst: r('analyst'),
     perf: 1 + (r('analyst') - 8) * 0.0006,

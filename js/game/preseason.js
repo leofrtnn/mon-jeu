@@ -18,6 +18,8 @@ import { allPlayers } from '../engine/match.js';
 import { IDENTITIES } from './board.js';
 import { logFinance } from './transfers.js';
 import { logInjury } from './injuries.js';
+import { dealsDaily, addDays } from './deals.js';
+import { aiTransferActivity, userTransferOffers } from './transfers.js';
 import { money } from './economy.js';
 
 /** Stages de préparation. cost : multiplié par la réputation du club ; fit : rythme ; coh : automatismes. */
@@ -60,7 +62,7 @@ export function startPreseason(state) {
     if (late) p.lateBack = true; else delete p.lateBack;
     tests.push({ id, sharp: p.sharp, fat: p.fatigue, late });
   }
-  state.preseason = { active: true, meeting: false, friendlies: [], suggestions: sugg, camp: null, intensity: 'normal', tests, week: 1 };
+  state.preseason = { active: true, meeting: false, friendlies: [], suggestions: sugg, camp: null, intensity: 'normal', tests, week: 1, date: `${state.season}-07-01` };
   const lates = tests.filter((t) => t.late).map((t) => state.players[t.id].name);
   pushMessage(state, { prio: 2, icon: '🩺', title: 'Reprise : tests physiques', text: `Le préparateur physique a testé le groupe : rythme moyen ${Math.round(tests.reduce((a, t) => a + t.sharp, 0) / Math.max(1, tests.length))}/100.${lates.length ? ` ${lates.slice(0, 5).join(', ')}${lates.length > 5 ? '…' : ''} rentre(nt) plus tard après leur tournoi international : ils manqueront le stage.` : ''} Choisissez un stage, l'intensité du travail et programmez des amicaux.` });
 }
@@ -185,6 +187,21 @@ export function applyFriendly(state, oppId, sum, m, userSide) {
   }
 }
 
+/** Avance d'un ou plusieurs jours pendant la préparation (le mercato vit : réponses, offres). */
+export function advancePreDay(state, n = 1) {
+  const ps = state.preseason;
+  const last = `${state.season}-08-05`;
+  const rng = gameRng(state);
+  for (let i = 0; i < n; i++) {
+    if ((ps.date || '') >= last) return { ok: false, msg: 'La préparation touche à sa fin : lancez la saison.' };
+    ps.date = addDays(ps.date || `${state.season}-07-01`, 1);
+    ps.dayN = (ps.dayN || 0) + 1;
+    if (ps.dayN % 4 === 0) { aiTransferActivity(state, rng); userTransferOffers(state, rng); }
+    dealsDaily(state, rng);
+  }
+  return { ok: true };
+}
+
 export function endPreseason(state) {
   const ps = state.preseason;
   ps.active = false;
@@ -211,6 +228,7 @@ export function endPreseason(state) {
     delete p.lateBack;
   }
   uc.fam = clamp((uc.fam ?? 60) + camp.coh, 0, 100);
+  uc.coh = clamp((uc.coh ?? 72) + camp.coh * 0.9, 0, 100); // vie de groupe pendant le stage
   if (ps.camp === 'tour') state.board.fans = clamp((state.board.fans ?? 60) + 3, 0, 100);
   const avg = Math.round(uc.playerIds.reduce((a, id) => a + (state.players[id]?.sharp ?? 60), 0) / Math.max(1, uc.playerIds.length));
   ps.report = { avg, hurt, cash };

@@ -3,7 +3,9 @@
  */
 import { userClub, clubById } from '../../game/state.js';
 import { money } from '../../game/economy.js';
-import { meetingOptions, concludeMeeting, addFriendly, friendlySeed, applyFriendly, endPreseason, CAMPS, INTENSITY, campMoney, chooseCamp, setIntensity } from '../../game/preseason.js';
+import { meetingOptions, concludeMeeting, addFriendly, friendlySeed, applyFriendly, endPreseason, CAMPS, INTENSITY, campMoney, chooseCamp, setIntensity, advancePreDay } from '../../game/preseason.js';
+import { activeDeals } from '../../game/deals.js';
+import { longDate } from '../../game/dates.js';
 import { COUNTRIES } from '../../data/world.js';
 import { matchConditions } from '../../game/weather.js';
 import { IDENTITIES } from '../../game/board.js';
@@ -47,6 +49,9 @@ export function preseasonCard(app) {
   return `<div class="card nextmatch"><h3>☀️ Préparation estivale · saison ${s.season}-${s.season + 1}</h3>
       <p style="margin:6px 0 12px">${ps.meeting ? `✔ Réunion avec le CA faite · objectif : <b>${esc(s.objectives.league.label)}</b>` : 'Le président vous attend pour fixer les objectifs de la saison.'}</p>
       ${ps.meeting ? '' : '<button class="btn primary lg block" data-act="psmeeting">Réunion avec le CA</button>'}
+      <div class="row between" style="margin-top:10px;gap:8px;flex-wrap:wrap"><span>📅 <b>${esc(longDate(ps.date || `${s.season}-07-20`))}</b>${activeDeals(s).length ? ` · <a data-act="psdeals" style="cursor:pointer;text-decoration:underline">${activeDeals(s).length} dossier(s) en cours</a>` : ''}</span>
+        <span class="btns" style="margin:0"><button class="btn sm" data-act="psday" data-v="1">Jour suivant ▸</button><button class="btn sm" data-act="psday" data-v="3">+3 jours ▸▸</button></span></div>
+      <small class="muted">Le mercato vit au jour le jour : les clubs et les agents mettent quelques jours à répondre.</small>
     </div>
     ${testsCard(s, uc)}
     <div class="card"><h3>🏕️ Stage de préparation</h3>
@@ -110,6 +115,8 @@ function friendlyCfg(s, oppId) {
 
 export const preseasonActions = {
   psmeeting(el, app) { meetingSheet(app); },
+  psday(el, app) { const r = advancePreDay(app.state, +el.dataset.v || 1); if (!r.ok) app.toast(r.msg); app.save(); app.render(); },
+  psdeals(el, app) { app.ui.clubTab = 'market'; app.ui.mktMode = 'deals'; app.go('club'); },
   pscamp(el, app) { const r = chooseCamp(app.state, el.dataset.v); app.toast(r.msg); app.save(); app.render(); },
   psint(el, app) { setIntensity(app.state, el.dataset.v); app.save(); app.render(); },
   psadd(el, app) { const r = addFriendly(app.state, +el.dataset.id); app.toast(r.msg); app.save(); app.render(); },

@@ -129,6 +129,22 @@ export function shiftBudget(state, amount) {
   return { ok: true, msg: 'Enveloppes ajustées.' };
 }
 
+/** Répartition transferts / salaires : part (0-1) de l'enveloppe totale consacrée aux transferts. */
+export function budgetSplit(state) {
+  const b = ensureBoard(state);
+  const room = Math.max(0, wageRoom(state));
+  const total = b.transferBudget + room * WAGE_RATE;
+  return { total, pct: total ? b.transferBudget / total : 1, room };
+}
+export function setSplit(state, pct) {
+  const b = ensureBoard(state);
+  const { total } = budgetSplit(state);
+  const target = Math.round(total * clamp(pct, 0, 1) / 50000) * 50000;
+  const delta = b.transferBudget - target; // > 0 : vers les salaires
+  if (Math.abs(delta) < 50000) return { ok: true, msg: '' };
+  return shiftBudget(state, delta);
+}
+
 /** Le CA valide-t-il une dépense de transfert et un nouveau salaire ? */
 export function boardAllows(state, { fee = 0, addWage = 0 }) {
   const b = ensureBoard(state);

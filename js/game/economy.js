@@ -42,7 +42,7 @@ function roundMoney(v) {
 
 /** Masse salariale hebdomadaire d'une liste de joueurs. */
 export function wageBill(players) {
-  return players.reduce((a, p) => a + (p.loanedOut ? p.wage * 0.3 : p.wage), 0);
+  return players.reduce((a, p) => a + (p.loanedOut ? p.wage * 0.3 : p.onLoanFrom && p.loanShare != null ? p.wage * p.loanShare : p.wage), 0);
 }
 
 /** Richesse du championnat d'un club (droits TV, sponsors, prix des places). */

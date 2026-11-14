@@ -28,7 +28,7 @@ export function knowledge(state, p) {
 export const errorFor = (k) => Math.round((100 - k) / 100 * 14);
 
 /** Valeur estimée d'une grandeur : [bas, haut] décalés de façon stable (graine du joueur). */
-function est(state, p, key, v, k) {
+export function est(state, p, key, v, k) {
   const err = errorFor(k);
   if (err <= 1) return [v, v];
   const h = (hashSeed(`${state.seed}-${p.id}-${key}`) % 1000) / 1000 - 0.5;

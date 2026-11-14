@@ -253,6 +253,7 @@ export const actions = {
 function legacyOpen(app, m) {
   {
     if (m.action?.type === 'offer') showOffer(app, m.action.pid);
+    else if (m.action?.type === 'deal') import('./deals.js').then((mod) => mod.dealSheet(app, m.action.id, () => app.render()));
     else if (m.action?.type === 'player') import('./playerSheet.js').then((mod) => { app.render(); mod.showPlayer(app, m.action.pid); });
     else if (m.action?.type === 'job') jobSheet(app, m.action.clubId);
     else if (m.action?.type === 'scouting') { app.ui.clubTab = 'market'; app.ui.mktMode = 'scout'; app.go('club'); }

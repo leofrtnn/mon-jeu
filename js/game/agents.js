@@ -132,6 +132,6 @@ export function exerciseOption(state, pid) {
   state.board.transferBudget -= p.buyOption;
   news(state, 'transfer', `${uc.name} lève l'option d'achat de ${p.first} ${p.last} (${money(p.buyOption)}).`, { pid: p.id });
   const price = p.buyOption;
-  p.onLoanFrom = null; p.buyOption = 0; p.contract = Math.max(p.contract, 3); p.joined = state.season;
+  p.onLoanFrom = null; p.loanShare = null; p.buyOption = 0; p.contract = Math.max(p.contract, 3); p.joined = state.season;
   return { ok: true, msg: `${p.name} signe définitivement (${money(price)}).` };
 }

@@ -387,3 +387,43 @@ test('carrière et blessures : historique par saison, historique des blessures, 
   const sharp = clubPlayers(s, userClub(s)).filter((x) => x.sharp != null);
   assert.ok(sharp.length > 10 && sharp.every((x) => x.sharp < 80), 'reprise : joueurs en manque de rythme');
 });
+
+test('mercato sur plusieurs jours : offre → réponse du club → contrat → visite médicale → signature', async () => {
+  const { openDeal, submitBid, submitTerms, acceptCounter, dealById } = await import('../js/game/deals.js');
+  const { advancePreDay } = await import('../js/game/preseason.js');
+  const { searchPlayers } = await import('../js/game/search.js');
+  const s = newGame(31);
+  startCareer(s, s.clubs[0].id);
+  const uc = userClub(s);
+  const res = searchPlayers(s, { ageMax: 26, sort: 'ovr' }, 200);
+  assert.ok(res.total > 50 && res.rows.every((r) => r.p.age <= 26), 'recherche filtrée');
+  const target = res.rows.map((r) => r.p).find((p) => p.clubId && openDeal(s, p.id, 'buy').ok);
+  assert.ok(target, 'un joueur accepte de discuter');
+  const d = s.deals.find((x) => x.pid === target.id);
+  s.board.transferBudget = 500e6; uc.budget = 500e6;
+  const r = submitBid(s, d.id, { fee: d.neg.asking });
+  assert.ok(r.ok, r.msg);
+  assert.equal(d.stage, 'club', 'rien ne se fait le jour même');
+  for (let i = 0; i < 6 && d.stage === 'club'; i++) { advancePreDay(s, 1); if (d.stage === 'club' && d.counter && !d.pending) acceptCounter(s, d.id); }
+  assert.equal(d.stage, 'player', d.log.map((l) => l.text).join(' | '));
+  s.board.wageBudget = 1e7;
+  submitTerms(s, d.id, { wage: Math.round(d.dem.wage * 1.5), years: 3, bonus: 0, clause: 0, goalBonus: 0, role: 'key' });
+  for (let i = 0; i < 5 && d.stage !== 'done' && d.stage !== 'dead'; i++) { advancePreDay(s, 1); if (d.stage === 'medfail') (await import('../js/game/deals.js')).medicalDecision(s, d.id, true); }
+  assert.equal(dealById(s, d.id).stage, 'done', d.log.map((l) => l.text).join(' | '));
+  assert.equal(target.clubId, uc.id);
+  assert.ok(d.log.length >= 5 && new Set(d.log.map((l) => l.d)).size >= 3, 'étapes sur plusieurs jours');
+});
+
+test('cohésion : changer toute l\'équipe en un mercato la fait plonger (et coûte du rendement), elle remonte en jouant', async () => {
+  const { teamCohesion, cohMult, cohOnArrival, cohesionAfterUserMatch } = await import('../js/game/cohesion.js');
+  const s = newGame(41);
+  startCareer(s, s.clubs[0].id);
+  const uc = userClub(s);
+  const before = teamCohesion(s, uc);
+  for (let i = 0; i < 11; i++) cohOnArrival(s, uc, { id: 900000 + i });
+  const after = teamCohesion(s, uc);
+  assert.ok(after < before - 15, `${before} → ${after}`);
+  assert.ok(cohMult(after) < cohMult(before) - 0.012, 'moins de rendement');
+  for (let i = 0; i < 8; i++) completeDay(s);
+  assert.ok(teamCohesion(s, uc) > after, 'elle remonte avec les matchs');
+});

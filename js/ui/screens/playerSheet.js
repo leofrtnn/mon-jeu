@@ -2,6 +2,8 @@
  * Fiche joueur (feuille modale) : attributs (avec brouillard pour les joueurs
  * extérieurs), état, stats, sélection, contrat, actions de transfert.
  */
+import { dealFor, STAGE_LABEL } from '../../game/deals.js';
+import { playerLinks } from '../../game/cohesion.js';
 import { nationFlag } from '../../data/nations.js';
 import { ATTRS, ATTR_LABELS, POSITION_LABELS } from '../../data/constants.js';
 import { overall } from '../../engine/ratings.js';
@@ -30,6 +32,19 @@ const GROUPS = [['Technique', ['tir', 'pas', 'dri']], ['Mental', ['vis', 'sf', '
 const moodWord = (v) => (v >= 85 ? 'Superbe' : v >= 70 ? 'Très bon' : v >= 55 ? 'Bon' : v >= 40 ? 'Correct' : v >= 25 ? 'Faible' : 'Très faible');
 
 const seasonLbl = (y) => `${y}-${String((+y + 1) % 100).padStart(2, '0')}`;
+
+/** Affinités avec les coéquipiers (cohésion). */
+function linksHtml(s, p, club) {
+  const L = playerLinks(s, p, club);
+  if (!L.length) return '';
+  const col = (v) => (v >= 70 ? 'var(--good)' : v >= 40 ? 'var(--ok)' : 'var(--bad)');
+  const avg = Math.round(L.reduce((a, x) => a + x.v, 0) / L.length);
+  const tens = L.filter((x) => x.clash);
+  return `<details class="card"><summary><b>🤝 Affinités</b> <small class="muted">intégration ${avg}/100${tens.length ? ` · ⚡ ${tens.length} tension(s)` : ''}</small></summary>
+    ${L.slice(0, 5).map((x) => `<div class="row between" style="padding:3px 0;font-size:13px"><span>${esc(x.q.name)} <small class="muted">${x.q.pos}</small></span><b style="color:${col(x.v)}">${Math.round(x.v)}</b></div>`).join('')}
+    ${tens.map((x) => `<div class="row between" style="padding:3px 0;font-size:13px"><span>⚡ ${esc(x.q.name)} <small class="muted">ne s'entendent pas</small></span><b class="neg-txt">${Math.round(x.v)}</b></div>`).join('')}
+    <small class="muted">Les liens se renforcent en jouant ensemble (surtout aux postes voisins) et en gagnant.</small></details>`;
+}
 
 /** Carrière complète : parcours avant la partie, saisons jouées, saison en cours, tournois, blessures. */
 function careerHtml(s, p, club) {
@@ -78,7 +93,7 @@ export function showPlayer(app, pid, onChange) {
       actions = `<button class="btn primary block" data-act="promote">Promouvoir en équipe première</button>`;
     } else if (mine) {
       actions = `<div class="btns">
-        ${!p.onLoanFrom ? `<button class="btn" data-act="talk">💬 Discuter</button><button class="btn" data-act="renew">${p.contract <= 2 ? 'Prolonger' : 'Renégocier'}</button>
+        ${!p.onLoanFrom ? `<button class="btn" data-act="talk">💬 Discuter</button>${dealFor(s, p.id, 'renew') ? '<button class="btn" data-act="opendeal">📂 Prolongation en cours</button>' : `<button class="btn" data-act="renew">${p.contract <= 2 ? 'Prolonger' : 'Renégocier'}</button>`}
         <button class="btn" data-act="sell">Vendre</button>
         <button class="btn" data-act="list">${p.listed ? 'Retirer de la liste' : 'Mettre sur la liste'}</button>
         <button class="btn" data-act="loanout">Prêter</button>
@@ -88,8 +103,8 @@ export function showPlayer(app, pid, onChange) {
       const price = askingPrice(s, p);
       const queued = (s.scoutQueue || []).includes(p.id);
       actions = `<div class="btns">
-        <button class="btn primary" data-act="buy" ${windowOpen(s) ? '' : 'disabled'}>${p.clubId ? `Négocier · ${money(price)}` : 'Négocier (libre)'}</button>
-        ${p.clubId && p.age <= 23 ? `<button class="btn" data-act="loanin" ${windowOpen(s) ? '' : 'disabled'}>Prêt</button>` : ''}
+        ${dealFor(s, p.id) ? `<button class="btn primary" data-act="opendeal">📂 Dossier en cours · ${esc(STAGE_LABEL[dealFor(s, p.id).stage])}</button>` : `<button class="btn primary" data-act="buy" ${windowOpen(s) || !p.clubId ? '' : 'disabled'}>${p.clubId ? `Faire une offre · ~${money(price)}` : 'Proposer un contrat (libre)'}</button>
+        ${p.clubId ? `<button class="btn" data-act="loanin" ${windowOpen(s) ? '' : 'disabled'}>Demander un prêt</button>` : ''}`}
         ${!e.exact ? `<button class="btn" data-act="observe" ${queued ? 'disabled' : ''}>${queued ? 'En observation…' : '🔭 Observer'}</button>` : ''}
       </div>${windowOpen(s) ? '' : `<p class="muted" style="font-size:12px">${esc(windowInfo(s).label)}</p>`}`;
     }
@@ -131,6 +146,7 @@ export function showPlayer(app, pid, onChange) {
         ${mine && p.relapse ? `<div class="row between"><span>Risque de rechute</span><b class="bad">${Math.round(p.relapse.risk * 100)} % · ${p.relapse.matches} match(s)</b></div>` : ''}
         ${mine && p.promise ? `<div class="row between"><span>Statut promis</span><b>${PROMISE_ROLES[p.promise.role].label}${p.promise.strikes ? ' ⚠' : ''}</b></div>` : ''}
       </div>
+      ${mine && !youth ? linksHtml(s, p, club) : ''}
       ${careerHtml(s, p, club)}
       ${capRow}${actions}`;
   };
@@ -142,10 +158,11 @@ export function showPlayer(app, pid, onChange) {
   const h = app.sheet({
     html: render,
     actions: {
-      buy: () => { h.close(); negotiateTransfer(app, pid, onChange); },
-      loanin: () => done(loanIn(s, pid), true),
+      buy: () => { h.close(); import('./deals.js').then((mod) => mod.openDealFlow(app, pid, 'buy', onChange)); },
+      opendeal: () => { h.close(); import('./deals.js').then((mod) => mod.dealSheet(app, dealFor(s, pid).id, onChange)); },
+      loanin: () => { h.close(); import('./deals.js').then((mod) => mod.openDealFlow(app, pid, 'loan', onChange)); },
       observe: () => done({ ...observe(s, pid), ok: true }),
-      renew: () => { h.close(); negotiateContract(app, pid, null, onChange, true); },
+      renew: () => { h.close(); import('./deals.js').then((mod) => mod.openDealFlow(app, pid, 'renew', onChange)); },
       talk: () => { import('./mailbox.js').then((mod) => mod.openMailbox(app, { tab: 'chats', pid })); },
       talkOld: () => {
         const ts = app.sheet({

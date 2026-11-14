@@ -2,6 +2,12 @@
  * Club : finances, mercato, staff & installations, entraînement, formation,
  * objectifs & carrière, amis (multijoueur), paramètres (sauvegardes, données).
  */
+import { budgetSplit, setSplit } from '../../game/board.js';
+import { ALLOC, ALLOC_LEVELS, allocUnit, allocWeekly } from '../../game/career.js';
+import { COUNTRIES } from '../../data/world.js';
+import { activeDeals } from '../../game/deals.js';
+import { searchPlayers, filterOptions, DEFAULT_FILTERS } from '../../game/search.js';
+import { dealsList } from './deals.js';
 import { userClub, clubPlayers, clubById } from '../../game/state.js';
 import { money, wageBill, sponsorIncome, prizeMoney } from '../../game/economy.js';
 import { DIVISIONS } from '../../data/world.js';
@@ -125,9 +131,16 @@ function boardView(s) {
       <div class="row between" style="margin-top:6px"><span>Masse salariale</span><b>${money(bill)} / ${money(b.wageBudget)} par sem.</b></div>
       ${gauge(Math.min(100, bill / b.wageBudget * 100), bill > b.wageBudget ? 'var(--bad)' : 'var(--good)')}
       <small class="muted">Marge salariale : ${money(Math.max(0, b.wageBudget - bill))}/sem · ${Math.round(SALE_SHARE * 100)} % des ventes reviennent au budget transferts.</small>
-      <div class="btns" style="margin-top:10px">
-        <button class="btn sm" data-act="shift" data-v="1000000">1 M€ → +${money(1000000 / WAGE_RATE)}/sem</button>
-        <button class="btn sm" data-act="shift" data-v="-1000000">+${money(1000000 / WAGE_RATE)}/sem → 1 M€</button></div>
+      ${(() => { const sp = budgetSplit(s); return `<div class="label">Répartition transferts ⟷ salaires</div>
+        <input type="range" data-act="split" min="0" max="100" step="5" value="${Math.round(sp.pct * 100)}" style="width:100%">
+        <div class="row between"><small>💶 Transferts <b>${Math.round(sp.pct * 100)} %</b></small><small>Salaires <b>${100 - Math.round(sp.pct * 100)} %</b> 👕</small></div>
+        <small class="muted">Enveloppe totale ${money(sp.total)} (1 € de salaire hebdomadaire ≈ ${WAGE_RATE} € de transferts). Plus de marge salariale = des recrues mieux payées, moins d'indemnités.</small>`; })()}
+    </div>
+    <div class="card"><h3>Budgets de fonctionnement</h3>
+      ${Object.entries(ALLOC).map(([k, a]) => `<div style="padding:6px 0;border-bottom:1px solid var(--line)"><div class="row between"><span>${a.icon} <b>${a.label}</b></span>
+        <select data-act="alloc" data-k="${k}">${ALLOC_LEVELS.map((l, i) => `<option value="${i}" ${(uc.alloc?.[k] ?? 1) === i ? 'selected' : ''}>${l}${i !== 1 ? ` (${i > 1 ? '+' : '−'}${money(Math.abs(i - 1) * allocUnit(uc))}/sem)` : ''}</option>`).join('')}</select></div>
+        <small class="muted">${a.desc}</small></div>`).join('')}
+      <small class="muted">Coût actuel : ${allocWeekly(uc) >= 0 ? '+' : '−'}${money(Math.abs(allocWeekly(uc)))}/sem (versé avec les salaires du staff).</small>
     </div>
     <div class="card"><h3>Attentes du CA</h3>
       <div class="row" style="padding:5px 0"><span class="grow">🏁 ${esc(o.league.label)}</span><span class="tag ${tablePosition(s, uc.id) <= o.league.target ? 'good' : 'bad'}">${tablePosition(s, uc.id)}e</span></div>
@@ -154,7 +167,8 @@ function market(app) {
   const open = windowOpen(s);
   let html = `<div class="card row between" style="padding:10px 14px">
       <span>${open ? (windowInfo(s).deadline ? '⏰' : '🟢') : '🔴'} ${esc(windowInfo(s).label)}</span><small>Transferts <b>${money(ensureBoard(s).transferBudget)}</b> · marge salariale <b>${money(Math.max(0, wageRoom(s)))}</b>/sem</small></div>
-    ${seg('mmode', ['buy', 'loan', 'sell', 'scout'], mode, { buy: 'Acheter', loan: 'Prêts', sell: 'Ventes', scout: 'Recrutement' })}`;
+    ${seg('mmode', ['buy', 'loan', 'deals', 'sell', 'scout'], mode, { buy: 'Rechercher', loan: 'Prêts', deals: `Dossiers${activeDeals(s).length ? ` (${activeDeals(s).length})` : ''}`, sell: 'Ventes', scout: 'Recrutement' })}`;
+  if (mode === 'deals') return html + dealsList(s);
   if (mode === 'sell') {
     const offers = (s.pendingOffers || []).filter((o) => s.players[o.pid]?.clubId === uc.id);
     const listed = clubPlayers(s, uc).filter((p) => p.listed);
@@ -185,30 +199,54 @@ function market(app) {
       <div class="card list" style="padding:0 10px">${ids.slice(0, 40).map((id) => marketRow(s, s.players[id])).join('') || '<p class="muted">Aucun joueur observé.</p>'}</div>`;
     return html;
   }
-  const q = app.ui.mktQ || '', aff = !!app.ui.mktAff;
-  html += `<div class="mkt-tools"><label class="pk-search">🔎<input id="mkt-q" type="search" placeholder="Chercher un joueur par son nom…" value="${esc(q)}" autocomplete="off"></label>
-    <button class="chip ${aff ? 'on' : ''}" data-act="maff" title="Seulement les joueurs que vous pouvez payer">Dans mon budget</button></div>
-    <div class="chips" style="margin-top:8px"><button class="chip ${!pos ? 'on' : ''}" data-act="mpos" data-v="">Tous</button>
-    ${POSITIONS.map((p) => `<button class="chip ${pos === p ? 'on' : ''}" data-act="mpos" data-v="${p}">${p}</button>`).join('')}</div>
-    <div class="card list" id="mkt-list" style="padding:0 10px">${marketListHtml(app)}</div>`;
-  return html;
+  return html + searchPanel(app, mode);
 }
 
-const fold = (t) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+const FILTERS = () => ({ ...DEFAULT_FILTERS, pos: [] });
+const POS_CHIPS = ['GB', 'DC', 'DG', 'DD', 'MDC', 'MC', 'MG', 'MD', 'MO', 'AG', 'AD', 'BU'];
+const SORTS = { ovr: 'Note', pot: 'Potentiel', value: 'Valeur ↓', cheap: 'Valeur ↑', age: 'Âge', wage: 'Salaire' };
+const M = (v) => (v >= 1e6 ? `${Math.round(v / 1e5) / 10} M€` : `${Math.round(v / 1e3)} k€`);
 
-/** Liste des joueurs à vendre (recherche, poste, budget). Mise à jour sur place pendant la saisie. */
+/** Panneau de recherche (filtres façon mode carrière) + résultats. */
+function searchPanel(app, mode) {
+  const s = app.state;
+  const f = (app.ui.mktF ||= FILTERS());
+  if (mode === 'loan' && f.status === 'all') f.status = 'loan';
+  const opts = (app._fopts ||= filterOptions(s));
+  const nOn = ['ageMin', 'ageMax', 'ovrMin', 'potMin', 'valueMax', 'wageMax', 'nat', 'div', 'contract', 'foot', 'budget'].filter((k) => f[k] !== DEFAULT_FILTERS[k]).length + (f.pos.length ? 1 : 0) + (f.status !== DEFAULT_FILTERS.status && mode !== 'loan' ? 1 : 0);
+  const sel = (k, list, cur) => `<select data-act="fset" data-k="${k}">${list.map(([v, l]) => `<option value="${esc(v)}" ${String(cur) === String(v) ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>`;
+  const range = (k, min, max, st, lbl) => `<label class="fr"><span>${lbl} <b id="fv-${k}">${f[k] ? (k.includes('value') || k.includes('wage') ? M(f[k]) : f[k]) : 'tous'}</b></span><input type="range" data-act="fset" data-k="${k}" min="${min}" max="${max}" step="${st}" value="${f[k]}"></label>`;
+  return `<div class="search-box">
+    <div class="mkt-tools"><label class="pk-search">🔎<input id="mkt-q" type="search" placeholder="Nom du joueur…" value="${esc(f.q)}" autocomplete="off"></label>
+      <select data-act="fset" data-k="sort" title="Trier">${Object.entries(SORTS).map(([k, l]) => `<option value="${k}" ${f.sort === k ? 'selected' : ''}>Tri : ${l}</option>`).join('')}</select></div>
+    <div class="chips pos-chips">${['DEF', 'MIL', 'ATT'].map((g) => `<button class="chip ${f.pos.includes(g) ? 'on' : ''}" data-act="fpos" data-v="${g}">${{ DEF: 'Défense', MIL: 'Milieu', ATT: 'Attaque' }[g]}</button>`).join('')}<span class="sep"></span>${POS_CHIPS.map((p) => `<button class="chip ${f.pos.includes(p) ? 'on' : ''}" data-act="fpos" data-v="${p}">${p}</button>`).join('')}</div>
+    <details class="card filters" ${app.ui.fOpen ? 'open' : ''}><summary data-act="fopen"><b>⚙ Filtres</b> ${nOn ? `<span class="tag ok">${nOn} actif(s)</span>` : ''}</summary>
+      <div class="fgrid">
+        <label class="fr"><span>Âge</span><span class="row" style="gap:6px">${sel('ageMin', Array.from({ length: 26 }, (_, i) => [15 + i, `${15 + i} ans`]), f.ageMin)}<small>à</small>${sel('ageMax', Array.from({ length: 26 }, (_, i) => [15 + i, `${15 + i} ans`]), f.ageMax)}</span></label>
+        ${range('ovrMin', 0, 90, 1, 'Note min.')}
+        ${range('potMin', 0, 95, 1, 'Potentiel min.')}
+        ${range('valueMax', 0, 150000000, 250000, 'Prix max.')}
+        ${range('wageMax', 0, 400000, 5000, 'Salaire max. /sem')}
+        <label class="fr"><span>Nationalité</span>${sel('nat', [['', 'Toutes'], ...opts.nats.map((n) => [n, n])], f.nat)}</label>
+        <label class="fr"><span>Championnat</span>${sel('div', [['', 'Tous'], ...opts.divs.map((d) => [d.id, `${COUNTRIES[d.country]?.flag || ''} ${d.name}`])], f.div)}</label>
+        <label class="fr"><span>Pied fort</span>${sel('foot', [['', 'Indifférent'], ['D', 'Droit'], ['G', 'Gauche']], f.foot)}</label>
+        <label class="fr"><span>Statut</span>${sel('status', [['all', 'Tous'], ['listed', 'Sur la liste / veut partir'], ['free', 'Libres'], ['loan', 'Sous contrat (prêt)']], f.status)}</label>
+        <label class="fr chk"><input type="checkbox" data-act="fset" data-k="contract" ${f.contract ? 'checked' : ''}> Contrat expirant (≤ 1 an)</label>
+        <label class="fr chk"><input type="checkbox" data-act="fset" data-k="budget" ${f.budget ? 'checked' : ''}> Dans mon budget</label>
+      </div>
+      <button class="btn sm" data-act="freset">Réinitialiser les filtres</button>
+    </details>
+    <div id="mkt-list">${marketListHtml(app)}</div></div>`;
+}
+
 function marketListHtml(app) {
   const s = app.state;
-  const pos = app.ui.mktPos || null;
   const mode = app.ui.mktMode || 'buy';
-  const q = fold(app.ui.mktQ).trim();
-  const where = (p) => (mode !== 'loan' || !!p.clubId) && (!q || fold(`${p.first || ''} ${p.last || ''} ${p.name}`).includes(q));
-  const maxPrice = app.ui.mktAff && mode !== 'loan' ? ensureBoard(s).transferBudget : Infinity;
-  // Les 160 meilleurs suffisent (on n'en affiche que 40) : évite d'estimer 16 000 joueurs à chaque affichage.
-  const list = marketList(s, { pos, youngOnly: mode === 'loan', limit: 160, where, maxPrice })
-    .map((x) => ({ ...x, e: estimate(s, x.p) })).sort((a, b) => mid(b.e.ovr) - mid(a.e.ovr)).slice(0, 40);
-  return list.map(({ p, price }) => marketRow(s, p, mode === 'loan' ? Math.round(p.value * 0.08 / 25000) * 25000 : price)).join('')
-    || `<p class="muted">Aucun joueur trouvé${q ? ` pour « ${esc(app.ui.mktQ)} »` : ''}.</p>`;
+  const f = app.ui.mktF || FILTERS();
+  const { total, rows } = searchPlayers(s, f, app.ui.mktMore ? 150 : 50);
+  return `<div class="row between" style="margin:6px 4px"><small class="muted">${total} joueur(s) trouvé(s)${total > rows.length ? ` · ${rows.length} affichés` : ''}</small><small class="muted">${mode === 'loan' ? 'Prix : indemnité de prêt indicative' : 'Prix : demande du club'}</small></div>
+    <div class="card list" style="padding:0 10px;margin-top:0">${rows.map(({ p, price }) => marketRow(s, p, mode === 'loan' ? Math.round((p.value || 0) * 0.08 / 25000) * 25000 : price)).join('') || '<p class="muted">Aucun joueur ne correspond à ces critères.</p>'}</div>
+    ${total > rows.length && !app.ui.mktMore ? '<button class="btn block" data-act="fmore">Afficher plus de résultats</button>' : ''}`;
 }
 
 function marketRow(s, p, price) {
@@ -390,9 +428,9 @@ export function mount(app, root) {
     let t = 0;
     qi.addEventListener('input', () => {
       clearTimeout(t);
-      t = setTimeout(() => { app.ui.mktQ = qi.value; const box = root.querySelector('#mkt-list'); if (box) box.innerHTML = marketListHtml(app); }, 160);
+      t = setTimeout(() => { (app.ui.mktF ||= FILTERS()).q = qi.value; const box = root.querySelector('#mkt-list'); if (box) box.innerHTML = marketListHtml(app); }, 180);
     });
-    if (app.ui.mktQ) { qi.focus(); qi.setSelectionRange(qi.value.length, qi.value.length); }
+    if (app.ui.mktF?.q) { qi.focus(); qi.setSelectionRange(qi.value.length, qi.value.length); }
   }
   if ((app.ui.clubTab || 'fin') === 'friends') return friends.mount?.(app, root);
   if ((app.ui.clubTab || 'fin') === 'settings') return settings.mount?.(app, root);
@@ -404,12 +442,34 @@ export const actions = {
   ...settings.actions,
   ...friends.actions,
   ctab(el, app) { app.ui.clubTab = el.dataset.v; app.render(); },
+  split(el, app) { if (el.tagName !== 'INPUT') return; const r = setSplit(app.state, +el.value / 100); if (r.msg) app.toast(r.ok ? `Enveloppes : ${el.value} % transferts` : r.msg); app.save(); app.render(); },
+  alloc(el, app) { if (el.tagName !== 'SELECT') return; const uc = userClub(app.state); (uc.alloc ||= { scout: 1, youth: 1, medical: 1 })[el.dataset.k] = +el.value; app.save(); app.render(); },
+  deal(el, app) { import('./deals.js').then((mod) => mod.dealSheet(app, +el.dataset.id, () => app.render())); },
   shift(el, app) { done(app, shiftBudget(app.state, +el.dataset.v)); },
   req(el, app) { const r = boardRequest(app.state, el.dataset.v); app.toast(r.msg, 3500); app.save(); app.render(); },
   editcoach(el, app) { openCoachEditor(app, { mode: 'edit' }); },
   ticket(el, app) { userClub(app.state).ticket = el.dataset.v; app.save(); app.render(); },
   myclub(el, app) { showClub(app, app.state.userClubId); },
-  mmode(el, app) { app.ui.mktMode = el.dataset.v; app.render(); },
+  mmode(el, app) { app.ui.mktMode = el.dataset.v; if (app.ui.mktF) app.ui.mktF.status = el.dataset.v === 'loan' ? 'loan' : app.ui.mktF.status === 'loan' ? 'all' : app.ui.mktF.status; app.render(); },
+  fset(el, app) {
+    if (el.tagName !== 'SELECT' && el.tagName !== 'INPUT') return;
+    const f = (app.ui.mktF ||= FILTERS()), k = el.dataset.k;
+    f[k] = el.type === 'checkbox' ? el.checked : ['nat', 'div', 'foot', 'status', 'sort'].includes(k) ? el.value : +el.value;
+    app.ui.mktMore = false;
+    // Curseurs : on met à jour la liste sans redessiner le panneau (le geste continue).
+    if (el.type === 'range') {
+      const lbl = document.getElementById(`fv-${k}`);
+      if (lbl) lbl.textContent = f[k] ? (k.includes('value') || k.includes('wage') ? M(f[k]) : f[k]) : 'tous';
+      clearTimeout(app._fT); app._fT = setTimeout(() => { const box = document.getElementById('mkt-list'); if (box) box.innerHTML = marketListHtml(app); }, 220);
+      return;
+    }
+    app.render();
+  },
+  fpos(el, app) { const f = (app.ui.mktF ||= FILTERS()); const v = el.dataset.v; f.pos = f.pos.includes(v) ? f.pos.filter((x) => x !== v) : [...f.pos, v]; app.render(); },
+  freset(el, app) { app.ui.mktF = FILTERS(); app.render(); },
+  fopen(el, app) { app.ui.fOpen = !el.closest('details').open; },
+  fmore(el, app) { app.ui.mktMore = true; const box = document.getElementById('mkt-list'); if (box) box.innerHTML = marketListHtml(app); },
+
   mpos(el, app) { app.ui.mktPos = el.dataset.v || null; app.render(); },
   maff(el, app) { app.ui.mktAff = !app.ui.mktAff; app.render(); },
   player(el, app) { showPlayer(app, +el.dataset.id); },

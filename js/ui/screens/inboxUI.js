@@ -54,7 +54,7 @@ function decisionSheet(app, m) {
       pick: (el) => {
         const r = resolveDecision(s, m.id, el.dataset.v);
         app.save();
-        if (r.open?.type === 'renew') { h.close(); import('./negotiation.js').then((mod) => mod.negotiateContract(app, r.open.pid, null, () => app.render(), true)); return; }
+        if (r.open?.type === 'renew') { h.close(); import('./deals.js').then((mod) => mod.openDealFlow(app, r.open.pid, 'renew', () => app.render())); return; }
         if (r.open?.type === 'home') { h.close(); app.go('home'); app.toast(r.msg, 3500); return; }
         h.update(`<h2>${m.icon} ${esc(m.title)}</h2><p>${esc(r.msg)}</p>${effectsHtml(r.effects)}<button class="btn primary block" data-act="close" style="margin-top:12px">OK</button>`);
         app.render();

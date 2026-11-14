@@ -54,7 +54,7 @@ export function windows(season) {
 /** Date de la journée courante (assigne les dates si une ancienne sauvegarde n'en a pas). */
 export function currentDate(state) {
   if (state.calendar?.length && !state.calendar[0].date) assignDates(state.calendar, state.season);
-  if (state.preseason?.active) return `${state.season}-07-20`;
+  if (state.preseason?.active) return state.preseason.date || `${state.season}-07-20`;
   return state.calendar?.[state.day]?.date || `${state.season + 1}-05-30`;
 }
 
