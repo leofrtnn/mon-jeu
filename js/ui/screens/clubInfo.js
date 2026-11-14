@@ -8,7 +8,7 @@ import { finHealth, ownerType } from '../../game/owners.js';
 import { DIV_NAMES } from '../../game/season.js';
 import { squadStrength } from '../../engine/ratings.js';
 import { money } from '../../game/economy.js';
-import { esc, crest, gauge, scaleColor, starBar, abilityStars, playerRow, ovrChip, seg } from '../components.js';
+import { esc, crest, gauge, scaleColor, noteChip, playerRow, ovrChip, seg } from '../components.js';
 import { face } from '../images.js';
 import { estimate, rangeLabel, mid } from '../../game/scouting.js';
 import { POSITION_GROUP } from '../../data/constants.js';
@@ -34,7 +34,7 @@ export function showClub(app, clubId) {
     const r = relGet(s, uc.id, c.id);
     const md = moodOf(r);
     const ot = ownerType(c);
-    const head = `<div class="row" style="gap:12px">${crest(c, 'lg')}<div class="grow"><h2 style="margin:0">${esc(c.name)}</h2><small>${DIV_NAMES[c.div]} · réputation ${c.rep} · niveau ${starBar(abilityStars(squadStrength(clubPlayers(s, c))))}</small></div>
+    const head = `<div class="row" style="gap:12px">${crest(c, 'lg')}<div class="grow"><h2 style="margin:0">${esc(c.name)}</h2><small>${DIV_NAMES[c.div]} · réputation ${c.rep} · niveau ${noteChip(squadStrength(clubPlayers(s, c)))}</small></div>
         ${mine ? '' : `<span class="tag ${md.cls}" title="Relation avec votre club">${md.icon} ${md.label}</span>`}</div>
       <div style="margin:10px 0">${seg('cview', ['squad', 'main'], view, { squad: `Effectif (${c.playerIds.length})`, main: 'Club' })}</div>`;
     if (view === 'squad') {

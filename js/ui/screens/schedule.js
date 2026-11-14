@@ -11,24 +11,24 @@ import { PHILOSOPHIES, randomLook, coachName } from '../../game/coach.js';
 import { avatarSvg } from '../avatar.js';
 import { createRng, hashSeed } from '../../core/rng.js';
 import { CONTI_SLOTS } from '../../data/world.js';
+import { divPicker } from './stats.js';
 
 export function render(app) {
   const s = app.state;
   const uc = userClub(s);
   const tab = app.ui.schedTab || 'table';
   const div = app.ui.schedDiv || uc.div;
-  let body = '';
-  if (tab === 'table') body = table(s, div, uc);
-  else if (tab === 'fixtures') body = fixtures(s, uc);
-  else if (tab === 'scorers') body = scorers(s, div);
-  else if (tab === 'cup') body = cups(app, s, uc);
-  else if (tab === 'managers') body = managersView(s, uc, div);
-  else if (tab === 'news') body = newsView(s);
-  else body = nations(s, uc);
-  return `<div class="chips" style="margin-top:6px">${[['table', 'Classement'], ['fixtures', 'Matchs'], ['scorers', 'Buteurs'], ['cup', 'Coupes'], ['managers', 'Entraîneurs'], ['news', 'Actus'], ['nations', 'Sélections']]
-    .map(([k, l]) => `<button class="chip ${tab === k ? 'on' : ''}" data-act="stab" data-v="${k}">${l}</button>`).join('')}</div>
-    ${tab === 'table' || tab === 'scorers' || tab === 'managers' ? `<div class="chips" style="margin-top:4px">${DIV_IDS.map((d) => `<button class="chip ${d === div ? 'on' : ''}" data-act="sdiv" data-v="${d}">${COUNTRIES[DIVISIONS[d].country].flag} ${DIVISIONS[d].short}</button>`).join('')}</div>` : ''}
-    ${body}`;
+  let body = '', title = '', chips = '';
+  const world = [['news', 'Actualités'], ['managers', 'Entraîneurs'], ['nations', 'Sélections']];
+  if (tab === 'table' || tab === 'scorers') { title = 'Championnat'; body = divPicker(s, div, uc, 'sdiv') + table(s, div, uc); }
+  else if (tab === 'fixtures') { title = 'Calendrier'; body = fixtures(s, uc); }
+  else if (tab === 'cup') { title = 'Coupes & trophées'; body = cups(app, s, uc); }
+  else {
+    title = 'Monde du foot';
+    chips = `<div class="chips sub-tabs">${world.map(([k, l]) => `<button class="chip ${tab === k ? 'on' : ''}" data-act="stab" data-v="${k}">${l}</button>`).join('')}</div>`;
+    body = tab === 'managers' ? divPicker(s, div, uc, 'sdiv') + managersView(s, uc, div) : tab === 'news' ? newsView(s) : nations(s, uc);
+  }
+  return `<div class="page-head"><h2>${title}</h2>${chips}</div>${body}`;
 }
 
 function table(s, div, uc) {
@@ -36,13 +36,34 @@ function table(s, div, uc) {
   const D = DIVISIONS[div];
   const nEu = CONTI_SLOTS[div] || 0, nDown = D.down || 0, nUp = D.up || 0;
   const zone = (i) => (i < nUp ? 'zone-up' : i < nEu ? 'zone-eu' : nDown && i >= rows.length - nDown ? 'zone-down' : '');
-  return `<div class="card" style="padding:6px 8px"><div class="label" style="margin-top:4px">${esc(DIVISIONS[div].name)}</div><table class="tbl">
-    <thead><tr><th class="l">#</th><th class="l">Club</th><th>J</th><th>Diff</th><th>Pts</th><th>Forme</th></tr></thead>
-    <tbody>${rows.map((r, i) => `<tr class="${r.id === uc.id ? 'me' : ''}" data-act="clubinfo" data-id="${r.id}" style="cursor:pointer">
+  const mine = div === uc.div;
+  let hero = '';
+  if (mine) {
+    const i = rows.findIndex((r) => r.id === uc.id), me = rows[i];
+    const lead = rows[0], left = (s.fixtures[div]?.length || (rows.length - 1) * 2) - me.p;
+    const gapTop = i === 0 ? (rows[1] ? me.pts - rows[1].pts : 0) : lead.pts - me.pts;
+    const safe = nDown ? rows[rows.length - nDown - 1] : null;
+    const euro = nEu && i >= nEu ? rows[nEu - 1] : null;
+    const top = topScorers(s, div, 1)[0];
+    const lines = [
+      i === 0 ? `<b class="pos-txt">En tête</b> avec ${gapTop} pt${gapTop > 1 ? 's' : ''} d'avance` : `<b>${gapTop}</b> pt${gapTop > 1 ? 's' : ''} du leader (${esc(lead.club.short)})`,
+      euro ? `<b>${euro.pts - me.pts}</b> pt(s) de la ${esc(CONTI_NAME)}` : nEu && i < nEu ? `<span class="pos-txt">Qualifié pour la ${esc(CONTI_NAME)}</span> à ce jour` : '',
+      safe && i < rows.length - nDown ? `<b>${me.pts - rows[rows.length - nDown].pts}</b> pt(s) d'avance sur la relégation` : safe ? `<span class="neg-txt">Zone rouge</span> · ${safe.pts - me.pts} pt(s) du maintien` : '',
+    ].filter(Boolean);
+    hero = `<div class="tbl-hero">${crest(uc, 'lg')}
+      <div class="pos"><b>${i + 1}<sup>${i === 0 ? 'er' : 'e'}</sup></b><small>sur ${rows.length}</small></div>
+      <div class="grow"><h3>${esc(uc.name)}</h3><div class="facts">${lines.map((l) => `<span>${l}</span>`).join('')}</div>
+        <small class="muted">${me.pts} pts · ${me.w}V ${me.d}N ${me.l}D · ${me.gf}-${me.ga} · ${Math.max(0, left)} journée(s) restante(s)</small></div>
+      ${top ? `<div class="top-sc" data-act="player" data-id="${top.id}"><small>Meilleur buteur</small><b>${esc(top.name)}</b><span>${top.stats.lgoals} buts</span></div>` : ''}</div>`;
+  }
+  return `${hero}<div class="card league-card" style="padding:6px 8px"><div class="lc-head"><span class="flag">${COUNTRIES[D.country].flag}</span><b>${esc(D.name)}</b><small>${esc(COUNTRIES[D.country].name)} · journée ${rows[0]?.p || 0}</small></div>
+    <table class="tbl ltbl">
+    <thead><tr><th class="l">#</th><th class="l">Club</th><th>J</th><th>V</th><th>N</th><th>D</th><th class="hide-s">BP</th><th class="hide-s">BC</th><th>Diff</th><th>Pts</th><th class="l">Forme</th></tr></thead>
+    <tbody>${rows.map((r, i) => `<tr class="${r.id === uc.id ? 'me' : ''} ${nDown && i === rows.length - nDown ? 'cut' : ''} ${nEu && i === nEu ? 'cut' : ''}" data-act="clubinfo" data-id="${r.id}" style="cursor:pointer">
       <td class="l ${zone(i)}">${i + 1}</td>
       <td class="l"><span class="clubcell">${crest(r.club, 'sm')}${esc(r.club.name)}</span></td>
-      <td>${r.p}</td><td>${r.gd > 0 ? '+' : ''}${r.gd}</td><td><b>${r.pts}</b></td>
-      <td>${r.form.slice(-3).map((f) => `<span class="dot" style="width:7px;height:7px;margin-left:2px;background:${f === 'V' ? 'var(--good)' : f === 'N' ? '#8b949e' : 'var(--bad)'}"></span>`).join('')}</td>
+      <td>${r.p}</td><td>${r.w}</td><td>${r.d}</td><td>${r.l}</td><td class="hide-s">${r.gf}</td><td class="hide-s">${r.ga}</td><td>${r.gd > 0 ? '+' : ''}${r.gd}</td><td><b>${r.pts}</b></td>
+      <td class="l">${r.form.slice(-5).map((f) => `<span class="fpill ${f}">${f}</span>`).join('')}</td>
     </tr>`).join('')}</tbody></table>
     <p class="muted" style="font-size:11px;margin:8px 4px 2px">${[nUp ? '<span style="color:var(--good)">▌</span> Promotion' : '', nEu ? `<span style="color:var(--info)">▌</span> ${CONTI_NAME}` : '', nDown ? '<span style="color:var(--bad)">▌</span> Relégation' : ''].filter(Boolean).join(' · ')}</p></div>`;
 }
@@ -144,8 +165,8 @@ function nations(s, uc) {
       <span class="grow" style="text-align:right">${esc(g.h)}</span><b class="num" style="min-width:50px;text-align:center">${g.s ? `${g.s[0]}-${g.s[1]}` : 'vs'}</b><span class="grow">${esc(g.a)}</span></div>`).join('')}</div>` : '<p class="muted" style="margin:10px 4px">Première trêve internationale après la 9e journée.</p>'}
     <div class="label">Classement mondial (Elo)</div>
     <div class="card" style="padding:6px 8px;margin-top:0"><table class="tbl"><thead><tr><th class="l">#</th><th class="l">Nation</th><th>J</th><th>V-N-D</th><th>Elo</th></tr></thead><tbody>
-    ${rank.map((r, i) => `<tr><td class="l">${i + 1}</td><td class="l">${esc(r.name)}${mine.has(r.name) ? ' <small>★</small>' : ''}</td><td>${r.p}</td><td>${r.w}-${r.d}-${r.l}</td><td><b>${r.elo}</b></td></tr>`).join('')}
-    </tbody></table><p class="muted" style="font-size:11px;margin:6px 4px 0">★ nation d'au moins un de vos internationaux</p></div>`;
+    ${rank.map((r, i) => `<tr><td class="l">${i + 1}</td><td class="l">${esc(r.name)}${mine.has(r.name) ? ' 🌍' : ''}</td><td>${r.p}</td><td>${r.w}-${r.d}-${r.l}</td><td><b>${r.elo}</b></td></tr>`).join('')}
+    </tbody></table><p class="muted" style="font-size:11px;margin:6px 4px 0">🌍 nation d'au moins un de vos internationaux</p></div>`;
 }
 
 function managersView(s, uc, div) {
@@ -182,7 +203,7 @@ export function mount(app, root) {
 export const actions = {
   clubinfo(el, app) { import('./clubInfo.js').then((mod) => mod.showClub(app, +el.dataset.id)); },
   stab(el, app) { app.ui.schedTab = el.dataset.v; app.render(); },
-  sdiv(el, app) { app.ui.schedDiv = +el.dataset.v; app.render(); },
+  sdiv(el, app) { if (el.tagName === 'SELECT' && !el.value) return; app.ui.schedDiv = +(el.value || el.dataset.v); app.render(); },
   cupw(el, app) { app.ui.cupWhich = el.dataset.v; app.render(); },
   async apply(el, app) {
     const c = clubById(app.state, +el.dataset.id);

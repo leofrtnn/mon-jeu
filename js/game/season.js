@@ -32,6 +32,7 @@ import { tension } from './relations.js';
 import { injuryLength, noteInjury, SEVERE_NAMES } from './injuries.js';
 import { aiSeasonBudget, finHealth } from './owners.js';
 import { BAL } from '../data/balance.js';
+import { captainCfg } from './captain.js';
 
 export const CUP_ROUND_NAMES = ['16es de finale', '8es de finale', 'Quarts de finale', 'Demi-finales', 'Finale'];
 export const CONTI_ROUND_NAMES = ['Groupes · J1', 'Groupes · J2', 'Groupes · J3', 'Quarts de finale', 'Demi-finales', 'Finale'];
@@ -397,14 +398,14 @@ export function teamCfg(state, club, opponent, isHome, isUser) {
     validateUserLineup(state);
     return { club, players, lineup: club.lineup.slice(), bench: club.bench.slice(), tactics: { ...club.tactics }, isAI: false, talk: matchMods(state)?.me || 0,
       roles: (club.roles || []).slice(), setPieces: { ...(club.setPieces || {}) }, pi: (club.pi || []).map((x) => ({ ...x })), injuryMod: staffEffects(club).injuryMod,
-      coachMods: (() => { const cm = coachMods(state.coach); return { ...cm, perf: cm.perf * staffEffects(club).perf }; })() };
+      coachMods: (() => { const cm = coachMods(state.coach); return { ...cm, perf: cm.perf * staffEffects(club).perf }; })(), ...captainCfg(state, club) };
   }
   const rng = createRng(hashSeed(`${state.seed}-${state.season}-${state.day}-${club.id}`));
   const style = managerStyle(state, club);
   const prep = aiPrepare(players, opponent ? clubPlayers(state, opponent) : players, isHome, rng, style);
   return { club, players, lineup: prep.lineup, bench: prep.bench, tactics: prep.tactics, isAI: true,
     talk: opponent && opponent.id === state.userClubId ? (matchMods(state)?.opp || 0) : 0,
-    coachMods: style ? { perf: style.perf, talk: 1, cards: 1, fatigue: 1 } : null };
+    coachMods: style ? { perf: style.perf, talk: 1, cards: 1, fatigue: 1 } : null, ...captainCfg(state, club) };
 }
 
 function nationCfg(state, nation, oppSquad, isHome) {
@@ -674,6 +675,7 @@ export function applyDayFinances(state, t, report = {}) {
     const bonus = f.comp === 'conti' ? 1.6 : 1;
     const fansK = gateMult(h); // ambiance du stade et politique tarifaire
     h.budget += Math.round(revenue * bonus * fansK);
+    const hs = (h.sst ||= emptyClubStats()); hs.att += attendance; hs.attN++;
     const hu = humanOfClub(state, h.id);
     if (hu !== undefined) withHuman(state, hu, () => { logFinance(state, Math.round(revenue * bonus * fansK), `Billetterie (${attendance.toLocaleString('fr-FR')} spect.)`); if (hu === cur) report.attendance = attendance; });
   }
@@ -736,6 +738,38 @@ function finishContiRound(state, t, report) {
   }
 }
 
+/** Statistiques de saison d'un club (toutes compétitions) + journal des matchs des managers. */
+export const emptyClubStats = () => ({ m: 0, w: 0, d: 0, l: 0, gf: 0, ga: 0, xg: 0, xga: 0, shots: 0, shotsA: 0, onT: 0, poss: 0, passes: 0, passOk: 0,
+  fouls: 0, corners: 0, yel: 0, red: 0, cs: 0, hw: 0, hd: 0, hl: 0, aw: 0, ad: 0, al: 0, big: null, worst: null, att: 0, attN: 0 });
+function recordClubStats(state, f, sum, m) {
+  for (const side of [0, 1]) {
+    const c = clubById(state, side ? f.a : f.h);
+    if (!c) continue;
+    const st = (c.sst ||= emptyClubStats());
+    const me = sum.stats[side], th = sum.stats[1 - side];
+    const gf = sum.score[side], ga = sum.score[1 - side];
+    const r = gf > ga ? 'w' : gf === ga ? 'd' : 'l';
+    st.m++; st[r]++; st[(side === 0 && !f.neutral ? 'h' : 'a') + r]++;
+    st.gf += gf; st.ga += ga; st.xg = +(st.xg + me.xg).toFixed(2); st.xga = +(st.xga + th.xg).toFixed(2);
+    st.shots += me.shots; st.shotsA += th.shots; st.onT += me.onTarget; st.poss += sum.possession[side];
+    st.passes += me.passes; st.passOk += me.passesOk; st.fouls += me.fouls; st.corners += me.corners;
+    st.yel += me.yellows; st.red += me.reds; if (ga === 0) st.cs++;
+    const opp = clubById(state, side ? f.h : f.a)?.short || '';
+    if (gf - ga > 0 && (!st.big || gf - ga > st.big.d || (gf - ga === st.big.d && gf > st.big.gf))) st.big = { d: gf - ga, gf, ga, opp };
+    if (ga - gf > 0 && (!st.worst || ga - gf > st.worst.d)) st.worst = { d: ga - gf, gf, ga, opp };
+    const hu = humanOfClub(state, c.id);
+    if (hu !== undefined) withHuman(state, hu, () => {
+      const log = (state.matchLog ||= []);
+      log.push({ season: state.season, day: state.day, comp: f.comp, div: f.div, key: f.key, h: f.h, a: f.a, s: sum.score.slice(), pens: sum.shootout ? sum.shootout.score : null,
+        poss: sum.possession.slice(), st: sum.stats.map((x) => ({ shots: x.shots, onT: x.onTarget, xg: x.xg, passes: x.passes, passOk: x.passesOk, fouls: x.fouls, corners: x.corners, yel: x.yellows, red: x.reds, off: x.offsides, saves: x.saves, tackles: x.tackles })),
+        goals: sum.goals.map((g) => ({ side: g.side, name: g.name, min: g.minute, ex: g.extra || 0, pen: g.pen, as: g.assist })),
+        motm: sum.motm ? { name: sum.motm.name, r: +sum.motm.rating.toFixed(1), side: sum.motm.side } : null,
+        best: sum.ratings[side].slice(0, 3).map((x) => ({ name: x.name, r: +x.rating.toFixed(1) })) });
+      if (log.length > 80) log.splice(0, log.length - 80);
+    });
+  }
+}
+
 /** Applique le résultat d'un match : classements, coupes, stats des joueurs. */
 function applyResult(state, f, sum, m, ctx) {
   const [g0, g1] = sum.score;
@@ -787,6 +821,13 @@ function applyResult(state, f, sum, m, ctx) {
         p.stats.goals += mp.goals; p.stats.assists += mp.assists; p.stats.ratingSum += mp.rating;
         if (f.comp === 'league') p.stats.lgoals += mp.goals;
         if (sum.motm && sum.motm.id === p.id) p.stats.motm++;
+        const st = p.stats, pos = t.slots[mp.slot]?.pos || p.pos;
+        st.starts = (st.starts || 0) + (mp.minIn === 0 ? 1 : 0);
+        st.shots = (st.shots || 0) + mp.shots; st.kp = (st.kp || 0) + mp.keyPasses;
+        st.passes = (st.passes || 0) + mp.passes; st.passOk = (st.passOk || 0) + mp.passesOk;
+        st.tackles = (st.tackles || 0) + mp.tackles; st.saves = (st.saves || 0) + mp.saves;
+        if ((side === 0 ? g1 : g0) === 0 && mins >= 60 && ['GB', 'DC', 'DG', 'DD'].includes(pos)) st.cs = (st.cs || 0) + 1;
+        if (pos === 'GB') st.conceded = (st.conceded || 0) + (side === 0 ? g1 : g0);
         p.form = clamp(Math.round(p.form * 0.6 + (50 + (mp.rating - 6.4) * 28) * 0.4), 5, 95);
         p.morale = clamp(p.morale + (diff > 0 ? 4 : diff < 0 ? -4 : 0) + (mp.minIn === 0 ? 1 : 0), 5, 99);
         if (mp.yellow && !mp.red) {
@@ -816,6 +857,7 @@ function applyResult(state, f, sum, m, ctx) {
     }
   });
   if (intl) return;
+  recordClubStats(state, f, sum, m);
   // Joueurs du club non convoqués : moral en baisse pour les bons joueurs.
   for (const t of m.teams) {
     const inMatch = new Set(allPlayers(t).map((mp) => mp.id));
@@ -837,7 +879,7 @@ function updateBoard(state, t, report) {
   }
   const league = t.entry.type === 'league';
   updateBoardParts(state, { pos: tablePosition(state, uc.id), target: state.objectives.league.target, matchDiff, leagueRound: league ? t.entry.round : null });
-  if (league) checkMidSeasonSack(state, t.entry.round);
+  if (league) { (uc.posHist ||= []).push(tablePosition(state, uc.id)); checkMidSeasonSack(state, t.entry.round); }
 }
 
 /* ---------------- Fin de saison ---------------- */
@@ -982,6 +1024,7 @@ export function endSeason(state) {
       p.value = playerValue(p);
     }
     for (const id of c.youthIds || []) { const p = state.players[id]; if (p) { seasonDevelopment(p, rng, mult); resetSeasonStats(p); } }
+    c.sst = emptyClubStats(); c.posHist = [];
   }
   state.freeAgents = state.freeAgents.filter((id) => {
     const p = state.players[id];

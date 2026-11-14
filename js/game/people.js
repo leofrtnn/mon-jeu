@@ -8,6 +8,7 @@ import { userClub, clubPlayers, pushMessage } from './state.js';
 import { overall } from '../engine/ratings.js';
 import { pushDecision, registerDecision, openDecisions } from './inbox.js';
 import { PROMISE_ROLES } from './transfers.js';
+import { captains, leadership } from './captain.js';
 
 /* ---------------- Profils ---------------- */
 
@@ -119,10 +120,11 @@ export function dressingEvents(state, rng, lost) {
     pushDecision(state, { kind: 'crisis', icon: '🚨', title: 'Réunion de crise', text: `${D.crisisLossStreak} défaites d'affilée. Le vestiaire attend une réaction.`,
       choices: [{ key: 'rally', label: 'Discours mobilisateur' }, { key: 'pressure', label: 'Mettre la pression' }, { key: 'leaders', label: 'Laisser parler les cadres' }], days: 2 });
   }
-  const cr = core(state);
-  if (lost && cr[0] && rng.chance(D.captainChance)) {
-    const cap = cr[0].p;
-    if (cap.morale >= 58 && (pers(cap) === 'leader' || cr[0].infl >= 60)) {
+  const capId = captains(state, userClub(state)).captain;
+  const cap = state.players[capId];
+  if (lost && cap && rng.chance(D.captainChance * 1.6)) {
+    const lead = leadership(state, cap);
+    if (cap.morale >= 58 && (pers(cap) === 'leader' || lead >= 55)) {
       teamShift(state, 2.5);
       pushMessage(state, { prio: 3, icon: '©', title: `${cap.name} prend la parole`, text: 'Le capitaine a remobilisé le groupe après la défaite.' });
     }

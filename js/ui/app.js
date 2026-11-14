@@ -24,6 +24,7 @@ import * as home from './screens/home.js';
 import * as squad from './screens/squad.js';
 import * as tactics from './screens/tactics.js';
 import * as schedule from './screens/schedule.js';
+import * as stats from './screens/stats.js';
 import * as club from './screens/club.js';
 import * as start from './screens/start.js';
 import * as auth from './screens/auth.js';
@@ -44,6 +45,9 @@ const ICONS = {
   train: '<path d="M6.5 6.5v11M17.5 6.5v11M3.5 9v6M20.5 9v6M6.5 12h11"/>',
   youth: '<path d="M12 21v-8"/><path d="M12 13c0-4 3-6.5 7-6.5 0 4-3 6.5-7 6.5zM12 15c0-3.2-2.4-5.2-5.6-5.2 0 3.2 2.4 5.2 5.6 5.2z"/>',
   career: '<circle cx="12" cy="9" r="5"/><path d="M9 13.5 7.5 21l4.5-2.5 4.5 2.5L15 13.5"/>',
+  table: '<rect x="3.5" y="4" width="17" height="16" rx="2"/><path d="M3.5 9h17M3.5 14h17M8.5 4v16"/>',
+  stats: '<path d="M4 20V10M10 20V4M16 20v-7M21 20H3"/>',
+  world: '<circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.5 2.6 3.6 5.4 3.6 8.5s-1.1 5.9-3.6 8.5c-2.5-2.6-3.6-5.4-3.6-8.5s1.1-5.9 3.6-8.5z"/>',
   friends: '<circle cx="8" cy="9" r="3"/><circle cx="16" cy="9" r="3"/><path d="M2.5 20c0-3 2.5-5 5.5-5s5.5 2 5.5 5M12.5 15.4c1-.3 2.2-.4 3.5-.4 3 0 5.5 2 5.5 5"/>',
 };
 const TABS = [
@@ -51,6 +55,7 @@ const TABS = [
   { id: 'squad', label: 'Effectif', mod: squad },
   { id: 'tactics', label: 'Tactique', mod: tactics },
   { id: 'schedule', label: 'Compétitions', mod: schedule },
+  { id: 'stats', label: 'Statistiques', mod: stats },
   { id: 'club', label: 'Club', mod: club },
 ];
 /**
@@ -68,7 +73,10 @@ const NAV = [
   { key: 'staff', tab: 'club', sub: ['clubTab', 'staff'], label: 'Staff', icon: 'staff' },
   { group: 'Compétitions' },
   { key: 'fixtures', tab: 'schedule', sub: ['schedTab', 'fixtures'], label: 'Calendrier', icon: 'calendar' },
-  { key: 'table', tab: 'schedule', sub: ['schedTab', 'table'], label: 'Classements', icon: 'schedule', main: true },
+  { key: 'table', tab: 'schedule', sub: ['schedTab', 'table'], label: 'Championnat', icon: 'table', main: true },
+  { key: 'cups', tab: 'schedule', sub: ['schedTab', 'cup'], label: 'Coupes & trophées', icon: 'schedule' },
+  { key: 'stats', tab: 'stats', label: 'Statistiques', icon: 'stats' },
+  { key: 'world', tab: 'schedule', sub: ['schedTab', 'news'], label: 'Monde du foot', icon: 'world' },
   { group: 'Mercato' },
   { key: 'market', tab: 'club', sub: ['clubTab', 'market'], label: 'Recrutement', icon: 'scout' },
   { group: 'Club' },
@@ -141,7 +149,7 @@ export const app = {
 
   /** Entrée du menu correspondant à l'écran affiché. */
   navKey() {
-    if (this.tab === 'schedule') return (this.ui.schedTab || 'table') === 'fixtures' ? 'fixtures' : 'table';
+    if (this.tab === 'schedule') { const t = this.ui.schedTab || 'table'; return t === 'fixtures' ? 'fixtures' : t === 'cup' ? 'cups' : ['news', 'managers', 'nations'].includes(t) ? 'world' : 'table'; }
     if (this.tab === 'club') {
       return this.ui.clubTab || 'fin';
     }

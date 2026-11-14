@@ -643,7 +643,7 @@ export function openMatch(app, opts = {}) {
         <div class="row" style="justify-content:center;gap:14px;margin:10px 0">${crest(hc)}<b class="big">${m.score[0]} - ${m.score[1]}</b>${crest(ac)}</div>
         ${sum.shootout ? `<p style="margin:0">Tirs au but : <b>${sum.shootout.score[0]} - ${sum.shootout.score[1]}</b></p>` : ''}
         <p class="muted" style="font-size:12px;margin:4px 0 12px">${sum.goals.map((g) => `${esc(g.name)} ${clockLabel(g.minute, g.extra)}${g.pen ? ' (p)' : ''}`).join(' · ') || 'Aucun but'}</p></div>
-        ${motm ? `<div class="motm"><span style="font-size:26px">★</span><div class="grow">Homme du match<br><span style="font-size:17px">${esc(motm.name)}</span></div>${ratingChip(motm.rating)}</div>` : ''}
+        ${motm ? `<div class="motm"><span style="font-size:26px">🏅</span><div class="grow">Homme du match<br><span style="font-size:17px">${esc(motm.name)}</span></div>${ratingChip(motm.rating)}</div>` : ''}
         <div class="card">${statsHtml()}</div>
         <div class="card">${chartsHtml()}</div>
         <div class="label">Notes de vos joueurs</div>

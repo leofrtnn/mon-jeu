@@ -72,6 +72,7 @@ function makeTeam(cfg, side) {
     subsUsed: 0, isAI: !!cfg.isAI, talk: Math.max(-15, Math.min(15, cfg.talk || 0)),
     roles: (cfg.roles || []).slice(), setPieces: { ...(cfg.setPieces || {}) }, injuryMod: cfg.injuryMod ?? 1,
     cm: cfg.coachMods || null, // effets des compétences du coach (équipe de l'utilisateur)
+    captain: cfg.captain || null, vice: cfg.vice || null, capLead: cfg.capLead ?? 50, viceLead: cfg.viceLead ?? 50,
     stats: { poss: 0, shots: 0, onTarget: 0, xg: 0, passes: 0, passesOk: 0, fouls: 0, corners: 0,
       yellows: 0, reds: 0, offsides: 0, saves: 0, tackles: 0, dribbles: 0 },
   };
@@ -157,7 +158,12 @@ function ballPos(m, side, zone, mp) {
   return abs(side, depth, clamp(lat, 0.04, 0.96));
 }
 
-export function addRating(mp, v) { if (mp) mp.rating = clamp(mp.rating + v, 3, 10); }
+/** Note du match : les gains se tassent au-dessus de 6 (un 9 se mérite, un 10 est exceptionnel). */
+export function addRating(mp, v) {
+  if (!mp) return;
+  if (v > 0 && mp.rating > 6) v *= clamp((9.9 - mp.rating) / 3.9, 0.06, 1);
+  mp.rating = clamp(mp.rating + v, 3, 10);
+}
 
 const roleOf = (t, mp) => (mp && t.roles[mp.slot]) || 'std';
 /** Consigne individuelle d'un joueur (par poste). */
@@ -257,6 +263,30 @@ export const TACTIC_WEIGHT = 0.45;
 /** Moteur rapide (matchs simulés) : ses multiplicateurs pèsent davantage, d'où un poids plus faible. */
 export const TACTIC_WEIGHT_QUICK = 0.1;
 
+/** Brassard : capitaine sur le terrain, sinon vice-capitaine. null si aucun des deux (ou pas de capitaine défini). */
+export function armband(t) {
+  if (!t.captain) return null;
+  const on = (id) => id && t.onPitch.find((mp) => mp && mp.id === id && mp.onPitch && !mp.red && !mp.injured);
+  const c = on(t.captain);
+  if (c) return { mp: c, lead: t.capLead, vice: false };
+  const v = on(t.vice);
+  return v ? { mp: v, lead: t.viceLead * 0.85, vice: true } : { mp: null, lead: 25, vice: false };
+}
+
+/** Effet du brassard sur le rendement (≈ ±2 %) : un leader rassure, surtout quand on est mené. */
+function captainBoost(m, t) {
+  const ab = armband(t);
+  if (!ab) return 1;
+  const behind = m.score[t.side] < m.score[1 - t.side];
+  return 1 + (ab.lead - 50) / 50 * 0.012 + (behind ? ab.lead / 100 * 0.012 : 0);
+}
+
+/** Le brassard calme les esprits : moins de cartons avec un vrai leader. */
+export function captainCalm(t) {
+  const ab = armband(t);
+  return ab ? 1.06 - ab.lead / 100 * 0.16 : 1;
+}
+
 export function refreshMultipliers(m) {
   // Duel tactique : l'avantage d'une équipe est le désavantage de l'autre.
   const e0 = tacticalEdge(m.teams[0], m.teams[1]), e1 = tacticalEdge(m.teams[1], m.teams[0]);
@@ -266,11 +296,12 @@ export function refreshMultipliers(m) {
     const n = activePlayers(t).length;
     const home = !m.neutral && t.side === 0 ? m.homeAdv : 1;
     const numbers = 1 - 0.055 * (11 - n);
+    const cap = captainBoost(m, t);
     for (const mp of t.onPitch) {
       if (!mp) continue;
       const fit = playerFit(mp.p, t.slots[mp.slot].pos);
       const pm = { form: mp.p.form, morale: clamp(mp.morale + t.talk, 0, 100) };
-      mp.mult = conditionFactor(pm, mp.energy) * fit * home * numbers * (t.cm ? t.cm.perf : 1) * (1 + (t.edge || 0) * (m.live ? TACTIC_WEIGHT : TACTIC_WEIGHT_QUICK));
+      mp.mult = conditionFactor(pm, mp.energy) * fit * home * numbers * cap * (t.cm ? t.cm.perf : 1) * (1 + (t.edge || 0) * (m.live ? TACTIC_WEIGHT : TACTIC_WEIGHT_QUICK));
     }
   }
 }
@@ -406,6 +437,8 @@ function resolveAction(m, out) {
     A.stats.passes++; c.passes++;
     if (m.rng.chance(p)) {
       A.stats.passesOk++; c.passesOk++;
+      // Une action = plusieurs passes réelles (circulation, remises) : stats de passes réalistes.
+      if (!long && z <= 1) { A.stats.passes += 2; A.stats.passesOk += 2; c.passes++; c.passesOk++; }
       addRating(c, nz > z ? 0.03 : 0.008);
       m.lastPasser = c;
       // Ballon dans le dos d'une ligne haute / d'un piège raté : l'attaquant s'échappe.
@@ -533,7 +566,7 @@ function foul(m, out, A, D, victim, offender, z) {
   // Cartons.
   let yP = 0.135 + (z === 1 || z === 2 ? 0.05 : 0) + (m.minute > 75 ? 0.04 : 0) + (m.counter ? 0.06 : 0) + (z === 3 ? 0.08 : 0);
   if (offender.yellow) yP *= 0.45; // un joueur averti se retient
-  yP *= m.profile.cards * (1 + TK[D.tactics.tackling] * 0.18) * (D.cm ? D.cm.cards : 1);
+  yP *= m.profile.cards * (1 + TK[D.tactics.tackling] * 0.18) * (D.cm ? D.cm.cards : 1) * captainCalm(D);
   if (m.rng.chance(0.003)) sendOff(m, out, D, offender, 'direct');
   else if (m.rng.chance(yP)) {
     offender.yellow++; D.stats.yellows++;

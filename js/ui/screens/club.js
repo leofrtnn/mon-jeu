@@ -13,7 +13,7 @@ import { estimate, rangeLabel, mid, REGIONS, MISSION_DAYS, startMission } from '
 import { gameRng } from '../../game/state.js';
 import { overall } from '../../engine/ratings.js';
 import { POSITIONS } from '../../data/constants.js';
-import { esc, seg, playerRow, gauge, stars, scaleColor, ovrChip, starBar, abilityStars } from '../components.js';
+import { esc, seg, playerRow, gauge, stars, scaleColor, ovrChip, noteChip } from '../components.js';
 import { showPlayer } from './playerSheet.js';
 import * as settings from './settings.js';
 import { windowInfo } from '../../game/dates.js';
@@ -196,9 +196,8 @@ function marketRow(s, p, price) {
   const uc = userClub(s);
   const c = p.clubId ? clubById(s, p.clubId) : null;
   const e = estimate(s, p);
-  const ps = Math.max(1, Math.min(5, Math.round((mid(e.pot) - 45) / 10)));
   return playerRow(p, {
-    extra: `· ${c ? esc(c.short) : 'Libre'} · ${esc(p.nat || '')} · ${stars(ps)}`,
+    extra: `· ${c ? esc(c.short) : 'Libre'} · ${esc(p.nat || '')} · pot. ${rangeLabel(e.pot)}`,
     right: `<div class="center" style="min-width:78px">${ovrChip(mid(e.ovr), rangeLabel(e.ovr))}${e.exact ? '' : '<small class="muted" style="font-size:10px"> ≈</small>'}<br><small style="color:${(price ?? 0) <= ensureBoard(s).transferBudget ? 'var(--muted)' : 'var(--bad)'}">${price ? money(price) : c ? '' : 'Libre'}</small></div>`,
   });
 }
@@ -261,7 +260,7 @@ function youth(s) {
       ${uc.academy < 5 ? `<button class="btn block" style="margin-top:12px" data-act="upgrade">Améliorer · ${money(academyCost(uc))}</button>` : ''}
     </div>
     <div class="label">Jeunes du centre (${ys.length})</div>
-    <div class="card list" style="padding:0 10px;margin-top:0">${ys.map((p) => playerRow(p, { extra: `· pot. ${starBar(abilityStars(p.pot))}` })).join('') || '<p class="muted">Nouvelle promotion à la mi-saison et chaque été.</p>'}</div>`;
+    <div class="card list" style="padding:0 10px;margin-top:0">${ys.map((p) => playerRow(p, { extra: `· potentiel ${noteChip(p.pot)}` })).join('') || '<p class="muted">Nouvelle promotion à la mi-saison et chaque été.</p>'}</div>`;
 }
 
 function career(s) {

@@ -127,7 +127,7 @@ export class Broadcast {
     const { m, hc, ac, colors, coachOf } = this.ctx;
     const xi = (side) => {
       const t = m.teams[side];
-      return t.onPitch.filter(Boolean).map((mp) => `<li>${face(mp.p, side ? ac : hc)}<em>${mp.number ?? ''}</em><span>${esc(mp.name)}</span><small>${t.slots[mp.slot].pos}</small></li>`).join('');
+      return t.onPitch.filter(Boolean).map((mp) => `<li>${face(mp.p, side ? ac : hc)}<em>${mp.number ?? ''}</em><span>${esc(mp.name)}${mp.id === t.captain ? ' <b class="xi-tag cap">C</b>' : ''}</span><small>${t.slots[mp.slot].pos}</small></li>`).join('');
     };
     const col = (side) => { const c = side ? ac : hc, t = m.teams[side]; return `<div class="side" style="--tc:${colors[side]}">
       <div class="head">${crest(c)}<div><b>${esc(c.name)}</b><small>${esc(t.tactics.formation || '')}${coachOf(side) ? ` · ${esc(coachOf(side))}` : ''}</small></div></div><ol>${xi(side)}</ol></div>`; };

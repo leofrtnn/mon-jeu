@@ -68,7 +68,7 @@ export function posBadge(pos) {
 /** Niveau d'un joueur : étoiles (plus de note sur 100). */
 /** Note générale sur 100 (pastille colorée) + étoiles relatives au championnat. `label` : fourchette estimée. */
 export function ovrChip(v, label = null) {
-  return `<span class="stars-chip"><b class="ovr-n" style="--oc:${ovrColor(v)}" title="Note générale sur 100">${label ?? Math.round(v)}</b>${starBar(abilityStars(v))}</span>`;
+  return `<span class="stars-chip"><b class="ovr-n" style="--oc:${ovrColor(v)}" title="Note générale sur 100">${label ?? Math.round(v)}</b></span>`;
 }
 /** Couleur d'une note générale : gris < 60, vert, bleu, violet, or ≥ 85. */
 export const ovrColor = (v) => (v >= 85 ? '#f4c430' : v >= 78 ? '#b48cff' : v >= 70 ? '#4cc9f0' : v >= 62 ? '#5fd38d' : '#9aa0b4');
@@ -139,9 +139,14 @@ export function cmpBar(label, a, b, colors, fmt = (v) => v) {
     <div class="bar"><i style="width:${a / tot * 100}%;background:${colors[0]}"></i><i style="width:${b / tot * 100}%;background:${colors[1]}"></i></div></div>`;
 }
 
+/** Niveau d'une installation (1 à max) : barre de crans, sans étoiles. */
 export function stars(n, max = 5) {
-  if (max === 5) return starBar(n);
-  return `<span style="color:#e3b341;letter-spacing:1px">${'★'.repeat(Math.round(n))}<span style="color:var(--line)">${'★'.repeat(max - Math.round(n))}</span></span>`;
+  const v = Math.round(n);
+  return `<span class="lvlbar" title="Niveau ${v}/${max}">${Array.from({ length: max }, (_, i) => `<i class="${i < v ? 'on' : ''}"></i>`).join('')}<b>${v}/${max}</b></span>`;
+}
+/** Note sur 100 en pastille colorée (taille réduite). */
+export function noteChip(v, label = null) {
+  return `<b class="ovr-n sm" style="--oc:${ovrColor(v)}">${label ?? Math.round(v)}</b>`;
 }
 
 /** Potentiel estimé en étoiles (le recruteur n'est pas infaillible : arrondi). */

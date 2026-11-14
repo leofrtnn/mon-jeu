@@ -7,7 +7,7 @@ import { newGame, startCareer } from '../../game/season.js';
 import { load, deleteSave, clubPlayers, slotsInfo, SLOTS, setSlot, importFile, legacySave, dropLegacy, restoreSlot, lastKey } from '../../game/state.js';
 import { squadStrength, overall } from '../../engine/ratings.js';
 import { money } from '../../game/economy.js';
-import { esc, crest, stars, starBar, playerRow } from '../components.js';
+import { esc, crest, playerRow, noteChip } from '../components.js';
 import { DIVISIONS, DIV_IDS, COUNTRIES } from '../../data/world.js';
 import { readFileAsText } from '../files.js';
 import { openCoachEditor } from './coachEditor.js';
@@ -77,7 +77,6 @@ const GROUPS = [
   ['Asie, Océanie, Golfe, Afrique', (d) => DIVISIONS[d].level === 1 && OUTSIDE.includes(DIVISIONS[d].country) && !AMERICAS.includes(DIVISIONS[d].country)],
 ];
 const REP_WORD = (r) => (r >= 85 ? 'mondiale' : r >= 75 ? 'continentale' : r >= 62 ? 'nationale' : 'régionale');
-const leagueStars = (avg) => Math.max(1, Math.min(5, Math.round((avg - 50) / 7 * 2) / 2));
 
 function pickerHtml(app, ui) {
   const s = app.state;
@@ -93,7 +92,7 @@ function pickerHtml(app, ui) {
       return `<button class="lg-row ${d === ui.div && !q ? 'on' : ''}" data-act="div" data-v="${d}">
         <span class="flag">${COUNTRIES[DIVISIONS[d].country].flag}</span>
         <span class="grow"><b>${esc(DIVISIONS[d].name)}</b><small>${esc(COUNTRIES[DIVISIONS[d].country].name)} · ${cl.length} clubs</small></span>
-        ${starBar(leagueStars(avg), 'sm')}</button>`;
+        <small class="muted" title="Réputation moyenne des clubs">Rép. ${Math.round(avg)}</small></button>`;
     }).join('')}</div>`;
   }).join('');
   // Clubs : ceux du championnat choisi, ou le résultat de la recherche (tous championnats).
@@ -108,7 +107,7 @@ function pickerHtml(app, ui) {
   const cards = list.map((c) => `<button class="club-card ${c.id === ui.sel ? 'on' : ''}" data-act="sel" data-id="${c.id}">
       ${crest(c, 'lg')}
       <b>${esc(c.name)}</b>
-      ${starBar(Math.max(0.5, Math.min(5, Math.round((2.5 + (strength.get(c.id) - avg) / 3) * 2) / 2)), 'sm')}
+      <span title="Niveau moyen du onze type">${noteChip(strength.get(c.id))}</span>
       <small>${q ? `${esc(DIVISIONS[c.div].name)} · ` : ''}${money(c.budget)}</small>
     </button>`).join('') || '<p class="muted" style="padding:20px">Aucun club trouvé.</p>';
   return `<div class="picker">

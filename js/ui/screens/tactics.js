@@ -4,10 +4,11 @@
 import { userClub, clubPlayers } from '../../game/state.js';
 import { FORMATIONS, FORMATION_NAMES, MENTALITIES, MENTALITY_LABELS, LEVELS, PRESSING_LABELS, TEMPO_LABELS, WIDTH_LABELS, positionFit, playerFit, BENCH_SIZE, ROLES, rolesFor, DEFAULT_TACTICS, TEAM_INSTRUCTIONS, PLAYER_INSTRUCTIONS, slotsOf, posFromXY } from '../../data/constants.js';
 import { autoLineup, ratingAt, isAvailable, overall, lineupStrength } from '../../engine/ratings.js';
-import { esc, playerRow, seg, posBadge, abilityStars } from '../components.js';
+import { esc, playerRow, seg, posBadge } from '../components.js';
 import { face } from '../images.js';
 import { toLocal, localRect } from '../viewport.js';
-const stars = (r) => `${String(abilityStars(r)).replace('.', ',')}★`;
+import { captains } from '../../game/captain.js';
+const stars = (r) => `${Math.round(r)}`;
 
 const TABS = [['team', 'Équipe'], ['players', 'Joueurs'], ['squad', 'Compo'], ['sp', 'Coups francs']];
 
@@ -23,13 +24,14 @@ export function render(app) {
   const slots = slotsOf(t);
   if (!uc.lineup || uc.lineup.length !== 11) { const lu = autoLineup(players, slots); uc.lineup = lu.lineup; uc.bench = lu.bench; }
   const edit = !!app.ui.tEdit;
+  const { captain: capId } = captains(s, uc);
   const pitch = slots.map((sl, i) => {
     const p = byId.get(uc.lineup[i]);
     const fit = p ? playerFit(p, sl.pos) : 0;
     const fc = fit >= 1 ? 'var(--good)' : fit >= 0.85 ? 'var(--ok)' : 'var(--bad)';
     return `<div class="slot ${p ? '' : 'empty'} ${edit && sl.pos !== 'GB' ? 'editable' : ''}" data-drag="slot" data-drop="slot" data-v="${i}"
       style="--x:${sl.x.toFixed(3)};--y:${sl.y.toFixed(3)}">
-      <div class="tok">${edit ? `<span class="shirt"><small>${sl.pos}</small></span>` : p ? `${face(p, uc)}<em class="num">${p.number}</em><span class="fit" style="background:${fc}"></span>` : '<span class="shirt">+</span>'}</div>
+      <div class="tok">${edit ? `<span class="shirt"><small>${sl.pos}</small></span>` : p ? `${face(p, uc)}<em class="num">${p.number}</em><span class="fit" style="background:${fc}"></span>${p.id === capId ? '<span class="armband" title="Capitaine">C</span>' : ''}` : '<span class="shirt">+</span>'}</div>
       <div class="nm">${p ? esc(p.last) : '—'}${p && (!isAvailable(p)) ? ' ✚' : ''}</div>
       <div class="ps">${sl.pos}${p ? ' · ' + stars(ratingAt(p, sl.pos)) : ''}</div>
     </div>`;

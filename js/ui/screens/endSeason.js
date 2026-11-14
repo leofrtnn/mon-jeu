@@ -6,7 +6,7 @@ import { DIVISIONS } from '../../data/world.js';
 import { endSeason, changeClub, DIV_NAMES, CONTI_NAME } from '../../game/season.js';
 import { clubById } from '../../game/state.js';
 import { money } from '../../game/economy.js';
-import { esc, crest, scaleColor, gauge , starBar, abilityStars } from '../components.js';
+import { esc, crest, scaleColor, gauge, noteChip } from '../components.js';
 
 /** report : bilan déjà calculé (carrière en ligne : c'est l'hôte qui l'a calculé). */
 export function showEndSeason(app, report = null) {
@@ -31,7 +31,7 @@ export function showEndSeason(app, report = null) {
         <div style="margin-top:8px;font-size:13px"><span class="pos-txt">⬆</span> ${r.promoted.map(esc).join(', ')}<br><span class="neg-txt">⬇</span> ${r.relegated.map(esc).join(', ')}</div></div>
       <div class="card"><h3>Évolution des joueurs</h3>
         ${prog.map((p) => `<div class="row between" style="padding:3px 0"><span>${esc(p.name)} <small>${p.age} ans</small></span>
-          <span>${starBar(abilityStars(p.before))} → <b style="color:${p.after > p.before ? 'var(--good)' : 'var(--bad)'}">${p.after > p.before ? '▲' : '▼'}</b> ${starBar(abilityStars(p.after))}</span></div>`).join('') || '<p class="muted">Pas de changement notable.</p>'}
+          <span>${noteChip(p.before)} → ${noteChip(p.after)} <b style="color:${p.after > p.before ? 'var(--good)' : 'var(--bad)'}">${p.after > p.before ? '▲ +' : '▼ '}${Math.round(p.after - p.before)}</b></span></div>`).join('') || '<p class="muted">Pas de changement notable.</p>'}
         ${r.retired.length ? `<p style="margin-bottom:0"><small>Retraites : ${r.retired.map(esc).join(', ')}</small></p>` : ''}
         ${r.left.length ? `<p style="margin-bottom:0"><small>Fins de contrat : ${r.left.map(esc).join(', ')}</small></p>` : ''}
         ${r.youth.length ? `<p style="margin-bottom:0"><small>🌱 Nouveaux jeunes : ${r.youth.map(esc).join(', ')}</small></p>` : ''}</div>

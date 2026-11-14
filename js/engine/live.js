@@ -22,7 +22,7 @@
 import { createBall, stepBall, solveKick, R as BR, GOAL_HALF, PITCH_L as L, PITCH_W as W } from '../ui/ballPhysics.js';
 import { formationPos } from './positions.js';
 import { clamp } from '../core/rng.js';
-import { activePlayers, eff, addRating, emit, changePossession, momentum, setPieceTaker, sendOff, injure, kickoff as engineKickoff, minuteStart, minuteEnd, stepMinute } from './match.js';
+import { activePlayers, eff, addRating, emit, changePossession, momentum, setPieceTaker, sendOff, injure, kickoff as engineKickoff, minuteStart, minuteEnd, stepMinute, captainCalm } from './match.js';
 
 const GS = 1.6;            // les gestes (frappe, tacle…) durent un temps « d'affichage »
 export const CLOCK = 6.25; // secondes de match par seconde de jeu simulé (une minute ≈ 9,6 s de jeu)
@@ -1016,7 +1016,7 @@ export class LiveSim {
     m.stoppages += 0.15;
     let yP = 0.135 + (z === 1 || z === 2 ? 0.05 : 0) + (m.minute > 75 ? 0.04 : 0) + (z === 3 ? 0.08 : 0);
     if (offender.mp.yellow) yP *= 0.45;
-    yP *= (m.profile.cards || 1) * (1 + (TK[D.tactics.tackling] || 0) * 0.18) * (D.cm ? D.cm.cards : 1);
+    yP *= (m.profile.cards || 1) * (1 + (TK[D.tactics.tackling] || 0) * 0.18) * (D.cm ? D.cm.cards : 1) * captainCalm(D);
     if (this.rand() < 0.003) sendOff(m, out, D, offender.mp, 'direct');
     else if (this.rand() < yP) {
       offender.mp.yellow++; D.stats.yellows++;

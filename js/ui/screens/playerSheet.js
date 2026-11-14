@@ -8,7 +8,7 @@ import { money } from '../../game/economy.js';
 import { clubById, userClub, gameRng } from '../../game/state.js';
 import { askingPrice, loanIn, loanOut, findBuyer, sellPlayer, releasePlayer, promoteYouth, windowOpen } from '../../game/transfers.js';
 import { estimate, rangeLabel, observe } from '../../game/scouting.js';
-import { esc, posBadge, ovrChip, scaleColor, gauge, stars, statusTags, a20, color20, abilityStars, starBar, face, ovrColor } from '../components.js';
+import { esc, posBadge, ovrChip, scaleColor, gauge, stars, statusTags, a20, color20, face, ovrColor } from '../components.js';
 import { negotiateTransfer, negotiateContract } from './negotiation.js';
 import { TALKS, playerTalk } from '../../game/media.js';
 import { windowInfo } from '../../game/dates.js';
@@ -17,6 +17,7 @@ import { persInfo, influence } from '../../game/people.js';
 import { agentInfo, exerciseOption } from '../../game/agents.js';
 import { relapseRisk } from '../../game/injuries.js';
 import { showClub } from './clubInfo.js';
+import { captains, leadership, setCaptain } from '../../game/captain.js';
 
 /** Attribut sur 20 (comme FM) : valeur exacte ou plage estimée par le recruteur. */
 function attrLine(label, [lo, hi]) {
@@ -40,9 +41,11 @@ export function showPlayer(app, pid, onChange) {
     const attrs = ATTRS.filter((k) => k !== 'arr' || p.pos === 'GB');
     const apps = p.stats.apps;
     const avg = apps ? (p.stats.ratingSum / apps).toFixed(2) : '—';
-    const potStars = e.pot.map((v) => abilityStars(v));
-    const caStars = e.ovr.map((v) => abilityStars(v));
     let actions = '';
+    const cv = mine && !p.onLoanFrom ? captains(s, uc) : {};
+    const capRow = mine && !p.onLoanFrom ? `<div class="cap-box"><span class="xi-tag cap">C</span><div class="grow"><b>${p.id === cv.captain ? 'Capitaine du club' : p.id === cv.vice ? 'Vice-capitaine' : 'Brassard'}</b>
+        <small>Leadership ${leadership(s, p)}/100 · un leader calme l'équipe et la relance quand elle est menée</small></div>
+        ${p.id !== cv.captain ? `<button class="btn sm" data-act="cap">Nommer capitaine</button>` : ''}${p.id !== cv.vice && p.id !== cv.captain ? `<button class="btn sm" data-act="vice">Vice</button>` : ''}</div>` : '';
     if (youth) {
       actions = `<button class="btn primary block" data-act="promote">Promouvoir en équipe première</button>`;
     } else if (mine) {
@@ -62,7 +65,7 @@ export function showPlayer(app, pid, onChange) {
         ${!e.exact ? `<button class="btn" data-act="observe" ${queued ? 'disabled' : ''}>${queued ? 'En observation…' : '🔭 Observer'}</button>` : ''}
       </div>${windowOpen(s) ? '' : `<p class="muted" style="font-size:12px">${esc(windowInfo(s).label)}</p>`}`;
     }
-    const ovrHtml = `<div style="text-align:right;font-size:11px;color:var(--muted)">Note /100<br><b class="ovr-n" style="--oc:${ovrColor((e.ovr[0] + e.ovr[1]) / 2)};display:inline-block;margin:2px 0 4px">${rangeLabel(e.ovr)}</b>${e.exact ? ` <small>pot. ${rangeLabel(e.pot)}</small>` : ''}<br>Niveau<br>${starBar(caStars[e.exact ? 0 : 1] === caStars[0] ? caStars[0] : (caStars[0] + caStars[1]) / 2)}<br>Potentiel<br>${starBar(e.exact ? potStars[0] : (potStars[0] + potStars[1]) / 2)}${e.exact ? '' : '<br><small>estimation</small>'}</div>`;
+    const ovrHtml = `<div style="text-align:right;font-size:11px;color:var(--muted)">Note /100<br><b class="ovr-n" style="--oc:${ovrColor((e.ovr[0] + e.ovr[1]) / 2)};display:inline-block;margin:2px 0 4px">${rangeLabel(e.ovr)}</b><br>Potentiel<br><b class="ovr-n sm" style="--oc:${ovrColor((e.pot[0] + e.pot[1]) / 2)}">${rangeLabel(e.pot)}</b>${e.exact ? '' : '<br><small>estimation</small>'}</div>`;
     return `<div class="row" style="gap:12px;margin-bottom:10px">
         ${p.photo || p.real ? face(p, club, 'lg') : ''}<div style="font-size:30px;font-weight:900;color:var(--muted);min-width:34px;text-align:center">${p.number || ''}</div>
         <div class="grow"><h2>${esc(p.first)} ${esc(p.last)}</h2>
@@ -97,7 +100,7 @@ export function showPlayer(app, pid, onChange) {
         ${mine && p.relapse ? `<div class="row between"><span>Risque de rechute</span><b class="bad">${Math.round(p.relapse.risk * 100)} % · ${p.relapse.matches} match(s)</b></div>` : ''}
         ${mine && p.promise ? `<div class="row between"><span>Statut promis</span><b>${PROMISE_ROLES[p.promise.role].label}${p.promise.strikes ? ' ⚠' : ''}</b></div>` : ''}
       </div>
-      ${actions}`;
+      ${capRow}${actions}`;
   };
   const done = (r, close = false) => {
     app.toast(r.msg);
@@ -137,6 +140,8 @@ export function showPlayer(app, pid, onChange) {
         done(releasePlayer(s, pid), true);
       },
       promote: () => done(promoteYouth(s, pid), true),
+      cap: () => done({ ok: true, msg: setCaptain(s, pid) }),
+      vice: () => done({ ok: true, msg: setCaptain(s, pid, true) }),
       option: () => done(exerciseOption(s, pid)),
       club: () => { const c = s.players[pid].clubId; if (c) { h.close(); showClub(app, c); } },
     },

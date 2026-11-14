@@ -91,7 +91,7 @@ export function shouldRetire(p, rng) {
 export function resetSeasonStats(p) {
   p.career = p.career || { apps: 0, goals: 0, assists: 0 };
   p.career.apps += p.stats.apps; p.career.goals += p.stats.goals; p.career.assists += p.stats.assists;
-  p.stats = { apps: 0, goals: 0, lgoals: 0, assists: 0, ratingSum: 0, yellows: 0, reds: 0, minutes: 0, motm: 0 };
+  p.stats = { apps: 0, goals: 0, lgoals: 0, assists: 0, ratingSum: 0, yellows: 0, reds: 0, minutes: 0, motm: 0, starts: 0, shots: 0, kp: 0, passes: 0, passOk: 0, tackles: 0, saves: 0, cs: 0, conceded: 0 };
   p.yellowAcc = 0;
 }
 
