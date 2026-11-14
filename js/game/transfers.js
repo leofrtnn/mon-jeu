@@ -462,15 +462,18 @@ export function evaluateContract(p, dem, offer) {
 /** Buts attendus par semaine selon le poste (pour évaluer une prime de but). */
 export const expectedGoals = (p) => ({ BU: 0.45, AG: 0.25, AD: 0.25, MO: 0.2 }[p.pos] ?? (p.pos?.startsWith('M') ? 0.08 : 0.03));
 
+/** Clauses du contrat conservées sur le joueur (payées pendant la saison / en fin de saison). */
+export const contractExtras = (o) => ({ loyalty: o.loyalty || 0, appFee: o.appFee || 0, csBonus: o.csBonus || 0, rise: o.rise || 0, relCut: o.relCut || 0, contractStart: null });
+
 /** Finalise un transfert négocié (fee = 0 pour un joueur libre). */
-export function completeTransfer(state, pid, fee, offer, dem, sellOn = 0, plan = 'cash') {
+export function completeTransfer(state, pid, fee, offer, dem, sellOn = 0, plan = 'cash', bid = null) {
   const p = state.players[pid];
   const club = userClub(state);
   if (!windowOpen(state) && p.clubId) return { ok: false, msg: 'Le mercato est fermé.' };
   if (club.playerIds.length >= MAX_SQUAD) return { ok: false, msg: `Effectif complet (${MAX_SQUAD} max).` };
-  const agentFee = Math.round((fee ? fee * dem.agentFeeRate : offer.wage * 4) / 1000) * 1000;
-  // Paiement échelonné : 40 % à la signature, puis 30 % à chacune des deux fins de saison suivantes.
-  const inst = plan === 'inst' && fee > 0;
+  const agentFee = offer.agentFee != null ? offer.agentFee : Math.round((fee ? fee * dem.agentFeeRate : offer.wage * 4) / 1000) * 1000;
+  // Paiement échelonné : 40 % à la signature, puis le reste sur 2 (ou 3) fins de saison.
+  const inst = (plan === 'inst' || plan === 'inst3') && fee > 0;
   const upfront = inst ? Math.round(fee * 0.4 / 25000) * 25000 : fee;
   const cost = upfront + (offer.bonus || 0) + agentFee;
   if (club.budget < cost) return { ok: false, msg: `Budget insuffisant (${money(cost)}).` };
@@ -480,14 +483,27 @@ export function completeTransfer(state, pid, fee, offer, dem, sellOn = 0, plan =
   const seller = p.clubId ? clubById(state, p.clubId) : null;
   if (seller) { seller.budget += upfront; paySellOn(state, p, seller, fee); relationsAfterTransfer(state, seller, club, p, fee); }
   if (inst) {
-    const rest = fee - upfront, a = Math.round(rest / 2 / 25000) * 25000;
-    (club.debts ||= []).push({ to: seller?.id ?? null, pid: p.id, name: p.name, amount: a, season: state.season + 1 }, { to: seller?.id ?? null, pid: p.id, name: p.name, amount: rest - a, season: state.season + 2 });
+    const n = plan === 'inst3' ? 3 : 2, rest = fee - upfront;
+    let paid = 0;
+    for (let k = 1; k <= n; k++) {
+      const a = k === n ? rest - paid : Math.round(rest / n / 25000) * 25000;
+      paid += a;
+      (club.debts ||= []).push({ to: seller?.id ?? null, pid: p.id, name: p.name, amount: a, season: state.season + k });
+    }
+  }
+  // Joueur inclus dans l'échange : il part chez le vendeur.
+  const swap = bid?.swapId ? state.players[bid.swapId] : null;
+  if (swap && seller && swap.clubId === club.id) {
+    removeFromClub(state, swap); addToClub(state, swap, seller);
+    swap.contract = Math.max(swap.contract, 2); swap.joined = state.season;
+    news(state, 'transfer', `${swap.first} ${swap.last} part à ${seller.name} dans le cadre du transfert de ${p.name}.`, { pid: swap.id });
   }
   removeFromClub(state, p);
   addToClub(state, p, club);
   club.budget -= cost;
-  Object.assign(p, { wage: offer.wage, contract: offer.years, clause: offer.clause || 0, requested: false, promise: { role: offer.role || 'rotation', season: state.season }, goalBonus: offer.goalBonus || 0, joined: state.season });
+  Object.assign(p, { wage: offer.wage, contract: offer.years, clause: offer.clause || 0, requested: false, promise: { role: offer.role || 'rotation', season: state.season }, goalBonus: offer.goalBonus || 0, joined: state.season }, contractExtras(offer));
   if (seller && sellOn) p.sellOn = { clubId: seller.id, pct: sellOn };
+  if (seller && bid?.addon) p.addOn = { to: seller.id, amount: bid.addon, apps: 25, n: 0 };
   p.morale = clamp(p.morale + 12, 0, 100);
   news(state, 'transfer', `${p.first} ${p.last} rejoint ${club.name}${fee ? ` · ${money(fee)}` : ' (libre)'}.`, { pid: p.id });
   logFinance(state, -upfront, `Transfert : ${p.name}${inst ? ' (1er versement sur 3)' : ''}`);
@@ -506,7 +522,8 @@ export function completeRenewal(state, pid, offer) {
   if (!chk.ok) return chk;
   club.budget -= offer.bonus || 0;
   if (offer.bonus) logFinance(state, -offer.bonus, `Prime de prolongation : ${p.name}`);
-  Object.assign(p, { wage: offer.wage, contract: offer.years, clause: offer.clause || 0, requested: false, promise: { role: offer.role || p.promise?.role || 'rotation', season: state.season }, goalBonus: offer.goalBonus || p.goalBonus || 0 });
+  if (offer.agentFee) { club.budget -= offer.agentFee; logFinance(state, -offer.agentFee, `Commission d'agent : ${p.name}`); }
+  Object.assign(p, { wage: offer.wage, contract: offer.years, clause: offer.clause || 0, requested: false, promise: { role: offer.role || p.promise?.role || 'rotation', season: state.season }, goalBonus: offer.goalBonus || p.goalBonus || 0 }, contractExtras(offer));
   p.morale = clamp(p.morale + 8, 0, 100);
   p.value = playerValue(p);
   return { ok: true, msg: `${p.name} prolonge ${offer.years} an(s) à ${money(offer.wage)}/sem.` };

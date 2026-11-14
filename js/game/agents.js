@@ -111,6 +111,28 @@ export function paySellOn(state, p, seller, fee) {
   return part;
 }
 
+/** Primes de match, d'invincibilité et bonus de transfert (après N matchs) des joueurs de l'utilisateur. */
+export function matchBonuses(state, d) {
+  let total = 0;
+  const lines = [];
+  for (const id of d.played || []) {
+    const p = state.players[id];
+    if (!p) continue;
+    if (p.appFee) total += p.appFee;
+    if (p.csBonus && d.ga === 0) total += p.csBonus;
+    if (p.addOn) {
+      p.addOn.n++;
+      if (p.addOn.n >= p.addOn.apps) {
+        const to = clubById(state, p.addOn.to);
+        if (to) to.budget += p.addOn.amount;
+        lines.push({ amount: p.addOn.amount, text: `Bonus de transfert : ${p.name} (${p.addOn.apps} matchs) → ${to?.name || ''}` });
+        p.addOn = null;
+      }
+    }
+  }
+  return { total, lines };
+}
+
 /** Primes de but des joueurs de l'utilisateur. */
 export function goalBonuses(state, d) {
   let total = 0;

@@ -3,7 +3,7 @@
  */
 import { userClub, clubById } from '../../game/state.js';
 import { money } from '../../game/economy.js';
-import { meetingOptions, concludeMeeting, addFriendly, friendlySeed, applyFriendly, endPreseason, CAMPS, INTENSITY, campMoney, chooseCamp, setIntensity, advancePreDay } from '../../game/preseason.js';
+import { meetingOptions, concludeMeeting, addFriendly, friendlySeed, applyFriendly, endPreseason, CAMPS, INTENSITY, campMoney, chooseCamp, setIntensity, advancePreDay, friendlyToday, friendliesLeft } from '../../game/preseason.js';
 import { activeDeals } from '../../game/deals.js';
 import { longDate } from '../../game/dates.js';
 import { COUNTRIES } from '../../data/world.js';
@@ -13,12 +13,6 @@ import { teamCfg, DIVISIONS } from '../../game/season.js';
 import { simulateMatch, summarize } from '../../engine/match.js';
 import { esc, crest } from '../components.js';
 import { openMatch } from './match.js';
-
-/** Date d'un amical : un tous les 4-5 jours à partir de mi-juillet. */
-function fDate(s, i) {
-  const d = new Date(Date.UTC(s.season, 6, 12 + i * 5));
-  return `${d.getUTCDate()}/${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
-}
 
 /** Tests physiques et rythme de match du groupe. */
 function testsCard(s, uc) {
@@ -50,7 +44,7 @@ export function preseasonCard(app) {
       <p style="margin:6px 0 12px">${ps.meeting ? `✔ Réunion avec le CA faite · objectif : <b>${esc(s.objectives.league.label)}</b>` : 'Le président vous attend pour fixer les objectifs de la saison.'}</p>
       ${ps.meeting ? '' : '<button class="btn primary lg block" data-act="psmeeting">Réunion avec le CA</button>'}
       <div class="row between" style="margin-top:10px;gap:8px;flex-wrap:wrap"><span>📅 <b>${esc(longDate(ps.date || `${s.season}-07-20`))}</b>${activeDeals(s).length ? ` · <a data-act="psdeals" style="cursor:pointer;text-decoration:underline">${activeDeals(s).length} dossier(s) en cours</a>` : ''}</span>
-        <span class="btns" style="margin:0"><button class="btn sm" data-act="psday" data-v="1">Jour suivant ▸</button><button class="btn sm" data-act="psday" data-v="3">+3 jours ▸▸</button></span></div>
+        <span class="btns" style="margin:0">${friendlyToday(s) ? `<b class="pos-txt">⚽ Amical aujourd'hui</b>` : '<button class="btn sm" data-act="psday" data-v="1">Jour suivant ▸</button><button class="btn sm" data-act="psday" data-v="3">+3 jours ▸▸</button>'}</span></div>
       <small class="muted">Le mercato vit au jour le jour : les clubs et les agents mettent quelques jours à répondre.</small>
     </div>
     ${testsCard(s, uc)}
@@ -62,8 +56,8 @@ export function preseasonCard(app) {
       <small class="muted">${esc(INTENSITY[ps.intensity || 'normal'].desc)}</small>
     </div>
     <div class="card"><h3>Matchs amicaux (${ps.friendlies.length}/6)</h3>
-      ${ps.friendlies.map((f, i) => { const c = clubById(s, f.oppId); return `<div class="row" style="padding:6px 0;border-bottom:1px solid var(--line);gap:6px"><small class="muted num" style="min-width:52px">${fDate(s, i)}</small>${crest(c, 'sm')}
-        <span class="grow">${f.tour ? `✈️ ${esc(f.place)} · ` : f.home ? '' : '@ '}${esc(c.name)} <small class="muted">${esc(COUNTRIES[c.country]?.flag || '')}</small></span>${f.s ? res(f) : `<button class="btn sm" data-act="pssim" data-id="${c.id}">Simuler</button><button class="btn sm primary" data-act="psplay" data-id="${c.id}">Jouer</button>`}</div>`; }).join('') || '<p class="muted" style="margin:0">Aucun amical programmé. Les amicaux donnent du rythme de match : sans eux, l\'équipe démarrera la saison rouillée.</p>'}
+      ${ps.friendlies.map((f) => { const c = clubById(s, f.oppId); const today = !f.s && f.date === ps.date; return `<div class="row ${today ? 'fr-today' : ''}" style="padding:6px 0;border-bottom:1px solid var(--line);gap:6px"><small class="muted num" style="min-width:52px">${f.date ? `${f.date.slice(8, 10)}/${f.date.slice(5, 7)}` : ''}</small>${crest(c, 'sm')}
+        <span class="grow">${f.tour ? `✈️ ${esc(f.place)} · ` : f.home ? '' : '@ '}${esc(c.name)} <small class="muted">${esc(COUNTRIES[c.country]?.flag || '')}</small></span>${f.s ? res(f) : today ? `<button class="btn sm" data-act="pssim" data-id="${c.id}">Simuler</button><button class="btn sm primary" data-act="psplay" data-id="${c.id}">Jouer</button>` : `<small class="muted">dans ${Math.round((new Date(f.date) - new Date(ps.date)) / 864e5)} j</small>`}</div>`; }).join('') || '<p class="muted" style="margin:0">Aucun amical programmé. Les amicaux donnent du rythme de match : sans eux, l\'équipe démarrera la saison rouillée.</p>'}
       ${ps.friendlies.length < 6 ? `<div class="label">Adversaires proposés</div><div class="chips" style="flex-wrap:wrap">${ps.suggestions.filter((id) => !ps.friendlies.some((f) => f.oppId === id)).map((id) => { const c = clubById(s, id); return `<button class="chip" data-act="psadd" data-id="${id}">${esc(COUNTRIES[c.country]?.flag || '')} ${esc(c.name)} <small>(${DIVISIONS[c.div].short})</small></button>`; }).join('')}</div>` : ''}
     </div>
     <button class="btn primary lg block" data-act="psstart" ${ps.meeting ? '' : 'disabled'}>Lancer la saison ▸</button>
@@ -107,15 +101,14 @@ function friendlyCfg(s, oppId) {
   const opp = clubById(s, oppId);
   const f = s.preseason.friendlies.find((x) => x.oppId === oppId);
   const [h, a] = f.home ? [uc, opp] : [opp, uc];
-  const i = s.preseason.friendlies.indexOf(f);
-  const weather = matchConditions({ seed: s.seed + s.season, country: h.country, date: `${s.season}-07-${String(12 + i * 5).padStart(2, '0')}`, comp: 'friendly', h: h.id, a: a.id });
+  const weather = matchConditions({ seed: s.seed + s.season, country: h.country, date: f.date || s.preseason.date, comp: 'friendly', h: h.id, a: a.id });
   return { cfg: { seed: friendlySeed(s, oppId), varEnabled: s.settings.var, profile: {}, weather, neutral: !!f.neutral, ...(f.neutral ? { homeAdv: 1 } : {}),
     home: teamCfg(s, h, a, true, h.id === uc.id), away: teamCfg(s, a, h, false, a.id === uc.id) }, userSide: f.home ? 0 : 1 };
 }
 
 export const preseasonActions = {
   psmeeting(el, app) { meetingSheet(app); },
-  psday(el, app) { const r = advancePreDay(app.state, +el.dataset.v || 1); if (!r.ok) app.toast(r.msg); app.save(); app.render(); },
+  psday(el, app) { const r = advancePreDay(app.state, +el.dataset.v || 1); if (!r.ok) app.toast(r.msg, 3500); else if (r.stop) app.toast('Jour de match amical !'); app.save(); app.render(); },
   psdeals(el, app) { app.ui.clubTab = 'market'; app.ui.mktMode = 'deals'; app.go('club'); },
   pscamp(el, app) { const r = chooseCamp(app.state, el.dataset.v); app.toast(r.msg); app.save(); app.render(); },
   psint(el, app) { setIntensity(app.state, el.dataset.v); app.save(); app.render(); },
@@ -133,8 +126,19 @@ export const preseasonActions = {
     const { cfg, userSide } = friendlyCfg(s, id);
     openMatch(app, { cfg, userSide, label: `Amical · ${clubById(s, id).name}`, onFinish: (sum, m) => { applyFriendly(s, id, sum, m, userSide); app.save(); app.render(); } });
   },
-  psstart(el, app) {
+  async psstart(el, app) {
+    const s = app.state;
+    const left = friendliesLeft(s);
+    if (left.length) {
+      if (!(await app.confirm('Amicaux restants', `${left.length} match(s) amical(aux) programmé(s) n'ont pas encore eu lieu : ils seront simulés à leur date.`, 'Simuler et lancer la saison'))) return;
+      for (let guard = 0; friendliesLeft(s).length && guard < 60; guard++) {
+        const f = friendlyToday(s);
+        if (f) { const { cfg, userSide } = friendlyCfg(s, f.oppId); const m = simulateMatch(cfg); applyFriendly(s, f.oppId, summarize(m), m, userSide); continue; }
+        const r = advancePreDay(s, 1);
+        if (!r.ok && !r.friendly) break;
+      }
+    }
     if (app.online) return import('./online.js').then((m) => m.setMeReady(app)); // en ligne : la saison démarre quand tout le monde est prêt
-    endPreseason(app.state); app.save(true); app.render();
+    endPreseason(s); app.save(true); app.render();
   },
 };

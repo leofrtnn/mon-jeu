@@ -9,6 +9,7 @@ import { overall } from '../../engine/ratings.js';
 import { PROMISE_ROLES } from '../../game/transfers.js';
 import { openDeal, dealById, submitBid, submitLoan, submitTerms, acceptCounter, cancelDeal, medicalDecision, STAGE_LABEL, activeDeals, playerDecision } from '../../game/deals.js';
 import { currentDate } from '../../game/dates.js';
+import { CLUB_PROFILES, BUY_APPROACHES, CONTRACT_APPROACHES, swapCandidates, valueBid, valueContract, defaultTerms } from '../../game/negotiate.js';
 import { esc, face, posBadge } from '../components.js';
 
 const step25k = (v) => Math.max(0, Math.round(v / 25000) * 25000);
@@ -43,9 +44,9 @@ export function dealSheet(app, id, onDone) {
   let form = null; // valeurs du formulaire de l'étape en cours
   const init = () => {
     const d = dealById(s, id), p = s.players[d.pid];
-    if (d.stage === 'club' && d.kind === 'buy') form = { fee: step25k(d.counter || d.bid?.fee || d.neg.asking * 0.85), sellOn: d.bid?.sellOn || 0, plan: d.bid?.plan || 'cash' };
+    if (d.stage === 'club' && d.kind === 'buy') form = { fee: step25k(d.bid?.fee || d.neg.asking * 0.85), plan: 'cash', addon: 0, sellOn: 0, swapId: null, ...(d.bid || {}), approach: 'std' };
     else if (d.stage === 'club' && d.kind === 'loan') form = { ...(d.counterLoan || d.loan || { fee: step25k(d.loanAsk.fee * 0.7), share: Math.max(0.5, d.loanAsk.share - 0.2), option: 0 }) };
-    else if (d.stage === 'player' && d.dem) form = d.terms ? { ...d.terms } : { wage: Math.round(d.dem.wage * 0.9 / 100) * 100, years: p.age >= 30 ? 2 : d.kind === 'renew' ? 3 : 4, bonus: 0, clause: 0, goalBonus: 0, role: p.promise?.role || 'rotation' };
+    else if (d.stage === 'player' && d.dem) form = { ...defaultTerms(p, d.dem, d.kind === 'renew'), ...(d.terms || {}), agreed: undefined, approach: 'std' };
     else if (d.stage === 'loanplayer') form = { role: 'rotation' };
     else form = null;
     _form = form;
@@ -95,9 +96,12 @@ export function dealSheet(app, id, onDone) {
       bonus: (el) => { if (el.tagName === 'SELECT') form.bonus = +el.value; },
       clause: (el) => { if (el.tagName === 'SELECT') form.clause = +el.value; },
       gbonus: (el) => { if (el.tagName === 'SELECT') form.goalBonus = +el.value; },
+      fv: (el) => { if (el.tagName !== 'SELECT' && el.tagName !== 'INPUT') return; const k = el.dataset.k; form[k] = el.dataset.t === 's' ? el.value || null : +el.value; if (k === 'swapId' && !el.value) form.swapId = null; h.update(html()); },
+      st: (el) => { const k = el.dataset.k; form[k] = Math.max(0, Math.round((form[k] + +el.dataset.v) / 100) * 100); h.update(html()); },
+      appr: (el) => { form.approach = el.dataset.v; h.update(html()); },
       sendbid: () => after(submitBid(s, id, form)),
       sendloan: () => after(submitLoan(s, id, form)),
-      sendterms: () => after(submitTerms(s, id, form)),
+      sendterms: () => after(submitTerms(s, id, form, form.approach || 'std')),
       takecounter: () => after(acceptCounter(s, id)),
       medyes: () => after(medicalDecision(s, id, true)),
       medno: () => after(medicalDecision(s, id, false)),
@@ -107,19 +111,39 @@ export function dealSheet(app, id, onDone) {
   return h;
 }
 
+/** Réponse détaillée de l'autre partie (point par point). */
+function notesHtml(d) {
+  if (!d.lastNotes?.length) return '';
+  const ic = (ok) => (ok > 0 ? '✅' : ok < 0 ? '❌' : '➖');
+  return `<div class="neg-notes">${d.lastNotes.map((n) => `<div><span>${ic(n.ok)}</span><b>${esc(n.k)}</b><small>${esc(n.t)}</small></div>`).join('')}</div>`;
+}
+const apprHtml = (list, cur) => `<div class="label">Approche</div><div class="appr">${Object.entries(list).map(([k, a]) => `<button class="${cur === k ? 'on' : ''}" data-act="appr" data-v="${k}"><b>${esc(a.label)}</b><small>${esc(a.desc)}</small></button>`).join('')}</div>`;
+const PLAN = { cash: 'Comptant', inst: '40 % puis 2 saisons', inst3: '40 % puis 3 saisons' };
+
 function bidForm(s, d, p) {
-  const f = (v) => money(v);
+  const f = _form, M = money;
   const c = clubById(s, d.from);
+  const prof = CLUB_PROFILES[d.profile] || CLUB_PROFILES.sporting;
+  const swaps = swapCandidates(s, c);
+  const cb = d.counterBid;
+  const est = valueBid(s, d, f).v;
   return `<div class="card" style="margin-top:0">
-    <p class="muted" style="margin:0 0 6px">${esc(c.name)} demande environ <b>${f(d.neg.asking)}</b> · patience ${'●'.repeat(Math.max(0, d.neg.patience))}${'○'.repeat(Math.max(0, 3 - d.neg.patience))} · budget transferts ${f(ensureBoard(s).transferBudget)}</p>
-    ${d.counter ? `<div class="msg"><span class="ic">↩</span><div class="grow">Contre-proposition : <b>${f(d.counter)}</b></div><button class="btn sm primary" data-act="takecounter">Accepter</button></div>` : ''}
-    <div class="row between"><span>Votre offre</span><b class="big" style="font-size:22px">${f(dealForm(d).fee)}</b></div>
-    <input type="range" data-act="fee" min="${step25k(d.neg.asking * 0.4)}" max="${step25k(d.neg.asking * 1.4)}" step="25000" value="${dealForm(d).fee}">
-    <div class="btns"><button class="btn sm" data-act="d" data-v="-500000">−500 k</button><button class="btn sm" data-act="d" data-v="-100000">−100 k</button><button class="btn sm" data-act="d" data-v="100000">+100 k</button><button class="btn sm" data-act="d" data-v="500000">+500 k</button></div>
-    <div class="formrow"><span>% à la revente (vendeur)</span><select data-act="sellon">${[0, 0.1, 0.2].map((k) => `<option value="${k}" ${dealForm(d).sellOn === k ? 'selected' : ''}>${k ? `${k * 100} %` : 'Aucun'}</option>`).join('')}</select></div>
-    <div class="formrow"><span>Paiement</span><select data-act="plan"><option value="cash" ${dealForm(d).plan !== 'inst' ? 'selected' : ''}>Comptant</option><option value="inst" ${dealForm(d).plan === 'inst' ? 'selected' : ''}>Échelonné (40 % / 30 % / 30 %)</option></select></div>
-    <button class="btn primary block" style="margin-top:8px" data-act="sendbid">Envoyer l'offre au club</button>
-    <small class="muted">Le club répond sous 1 à 3 jours. Une offre trop basse use sa patience.</small></div>`;
+    <div class="neg-prof"><b>${esc(c.name)}</b> · ${esc(prof.label)}<br><small class="muted">${esc(prof.tip)} Prix affiché ~${M(d.neg.asking)} · patience ${'●'.repeat(Math.max(0, d.neg.patience))}${'○'.repeat(Math.max(0, 3 - d.neg.patience))} · budget ${M(ensureBoard(s).transferBudget)}</small></div>
+    ${notesHtml(d)}
+    ${cb ? `<div class="msg counter"><span class="ic">↩</span><div class="grow"><b>Leur contre-proposition :</b> ${M(cb.fee)} (${PLAN[cb.plan]})${cb.addon ? ` + ${M(cb.addon)} de bonus` : ''}${cb.sellOn ? ` + ${Math.round(cb.sellOn * 100)} % à la revente` : ''}${cb.swapId ? ` + ${esc(s.players[cb.swapId]?.name || '')}` : ''}</div><button class="btn sm primary" data-act="takecounter">Accepter</button></div>` : ''}
+    <div class="row between"><span>Indemnité</span><b class="big" style="font-size:22px">${M(f.fee)}</b></div>
+    <input type="range" data-act="fv" data-k="fee" min="${step25k(d.neg.asking * 0.3)}" max="${step25k(d.neg.asking * 1.5)}" step="25000" value="${f.fee}">
+    <div class="btns"><button class="btn sm" data-act="d" data-v="-1000000">−1 M</button><button class="btn sm" data-act="d" data-v="-100000">−100 k</button><button class="btn sm" data-act="d" data-v="100000">+100 k</button><button class="btn sm" data-act="d" data-v="1000000">+1 M</button></div>
+    <div class="neg-grid">
+      <label>Paiement<select data-act="fv" data-k="plan" data-t="s">${Object.entries(PLAN).map(([k, l]) => `<option value="${k}" ${f.plan === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+      <label>Bonus (après 25 matchs)<select data-act="fv" data-k="addon">${[0, 0.05, 0.1, 0.2].map((k) => `<option value="${step25k(f.fee * k)}" ${f.addon === step25k(f.fee * k) && (k || !f.addon) ? 'selected' : ''}>${k ? M(step25k(f.fee * k)) : 'Aucun'}</option>`).join('')}</select></label>
+      <label>% à la revente<select data-act="fv" data-k="sellOn">${[0, 0.1, 0.15, 0.2, 0.3].map((k) => `<option value="${k}" ${f.sellOn === k ? 'selected' : ''}>${k ? `${k * 100} %` : 'Aucun'}</option>`).join('')}</select></label>
+      <label>Joueur inclus (échange)<select data-act="fv" data-k="swapId" data-t="s"><option value="">Aucun</option>${swaps.map((q) => `<option value="${q.id}" ${String(f.swapId) === String(q.id) ? 'selected' : ''}>${esc(q.name)} (${q.pos}, ${M(playerValue(q))})</option>`).join('')}</select></label>
+    </div>
+    ${apprHtml(BUY_APPROACHES, f.approach)}
+    <p class="muted" style="font-size:12px;margin:6px 0">Valeur de votre paquet aux yeux de ${esc(c.short || c.name)} : <b>≈ ${M(Math.round(est / 25000) * 25000)}</b> · versé à la signature : ${M(f.plan === 'cash' ? f.fee : step25k(f.fee * 0.4))}</p>
+    <button class="btn primary block" data-act="sendbid">Envoyer l'offre</button>
+    <small class="muted">Le club répond sous 1 à 3 jours (tout de suite pour une offre ferme).</small></div>`;
 }
 
 let _form = null;
@@ -139,18 +163,36 @@ function loanForm(s, d, p) {
 }
 
 function termsForm(s, d, p) {
-  const f = _form, dem = d.dem, val = playerValue(p);
+  const f = _form, dem = d.dem, val = playerValue(p), M = money;
+  const P = d.prefs || {};
+  const ct = d.counterTerms;
+  const ev = valueContract(s, d, f);
+  const sel = (k, opts, lbl) => `<label>${lbl}<select data-act="fv" data-k="${k}"${k === 'role' ? ' data-t="s"' : ''}>${opts.map(([v, l]) => `<option value="${v}" ${String(f[k]) === String(v) ? 'selected' : ''}>${l}</option>`).join('')}</select></label>`;
+  const stepper = (k, lbl, steps) => `<div class="neg-step"><span>${lbl}</span><b>${M(f[k])}</b>${steps.map((x) => `<button class="btn sm" data-act="st" data-k="${k}" data-v="${x}">${x > 0 ? '+' : '−'}${M(Math.abs(x))}</button>`).join('')}</div>`;
+  const W = Math.max(1000, Math.round(dem.wage / 20 / 500) * 500);
   return `<div class="card" style="margin-top:0">
-    <p class="muted" style="margin:0 0 6px">${dem.agent ? `Agent : <b>${esc(dem.agent.name)}</b> (${dem.agent.label}) · ` : ''}attentes ≈ <b>${money(Math.round(dem.wage * PROMISE_ROLES[f.role].wage / 100) * 100)}/sem</b> pour ce statut · marge salariale ${money(Math.max(0, wageRoom(s) + (d.kind === 'renew' ? p.wage : 0)))}/sem${d.kind === 'renew' ? ` · actuel ${money(p.wage)}/sem` : ''}</p>
-    <div class="formrow"><span>Salaire / sem</span><b>${money(f.wage)}</b></div>
-    <div class="btns"><button class="btn sm" data-act="w" data-v="-5000">−5 k</button><button class="btn sm" data-act="w" data-v="-1000">−1 k</button><button class="btn sm" data-act="w" data-v="1000">+1 k</button><button class="btn sm" data-act="w" data-v="5000">+5 k</button></div>
-    <div class="formrow"><span>Statut promis</span><select data-act="role">${Object.entries(PROMISE_ROLES).map(([k, r]) => `<option value="${k}" ${k === f.role ? 'selected' : ''}>${r.label} (${Math.round(r.share * 100)} % du temps de jeu)</option>`).join('')}</select></div>
-    <div class="formrow"><span>Durée</span><select data-act="years">${[1, 2, 3, 4, 5].map((y) => `<option value="${y}" ${y === f.years ? 'selected' : ''}>${y} an(s)</option>`).join('')}</select></div>
-    <div class="formrow"><span>Prime à la signature</span><select data-act="bonus">${[0, 10, 20, 40].map((k) => `<option value="${Math.round(dem.wage * k)}" ${f.bonus === Math.round(dem.wage * k) ? 'selected' : ''}>${k ? money(Math.round(dem.wage * k)) : 'Aucune'}</option>`).join('')}</select></div>
-    <div class="formrow"><span>Prime de but</span><select data-act="gbonus">${[0, 2000, 5000, 10000].map((k) => `<option value="${k}" ${f.goalBonus === k ? 'selected' : ''}>${k ? money(k) : 'Aucune'}</option>`).join('')}</select></div>
-    <div class="formrow"><span>Clause libératoire</span><select data-act="clause">${[0, 1.3, 2, 3].map((k) => `<option value="${k ? step25k(val * k) : 0}" ${f.clause === (k ? step25k(val * k) : 0) ? 'selected' : ''}>${k ? money(step25k(val * k)) : 'Aucune'}</option>`).join('')}</select></div>
-    <button class="btn primary block" style="margin-top:8px" data-act="sendterms">Envoyer la proposition</button>
-    <small class="muted">L'agent répond sous 1 à 2 jours. ${dem.tries} tentative(s) avant qu'il ne claque la porte.</small></div>`;
+    <div class="neg-prof">${dem.agent ? `Agent : <b>${esc(dem.agent.name)}</b> (${dem.agent.label})` : 'Pas d\'agent'} · ${d.tries ?? dem.tries} essai(s) restant(s)<br>
+      <small class="muted">Priorités : ${P.money >= 1.15 ? 'l\'argent avant tout' : P.money <= 0.8 ? 'peu attaché à l\'argent' : 'un bon salaire'} · ${P.security >= 1.15 ? 'cherche la sécurité' : 'durée souhaitée'} ${P.wantYears} ans · ${P.greedAgent >= 1.3 ? 'agent gourmand' : P.greedAgent <= 0.7 ? 'agent conciliant' : 'agent classique'}${dem.minBonus ? ` · prime exigée ≥ ${M(dem.minBonus)}` : ''}</small></div>
+    ${notesHtml(d)}
+    ${ct ? `<div class="msg counter"><span class="ic">↩</span><div class="grow"><b>Demande de l'agent :</b> ${M(ct.wage)}/sem, ${ct.years} ans, commission ${M(ct.agentFee)}${ct.bonus ? `, prime ${M(ct.bonus)}` : ''}</div><button class="btn sm primary" data-act="takecounter">Accepter</button></div>` : ''}
+    ${stepper('wage', 'Salaire /sem', [-W * 5, -W, W, W * 5])}
+    <div class="neg-grid">
+      ${sel('years', [1, 2, 3, 4, 5].map((y) => [y, `${y} an(s)`]), 'Durée')}
+      ${sel('role', Object.entries(PROMISE_ROLES).map(([k, r]) => [k, `${r.label} (${Math.round(r.share * 100)} %)`]), 'Statut promis')}
+      ${sel('bonus', [0, 10, 20, 40].map((k) => [Math.round(dem.wage * k / 1000) * 1000, k ? M(Math.round(dem.wage * k / 1000) * 1000) : 'Aucune']), 'Prime à la signature')}
+      ${sel('loyalty', [0, 15, 30, 60].map((k) => [Math.round(dem.wage * k / 1000) * 1000, k ? M(Math.round(dem.wage * k / 1000) * 1000) : 'Aucune']), 'Prime de fidélité (fin de contrat)')}
+      ${sel('appFee', [0, 0.05, 0.1, 0.2].map((k) => [Math.round(dem.wage * k / 100) * 100, k ? `${M(Math.round(dem.wage * k / 100) * 100)} / match` : 'Aucune']), 'Prime de match')}
+      ${sel('goalBonus', [0, 2000, 5000, 10000, 25000].map((k) => [k, k ? M(k) : 'Aucune']), 'Prime de but')}
+      ${sel('csBonus', [0, 2000, 5000, 10000].map((k) => [k, k ? M(k) : 'Aucune']), 'Prime d\'invincibilité')}
+      ${sel('rise', [0, 0.03, 0.05, 0.1].map((k) => [k, k ? `+${k * 100} % par an` : 'Aucune']), 'Hausse annuelle')}
+      ${sel('clause', [0, 1.3, 2, 3].map((k) => [k ? step25k(val * k) : 0, k ? M(step25k(val * k)) : 'Aucune']), 'Clause libératoire')}
+      ${sel('relCut', [0, 0.2, 0.35].map((k) => [k, k ? `−${k * 100} % si relégation` : 'Non']), 'Clause de relégation')}
+    </div>
+    ${stepper('agentFee', 'Commission de l\'agent', [-25000, -5000, 5000, 25000])}
+    ${apprHtml(CONTRACT_APPROACHES, f.approach)}
+    <p class="muted" style="font-size:12px;margin:6px 0">Estimation de votre recruteur : ${ev.ratio >= 1 ? '<b class="pos-txt">devrait convenir</b>' : ev.ratio >= 0.93 ? '<b>proche de ses attentes</b>' : '<b class="neg-txt">insuffisant</b>'} · coût annuel ≈ ${M((f.wage * 52) + (f.appFee || 0) * 40)} + ${M((f.bonus || 0) + (f.agentFee || 0))} à la signature</p>
+    <button class="btn primary block" data-act="sendterms">Envoyer la proposition</button>
+    <small class="muted">L'agent répond sous 1 à 2 jours (tout de suite pour une dernière offre).</small></div>`;
 }
 
 function loanPlayerForm(s, d, p) {

@@ -83,6 +83,9 @@ function serve() {
     await page.click('[data-act=pscamp][data-v=alps]');
     await page.click('[data-act=psint][data-v=hard]');
     await page.click('[data-act=psadd] >> nth=0');
+    // L'amical a une date : on avance jusqu'au jour du match (on ne peut pas le jouer avant).
+    assert.equal(await page.$('[data-act=pssim]'), null, 'pas de match avant sa date');
+    for (let i = 0; i < 6 && !(await page.$('[data-act=pssim]')); i++) await page.click('[data-act=psday][data-v="3"]');
     await page.click('[data-act=pssim] >> nth=0');
     assert.ok((await page.evaluate(() => window.__app.state.preseason.camp)) === 'alps', 'stage choisi');
     await page.click('[data-act=psstart]');

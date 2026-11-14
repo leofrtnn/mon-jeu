@@ -85,8 +85,13 @@ export function chooseCamp(state, key) {
   if (key === 'tour') {
     const rng = gameRng(state);
     const stars = state.clubs.filter((c) => c.id !== uc.id && c.country !== uc.country && c.rep >= Math.min(84, uc.rep + 2)).sort((a, b) => b.rep - a.rep).slice(0, 10);
-    ps.friendlies = ps.friendlies.slice(0, 4);
-    for (const c of rng.shuffle(stars).slice(0, 2)) if (!ps.friendlies.some((f) => f.oppId === c.id)) ps.friendlies.push({ oppId: c.id, home: false, neutral: true, place: rng.pick(TOUR_PLACES), tour: true, s: null });
+    ps.friendlies = ps.friendlies.filter((f) => f.s).concat(ps.friendlies.filter((f) => !f.s).slice(0, 4));
+    for (const c of rng.shuffle(stars).slice(0, 2)) {
+      if (ps.friendlies.some((f) => f.oppId === c.id)) continue;
+      const date = nextFriendlyDate(state);
+      if (date) ps.friendlies.push({ oppId: c.id, home: false, neutral: true, place: rng.pick(TOUR_PLACES), tour: true, s: null, date });
+    }
+    ps.friendlies.sort((a, b) => (a.date || '').localeCompare(b.date || ''));
   }
   return { ok: true, msg: `${CAMPS[key].icon} ${CAMPS[key].label} : c'est noté.` };
 }
@@ -146,6 +151,23 @@ export function concludeMeeting(state, choice, identity) {
   return msg;
 }
 
+const PRE_END = (state) => `${state.season}-08-05`;
+/** Prochaine date libre pour un amical : au moins 2 jours après aujourd'hui, 3 jours d'écart entre deux matchs. */
+export function nextFriendlyDate(state, from = null) {
+  const ps = state.preseason;
+  let d = from || addDays(ps.date || `${state.season}-07-01`, 2);
+  if (d < `${state.season}-07-08`) d = `${state.season}-07-08`;
+  const taken = ps.friendlies.map((f) => f.date).filter(Boolean);
+  while (d <= PRE_END(state)) {
+    if (!taken.some((t) => Math.abs((new Date(t) - new Date(d)) / 864e5) < 3)) return d;
+    d = addDays(d, 1);
+  }
+  return null;
+}
+/** Amical prévu aujourd'hui et pas encore joué. */
+export const friendlyToday = (state) => state.preseason?.friendlies.find((f) => !f.s && f.date === state.preseason.date) || null;
+export const friendliesLeft = (state) => (state.preseason?.friendlies || []).filter((f) => !f.s);
+
 export function addFriendly(state, oppId) {
   const ps = state.preseason;
   if (ps.friendlies.length >= 6) return { ok: false, msg: '6 matchs amicaux maximum.' };
@@ -154,8 +176,11 @@ export function addFriendly(state, oppId) {
   // Petits clubs : on se déplace chez eux (la fête au village) ; grands clubs : on va chez eux.
   const alt = ps.friendlies.length % 2 === 0;
   const home = opp.rep < uc.rep - 4 ? false : alt;
-  ps.friendlies.push({ oppId, home, s: null });
-  return { ok: true, msg: `Amical contre ${clubById(state, oppId).name} programmé.` };
+  const date = nextFriendlyDate(state);
+  if (!date) return { ok: false, msg: 'Plus de date libre avant la reprise du championnat.' };
+  ps.friendlies.push({ oppId, home, s: null, date });
+  ps.friendlies.sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+  return { ok: true, msg: `Amical contre ${clubById(state, oppId).name} le ${date.slice(8, 10)}/${date.slice(5, 7)}.` };
 }
 
 /** Graine d'un amical. */
@@ -193,11 +218,14 @@ export function advancePreDay(state, n = 1) {
   const last = `${state.season}-08-05`;
   const rng = gameRng(state);
   for (let i = 0; i < n; i++) {
+    const today = friendlyToday(state);
+    if (today) return { ok: false, msg: `Match amical aujourd'hui contre ${clubById(state, today.oppId).name} : jouez-le ou simulez-le.`, friendly: today };
     if ((ps.date || '') >= last) return { ok: false, msg: 'La préparation touche à sa fin : lancez la saison.' };
     ps.date = addDays(ps.date || `${state.season}-07-01`, 1);
     ps.dayN = (ps.dayN || 0) + 1;
     if (ps.dayN % 4 === 0) { aiTransferActivity(state, rng); userTransferOffers(state, rng); }
     dealsDaily(state, rng);
+    if (friendlyToday(state)) return { ok: true, stop: true }; // jour de match : on s'arrête
   }
   return { ok: true };
 }

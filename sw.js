@@ -6,7 +6,7 @@
  * VERSION est incrémentée par scripts/update-sw.js à chaque livraison.
  */
 const IMG_CACHE = 'cdp-img';
-const VERSION = 'cdp-v65';
+const VERSION = 'cdp-v66';
 const ASSETS = [
   './',
   './css/style.css',
@@ -55,6 +55,7 @@ const ASSETS = [
   './js/game/life.js',
   './js/game/managers.js',
   './js/game/media.js',
+  './js/game/negotiate.js',
   './js/game/options.js',
   './js/game/owners.js',
   './js/game/people.js',

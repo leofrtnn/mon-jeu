@@ -1200,6 +1200,16 @@ export function endSeason(state) {
         delete state.players[id];
         continue;
       }
+      // Clauses du contrat (votre club) : hausse annuelle, baisse si relégation, prime de fidélité.
+      if (rep && !p.onLoanFrom) {
+        if (p.relCut && rep.userNewDiv > rep.userDiv) { p.wage = Math.round(p.wage * (1 - p.relCut) / 100) * 100; rep.relCuts = (rep.relCuts || 0) + 1; }
+        else if (p.rise && p.contract > 1) p.wage = Math.round(p.wage * (1 + p.rise) / 100) * 100;
+        if (p.loyalty && p.contract <= 1) {
+          c.budget -= p.loyalty;
+          withHuman(state, hu, () => { logFinance(state, -p.loyalty, `Prime de fidélité : ${p.name}`); pushMessage(state, { prio: 3, icon: '💶', title: `Prime de fidélité versée à ${p.name}`, text: money(p.loyalty) }); });
+          p.loyalty = 0;
+        }
+      }
       p.contract--;
       if (p.contract <= 0) {
         const keep = !rep && p.age < 33 && overall(p) >= squadStrength(clubPlayers(state, c)) - 6 && rng.chance(0.75);

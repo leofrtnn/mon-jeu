@@ -564,7 +564,7 @@ export class MatchView {
   liveSpeed(dt) {
     if (!this.live || this.speed > 8) return this.speed; // avance rapide demandée (différé)
     if (!this.highlights || this.hlMode !== 'auto') return this.hlMode === 'auto' ? this.speed : +this.hlMode;
-    const target = this.inHL ? 1 : 4;
+    const target = this.inHL ? 2 : 4; // temps fort : x2 (le x1 paraissait au ralenti)
     this.effSpeed += (target - this.effSpeed) * Math.min(1, dt * (target < this.effSpeed ? 6 : 1.6));
     if (Math.abs(this.effSpeed - target) < 0.02) this.effSpeed = target;
     return this.effSpeed;

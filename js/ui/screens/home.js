@@ -5,6 +5,7 @@ import { today, tablePosition, DIV_NAMES, nationSquad, eligibleNations, changeCl
 import { DIVISIONS, COUNTRIES } from '../../data/world.js';
 import { jobCandidates } from '../../game/career.js';
 import { preseasonCard, preseasonActions } from './preseasonUI.js';
+import { friendlyToday } from '../../game/preseason.js';
 import { userClub, clubById, clubPlayers, topMessages } from '../../game/state.js';
 import { isAvailable } from '../../engine/ratings.js';
 import { esc, crest, formPills, gauge, scaleColor } from '../components.js';
@@ -191,6 +192,8 @@ export function primaryAction(app) {
   if (!s || s.sacked) return null;
   if (s.preseason?.active) {
     if (!s.preseason.meeting) return { label: 'Réunion du CA', run: () => preseasonActions.psmeeting(null, app) };
+    const fr = friendlyToday(s);
+    if (fr) return { label: 'Jouer l\'amical', run: () => preseasonActions.psplay({ dataset: { id: fr.oppId } }, app) };
     return { label: s.online ? 'Prêt' : 'Lancer la saison', run: () => preseasonActions.psstart(null, app) };
   }
   if (s.online) {

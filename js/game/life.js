@@ -14,7 +14,7 @@ import { initRelations, relationsDaily, relationsAfterMatch, hostileNoise } from
 import { ensureOwners, crisisDaily, takeovers, ownerSeasonStart, speculatorPush } from './owners.js';
 import { atmosphereAfterMatch, standsEvents, ensureSponsors, sponsorsAfterMatch, sponsorsCheck, sponsorsEndSeason } from './fans.js';
 import { injuriesDaily, relapseCheck, injuriesEndSeason } from './injuries.js';
-import { rumoursDaily, rumourOffers, goalBonuses } from './agents.js';
+import { rumoursDaily, rumourOffers, goalBonuses, matchBonuses } from './agents.js';
 import { jobCandidates } from './career.js';
 import { changeClub, tablePosition, today } from './season.js';
 import { bigMatchReason } from './press.js';
@@ -92,6 +92,9 @@ export function lifeAfterUserMatch(state, d, rng, f, entry) {
   if (bonus) { uc.budget += bonus; logFinance(state, bonus, 'Primes de sponsors'); }
   const gb = goalBonuses(state, d);
   if (gb) { uc.budget -= gb; logFinance(state, -gb, 'Primes de but'); }
+  const mb = matchBonuses(state, d);
+  if (mb.total) { uc.budget -= mb.total; logFinance(state, -mb.total, 'Primes de match et d\'invincibilité'); }
+  for (const l of mb.lines) { uc.budget -= l.amount; logFinance(state, -l.amount, l.text); }
   if (f.h === uc.id && !f.neutral) standsEvents(state, rng, d.gf, d.ga);
   createInterview(state, d, rng);
 }

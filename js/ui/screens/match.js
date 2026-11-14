@@ -26,8 +26,8 @@ import { openDecisions } from '../../game/inbox.js';
 import { openInterview } from './inboxUI.js';
 import { showDayReport } from './dayReport.js';
 
-const SPEEDS = ['auto', 1, 4]; // auto : temps forts en x1 (temps réel), le reste en accéléré x4 (visible)
-const speedLabel = (v, hl) => (v === 'auto' ? (hl ? 'x1 ⚡' : 'x4 ⏩') : `x${v}`);
+const SPEEDS = ['auto', 2, 4]; // auto : temps forts en x2, le reste en accéléré x4 (visible, panneau tactique)
+const speedLabel = (v, hl) => (v === 'auto' ? (hl ? '⚡ Temps fort' : '⏩ Accéléré x4') : `x${v}`);
 /** Événements montrés en mode "Résumé rapide". */
 const QUICK_KEEP = new Set(['goal', 'red', 'yellow', 'penalty', 'var', 'ht', 'ft', 'injury', 'kickoff', 'freekick']);
 
@@ -73,7 +73,7 @@ export function openMatch(app, opts = {}) {
     <div class="feed" id="feed"></div>
     <div class="controls">
       <button class="btn primary" data-c="pause" title="Compo, changements, tactique">📋 Compo &amp; tactique</button>
-      <button class="btn" data-c="speed" title="Auto : temps forts en x1, le reste en x4">${speedLabel(s.settings.hlMode || 'auto')}</button>
+      <button class="btn" data-c="speed" title="Auto : temps forts en x2, le reste en accéléré x4">${speedLabel(s.settings.hlMode === 1 ? 2 : s.settings.hlMode || 'auto')}</button>
       <button class="btn" data-c="skip">⏭ Fin</button>
       <button class="btn" data-c="style" style="flex:.6" title="Vue">${{ fm: '2D', '3d': '3D', anim: '🎥' }[s.settings.matchStyle || '3d']}</button>
       <button class="btn" data-c="cam" style="flex:.6" title="Caméra">📹</button>
@@ -84,7 +84,7 @@ export function openMatch(app, opts = {}) {
   document.body.style.overflow = 'hidden';
 
   const $ = (id) => root.querySelector('#' + id);
-  const ctrl = { speedIdx: Math.max(0, SPEEDS.indexOf(s.settings.hlMode || 'auto')), quick: false, finished: false, scorers: [[], []], recent: [] };
+  const ctrl = { speedIdx: Math.max(0, SPEEDS.indexOf(s.settings.hlMode === 1 ? 2 : s.settings.hlMode || 'auto')), quick: false, finished: false, scorers: [[], []], recent: [] };
   const official = !opts.cfg;
   // Journal des décisions du coach (instant précis = nombre de pas du moteur) : permet de
   // rejouer ce match À L'IDENTIQUE sur un autre appareil (match entre managers, en ligne).
@@ -235,7 +235,7 @@ export function openMatch(app, opts = {}) {
   };
 
   const view = new MatchView($('pitch'), m, { userSide, onEventStart, onIdle, live: replay ? true : s.settings.liveEngine !== false, hlMode: SPEEDS[ctrl.speedIdx],
-    onHighlight: (on) => { const b = root.querySelector('[data-c="speed"]'); if (b && SPEEDS[ctrl.speedIdx] === 'auto') { b.textContent = speedLabel('auto', on); b.classList.toggle('hl-on', on); } },
+    onHighlight: (on) => { const b = root.querySelector('[data-c="speed"]'); if (b && SPEEDS[ctrl.speedIdx] === 'auto') { b.textContent = speedLabel('auto', on); b.classList.toggle('hl-on', on); } ffUpdate(true); },
     beforeStep: replay ? (n) => applyJournal(n) : null, labelMode: s.settings.labels || ((s.settings.matchStyle || '3d') !== 'anim' ? 'num' : 'name'), style: s.settings.matchStyle || '3d', onPlayerTap: showTapCard,
     on3DFail: () => { app.toast('3D indisponible sur cet appareil : vue 2D.', 3500); s.settings.matchStyle = 'fm'; root.querySelector('[data-c=style]').textContent = '2D'; } });
   bc = new Broadcast($('bcast'), { m, cfg, hc, ac, colors: view.colors, nameOf, holderOf: () => (view.hl === 'skip' ? null : view.holder),
@@ -254,9 +254,57 @@ export function openMatch(app, opts = {}) {
     root.querySelector('[data-c="speed"]').textContent = speedLabel(v, view.inHL);
   };
   applySpeed();
+  /* ---------- Accéléré : bandeau + panneau tactique et stats (rien d'important ne se passe) ---------- */
+  const area = $('pitch').parentElement;
+  const ffTag = document.createElement('div'); ffTag.className = 'ff-tag'; area.appendChild(ffTag);
+  const ff = document.createElement('div'); ff.className = 'ff-panel hidden'; area.appendChild(ff);
+  let ffShown = null, ffT = 0;
+  const statRow = (l, a, b, fmt = (x) => x) => { const t = (+a || 0) + (+b || 0) || 1; return `<div class="ffs"><b>${fmt(a)}</b><span><i style="width:${(+a || 0) / t * 100}%"></i></span><small>${l}</small><span class="r"><i style="width:${(+b || 0) / t * 100}%"></i></span><b>${fmt(b)}</b></div>`; };
+  const ffStats = () => {
+    const [A, B] = m.teams.map((t) => t.stats);
+    const tp = (A.poss + B.poss) || 1;
+    const pp = (x) => (x.passes ? Math.round(x.passesOk / x.passes * 100) : 0);
+    const mine = activePlayers(m.teams[userSide]).slice().sort((a, b) => b.rating - a.rating);
+    return `${statRow('Possession %', Math.round(A.poss / tp * 100), 100 - Math.round(A.poss / tp * 100))}${statRow('Tirs', A.shots, B.shots)}${statRow('Cadrés', A.onTarget, B.onTarget)}
+      ${statRow('xG', A.xg.toFixed(2), B.xg.toFixed(2))}${statRow('Passes réussies %', pp(A), pp(B))}${statRow('Corners', A.corners, B.corners)}${statRow('Fautes', A.fouls, B.fouls)}
+      <div class="ff-rt">${mine.slice(0, 3).map((mp) => `<span>⭐ ${esc(mp.name)} <b>${mp.rating.toFixed(1)}</b></span>`).join('')}${mine.length > 3 ? `<span class="neg">▼ ${esc(mine[mine.length - 1].name)} <b>${mine[mine.length - 1].rating.toFixed(1)}</b></span>` : ''}${mine.filter((mp) => mp.energy < 60).slice(0, 2).map((mp) => `<span class="neg">🔋 ${esc(mp.name)} ${Math.round(mp.energy)} %</span>`).join('')}</div>`;
+  };
+  const ffTac = () => {
+    const tc = m.teams[userSide].tactics;
+    const seg = (key, opts) => `<div class="seg sm">${Object.entries(opts).map(([v, l]) => `<button data-ff="ti" data-k="${key}" data-v="${v}" class="${(tc[key] || DEFAULT_TACTICS[key]) === v ? 'on' : ''}">${l}</button>`).join('')}</div>`;
+    return `<div class="ffr"><small>Mentalité</small>${seg('mentality', Object.fromEntries(MENTALITIES.map((k) => [k, MENTALITY_LABELS[k]])))}</div>
+      <div class="ffr"><small>Pressing</small>${seg('pressing', Object.fromEntries(LEVELS.map((k) => [k, PRESSING_LABELS[k]])))}</div>
+      <div class="ffr"><small>Tempo</small>${seg('tempo', Object.fromEntries(LEVELS.map((k) => [k, TEMPO_LABELS[k]])))}</div>
+      <div class="ffq">${QUICK_PLANS.map((q) => `<button class="btn sm" data-ff="qplan" data-v="${q.id}">${q.icon} ${q.label}</button>`).join('')}<button class="btn sm primary" data-ff="full">📋 Compo &amp; changements</button></div>`;
+  };
+  const ffRender = () => {
+    ff.innerHTML = `<div class="ff-head"><b>${esc(hc.short)} ${m.score[0]} - ${m.score[1]} ${esc(ac.short)}</b><small>${esc(view.clockText ? view.clockText() : '')} · le jeu continue en accéléré</small><button class="ff-x" data-ff="hide" title="Masquer">×</button></div>
+      <div class="ff-body"><div class="ff-stats">${ffStats()}</div><div class="ff-tac">${ffTac()}</div></div>`;
+  };
+  function ffUpdate(force = false) {
+    const fast = view.live && SPEEDS[ctrl.speedIdx] === 'auto' && m.phase === 'live' && !view.inHL && !view.paused && !view.replayLive && !ctrl.finished;
+    area.classList.toggle('mode-ff', !!fast && view.live && m.phase === 'live');
+    area.classList.toggle('mode-hl', !!view.inHL && view.live && m.phase === 'live' && SPEEDS[ctrl.speedIdx] === 'auto');
+    ffTag.innerHTML = view.inHL ? '⚡ TEMPS FORT' : fast ? '⏩ ACCÉLÉRÉ ×4' : '';
+    const show = fast && !ctrl.ffHidden;
+    if (show !== ffShown || force) { ffShown = show; ff.classList.toggle('hidden', !show); if (show) ffRender(); }
+    else if (show && (ffT = (ffT + 1) % 5) === 0) { const st = ff.querySelector('.ff-stats'); if (st) st.innerHTML = ffStats(); const hd = ff.querySelector('.ff-head small'); if (hd) hd.textContent = `${view.clockText()} · le jeu continue en accéléré`; }
+  }
+  ff.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-ff]');
+    if (!b || replay) return;
+    const k = b.dataset.ff;
+    if (k === 'hide') { ctrl.ffHidden = true; app.toast('Panneau masqué jusqu\'au prochain temps fort.'); ffUpdate(true); return; }
+    if (k === 'ti') { setTactic(m, userSide, b.dataset.k, b.dataset.v); rec('ti', { side: userSide, k: b.dataset.k, v: b.dataset.v }); }
+    if (k === 'qplan') { const q = QUICK_PLANS.find((x) => x.id === b.dataset.v); for (const [kk, v] of Object.entries(q.tac)) { setTactic(m, userSide, kk, v); rec('ti', { side: userSide, k: kk, v }); } app.toast(`${q.icon} ${q.label}`); }
+    if (k === 'full') { if (m.phase === 'live') { view.pause(); pauseSheet(); } return; }
+    ffRender();
+  });
   // Horloge à la seconde (en haut à gauche et dans l'habillage télé).
   const clockTimer = setInterval(() => {
     if (!root.isConnected) { clearInterval(clockTimer); return; }
+    ffUpdate();
+    if (view.inHL) ctrl.ffHidden = false;
     if (!view.live || m.phase !== 'live' || view.replayLive) return;
     const t = view.clockText();
     $('sb-clock').textContent = t;
@@ -273,7 +321,7 @@ export function openMatch(app, opts = {}) {
       ctrl.speedIdx = (ctrl.speedIdx + 1) % SPEEDS.length;
       applySpeed();
       s.settings.hlMode = SPEEDS[ctrl.speedIdx]; app.save();
-      app.toast(SPEEDS[ctrl.speedIdx] === 'auto' ? 'Auto : temps forts en x1, le reste en accéléré x4' : `Vitesse fixe x${SPEEDS[ctrl.speedIdx]}`);
+      app.toast(SPEEDS[ctrl.speedIdx] === 'auto' ? 'Auto : temps forts en x2, le reste en accéléré x4' : `Vitesse fixe x${SPEEDS[ctrl.speedIdx]}`);
     }
     if (c === 'skip') { if (replay) { view.setSpeed(12); app.toast('Avance rapide'); } else { rec('skip', {}); skipToEnd(); } }
     if (c === 'style') {

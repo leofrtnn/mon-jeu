@@ -25,6 +25,7 @@ import { boardAllows, spendTransfer } from './board.js';
 import { sellPolicy, loanAllowed, relAdd } from './relations.js';
 import { hashSeed } from '../core/rng.js';
 import { BAL } from '../data/balance.js';
+import { clubProfile, respondBid, valueBid, respondContract, contractPrefs, BUY_APPROACHES, CONTRACT_APPROACHES } from './negotiate.js';
 
 export const STAGE_LABEL = { club: 'Négociation avec le club', player: 'Conditions personnelles', medical: 'Visite médicale', medfail: 'Visite médicale : réserves', loanplayer: 'Accord du joueur', done: 'Conclu', dead: 'Abandonné' };
 
@@ -125,7 +126,7 @@ export function openDeal(state, pid, kind = 'buy') {
   const rng = gameRng(state);
   state.dealSeq = (state.dealSeq || 0) + 1;
   const d = { id: state.dealSeq, kind, pid, from: p.clubId || null, stage: kind === 'renew' || !p.clubId ? 'player' : 'club', pending: false, due: null, log: [], created: today(state), expires: null };
-  if (d.stage === 'club' && kind === 'buy') d.neg = startNegotiation(state, pid, rng);
+  if (d.stage === 'club' && kind === 'buy') { d.neg = startNegotiation(state, pid, rng); d.profile = clubProfile(state, clubById(state, p.clubId)); }
   if (kind === 'loan') d.loanAsk = loanAsk(state, p);
   if (d.stage === 'player') prepareTerms(state, d, rng);
   dealsOf(state).push(d);
@@ -146,23 +147,27 @@ function prepareTerms(state, d, rng) {
     const T = traits(p);
     d.dem.wage = Math.round(d.dem.wage * (1 + (p.contract <= 1 ? 0.06 : 0) + (overall(p) >= 78 ? 0.05 : 0) - T.loyal * 0.004) / 100) * 100;
   }
+  d.prefs = contractPrefs(p, d.dem);
   d.expires = addDays(today(state), d.kind === 'renew' ? 21 : 10);
 }
 
 /* ---------------- Actions du manager ---------------- */
 
 /** Offre d'indemnité (achat). */
-export function submitBid(state, id, { fee, sellOn = 0, plan = 'cash' }) {
+const PLAN_LABEL = { cash: 'comptant', inst: 'échelonné sur 2 saisons', inst3: 'échelonné sur 3 saisons' };
+/** Offre d'indemnité (achat) : un paquet { fee, plan, addon, sellOn, swapId } + une approche. */
+export function submitBid(state, id, bid) {
   const d = dealById(state, id);
   if (!d || d.stage !== 'club' || d.pending) return { ok: false, msg: 'Une réponse est déjà attendue.' };
-  const upfront = plan === 'inst' ? Math.round(fee * 0.4 / 25000) * 25000 : fee;
+  const B = { fee: 0, plan: 'cash', addon: 0, sellOn: 0, swapId: null, approach: 'std', ...bid };
+  const upfront = B.plan !== 'cash' ? Math.round(B.fee * 0.4 / 25000) * 25000 : B.fee;
   const chk = boardAllows(state, { fee: upfront });
   if (!chk.ok) return chk;
-  setSellOn(d.neg, sellOn);
-  if (plan === 'inst') d.neg.min = Math.round(d.neg.min * 1.05 / 25000) * 25000;
-  d.bid = { fee, sellOn, plan };
-  d.pending = true; d.due = replyDate(state, gameRng(state), 1, 3);
-  note(state, d, '📨', `Offre transmise : ${money(fee)}${sellOn ? ` + ${sellOn * 100} % à la revente` : ''}${plan === 'inst' ? ' (paiement échelonné)' : ''}.`);
+  if (B.swapId && state.players[B.swapId]?.clubId !== state.userClubId) B.swapId = null;
+  d.bid = B;
+  d.pending = true; d.due = B.approach === 'firm' ? today(state) : replyDate(state, gameRng(state), 1, 3);
+  const sw = B.swapId ? state.players[B.swapId] : null;
+  note(state, d, '📨', `Offre (${BUY_APPROACHES[B.approach].label.toLowerCase()}) : ${money(B.fee)} ${PLAN_LABEL[B.plan]}${B.addon ? ` + ${money(B.addon)} de bonus` : ''}${B.sellOn ? ` + ${Math.round(B.sellOn * 100)} % à la revente` : ''}${sw ? ` + ${sw.name}` : ''}.`);
   return { ok: true, msg: `Offre envoyée. Réponse attendue ${d.due === today(state) ? 'dans la journée' : `vers le ${d.due.slice(8, 10)}/${d.due.slice(5, 7)}`}.` };
 }
 
@@ -180,7 +185,7 @@ export function submitLoan(state, id, { fee, share, option }) {
 }
 
 /** Proposition de contrat (recrue ou prolongation). offer : { wage, years, bonus, clause, goalBonus, role } */
-export function submitTerms(state, id, offer) {
+export function submitTerms(state, id, offer, approach = 'std') {
   const d = dealById(state, id);
   if (!d || d.pending || !(d.stage === 'player' || d.stage === 'loanplayer')) return { ok: false, msg: 'Une réponse est déjà attendue.' };
   const p = state.players[d.pid];
@@ -191,16 +196,19 @@ export function submitTerms(state, id, offer) {
     if (!chk.ok) return chk;
   }
   d.terms = { ...offer };
-  d.pending = true; d.due = replyDate(state, gameRng(state), 1, 2);
-  note(state, d, '✉', d.kind === 'loan' ? `Statut promis : ${PROMISE_ROLES[offer.role || 'rotation'].label}.` : `Proposition : ${money(offer.wage)}/sem, ${offer.years} an(s), statut ${PROMISE_ROLES[offer.role || 'rotation'].label.toLowerCase()}${offer.bonus ? `, prime ${money(offer.bonus)}` : ''}.`);
+  d.approach = approach;
+  d.pending = true; d.due = approach === 'firm' ? today(state) : replyDate(state, gameRng(state), 1, 2);
+  note(state, d, '✉', d.kind === 'loan' ? `Statut promis : ${PROMISE_ROLES[offer.role || 'rotation'].label}.` : `${CONTRACT_APPROACHES[approach].label} : ${money(offer.wage)}/sem, ${offer.years} an(s), ${PROMISE_ROLES[offer.role || 'rotation'].label.toLowerCase()}${offer.bonus ? `, prime ${money(offer.bonus)}` : ''}${offer.loyalty ? `, fidélité ${money(offer.loyalty)}` : ''}${offer.appFee ? `, ${money(offer.appFee)}/match` : ''}${offer.rise ? `, +${Math.round(offer.rise * 100)} %/an` : ''}${offer.relCut ? ', baisse si relégation' : ''}, agent ${money(offer.agentFee || 0)}.`);
   return { ok: true, msg: 'Proposition transmise à l\'agent.' };
 }
 
 /** Accepter la contre-proposition du club (la confirmation arrive au prochain jour). */
 export function acceptCounter(state, id) {
   const d = dealById(state, id);
-  if (!d?.counter) return { ok: false, msg: 'Pas de contre-proposition.' };
-  if (d.stage === 'club' && d.kind === 'buy') { const r = submitBid(state, id, { ...(d.bid || {}), fee: d.counter }); if (r.ok) d.bid.agreed = true; return r; }
+  if (!d) return { ok: false, msg: '—' };
+  if (d.stage === 'club' && d.kind === 'buy' && d.counterBid) { const r = submitBid(state, id, { ...d.counterBid, approach: 'std' }); if (r.ok) d.bid.agreed = true; return r; }
+  if (d.stage === 'player' && d.counterTerms) { const r = submitTerms(state, id, d.counterTerms, 'std'); if (r.ok) d.terms.agreed = true; return r; }
+  if (!d.counter) return { ok: false, msg: 'Pas de contre-proposition.' };
   if (d.stage === 'club' && d.kind === 'loan') return submitLoan(state, id, d.counterLoan);
   return { ok: false, msg: '—' };
 }
@@ -232,23 +240,24 @@ function loanAsk(state, p) {
 function resolveClubBuy(state, d, rng) {
   const p = state.players[d.pid];
   // Le club tient parole : sa propre contre-proposition acceptée vaut accord.
-  if (d.bid.agreed) d.neg.min = Math.min(d.neg.min, d.bid.fee);
+  if (d.bid.agreed) d.neg.min = Math.min(d.neg.min, valueBid(state, d, d.bid).v);
   // Concurrence : un autre club s'est manifesté → le vendeur durcit sa position.
   else if (!d.rival && overall(p) >= 70 && rng.chance(0.18)) {
     const rival = rng.pick(state.clubs.filter((c) => c.id !== d.from && c.id !== state.userClubId && c.rep >= userClub(state).rep - 6));
     if (rival) { d.rival = rival.id; d.neg.min = Math.round(d.neg.min * 1.1 / 25000) * 25000; note(state, d, '⚠', `${rival.name} est aussi sur le coup : le prix monte.`); }
   }
-  const r = clubRespond(d.neg, d.bid.fee);
+  const r = respondBid(state, d, d.bid, d.bid.approach);
   const c = clubById(state, d.from);
+  d.lastNotes = r.notes; d.counterBid = r.counter || null; d.counter = r.counter ? r.counter.fee : null;
   if (r.kind === 'accept') {
-    d.fee = d.bid.fee; d.stage = 'player'; d.counter = null;
+    d.fee = d.bid.fee; d.stage = 'player'; d.counter = null; d.counterBid = null; d.lastNotes = r.notes;
     prepareTerms(state, d, rng);
     note(state, d, '✅', `${c.name} accepte ${money(d.fee)}. Vous avez jusqu'au ${d.expires.slice(8, 10)}/${d.expires.slice(5, 7)} pour vous entendre avec le joueur.`);
     tell(state, d, 1, '✅', `${c.name} accepte votre offre pour ${p.name}`, `Indemnité ${money(d.fee)}. Négociez maintenant le contrat du joueur.`);
   } else if (r.kind === 'counter') {
     d.counter = r.counter;
-    note(state, d, '↩', `${c.name} répond : ${money(r.counter)}.`);
-    tell(state, d, 1, '↩', `Contre-proposition pour ${p.name}`, `${c.name} demande ${money(r.counter)}.`);
+    note(state, d, '↩', `${c.name} répond : ${money(r.counter.fee)} ${PLAN_LABEL[r.counter.plan]}${r.counter.sellOn ? ` + ${Math.round(r.counter.sellOn * 100)} % à la revente` : ''}.`);
+    tell(state, d, 1, '↩', `Contre-proposition pour ${p.name}`, `${c.name} : ${r.notes.filter((n) => n.ok < 1).map((n) => `${n.k} — ${n.t}`).join(' · ')}`);
   } else if (r.kind === 'reject') {
     note(state, d, '❌', `${c.name} juge l'offre insuffisante (${'●'.repeat(Math.max(0, d.neg.patience))} patience restante).`);
     tell(state, d, 2, '❌', `Offre refusée pour ${p.name}`, `${c.name} attend beaucoup plus.`);
@@ -292,7 +301,8 @@ function resolvePlayer(state, d, rng) {
     tell(state, d, 2, '⛔', `${p.name} refuse le prêt`, 'Il ne croit pas au projet.');
     return;
   }
-  const r = evaluateContract(p, d.dem, d.terms);
+  const r = d.terms.agreed ? { kind: 'accept', notes: [] } : respondContract(state, d, d.terms, d.approach || 'std');
+  d.lastNotes = r.notes; d.counterTerms = r.counter || null;
   if (r.kind === 'accept') {
     if (d.kind === 'renew') {
       const res = completeRenewal(state, d.pid, d.terms);
@@ -306,15 +316,17 @@ function resolvePlayer(state, d, rng) {
     tell(state, d, 2, '🤝', `Accord trouvé avec ${p.name}`, 'Visite médicale demain.');
     return;
   }
+  const bad = r.notes.filter((n) => n.ok < 0).map((n) => `${n.k.toLowerCase()} : ${n.t}`);
   if (r.kind === 'end') {
     d.stage = 'dead';
-    note(state, d, '⛔', r.msg);
-    tell(state, d, 2, '⛔', `${p.name} met fin aux discussions`, r.msg);
+    note(state, d, '⛔', `Le joueur et son agent quittent la table${bad.length ? ` (${bad.slice(0, 2).join(' ; ')})` : ''}.`);
+    tell(state, d, 2, '⛔', `${p.name} met fin aux discussions`, bad.join(' · ') || 'Pas d\'accord.');
     return;
   }
   d.counter = null;
-  note(state, d, r.kind === 'counter' ? '↩' : '❌', r.msg);
-  tell(state, d, 1, r.kind === 'counter' ? '↩' : '❌', `Réponse de l'agent de ${p.name}`, r.msg);
+  const txt = r.kind === 'counter' ? `L'agent fait une contre-proposition : ${money(r.counter.wage)}/sem sur ${r.counter.years} ans, commission ${money(r.counter.agentFee)}.` : `Proposition rejetée${bad.length ? ` : ${bad.slice(0, 2).join(' ; ')}` : ''}. L'agent indique ce qu'il faudrait.`;
+  note(state, d, r.kind === 'counter' ? '↩' : '❌', txt);
+  tell(state, d, 1, r.kind === 'counter' ? '↩' : '❌', `Réponse de l'agent de ${p.name}`, txt);
 }
 
 function resolveMedical(state, d, rng) {
@@ -333,7 +345,7 @@ function resolveMedical(state, d, rng) {
 
 function finishBuy(state, d) {
   const p = state.players[d.pid];
-  const res = completeTransfer(state, d.pid, d.fee || 0, d.terms, d.dem, d.bid?.sellOn || 0, d.bid?.plan || 'cash');
+  const res = completeTransfer(state, d.pid, d.fee || 0, d.terms, d.dem, d.bid?.sellOn || 0, d.bid?.plan || 'cash', d.bid);
   d.stage = res.ok ? 'done' : 'dead'; d.pending = false;
   note(state, d, res.ok ? '✍' : '⚠', res.msg);
   if (!res.ok) tell(state, d, 1, '⚠', `Signature impossible : ${p.name}`, res.msg);
