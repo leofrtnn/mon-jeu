@@ -110,7 +110,9 @@ export class MatchView {
     // se contente d'afficher. Sinon (ancien mode), la vue rejoue les événements du moteur.
     if (opts.live) {
       this.live = new LiveSim(match, { players: this.players, ball: this.phys, sync: () => this.syncPlayers(false) });
-      this.TS = 1.25; // un peu plus lent : on voit mieux les gestes
+      this.TS = 1; // temps réel : x2 = un match de 45 minutes
+      this.highlights = opts.highlights !== false; // temps forts : le reste est passé en avance rapide
+      this.hl = 'show'; this.hlCalm = 0; this.hlGrace = 10;
     }
     this.resize();
     if (this.style === '3d') this.setStyle('3d');
@@ -484,6 +486,8 @@ export class MatchView {
     // Ralenti du but en cours : la simulation est figée, on rejoue les images enregistrées.
     if (this.replayLive) { this.playReplay(realDt); return; }
     if (this.replayPlan && this.replayPlan.frames && (this.replayPlan.wait -= realDt) <= 0) { this.startReplay(); return; }
+    // Temps forts : entre deux actions dangereuses, on avance vite (écran voilé : c'est une coupure).
+    if (this.highlights && this.updateHighlights(realDt)) return;
     // Événements venus de l'écran (remplacement manuel) : annoncés, joueurs resynchronisés.
     if (this.queue.length) {
       const evs = this.queue.splice(0).filter((e) => !e.replay);
@@ -522,6 +526,61 @@ export class MatchView {
     const b = this.ball, P = this.phys;
     b.x = P.x / PITCH_L; b.y = P.y / PITCH_W; b.h = Math.max(0, P.z - BALL_R) / 26;
     this.updateFx(realDt);
+  }
+
+  /* ---------------- Temps forts (moteur en direct) ---------------- */
+
+  /** Faut-il montrer le jeu en ce moment ? (action dangereuse, coup de pied arrêté, but, ralenti…) */
+  hlWant() {
+    const L = this.live, P = this.phys, m = this.m;
+    if (!L || m.phase !== 'live' || this.replayLive || this.replayPlan || this.queue.length) return true;
+    if (this.banner && !this.banner.small) return true;
+    const rs = L.restart;
+    if (rs) {
+      if (rs.kind === 'penalty' || rs.kind === 'corner') return true;
+      if (rs.kind === 'freekick') return Math.hypot(L.goalX(rs.side) - rs.x, PITCH_W / 2 - rs.y) < 33;
+      return false;
+    }
+    if (L.shot || L.celebrate) return true;
+    const side = L.holder ? L.holder.side : L.poss;
+    return Math.hypot(L.goalX(side) - P.x, PITCH_W / 2 - P.y) < 30;
+  }
+
+  /** Gestion des temps forts. Retourne true si l'image a servi à l'avance rapide. */
+  updateHighlights(realDt) {
+    if (this.hl === 'show') {
+      const game = realDt * this.speed;
+      if (this.hlGrace > 0) { this.hlGrace -= game; return false; }
+      this.hlCalm = this.hlWant() ? 0 : this.hlCalm + game;
+      if (this.hlCalm > 3.5) { this.hl = 'skip'; this.setVeil(true); }
+      return false;
+    }
+    // Avance rapide : simulation au pas fixe (identique au direct), sans rien afficher, ~14 ms par image.
+    const t0 = performance.now();
+    let want = false;
+    while (!this.paused && performance.now() - t0 < (this.ffBudget || 14)) {
+      for (let i = 0; i < 24 && !this.paused; i++) {
+        this.opts.beforeStep?.(this.liveSteps || 0);
+        this.liveSteps = (this.liveSteps || 0) + 1;
+        for (const ev of this.live.step(LIVE_STEP)) { this.liveEvent(ev); if (ev.type === 'ht' || ev.type === 'ft' || ev.type === 'kickoff') this.hlGrace = 8; }
+      }
+      if ((want = this.hlWant())) break;
+    }
+    this.holder = this.live.holder ? this.live.holder.mp.id : null;
+    this.inHands = this.live.inHands;
+    const b = this.ball, P = this.phys;
+    b.x = P.x / PITCH_L; b.y = P.y / PITCH_W; b.h = Math.max(0, P.z - BALL_R) / 26;
+    if (want || this.paused) { this.hl = 'show'; this.hlCalm = 0; this.liveAcc = 0; this.slowmo = null; this.setVeil(false); }
+    this.updateFx(realDt);
+    return true;
+  }
+
+  /** Voile de coupure (avance rapide entre deux temps forts). */
+  setVeil(on) {
+    if (!this.veil) return;
+    this.veil.style.opacity = on ? '0.9' : '0';
+    this.veil.innerHTML = on ? '<div style="position:absolute;top:14px;left:50%;transform:translateX(-50%);color:#fff;font:600 13px system-ui;opacity:.85;white-space:nowrap">⏩ Avance rapide jusqu\'au prochain temps fort</div>' : '';
+    if (!on && this.r3d) this.r3d.snapCam = true;
   }
 
   /* ---------------- Ralentis (moteur en direct) ---------------- */
@@ -602,7 +661,7 @@ export class MatchView {
       this.banner = { text: 'BUT !', color: this.colors[ev.side], t: 0, dur: 2.8 };
       this.cam.shake = 1; this.flash = 1;
       // Ralenti du but, après la célébration (pas en accéléré, ni en revoyant un match).
-      if (this.speed <= 2 && this.opts.replays !== false) this.replayPlan = { cut: (this.liveSteps || 0) + Math.round(0.9 * 96), wait: 3.2, frames: null };
+      if (this.speed <= 4 && this.opts.replays !== false) this.replayPlan = { cut: (this.liveSteps || 0) + Math.round(0.9 * 96), wait: 3.2, frames: null };
       const [sx, sy] = this.toScreen(ev.side === 0 ? 1 : 0, 0.5);
       for (let i = 0; i < 70; i++) {
         this.particles.push({ x: sx, y: sy, vx: (Math.random() - 0.5) * 9, vy: (Math.random() - 0.5) * 9,

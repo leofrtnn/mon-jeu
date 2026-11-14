@@ -25,7 +25,7 @@ import { clamp } from '../core/rng.js';
 import { activePlayers, eff, addRating, emit, changePossession, momentum, setPieceTaker, sendOff, injure, kickoff as engineKickoff, minuteStart, minuteEnd, stepMinute, captainCalm } from './match.js';
 
 const GS = 1.6;            // les gestes (frappe, tacle…) durent un temps « d'affichage »
-export const CLOCK = 6.25; // secondes de match par seconde de jeu simulé (une minute ≈ 9,6 s de jeu)
+export const CLOCK = 6.25; // ancienne horloge compressée (référence pour la fatigue)
 const LVL = { low: -1, mid: 0, high: 1 };
 const MENT = { defensive: -1, balanced: 0, offensive: 1 };
 const TK = { soft: -1, normal: 0, hard: 1 };
@@ -33,18 +33,22 @@ const sig = (x) => 1 / (1 + Math.exp(-x));
 const piOf = (t, mp, key, def) => (mp && t.pi?.[mp.slot]?.[key]) || def;
 
 /** Réglages d'équilibre (calibrés avec tests/live.test.js : buts, tirs, fautes, corners). */
-export const TUNE = {
-  shotW: 1.8,         // attrait de la frappe face aux autres options
-  shotCost: 0.45,     // coût de la perte de balle dans le choix de tirer
-  carryW: 1.3,        // attrait de la conduite de balle
-  keepW: 0.02,        // valeur de garder le ballon (passe sûre à un partenaire libre)
-  crossW: 1.5,
-  passRisk: 0.5,      // sévérité des interceptions
-  lossW: 2.2,         // coût de la perte de balle dans le choix des passes
-  tackleRate: 1.6,    // fréquence des tentatives de tacle
-  foulP: 0.28,        // part des tentatives de tacle qui finissent en faute
-  xg: 1.55,           // échelle du modèle d'xG géométrique
-  takeonW: 1.0,       // attrait du crochet / débordement
+export const TUNE = {   // calibré en TEMPS RÉEL (horloge 1) : ~2,8 buts, ~28 tirs, ~22 fautes par match
+  clock: 1,        // secondes de match par seconde de jeu simulé (1 = temps réel)
+  shotW: 0.5,         // attrait de la frappe face aux autres options
+  shotCost: 0.8,     // coût de la perte de balle dans le choix de tirer
+  carryW: 0.5,        // attrait de la conduite de balle
+  keepW: 0.25,        // valeur de garder le ballon (passe sûre à un partenaire libre)
+  crossW: 0.6,
+  passRisk: 2,      // sévérité des interceptions
+  lossW: 6,         // coût de la perte de balle dans le choix des passes
+  tackleRate: 0.65,    // fréquence des tentatives de tacle
+  foulP: 0.15,        // part des tentatives de tacle qui finissent en faute
+  xg: 0.62,          // échelle du modèle d'xG géométrique
+  takeonW: 0.3,       // attrait du crochet / débordement
+  hold: 1.6,            // temps de réflexion avant de jouer le ballon (×)
+  recv: 3.2,            // temps de contrôle à la réception (×)
+  clearCorner: 0.05,  // part des dégagements d'urgence qui finissent en corner
 };
 
 export class LiveSim {
@@ -146,7 +150,8 @@ export class LiveSim {
     }
     if (m.phase !== 'live') { this.idle(dt); return out; }
     // Horloge : une minute de match toutes les 60 / CLOCK secondes de jeu.
-    this.sec += dt * CLOCK;
+    this.sec += dt * TUNE.clock;
+    m.workScale = TUNE.clock / CLOCK;
     while (this.sec >= 60 && m.phase === 'live') {
       this.sec -= 60;
       const evs = [];
@@ -538,7 +543,7 @@ export class LiveSim {
     const ws = opts.map((o) => Math.exp((o.u - Math.max(...opts.map((x) => x.u))) / temp));
     const pick = opts[this.rng.weightedIndex(ws)];
     const tempo = LVL[A.tactics.tempo] || 0;
-    h.next = this.now + (0.45 + this.rand() * 0.5) * (1 - tempo * 0.18) * (press < 3 ? 0.6 : 1) * (1.3 - vis / 250) * (mood.counter ? 0.82 : 1) * (mood.wasting && press > 4 ? 1.7 : 1);
+    h.next = this.now + (0.45 + this.rand() * 0.5) * TUNE.hold * (1 - tempo * 0.18) * (press < 3 ? 0.6 : 1) * (1.3 - vis / 250) * (mood.counter ? 0.82 : 1) * (mood.wasting && press > 4 ? 1.7 : 1);
     // Passe, frappe, centre, dégagement : le joueur s'arrête sur son appui et arme sa jambe ;
     // le ballon ne part qu'au moment du contact (comme dans un vrai geste).
     if (['shot', 'pass', 'cross', 'clear'].includes(pick.k)) {
@@ -762,7 +767,7 @@ export class LiveSim {
     const A = h.team, dir = this.dir(A.side);
     this.releaseBall(h);
     // Dégagement dans l'urgence : parfois derrière sa propre ligne (corner).
-    if (this.pressure(h) < 2 && this.rand() < 0.35) {
+    if (this.pressure(h) < 2 && this.rand() < TUNE.clearCorner) {
       const own = this.goalX(1 - A.side);
       this.kickBall(h, own - dir * 3, this.Y(h) < W / 2 ? 6 : W - 6, true, 1.2);
       this.pending = null;
@@ -1041,7 +1046,7 @@ export class LiveSim {
     for (const q of this.players.values()) q.faceBall = false;
     // Il prend le ballon face à lui (jamais « dans le dos »).
     if (this.dist(p, this.P.x, this.P.y) < 2.5) p.face = Math.atan2(this.P.y - p.y * W, this.P.x - p.x * L);
-    p.next = this.now + 0.35 + this.rand() * 0.45;
+    p.next = this.now + (0.35 + this.rand() * 0.45) * TUNE.recv;
     p.touch = 0.2;
     this.lastTouch = p.side;
     if (this.poss !== p.side) {
@@ -1263,13 +1268,13 @@ export class LiveSim {
         else {
           // Parade : souvent en corner (le gardien pousse le ballon derrière sa ligne), sinon repoussé.
           const sx = Math.sign(P.y - W / 2) || 1;
-          if (this.rand() < 0.65) { P.vx = -P.vx * 0.1 + this.dir(s.side) * 4; P.vy = sx * (6 + this.rand() * 4); P.vz = 3 + this.rand() * 2; }
+          if (this.rand() < 0.4) { P.vx = -P.vx * 0.1 + this.dir(s.side) * 4; P.vy = sx * (6 + this.rand() * 4); P.vz = 3 + this.rand() * 2; }
           else { P.vx = -P.vx * 0.25; P.vy = sx * (5 + this.rand() * 6); P.vz = 2 + this.rand() * 4; }
           P.spin = 0; this.lastTouch = s.gk.side;
         }
       } else if (s.outcome === 'blocked') {
         // Contre : dévié en corner une fois sur trois, sinon le ballon repart.
-        if (this.rand() < 0.55) { P.vx = this.dir(s.side) * (7 + this.rand() * 4); P.vy = (this.rand() - 0.5) * 10; P.vz = 1.5 + this.rand() * 2; }
+        if (this.rand() < 0.3) { P.vx = this.dir(s.side) * (7 + this.rand() * 4); P.vy = (this.rand() - 0.5) * 10; P.vz = 1.5 + this.rand() * 2; }
         else { P.vx = -P.vx * 0.25; P.vy += (this.rand() - 0.5) * 9; P.vz = 1.2 + this.rand() * 2; }
         P.spin = 0;
         if (s.blocker) this.lastTouch = s.blocker.side;

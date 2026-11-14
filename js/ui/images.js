@@ -1,3 +1,4 @@
+import { portraitSvg, personLook } from './avatar.js';
 /**
  * Images des clubs et des joueurs (monde réel), affichées depuis Wikimedia — jamais
  * copiées dans le dépôt. Pour qu'elles restent affichées en permanence (y compris hors
@@ -62,6 +63,11 @@ export function imgTag(file, w, kind = 'logo') {
 
 /** Visage d'un joueur : photo si disponible, sinon initiales aux couleurs du club. */
 export function face(p, club, sz = '') {
+  // Joueur généré (jeune du centre, nouveau talent) : portrait réaliste généré, stable pour ce joueur.
+  if (!p.photo && !p.real && p.id != null && p.pos) {
+    const px = { lg: 76, md: 44, sm: 26 }[sz] || 34;
+    return `<span class="face ${sz} gen">${portraitSvg(personLook(p.id, p.nat || '', p.age || 20), px, club?.color || '#203a6b')}</span>`;
+  }
   const ini = `${(p.first || '')[0] || ''}${(p.last || '')[0] || ''}`.toUpperCase();
   const bg = club?.color || '#2a3340', fg = club?.color2 || '#fff';
   return `<span class="face ${sz} ${p.photo ? 'has-img' : ''}" style="background:${bg};color:${fg}">${p.photo ? imgTag(p.photo, 250, 'photo') : ''}<i>${escAttr(ini)}</i></span>`;

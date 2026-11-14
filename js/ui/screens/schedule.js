@@ -4,7 +4,7 @@
  */
 import { sortedTable, topScorers, CUP_ROUND_NAMES, CONTI_ROUND_NAMES, contiGroupTable, nationRanking, DIVISIONS, DIV_IDS, COUNTRIES, CONTI_NAME, ensureContis, userConti, contiZones } from '../../game/season.js';
 import { CONTI_COMPS, cupPrizes, LEAGUE_WEALTH } from '../../data/world.js';
-import { trophySvg, trophyArt, leagueTrophy } from '../trophies.js';
+import { trophySvg, trophyArt, leagueTrophy, leagueLogo } from '../trophies.js';
 import { money, prizeMoney } from '../../game/economy.js';
 import { userClub, clubById } from '../../game/state.js';
 import { esc, crest, seg, posBadge, face } from '../components.js';
@@ -65,7 +65,7 @@ function table(s, div, uc) {
         <small class="muted">${me.pts} pts · ${me.w}V ${me.d}N ${me.l}D · ${me.gf}-${me.ga} · ${Math.max(0, left)} journée(s) restante(s)</small></div>
       ${top ? `<div class="top-sc" data-act="player" data-id="${top.id}"><small>Meilleur buteur</small><b>${esc(top.name)}</b><span>${top.stats.lgoals} buts</span></div>` : ''}</div>`;
   }
-  return `${hero}<div class="card league-card" style="padding:6px 8px"><div class="lc-head"><span class="flag">${COUNTRIES[D.country].flag}</span><b>${esc(D.name)}</b><small>${esc(COUNTRIES[D.country].name)} · journée ${rows[0]?.p || 0}</small></div>
+  return `${hero}<div class="card league-card" style="padding:6px 8px"><div class="lc-head">${leagueLogo(div, 30)}<span class="flag">${COUNTRIES[D.country].flag}</span><b>${esc(D.name)}</b><small>${esc(COUNTRIES[D.country].name)} · journée ${rows[0]?.p || 0}</small></div>
     <table class="tbl ltbl">
     <thead><tr><th class="l">#</th><th class="l">Club</th><th>J</th><th>V</th><th>N</th><th>D</th><th class="hide-s">BP</th><th class="hide-s">BC</th><th>Diff</th><th>Pts</th><th class="l">Forme</th></tr></thead>
     <tbody>${rows.map((r, i) => `<tr class="${r.id === uc.id ? 'me' : ''} ${nDown && i === rows.length - nDown ? 'cut' : ''} ${nEu && i === nEu ? 'cut' : ''}" data-act="clubinfo" data-id="${r.id}" style="cursor:pointer">
@@ -182,7 +182,7 @@ function cups(app, s, uc) {
   const st = (alive, winner, id) => (winner ? (winner === id ? '<b class="pos-txt">🏆 Vainqueur</b>' : `Vainqueur : ${esc(clubById(s, winner)?.name || '')}`) : alive ? '<span class="pos-txt">En course</span>' : '<span class="neg-txt">Éliminé</span>');
   if (which === 'home') {
     const cards = [
-      compCard(s, { key: 'league', tkey: `league:${D.country}`, kind: leagueTrophy(D.country), title: D.name, sub: 'Championnat', status: `${sortedTable(s, uc.div).findIndex((r) => r.id === uc.id) + 1}e · ${sortedTable(s, uc.div)[0]?.club.short || ''} en tête`, total: D.level === 1 ? prizeMoney(1, 1, uc) : 0, color: '#7c5cff' }),
+      compCard(s, { key: 'league', tkey: `lg:${uc.div}`, kind: leagueTrophy(D.country), title: D.name, sub: 'Championnat', status: `${sortedTable(s, uc.div).findIndex((r) => r.id === uc.id) + 1}e · ${sortedTable(s, uc.div)[0]?.club.short || ''} en tête`, total: D.level === 1 ? prizeMoney(1, 1, uc) : 0, color: '#7c5cff' }),
       cup ? compCard(s, { key: uc.country, tkey: `cup:${uc.country}`, kind: 'cup', title: cup.name, sub: 'Coupe nationale', status: cup.alive.includes(uc.id) || cup.winner ? st(cup.alive.includes(uc.id), cup.winner, uc.id) : 'Non qualifié', total: cupTotal(uc.country), color: '#e3b341' }) : '',
       sup ? compCard(s, { key: 'super:' + uc.country, tkey: `super:${uc.country}`, kind: 'shield', title: sup.name, sub: 'Supercoupe', status: sup.h === uc.id || sup.a === uc.id ? (sup.w ? st(false, sup.w, uc.id) : 'Qualifié · en août') : `${esc(clubById(s, sup.h)?.short || '')} - ${esc(clubById(s, sup.a)?.short || '')}`, color: '#4cc9f0' }) : '',
       ...Object.values(contis).sort((a, b) => (b === mine) - (a === mine)).map((c) => compCard(s, { key: c.id, tkey: c.id, kind: CONTI_COMPS[c.id]?.trophy || 'cup', title: c.name, sub: `${CONTI_COMPS[c.id]?.org || ''} · coupe continentale`, status: c.teams.includes(uc.id) ? st(c.alive.includes(uc.id), c.winner, uc.id) : (c.winner ? `Vainqueur : ${esc(clubById(s, c.winner).name)}` : `${c.alive.length} clubs en course`), total: contiTotal(c.id), color: CONTI_COMPS[c.id]?.color })),

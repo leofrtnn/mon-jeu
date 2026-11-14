@@ -90,3 +90,56 @@ export function avatarSvg(look, size = 96, bg = '#1f352b') {
     ${L.acc === 'cap' || L.acc === 'beanie' ? acc : hairFront + acc}
   </svg>`;
 }
+
+/* ------------------------------------------------------------------ */
+/* Portraits générés (jeunes du centre, staff) : plus réalistes        */
+/* ------------------------------------------------------------------ */
+let PID = 0;
+const H = (str) => { let h = 2166136261; for (const c of String(str)) h = Math.imul(h ^ c.charCodeAt(0), 16777619); return h >>> 0; };
+const AFRICA = /Sénégal|Côte d'Ivoire|Cameroun|Mali|Nigeria|Ghana|Congo|Guinée|Gabon|Burkina|Angola|Zambie|Bénin|Togo|Kenya|Afrique du Sud|Cap-Vert|Jamaïque|Haïti|Gambie|Sierra/;
+const NORTHAF = /Maroc|Algérie|Tunisie|Égypte|Arabie|Qatar|Émirats|Irak|Iran|Jordanie|Turquie|Israël/;
+const ASIA = /Japon|Corée|Chine|Viêt|Thaïlande|Ouzbékistan|Indonésie/;
+const LATAM = /Brésil|Colombie|Équateur|Pérou|Venezuela|Paraguay|Mexique|Chili|Bolivie|Costa|Panama|Honduras/;
+
+/** Apparence déterministe d'une personne (même identifiant = même visage), selon nationalité et âge. */
+export function personLook(id, nat = '', age = 30) {
+  const h = H(id), r = (k) => ((h >>> (k * 3)) % 1000) / 1000;
+  const pick = (a, k) => a[Math.floor(r(k) * a.length) % a.length];
+  let skins = ['#f3d4bd', '#eac0a0', '#e1ad86', '#d39b74'];
+  if (AFRICA.test(nat)) skins = ['#8d5524', '#6f4320', '#5c3a21', '#4a2e1a'];
+  else if (NORTHAF.test(nat)) skins = ['#d9a066', '#c68642', '#b98153'];
+  else if (ASIA.test(nat)) skins = ['#f1d3b0', '#e8c49d', '#dcb38c'];
+  else if (LATAM.test(nat)) skins = ['#e0ac7e', '#c68642', '#a96e3b', '#d9a066', '#8d5524'];
+  const dark = AFRICA.test(nat);
+  const hairColors = dark ? ['#0e0a08', '#1b1410'] : ASIA.test(nat) ? ['#0e0a08', '#1b1410', '#2b1d14'] : ['#1b1410', '#3d2a1a', '#6b4423', '#a8743c', '#d9b26b', '#8b5a2b'];
+  const young = age <= 21;
+  const hairStyles = dark ? ['buzz', 'short', 'afro', 'dreads', 'curly'] : young ? ['short', 'quiff', 'sidepart', 'buzz', 'curly', 'slick'] : age > 50 ? ['receding', 'short', 'bald', 'sidepart', 'slick'] : ['short', 'sidepart', 'buzz', 'receding', 'slick', 'curly'];
+  return {
+    skin: pick(skins, 1), hairStyle: pick(hairStyles, 2), hairColor: age > 55 && r(3) < 0.6 ? pick(['#8a8a8a', '#d6d6d6'], 4) : pick(hairColors, 4),
+    beard: young ? (r(5) < 0.15 ? 'stubble' : 'none') : pick(['none', 'none', 'stubble', 'full', 'goatee', 'chinstrap'], 5),
+    eyes: pick(dark || ASIA.test(nat) ? ['#2a1a10', '#1d1d1d'] : ['#2a1a10', '#4a2c18', '#2f6b3a', '#2b5d8a', '#6d7f8c'], 6),
+    face: pick(['oval', 'round', 'square', 'long'], 7), brows: pick(['normal', 'thick', 'thin'], 8), mouth: pick(['neutral', 'smile', 'neutral'], 9),
+    glasses: !young && age > 40 && r(10) < 0.25 ? 'square' : 'none', age,
+  };
+}
+
+/** Portrait réaliste (dégradés de peau, ombres, nez, lèvres) en tenue de club ou de survêtement. */
+export function portraitSvg(look, size = 40, shirt = '#203a6b') {
+  const L = look || {};
+  const id = 'pt' + (++PID);
+  const skin = L.skin || '#e1ad86', hair = L.hairColor || '#3d2a1a';
+  const sk1 = shade(skin, 1.08), sk2 = shade(skin, 0.78), hairD = shade(hair, 0.7);
+  const wr = L.age > 45 ? `<path d="M38 41 Q41 40 44 41 M56 41 Q59 40 62 41" stroke="${sk2}" stroke-width=".7" fill="none" opacity=".6"/>` : '';
+  // On réutilise l'avatar pour les cheveux, la barbe, les lunettes ; le visage est redessiné avec du relief.
+  const base = avatarSvg({ ...L, outfit: 'polo', outfitColor: shirt, acc: 'none', bg: '#2a3140' }, size);
+  const relief = `<defs><radialGradient id="${id}f" cx="45%" cy="40%" r="62%"><stop offset="0" stop-color="${sk1}"/><stop offset=".7" stop-color="${skin}"/><stop offset="1" stop-color="${sk2}"/></radialGradient>
+    <linearGradient id="${id}n" x1="0" x2="1"><stop offset="0" stop-color="${sk2}" stop-opacity=".0"/><stop offset="1" stop-color="${sk2}" stop-opacity=".55"/></linearGradient></defs>
+    <path d="M30 45 Q30 24 50 23 Q70 24 70 45 Q70 70 50 72 Q30 70 30 45Z" fill="url(#${id}f)" opacity=".9"/>
+    <path d="M49 46 L46 57 Q49 59 53 57 L51 46Z" fill="url(#${id}n)"/><path d="M45 57.5 Q50 60 55 57.5" stroke="${sk2}" stroke-width="1.1" fill="none"/>
+    <ellipse cx="40" cy="48.3" rx="3.4" ry="2.1" fill="#fff" opacity=".9"/><ellipse cx="60" cy="48.3" rx="3.4" ry="2.1" fill="#fff" opacity=".9"/>
+    <circle cx="40" cy="48.3" r="1.7" fill="${L.eyes || '#2a1a10'}"/><circle cx="60" cy="48.3" r="1.7" fill="${L.eyes || '#2a1a10'}"/>
+    <path d="M44 64 Q50 ${L.mouth === 'smile' ? 67.5 : 65.5} 56 64 Q50 63 44 64Z" fill="${shade(skin, 0.68)}"/>
+    <path d="M36 42 Q40 39.5 45 41.2 M55 41.2 Q60 39.5 64 42" stroke="${hairD}" stroke-width="${{ thick: 2.8, thin: 1.2 }[L.brows] || 1.9}" fill="none" stroke-linecap="round"/>${wr}`;
+  // Le relief est inséré juste après le visage de l'avatar (avant barbe, lunettes et cheveux).
+  return base.replace(/(<path d="M2[789] 4[46][^"]*" fill="[^"]*"\/>)/, `$1${relief}`);
+}

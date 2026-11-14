@@ -780,7 +780,7 @@ export function decayEnergy(m) {
         // Moteur en direct : la fatigue vient de ce que le joueur a réellement couru cette
         // minute (sprints, pressing, retours défensifs), tempérée par son physique.
         // + intensité imposée par les consignes (pressing, tempo, marquage individuel).
-        d = (0.05 + mp.work * 0.0058 + pv * 0.09 + tv * 0.04 + (t.tactics.marking === 'man' ? 0.03 : 0)) * (1.3 - mp.p.attrs.phy / 180);
+        d = (0.05 + mp.work * 0.0058 * (m.workScale ?? 1) + pv * 0.09 + tv * 0.04 + (t.tactics.marking === 'man' ? 0.03 : 0)) * (1.3 - mp.p.attrs.phy / 180);
         if (t.slots[mp.slot].pos === 'GB') d *= 0.4;
         mp.work = 0;
       } else {

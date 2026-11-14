@@ -5,7 +5,7 @@
 import { userClub, clubPlayers, clubById } from '../../game/state.js';
 import { money, wageBill, sponsorIncome, prizeMoney } from '../../game/economy.js';
 import { DIVISIONS } from '../../data/world.js';
-import { marketList, windowOpen, academyCost, upgradeAcademy, sellPlayer, counterIncoming } from '../../game/transfers.js';
+import { marketList, windowOpen, academyCost, upgradeAcademy, sellPlayer, counterIncoming, youthRecruitCost, upgradeYouthRecruit, releaseYouth, promoteYouth } from '../../game/transfers.js';
 import { tablePosition, DIV_NAMES, CONTI_NAME } from '../../game/season.js';
 import { STAFF_ROLES, staffWages, hireStaff, fireStaff, bestStaff, staffEffects, trainingUpgradeCost, upgradeTraining, STADIUM_OPTIONS, stadiumCost, expandStadium, TRAINING_FOCUS, INTENSITY, staffDemand, staffOffer } from '../../game/career.js';
 import { randomLook } from '../../game/coach.js';
@@ -15,12 +15,12 @@ import { gameRng } from '../../game/state.js';
 import { overall } from '../../engine/ratings.js';
 import { POSITIONS, ATTR_LABELS, POSITION_GROUP } from '../../data/constants.js';
 import { posBadge } from '../components.js';
-import { esc, seg, playerRow, gauge, stars, scaleColor, ovrChip, noteChip } from '../components.js';
+import { esc, seg, playerRow, gauge, stars, scaleColor, ovrChip, noteChip, face } from '../components.js';
 import { showPlayer } from './playerSheet.js';
 import * as settings from './settings.js';
 import { windowInfo } from '../../game/dates.js';
 import { ensureBoard, REQUESTS, boardRequest, shiftBudget, wageRoom, youthShare, SALE_SHARE, WAGE_RATE } from '../../game/board.js';
-import { avatarSvg } from '../avatar.js';
+import { avatarSvg, portraitSvg, personLook } from '../avatar.js';
 import { COACH_SKILLS, SKILL_KEYS, PHILOSOPHIES, coachName, ensureCoachProfile } from '../../game/coach.js';
 import { openCoachEditor } from './coachEditor.js';
 import * as friends from './friends.js';
@@ -229,7 +229,7 @@ function staff(app) {
   const pool = (s.staffPool || []).filter((m) => !role || m.role === role).sort((a, b) => b.rating - a.rating);
   const rc = (r) => (r >= 15 ? 'var(--good)' : r >= 10 ? 'var(--ok)' : 'var(--muted)');
   const member = (m, act) => `<div class="prow" style="cursor:default">
-      ${avatarSvg(randomLook(createRng(hashSeed(m.id)).next), 40)}
+      ${portraitSvg(personLook(m.id, m.nat, m.age), 40, '#1c2333')}
       <div class="pname"><b>${esc(m.first)} ${esc(m.last)}</b><small>${STAFF_ROLES[m.role].icon} ${STAFF_ROLES[m.role].label} · ${esc(m.nat)} · ${m.age} ans · ${money(m.wage)}/sem${act === 'fire' ? ` · ${m.contract} an(s)` : ''}</small></div>
       <b style="font-family:var(--display);font-size:22px;color:${rc(m.rating)};min-width:30px;text-align:center">${m.rating}</b>
       <div class="btns" style="flex-direction:column;gap:4px">${act === 'fire' && m.contract <= 1 ? `<button class="btn sm primary" data-act="renewstaff" data-id="${m.id}">Prolonger</button>` : ''}
@@ -306,15 +306,46 @@ function individualTraining(s, uc) {
       <select class="sel" data-act="tind" data-id="${p.id}">${opts(p)}</select></div>`).join('')}</div></div>`;
 }
 
+/** Avis du responsable des jeunes (potentiel en mots, délai avant d'être prêt). */
+function youthVerdict(p, uc) {
+  const o = overall(p), pot = p.pot;
+  const lvl = pot >= 85 ? 'Pépite : futur joueur de très haut niveau' : pot >= 78 ? 'Futur titulaire en première division' : pot >= 70 ? 'Joueur de rotation en devenir' : pot >= 62 ? 'Joueur de complément' : 'Avenir incertain au plus haut niveau';
+  const ready = o >= squadAvg(uc) - 6 ? 'prêt pour l\'équipe première' : `prêt dans ~${Math.max(1, Math.round((squadAvg(uc) - 6 - o) / 3))} an(s)`;
+  return `${lvl} · ${ready}`;
+}
+let _avgCache = null;
+function squadAvg(uc) { return _avgCache ?? 65; }
+
 function youth(s) {
   const uc = userClub(s);
-  const ys = uc.youthIds.map((id) => s.players[id]).filter(Boolean);
-  return `<div class="card"><h3>Centre de formation</h3>
-      <div>${stars(uc.academy)}<br><small>Niveau ${uc.academy}/5 · plus le niveau est haut, meilleurs sont les jeunes</small></div>
-      ${uc.academy < 5 ? `<button class="btn block" style="margin-top:12px" data-act="upgrade">Améliorer · ${money(academyCost(uc))}</button>` : ''}
+  const ys = uc.youthIds.map((id) => s.players[id]).filter(Boolean).sort((a, b) => b.pot - a.pot);
+  const seniors = clubPlayers(s, uc).filter((p) => !p.onLoanFrom && p.age >= 27).sort((a, b) => overall(b) - overall(a)).slice(0, 12);
+  const xi = clubPlayers(s, uc).map(overall).sort((a, b) => b - a).slice(0, 14);
+  _avgCache = xi.reduce((a, v) => a + v, 0) / Math.max(1, xi.length);
+  const rec = uc.youthRecruit ?? 2;
+  const log = (uc.trainLog || []).filter((x) => x.youth && s.players[x.pid]).slice(0, 6);
+  return `<div class="grid2">
+    <div class="card"><h3>🏫 Installations du centre</h3>
+      <div class="row between"><span>Centre de formation</span>${stars(uc.academy)}</div>
+      <small class="muted">Qualité des jeunes formés et vitesse de progression (+${Math.round(((uc.academy || 1) * 0.08 - 0.15) * 100)} % d'entraînement).</small>
+      ${uc.academy < 5 ? `<button class="btn block" style="margin-top:8px" data-act="upgrade">Améliorer le centre · ${money(academyCost(uc))}</button>` : ''}
+      <div class="row between" style="margin-top:14px"><span>Réseau de recrutement des jeunes</span>${stars(rec)}</div>
+      <small class="muted">Potentiel des recrues (${rec >= 3 ? 'talents étrangers repérés' : 'recrutement local'}${rec >= 4 ? ', une recrue de plus par été' : ''}).</small>
+      ${rec < 5 ? `<button class="btn block" style="margin-top:8px" data-act="yrec">Développer le réseau · ${money(youthRecruitCost(uc))}</button>` : ''}
     </div>
+    <div class="card"><h3>📅 Prochaines fournées</h3>
+      <p style="margin:0 0 6px">Une recrue à la mi-saison, ${2 + (uc.academy >= 4 ? 1 : 0) + (rec >= 4 ? 1 : 0)} chaque été.</p>
+      <small class="muted">Les jeunes s'entraînent chaque semaine avec le programme du club. Un tuteur expérimenté accélère leur progression (+15 %) et les met en confiance.</small>
+      ${log.length ? `<div class="label">Derniers progrès</div>${log.map((x) => `<div class="row between" style="font-size:13px;padding:3px 0"><span>${esc(s.players[x.pid].name)}</span><span class="pos-txt">▲ ${x.attr || x.learned}</span></div>`).join('')}` : ''}
+    </div></div>
     <div class="label">Jeunes du centre (${ys.length})</div>
-    <div class="card list" style="padding:0 10px;margin-top:0">${ys.map((p) => playerRow(p, { extra: `· potentiel ${noteChip(p.pot)}` })).join('') || '<p class="muted">Nouvelle promotion à la mi-saison et chaque été.</p>'}</div>`;
+    <div class="youth-grid">${ys.map((p) => `<div class="card ycard">
+      <div class="row" style="gap:10px">${face(p, uc, 'md')}<div class="grow"><b data-act="player" data-id="${p.id}" style="cursor:pointer">${esc(p.name)}</b><br><small class="muted">${posBadge(p.pos)} ${p.age} ans · ${esc(p.nat || '')}</small></div>
+        <div class="center"><small class="muted">Actuel</small><br>${noteChip(overall(p))}</div><div class="center"><small class="muted">Potentiel</small><br>${noteChip(p.pot)}</div></div>
+      <p class="yverdict">${esc(youthVerdict(p, uc))}</p>
+      <div class="row" style="gap:6px;flex-wrap:wrap"><select class="sel" data-act="mentor" data-id="${p.id}"><option value="">Sans tuteur</option>${seniors.map((m) => `<option value="${m.id}" ${p.mentor === m.id ? 'selected' : ''}>Tuteur : ${esc(m.name)} (${m.pos})</option>`).join('')}</select>
+        <button class="btn sm primary" data-act="ypromote" data-id="${p.id}">Promouvoir</button><button class="btn sm danger" data-act="yrelease" data-id="${p.id}">Libérer</button></div>
+    </div>`).join('') || '<p class="muted">Nouvelle promotion à la mi-saison et chaque été.</p>'}</div>`;
 }
 
 function career(s) {
@@ -383,6 +414,10 @@ export const actions = {
   maff(el, app) { app.ui.mktAff = !app.ui.mktAff; app.render(); },
   player(el, app) { showPlayer(app, +el.dataset.id); },
   upgrade(el, app) { done(app, upgradeAcademy(app.state)); },
+  yrec(el, app) { done(app, upgradeYouthRecruit(app.state)); },
+  mentor(el, app) { if (el.tagName !== 'SELECT') return; const p = app.state.players[+el.dataset.id]; if (p) { p.mentor = el.value ? +el.value : null; app.save(); app.toast(el.value ? `Tuteur assigné à ${p.name}.` : 'Plus de tuteur.'); } },
+  ypromote(el, app) { done(app, promoteYouth(app.state, +el.dataset.id)); },
+  async yrelease(el, app) { const p = app.state.players[+el.dataset.id]; if (!(await app.confirm('Libérer ce jeune ?', `${p.name} quittera définitivement le centre.`, 'Libérer', true))) return; done(app, releaseYouth(app.state, p.id)); },
   staffrole(el, app) { app.ui.staffRole = el.dataset.v || null; app.render(); },
   hirestaff(el, app) { staffNegotiation(app, el.dataset.id, false); },
   renewstaff(el, app) { staffNegotiation(app, el.dataset.id, true); },

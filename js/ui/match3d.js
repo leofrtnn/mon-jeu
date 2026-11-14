@@ -49,6 +49,20 @@ function pitchTexture(maxAniso) {
     for (const [x, y, a] of [[0, 0, 0], [L, 0, Math.PI / 2], [L, W, Math.PI], [0, W, -Math.PI / 2]]) {
       g.beginPath(); g.arc(X(x), Y(y), 1 * S, a, a + Math.PI / 2); g.stroke();
     }
+    // Brins d'herbe et usure : petites touches de clair et de foncé, plus marquées devant les buts.
+    let seed = 7;
+    const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    g.lineWidth = 1;
+    for (let i = 0; i < 26000; i++) {
+      const x = rnd() * cw, y = rnd() * ch;
+      g.strokeStyle = rnd() < 0.5 ? 'rgba(255,255,255,.045)' : 'rgba(0,0,0,.06)';
+      g.beginPath(); g.moveTo(x, y); g.lineTo(x + (rnd() - 0.5) * 3, y - 2 - rnd() * 3); g.stroke();
+    }
+    for (const gx of [X(5), X(L - 5)]) {
+      const rg = g.createRadialGradient(gx, Y(W / 2), 0, gx, Y(W / 2), 9 * S);
+      rg.addColorStop(0, 'rgba(120,96,50,.22)'); rg.addColorStop(1, 'rgba(120,96,50,0)');
+      g.fillStyle = rg; g.fillRect(gx - 9 * S, Y(W / 2) - 9 * S, 18 * S, 18 * S);
+    }
   });
   tex.anisotropy = maxAniso;
   return { tex, w: L + PAD * 2, h: W + PAD * 2 };
@@ -498,9 +512,16 @@ export class Match3D {
     parent.insertBefore(this.canvas, view.canvas);
     this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true, powerPreference: 'high-performance' });
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;   // rendu « télé » : contrastes doux, couleurs riches
+    this.renderer.toneMappingExposure = 1.15;
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color('#0b1220');
-    this.scene.fog = new THREE.Fog('#0b1220', 140, 260);
+    // Ciel de soirée (dégradé) : match en nocturne sous les projecteurs.
+    this.scene.background = canvasTex(4, 256, (g, w, h) => {
+      const gr = g.createLinearGradient(0, 0, 0, h);
+      gr.addColorStop(0, '#060b1a'); gr.addColorStop(0.55, '#16264a'); gr.addColorStop(0.85, '#3a3f63'); gr.addColorStop(1, '#5b4a5e');
+      g.fillStyle = gr; g.fillRect(0, 0, w, h);
+    });
+    this.scene.fog = new THREE.Fog('#141d33', 150, 280);
     this.camera = new THREE.PerspectiveCamera(30, 1.5, 0.5, 600);
     this.camMode = 'tv';
     this.camPos = new THREE.Vector3(0, 30, 70);
@@ -574,15 +595,54 @@ export class Match3D {
       s.add(roof);
     };
     stand(L + 30, 'z', -1, W / 2 + 9);
+    // Gradins inclinés devant chaque tribune (on voit la pente, comme dans un vrai stade),
+    // ruban LED entre les étages, avancée du toit.
+    const rake = (len, depthAxis, sign, dist) => {
+      const slope = Math.hypot(13, 9.6), ang = Math.atan2(9.6, 13);
+      const pl = new THREE.Mesh(new THREE.PlaneGeometry(len, slope), crowd);
+      const led = new THREE.Mesh(new THREE.PlaneGeometry(len, 0.9), ledMat);
+      const fascia = new THREE.Mesh(new THREE.BoxGeometry(depthAxis === 'z' ? len : 1.2, 2.2, depthAxis === 'z' ? 1.2 : len), concrete);
+      if (depthAxis === 'z') {
+        pl.position.set(0, 1.4 + 4.8, sign * (dist - 0.2 + 6.5));
+        pl.rotation.set(0, sign < 0 ? 0 : Math.PI, 0); pl.rotateX(-(Math.PI / 2 - ang));
+        led.position.set(0, 0.9, sign * (dist - 0.6)); led.rotation.y = sign < 0 ? 0 : Math.PI;
+        fascia.position.set(0, 15, sign * (dist - 1));
+      } else {
+        pl.rotation.set(0, sign < 0 ? Math.PI / 2 : -Math.PI / 2, 0); pl.rotateX(-(Math.PI / 2 - ang));
+        pl.position.set(sign * (dist - 0.2 + 6.5), 1.4 + 4.8, 0);
+        led.position.set(sign * (dist - 0.6), 0.9, 0); led.rotation.y = sign < 0 ? Math.PI / 2 : -Math.PI / 2;
+        fascia.position.set(sign * (dist - 1), 15, 0);
+      }
+      s.add(pl); s.add(led); s.add(fascia);
+    };
+    const ledMat = new THREE.MeshBasicMaterial({ map: boardsTexture([h.name, a.name]), color: '#ffffff' });
+    this.crowdMat = crowd;
+    rake(L + 30, 'z', -1, W / 2 + 9);
+    rake(W + 16, 'x', -1, L / 2 + 10);
+    rake(W + 16, 'x', 1, L / 2 + 10);
+    // Bancs de touche (abris transparents) côté caméra, et zone technique.
+    const glass = new THREE.MeshLambertMaterial({ color: '#9fc3e6', transparent: true, opacity: 0.35 });
+    const seatM = new THREE.MeshLambertMaterial({ color: '#1b2233' });
+    for (const sx of [-9, 9]) {
+      const g2 = new THREE.Group();
+      const roof = new THREE.Mesh(new THREE.BoxGeometry(7, 0.12, 2.2), glass); roof.position.set(0, 2.2, 0); g2.add(roof);
+      const back = new THREE.Mesh(new THREE.BoxGeometry(7, 2.2, 0.1), glass); back.position.set(0, 1.1, 1.1); g2.add(back);
+      const seat = new THREE.Mesh(new THREE.BoxGeometry(6.6, 0.5, 0.8), seatM); seat.position.set(0, 0.45, 0.6); g2.add(seat);
+      g2.position.set(sx, 0, W / 2 + 4.6); s.add(g2);
+    }
     // Pas de tribune côté caméra : elle masquerait le terrain (comme à la télé).
     stand(W + 16, 'x', -1, L / 2 + 10);
     stand(W + 16, 'x', 1, L / 2 + 10);
     // Projecteurs.
+    const glowTex = canvasTex(64, 64, (g, w, hh) => { const rg = g.createRadialGradient(w / 2, hh / 2, 0, w / 2, hh / 2, w / 2); rg.addColorStop(0, 'rgba(255,255,255,1)'); rg.addColorStop(0.25, 'rgba(255,240,200,.6)'); rg.addColorStop(1, 'rgba(255,240,200,0)'); g.fillStyle = rg; g.fillRect(0, 0, w, hh); });
     const mast = new THREE.MeshLambertMaterial({ color: '#555c69' });
     const lamp = new THREE.MeshBasicMaterial({ color: '#fffbe6' });
     for (const [x, z] of [[-L / 2 - 14, -W / 2 - 14], [L / 2 + 14, -W / 2 - 14], [-L / 2 - 14, W / 2 + 18], [L / 2 + 14, W / 2 + 18]]) {
       const m = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.6, 34, 8), mast); m.position.set(x, 17, z); s.add(m);
       const l = new THREE.Mesh(new THREE.BoxGeometry(5, 2.5, 1), lamp); l.position.set(x, 34, z); l.lookAt(0, 0, 0); s.add(l);
+      // Halo des projecteurs (visible dans le ciel du soir).
+      const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: '#fff3c4', transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.85 }));
+      glow.scale.set(16, 16, 1); glow.position.set(x, 34, z); s.add(glow);
     }
     // Buts : poteaux, transversale, filets.
     const post = new THREE.MeshLambertMaterial({ color: '#ffffff' });
@@ -701,8 +761,10 @@ export class Match3D {
     else if (mode === 'high') { want.set(bx * 0.4, 95, 52); look.set(bx * 0.4, 0, 0); this.camera.fov = 38; }
     else { const side = bx >= 0 ? 1 : -1; want.set(side * (L / 2 + 22), 12, bz * 0.3); look.set(bx, 0, bz); this.camera.fov = 40; }
     const k = 1 - Math.exp(-dt * (mode === 'close' ? 3 : 2.2));
-    this.camPos.lerp(want, k);
-    this.camLook.lerp(look, k);
+    // Après une coupure (avance rapide), la caméra se place directement sur l'action.
+    const kk = this.snapCam ? 1 : k; this.snapCam = false;
+    this.camPos.lerp(want, kk);
+    this.camLook.lerp(look, kk);
     this.camera.position.copy(this.camPos);
     this.camera.lookAt(this.camLook);
     this.camera.updateProjectionMatrix();
@@ -727,6 +789,12 @@ export class Match3D {
 
   render(dt) {
     const v = this.v;
+    // La foule se lève et saute après un but (la texture des tribunes « vibre »).
+    if (this.crowdMat?.map) {
+      const cheer = v.banner && v.banner.text === 'BUT !';
+      this._cheerT = (this._cheerT || 0) + dt;
+      this.crowdMat.map.offset.y = cheer ? Math.abs(Math.sin(this._cheerT * 9)) * 0.012 : 0;
+    }
     if (!document.hidden) this.adaptQuality();
     this.syncPlayers();
     const flip = this.flip();

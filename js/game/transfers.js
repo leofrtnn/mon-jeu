@@ -257,6 +257,25 @@ export function upgradeAcademy(state) {
   return { ok: true, msg: `Centre de formation niveau ${club.academy} !` };
 }
 export const academyCost = (club) => 1_500_000 * club.academy;
+/** Réseau de recrutement des jeunes (1 à 5) : potentiel des recrues, jeunes étrangers, une recrue de plus au niveau 4. */
+export const youthRecruitCost = (club) => 1_000_000 * (club.youthRecruit ?? 2);
+export function upgradeYouthRecruit(state) {
+  const club = userClub(state);
+  const lv = club.youthRecruit ?? 2;
+  if (lv >= 5) return { ok: false, msg: 'Réseau déjà au niveau maximum.' };
+  const cost = youthRecruitCost(club);
+  if (club.budget < cost) return { ok: false, msg: `Budget insuffisant (${money(cost)}).` };
+  club.budget -= cost; club.youthRecruit = lv + 1;
+  logFinance(state, -cost, 'Réseau de recrutement des jeunes');
+  return { ok: true, msg: `Réseau de recrutement des jeunes : niveau ${club.youthRecruit} !` };
+}
+/** Libère un jeune du centre. */
+export function releaseYouth(state, pid) {
+  const club = userClub(state);
+  club.youthIds = club.youthIds.filter((x) => x !== pid);
+  delete state.players[pid];
+  return { ok: true, msg: 'Le jeune quitte le centre.' };
+}
 
 /** Journal financier du club de l'utilisateur. */
 export function logFinance(state, amount, label) {

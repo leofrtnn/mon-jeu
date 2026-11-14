@@ -1,4 +1,5 @@
 import { imgTag } from './images.js';
+import { COMP_LOGOS, LEAGUE_LOGOS } from '../data/logos.js';
 /**
  * TROPHÉES : illustrations vectorielles originales (formes génériques, aucun logo officiel copié).
  *  ears  : grande coupe à larges anses (Coupe d'Europe des clubs champions)
@@ -89,8 +90,17 @@ export const trophyPhoto = (key) => TROPHY_PHOTOS[key] || null;
 
 /** Trophée : photo réelle si disponible, dessin sinon (et en attendant le chargement). */
 export function trophyArt(key, kind, size = 64) {
-  const file = TROPHY_PHOTOS[key];
   const svg = trophySvg(kind, size);
+  // Logo officiel de la compétition (image PNG classique, sur fond clair) en priorité.
+  const logo = COMP_LOGOS[key] || (String(key).startsWith('lg:') ? LEAGUE_LOGOS[+String(key).slice(3)] : null);
+  if (logo) return `<span class="comp-logo" style="--ts:${size}px">${svg}${imgTag(logo, 250, 'logo')}</span>`;
+  const file = TROPHY_PHOTOS[key];
   if (!file) return svg;
   return `<span class="tro-art" style="--ts:${size}px">${svg}${imgTag(file, size * 2, 'photo')}</span>`;
+}
+
+/** Logo d'un championnat (petit badge) ; vide si inconnu. */
+export function leagueLogo(div, size = 28) {
+  const f = LEAGUE_LOGOS[div];
+  return f ? `<span class="lg-logo" style="--ls:${size}px">${imgTag(f, 120, 'logo')}</span>` : '';
 }

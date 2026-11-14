@@ -4,6 +4,10 @@
  * vitesse de progression des joueurs. Stockés dans state.opts.
  */
 export const GAME_OPTIONS = {
+  career: { label: 'Mode de carrière', def: 'free', opts: {
+    free: { label: 'Carrière libre', desc: 'Vous choisissez n\'importe quel club du monde.' },
+    real: { label: 'Carrière réaliste', desc: 'Vous créez votre coach : seuls les clubs qui croient en vous (selon votre parcours et votre réputation) vous proposent un poste.' },
+  } },
   difficulty: { label: 'Difficulté', def: 'normal', opts: {
     easy: { label: 'Facile', desc: 'Direction patiente, équipe un peu plus performante.', perf: 1.02, sack: 6, patience: 1.4 },
     normal: { label: 'Normal', desc: 'L\'expérience prévue : réaliste et exigeante.', perf: 1, sack: 14, patience: 1 },

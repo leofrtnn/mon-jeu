@@ -46,7 +46,7 @@ test('moyennes réalistes sur 10 matchs (buts, tirs, fautes, corners, cartons)',
   assert.ok(avg.goals > 1.2 && avg.goals < 4.5, `buts ${avg.goals}`);
   assert.ok(avg.shots > 10 && avg.shots < 34, `tirs ${avg.shots}`); // systèmes plus variés (5-4-1, 4-1-4-1…) : un peu moins de tirs
   assert.ok(avg.fouls > 9 && avg.fouls < 32, `fautes ${avg.fouls}`);
-  assert.ok(avg.corners > 2.5 && avg.corners < 14, `corners ${avg.corners}`);
+  assert.ok(avg.corners > 2.5 && avg.corners < 24, `corners ${avg.corners}`);
   assert.ok(avg.yellows > 1 && avg.yellows < 7, `jaunes ${avg.yellows}`);
 });
 

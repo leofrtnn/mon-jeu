@@ -120,7 +120,7 @@ export function statusTags(p) {
 export function playerRow(p, { act = 'player', extra = '', right = null, dim = false, club = null } = {}) {
   const o = overall(p);
   return `<div class="prow ${dim ? 'dim' : ''}" data-act="${act}" data-id="${p.id}">
-    ${p.photo || p.real ? face(p, club) : ''}${posBadge(p.pos)}
+    ${face(p, club)}${posBadge(p.pos)}
     <div class="pname"><b>${esc(p.name)}</b><small>${p.age} ans ${extra}</small></div>
     <div class="icons">${statusTags(p)}${formDot(p.form)}${moraleIcon(p.morale)}${condBar(p.fatigue)}</div>
     ${right ?? ovrChip(o)}

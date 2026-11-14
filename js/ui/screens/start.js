@@ -3,7 +3,8 @@
  * importer, supprimer), puis choix du club.
  */
 import { storedRatings, applyRatings } from '../../game/ratingsImport.js';
-import { newGame, startCareer } from '../../game/season.js';
+import { newGame, startCareer, startingOffers } from '../../game/season.js';
+import { ensureCoachProfile, coachName } from '../../game/coach.js';
 import { load, deleteSave, clubPlayers, slotsInfo, SLOTS, setSlot, importFile, legacySave, dropLegacy, restoreSlot, lastKey } from '../../game/state.js';
 import { squadStrength, overall } from '../../engine/ratings.js';
 import { money } from '../../game/economy.js';
@@ -11,6 +12,7 @@ import { esc, crest, playerRow, noteChip } from '../components.js';
 import { DIVISIONS, DIV_IDS, COUNTRIES } from '../../data/world.js';
 import { readFileAsText } from '../files.js';
 import { openCoachEditor } from './coachEditor.js';
+import { leagueLogo } from '../trophies.js';
 import { GAME_OPTIONS, defaultOptions, optInfo } from '../../game/options.js';
 import { ensureBoard, setBoardSeason } from '../../game/board.js';
 import { PHILOSOPHIES } from '../../game/coach.js';
@@ -93,7 +95,7 @@ function pickerHtml(app, ui) {
       const avg = cl.reduce((a, c) => a + c.rep, 0) / Math.max(1, cl.length);
       return `<button class="lg-row ${d === ui.div && !q ? 'on' : ''}" data-act="div" data-v="${d}">
         <span class="flag">${COUNTRIES[DIVISIONS[d].country].flag}</span>
-        <span class="grow"><b>${esc(DIVISIONS[d].name)}</b><small>${esc(COUNTRIES[DIVISIONS[d].country].name)} · ${cl.length} clubs</small></span>
+        ${leagueLogo(d, 26)}<span class="grow"><b>${esc(DIVISIONS[d].name)}</b><small>${esc(COUNTRIES[DIVISIONS[d].country].name)} · ${cl.length} clubs</small></span>
         <small class="muted" title="Réputation moyenne des clubs">Rép. ${Math.round(avg)}</small></button>`;
     }).join('')}</div>`;
   }).join('');
@@ -171,14 +173,35 @@ function setupSheet(app, st, done) {
   });
 }
 
-function takeClub(app, id) {
-  startCareer(app.state, id);
+/** Carrière réaliste : création du coach, puis offres des clubs qui le veulent. */
+function realCareer(app, slot, st) {
+  startNew(app, slot, st);
+  st.coach = ensureCoachProfile({ rep: 22, trophies: [], w: 0, d: 0, l: 0, clubs: [], seasons: 0 });
+  openCoachEditor(app, { mode: 'create', onDone: () => offersSheet(app, slot, st) });
+}
+function offersSheet(app, slot, st) {
+  const coach = st.coach;
+  const offers = startingOffers(st, coach);
+  const h = app.sheet({
+    dismissable: false,
+    html: `<h2>Vos premières offres</h2>
+      <p class="muted" style="margin-top:0">Réputation de ${esc(coachName(coach))} : <b>${Math.round(coach.rep)}</b>/100. Ces clubs vous proposent leur banc. Les plus grands viendront… si vous faites vos preuves.</p>
+      <div class="offer-list">${offers.map((o) => { const c = st.clubs.find((x) => x.id === o.id); const D = DIVISIONS[c.div];
+        return `<button class="offer-card" data-act="pick" data-id="${c.id}">${crest(c, 'lg')}<div class="grow"><b>${esc(c.name)}</b><small>${COUNTRIES[c.country]?.flag || ''} ${esc(D.name)} · réputation ${c.rep}</small>
+          <small>Budget ${money(c.budget)} · salaire proposé ${money(o.wage)}/sem</small></div><span class="btn sm primary">Signer ▸</span></button>`; }).join('')}</div>`,
+    actions: { pick: (el) => { h.close(); takeClub(app, +el.dataset.id, coach); } },
+  });
+}
+
+function takeClub(app, id, coach = null) {
+  startCareer(app.state, id, coach);
   // Budget de départ (paramètre de partie) : les enveloppes du CA suivent.
   const bm = optInfo(app.state, 'budget').mult || 1;
   if (bm !== 1) { const uc = app.state.clubs.find((c) => c.id === id); uc.budget = Math.round(uc.budget * bm / 100000) * 100000; ensureBoard(app.state); setBoardSeason(app.state, true); }
   const slot = app.ui.start.slot || 1;
   enter(app, slot, app.state);
   app.save(true);
+  if (coach) { applyPhilosophy(app.state); app.save(true); app.render(); app.toast(`${coachName(app.state.coach)} signe à ${app.state.clubs.find((c) => c.id === id).name} !`, 3500); return; }
   openCoachEditor(app, { mode: 'create', onDone: () => applyPhilosophy(app.state) });
 }
 
@@ -248,7 +271,7 @@ export const actions = {
       const rl = storedRatings();
       if (rl) applyRatings(st, rl);
       busy(false);
-      setupSheet(app, st, () => startNew(app, slot, st));
+      setupSheet(app, st, () => (st.opts.career === 'real' ? realCareer(app, slot, st) : startNew(app, slot, st)));
     } catch (e) { app.toast('Impossible de charger les championnats (vérifiez la connexion).', 4000); }
     finally { busy(false); }
   },

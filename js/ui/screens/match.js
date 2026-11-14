@@ -25,7 +25,7 @@ import { openDecisions } from '../../game/inbox.js';
 import { openInterview } from './inboxUI.js';
 import { showDayReport } from './dayReport.js';
 
-const SPEEDS = [1, 2, 4];
+const SPEEDS = [2, 4, 8]; // x2 = temps réel ×2 : un match dure 45 minutes (temps forts seulement)
 /** Événements montrés en mode "Résumé rapide". */
 const QUICK_KEEP = new Set(['goal', 'red', 'yellow', 'penalty', 'var', 'ht', 'ft', 'injury', 'kickoff', 'freekick']);
 
@@ -72,7 +72,6 @@ export function openMatch(app, opts = {}) {
     <div class="controls">
       <button class="btn primary" data-c="pause" title="Compo, changements, tactique">📋 Compo &amp; tactique</button>
       <button class="btn" data-c="speed">x${SPEEDS[0]}</button>
-      <button class="btn" data-c="quick">⚡ Résumé</button>
       <button class="btn" data-c="skip">⏭ Fin</button>
       <button class="btn" data-c="style" style="flex:.6" title="Vue">${{ fm: '2D', '3d': '3D', anim: '🎥' }[s.settings.matchStyle || '3d']}</button>
       <button class="btn" data-c="cam" style="flex:.6" title="Caméra">📹</button>
@@ -83,7 +82,7 @@ export function openMatch(app, opts = {}) {
   document.body.style.overflow = 'hidden';
 
   const $ = (id) => root.querySelector('#' + id);
-  const ctrl = { speedIdx: Math.max(0, SPEEDS.indexOf(s.settings.speed || 1)), quick: false, finished: false, scorers: [[], []], recent: [] };
+  const ctrl = { speedIdx: Math.max(0, SPEEDS.indexOf(s.settings.speed || 2)), quick: false, finished: false, scorers: [[], []], recent: [] };
   const official = !opts.cfg;
   // Journal des décisions du coach (instant précis = nombre de pas du moteur) : permet de
   // rejouer ce match À L'IDENTIQUE sur un autre appareil (match entre managers, en ligne).
@@ -259,12 +258,6 @@ export function openMatch(app, opts = {}) {
       view.setSpeed(SPEEDS[ctrl.speedIdx] * (ctrl.quick ? (view.live ? 3 : 1.5) : 1));
       b.textContent = `x${SPEEDS[ctrl.speedIdx]}`;
       s.settings.speed = SPEEDS[ctrl.speedIdx]; app.save();
-    }
-    if (c === 'quick') {
-      ctrl.quick = !ctrl.quick;
-      b.classList.toggle('on', ctrl.quick);
-      view.setSpeed(SPEEDS[ctrl.speedIdx] * (ctrl.quick ? (view.live ? 3 : 1.5) : 1));
-      app.toast(ctrl.quick ? 'Résumé rapide : seulement les temps forts' : 'Match en intégralité');
     }
     if (c === 'skip') { if (replay) { view.setSpeed(12); app.toast('Avance rapide'); } else { rec('skip', {}); skipToEnd(); } }
     if (c === 'style') {

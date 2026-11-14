@@ -118,12 +118,19 @@ export function newGame(seed = (Date.now() >>> 0), { real = null } = {}) {
 }
 
 /** Le joueur choisit son club : on prépare la saison. */
-export function startCareer(state, clubId) {
+export function startCareer(state, clubId, coach = null) {
   state.userClubId = clubId;
   const club = userClub(state);
   initClubExtras(club);
-  state.coach = ensureCoachProfile(newCoach(club));
+  // Carrière réaliste : le coach déjà créé (réputation, parcours) arrive au club qui l'a choisi.
+  state.coach = ensureCoachProfile(coach ? { ...newCoach(club), ...coach, clubs: [club.name] } : newCoach(club));
   onUserArrives(state, club);
+  // Centre de formation : une première génération de jeunes (16-18 ans) attend le nouveau coach.
+  if (!(club.youthIds || []).length) {
+    const yr = createRng(hashSeed(`centre-${state.seed}-${club.id}`));
+    club.youthIds = club.youthIds || [];
+    for (let i = 0; i < 3 + (club.academy >= 4 ? 1 : 0); i++) { const y = intakeYouth(yr, club); state.players[y.id] = y; club.youthIds.push(y.id); }
+  }
   ensureStaff(state);
   ensureBoard(state);
   ensureLife(state);
@@ -133,6 +140,26 @@ export function startCareer(state, clubId) {
   club.lineup = best.lineup; club.bench = best.bench;
   createSeason(state);
   pushMessage(state, { prio: 1, icon: '👋', title: `Bienvenue à ${club.name} !`, text: `Objectif du board : ${state.objectives.league.label}.` });
+}
+
+/**
+ * Carrière réaliste : clubs qui proposent un poste à un coach débutant, selon sa réputation.
+ * Un club recrute un entraîneur dont la réputation correspond à son standing (rép. ≈ 25 + rép. du club / 4).
+ */
+export function startingOffers(state, coach, n = 5) {
+  const rng = createRng(hashSeed(`offres-${state.seed}-${coach.firstName}-${coach.lastName}`));
+  const cap = (coach.rep - 25) / 0.25 + 8;
+  let pool = state.clubs.filter((c) => c.rep <= cap && c.rep >= cap - 20);
+  if (pool.length < n) pool = state.clubs.slice().sort((a, b) => a.rep - b.rep).slice(0, 40);
+  const natOf = (c) => COUNTRIES[c.country]?.name;
+  const w = (c) => (natOf(c) === coach.nationality ? 4 : 1) * (0.5 + (c.rep - (cap - 20)) / 20);
+  const out = [], seen = new Set();
+  for (let guard = 0; out.length < n && guard < 400; guard++) {
+    const c = pool[rng.weightedIndex(pool.map(w))];
+    if (!c || out.includes(c) || (seen.has(c.country) && guard < 200)) continue;
+    seen.add(c.country); out.push(c);
+  }
+  return out.map((c) => ({ id: c.id, wage: Math.round((3000 + c.rep * c.rep * 6) / 1000) * 1000 }));
 }
 
 /** Calendrier aller-retour (méthode du cercle). */
@@ -692,6 +719,15 @@ export function completeDay(state, userMatch = null) {
       p._mins = 0;
     }
     if (isUser) {
+      // Jeunes du centre : entraînement hebdomadaire (meilleur centre = progrès plus rapides), tuteur.
+      for (const id of c.youthIds || []) {
+        const y = state.players[id];
+        if (!y) continue;
+        const mentor = y.mentor && c.playerIds.includes(y.mentor) ? state.players[y.mentor] : null;
+        const ev = weeklyTraining(y, rng, 60, { ...tp, individual: true, mult: tp.mult * (0.85 + (c.academy || 1) * 0.08) * (mentor ? 1.15 : 1) });
+        if (mentor) y.morale = clamp(y.morale + 0.4, 5, 99);
+        if (ev) (c.trainLog ||= []).unshift({ pid: y.id, day: state.day, youth: true, ...ev });
+      }
       // Rapport d'entraînement (40 dernières progressions) et postes appris.
       if (c.trainLog?.length > 40) c.trainLog.length = 40;
       for (const ev of (c.trainLog || []).filter((x) => x.day === state.day && x.learned)) {
@@ -720,7 +756,7 @@ export function completeDay(state, userMatch = null) {
     state.pendingOffers = (state.pendingOffers || []).filter((o) => state.day - o.day <= 3 && state.players[o.pid]?.clubId === uc.id);
     if (t.entry.type === 'league' && t.entry.round >= 6 && t.entry.round % 4 === 0) checkPromises(state);
     if (t.entry.type === 'league' && t.entry.round === 19) {
-      const y = createYouth(rng, uc);
+      const y = intakeYouth(rng, uc);
       y.pot = clamp(Math.round(y.pot + coachMods(state.coach).youthPot + staffEffects(uc).youthPot), overall(y) + 3, 95);
       state.players[y.id] = y;
       uc.youthIds.push(y.id);
@@ -855,6 +891,17 @@ function finishSupers(state, t, report) {
       pushMessage(state, { prio: 1, icon: '🏆', title: wc.id === uc.id ? `${sc.name} remporté !` : `${sc.name} perdu`, text: `${clubById(state, sc.h).name} ${sc.s[0]}-${sc.s[1]} ${clubById(state, sc.a).name}${sc.pens ? ` (${sc.pens[0]}-${sc.pens[1]} t.a.b.)` : ''}` });
     }
   }
+}
+
+/** Jeune du centre : le réseau de recrutement des jeunes élève le potentiel et attire des talents étrangers. */
+function intakeYouth(rng, c) {
+  const rec = c.youthRecruit ?? 2;
+  const foreign = rec >= 3 && rng.chance(0.08 + 0.06 * rec);
+  const y = createYouth(rng, foreign ? { ...c, country: rng.pick(['BRA', 'ESP', 'POR', 'ITA', 'ENG', 'GER', 'FRA', 'NED']) } : c);
+  y.clubId = c.id;
+  y.pot = clamp(Math.round(y.pot + (rec - 2) * 3), overall(y) + 3, 95);
+  y.homegrown = true;
+  return y;
 }
 
 /** Statistiques de saison d'un club (toutes compétitions) + journal des matchs des managers. */
@@ -1162,9 +1209,9 @@ export function endSeason(state) {
   // Centre de formation : recrues de l'été.
   for (const c of state.clubs) {
     const hu = humanOfClub(state, c.id);
-    const n = hu !== undefined ? 2 + (c.academy >= 4 ? 1 : 0) : 1;
+    const n = hu !== undefined ? 2 + (c.academy >= 4 ? 1 : 0) + ((c.youthRecruit ?? 2) >= 4 ? 1 : 0) : 1;
     for (let i = 0; i < n; i++) {
-      const y = createYouth(rng, c);
+      const y = hu !== undefined ? intakeYouth(rng, c) : createYouth(rng, c);
       state.players[y.id] = y;
       if (hu !== undefined) withHuman(state, hu, () => { y.pot = clamp(Math.round(y.pot + staffEffects(c).youthPot + coachMods(state.coach).youthPot), overall(y) + 3, 95); c.youthIds.push(y.id); R[hu].youth.push(`${y.name} (${y.pos}, ${y.age} ans)`); });
       else if (c.playerIds.length < 26) c.playerIds.push(y.id);
