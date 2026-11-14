@@ -5,6 +5,7 @@
  * Ce module ne fait QUE le rendu : il lit l'état animé de MatchView (joueurs, ballon,
  * période) — la logique d'animation et le moteur restent communs aux vues 2D et 3D.
  */
+import { stadiumFor, STADIUMS } from '../data/stadiums.js';
 import * as THREE from '../vendor/three.module.min.js';
 import { toLocal, localRect } from './viewport.js';
 import { personLook, portraitSvg } from './avatar.js';
@@ -751,12 +752,18 @@ export class Match3D {
     const glowTex = canvasTex(64, 64, (g, w, hh) => { const rg = g.createRadialGradient(w / 2, hh / 2, 0, w / 2, hh / 2, w / 2); rg.addColorStop(0, 'rgba(255,255,255,1)'); rg.addColorStop(0.25, 'rgba(255,240,200,.6)'); rg.addColorStop(1, 'rgba(255,240,200,0)'); g.fillStyle = rg; g.fillRect(0, 0, w, hh); });
     const mast = new THREE.MeshLambertMaterial({ color: '#555c69' });
     const lamp = new THREE.MeshBasicMaterial({ color: '#fffbe6' });
-    for (const [x, z] of [[-L / 2 - 14, -W / 2 - 14], [L / 2 + 14, -W / 2 - 14], [-L / 2 - 14, W / 2 + 18], [L / 2 + 14, W / 2 + 18]]) {
-      const m = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.6, 34, 8), mast); m.position.set(x, 17, z); s.add(m);
-      const l = new THREE.Mesh(new THREE.BoxGeometry(5, 2.5, 1), lamp); l.position.set(x, 34, z); l.lookAt(0, 0, 0); s.add(l);
+    // Pylônes (vieux stades) ou rampes dans le toit (stades modernes : seul le halo reste visible).
+    const towers = this.stadium?.lights === 'towers';
+    const TH = towers ? 48 : 34;
+    for (const [x0, z0] of [[-L / 2 - 14, -W / 2 - 14], [L / 2 + 14, -W / 2 - 14], [-L / 2 - 14, W / 2 + 18], [L / 2 + 14, W / 2 + 18]]) {
+      const x = towers ? x0 * 1.22 : x0, z = towers ? z0 * 1.6 : z0;
+      if (towers) {
+        const m = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.9, TH, 8), mast); m.position.set(x, TH / 2, z); s.add(m);
+        const l = new THREE.Mesh(new THREE.BoxGeometry(8, 4.5, 1), lamp); l.position.set(x, TH, z); l.lookAt(0, 0, 0); s.add(l);
+      }
       // Halo des projecteurs (visible dans le ciel du soir).
       const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: '#fff3c4', transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.85 }));
-      glow.scale.set(16, 16, 1); glow.position.set(x, 34, z); s.add(glow); (this.glows ||= []).push(glow);
+      glow.scale.set(towers ? 20 : 16, towers ? 20 : 16, 1); glow.position.set(x, TH, z); s.add(glow); (this.glows ||= []).push(glow);
     }
     // Buts : poteaux, transversale, filets.
     const post = new THREE.MeshLambertMaterial({ color: '#ffffff' });
@@ -795,17 +802,24 @@ export class Match3D {
     const s = this.scene;
     const coarse = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
     const SP = coarse ? 1.05 : 0.8;                  // espacement des sièges (m)
-    const concrete = new THREE.MeshLambertMaterial({ color: '#8b9099' });
-    const concreteD = new THREE.MeshLambertMaterial({ color: '#4a505b' });
-    const steel = new THREE.MeshLambertMaterial({ color: '#2b3038' });
-    const roofUnder = new THREE.MeshLambertMaterial({ color: '#d9dde3', side: THREE.DoubleSide });
+    const ST = this.stadium = (typeof window !== 'undefined' && window.__stadiumIdx != null && STADIUMS[window.__stadiumIdx]) || stadiumFor(h);
+    const concrete = new THREE.MeshLambertMaterial({ color: ST.conc || '#8b9099' });
+    const concreteD = new THREE.MeshLambertMaterial({ color: ST.facade || '#4a505b' });
+    const steel = new THREE.MeshLambertMaterial({ color: ST.steel || '#2b3038' });
+    const roofUnder = ST.roof === 'glass'
+      ? new THREE.MeshLambertMaterial({ color: '#cfe0ee', transparent: true, opacity: 0.55, side: THREE.DoubleSide, depthWrite: false })
+      : new THREE.MeshLambertMaterial({ color: '#d9dde3', side: THREE.DoubleSide });
     const roofGlass = new THREE.MeshLambertMaterial({ color: '#b9d3ea', transparent: true, opacity: 0.35, side: THREE.DoubleSide, depthWrite: false });
     const lightStrip = new THREE.MeshBasicMaterial({ color: '#fff6dc' });
     const darken = (hex, k) => { const c = new THREE.Color(hex); c.multiplyScalar(k); return c; };
-    const seatCol = darken(h.color, 0.55), seatCol2 = new THREE.Color('#3c4350');
+    const seatCol = ST.seat ? new THREE.Color(ST.seat) : darken(h.color, 0.55), seatCol2 = new THREE.Color('#3c4350');
+    const tarp = new THREE.Color('#14171c'); // bâches de la zone tampon du parcage
     const skins = ['#f1c9a5', '#e0b28a', '#c68f63', '#a0673f', '#6e4429', '#f3d2b5'].map((c) => new THREE.Color(c));
     const others = ['#e8e8e8', '#20242c', '#5d6b85', '#8b2d2d', '#2f5d3a', '#c9b38a'].map((c) => new THREE.Color(c));
-    const cH = new THREE.Color(h.color), cH2 = new THREE.Color(h.color2 || '#ffffff'), cA = new THREE.Color(a.color), cA2 = new THREE.Color(a.color2 || '#ffffff');
+    const cH = new THREE.Color(h.color), cH2 = new THREE.Color(h.color2 || '#ffffff');
+    let cA = new THREE.Color(a.color), cA2 = new THREE.Color(a.color2 || '#ffffff');
+    const cdist = (x, y) => Math.abs(x.r - y.r) + Math.abs(x.g - y.g) + Math.abs(x.b - y.b);
+    if (cdist(cA, cH) < 0.35 && cdist(cA2, cH) > 0.35) [cA, cA2] = [cA2, cA]; // parcage lisible même si les couleurs se ressemblent
     let seed = 7;
     const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
     const bodyG = new THREE.BoxGeometry(0.46, 0.62, 0.3); bodyG.translate(0, 0.55, 0.05);
@@ -816,10 +830,12 @@ export class Match3D {
     this.crowdGroups = [];
     this.flags = [];
     /** Tiers : [rangs, profondeur, montée] ; le 2e étage commence après la coursive. */
-    const TIERS = [{ rows: 15, dep: 0.82, rise: 0.4 }, { rows: 13, dep: 0.82, rise: 0.58 }];
+    const tiersOf = (l) => l.map(([rows, rise]) => ({ rows: coarse ? Math.max(5, Math.round(rows * 0.8)) : rows, dep: 0.82, rise }));
     const stand = (len, rotY, dist, opts = {}) => {
+      const TIERS = opts.tiers || tiersOf(ST.main);
       const g = new THREE.Group();
       g.rotation.y = rotY;
+      if (opts.pos) g.position.set(opts.pos[0], 0, opts.pos[1]);
       // Profil des marches (z vers l'extérieur, y vers le haut).
       const shape = new THREE.Shape();
       const rowsPos = [];
@@ -850,8 +866,13 @@ export class Match3D {
       for (let x = -len / 2; x <= len / 2 + 0.1; x += 12) {
         const rib = new THREE.Mesh(new THREE.BoxGeometry(0.5, yTop + 7.5, 0.8), steel); rib.position.set(x, (yTop + 7.5) / 2, zBack + 1.9); g.add(rib);
       }
-      // Toit en porte-à-faux, légèrement relevé vers le terrain, rampe lumineuse au bord.
-      const rLen = zBack - dist + 6, rY0 = yTop + 6.5, rY1 = yTop + 8.2;
+      // Toit (selon le modèle) : porte-à-faux, translucide, haut, vieux toit bas sur poteaux, ou aucun.
+      const RT = opts.roof || ST.roof;
+      const rLen = zBack - dist + (RT === 'low' ? 2 : 6), rY0 = yTop + (RT === 'tall' ? 10 : RT === 'low' ? 3.2 : 6.5), rY1 = rY0 + (RT === 'low' ? 0.6 : 1.7);
+      if (RT === 'low') for (let x = -len / 2 + 6; x < len / 2; x += 14) {
+        const post = new THREE.Mesh(new THREE.BoxGeometry(0.3, rY1, 0.3), steel); post.position.set(x, rY1 / 2, dist + 2.6); g.add(post);
+      }
+      if (RT !== 'none') {
       const roof = new THREE.Mesh(new THREE.PlaneGeometry(len + 2, rLen), roofUnder);
       roof.rotation.x = -Math.PI / 2 + Math.atan2(rY1 - rY0, rLen); roof.position.set(0, (rY0 + rY1) / 2, zBack + 1.5 - rLen / 2); g.add(roof);
       const edge = new THREE.Mesh(new THREE.PlaneGeometry(len + 2, 3.2), roofGlass);
@@ -862,6 +883,7 @@ export class Match3D {
         const col = new THREE.Mesh(new THREE.BoxGeometry(0.6, rY0, 0.6), steel); col.position.set(x, rY0 / 2, zBack + 2.2); g.add(col);
         const truss = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.9, rLen), steel);
         truss.position.set(x, (rY0 + rY1) / 2 + 0.5, zBack + 1.5 - rLen / 2); truss.rotation.x = -Math.atan2(rY1 - rY0, rLen); g.add(truss);
+      }
       }
       // Muret devant le premier rang + escaliers d'accès (bandes claires).
       const wall = new THREE.Mesh(new THREE.BoxGeometry(len, 1.3, 0.3), concreteD); wall.position.set(0, 0.65, dist - 0.45); g.add(wall);
@@ -874,27 +896,58 @@ export class Match3D {
         slots.push([x + (rp.tier ? 0 : (rnd() - 0.5) * 0.04), rp.y, rp.z, rp]);
       }
       const fill = opts.fill ?? 0.9;
-      const fans = [], empty = [];
-      for (const sl of slots) (rnd() < fill ? fans : empty).push(sl);
+      const AW = opts.away; // { x0, tiers } : parcage pour x > x0 dans ces étages
+      const inAway = (x, rp) => AW && AW.tiers.includes(rp.tier) && x > AW.x0;
+      const inBuffer = (x, rp) => AW && AW.tiers.includes(rp.tier) && x > AW.x0 - 4.5 && x <= AW.x0;
+      const fans = [], empty = [], buffer = [];
+      for (const sl of slots) {
+        if (inBuffer(sl[0], sl[3])) buffer.push(sl);
+        else (rnd() < (inAway(sl[0], sl[3]) ? 0.96 : fill) ? fans : empty).push(sl);
+      }
+      empty.push(...buffer);
       // Sièges : seuls les sièges vides sont dessinés (les autres sont cachés par les spectateurs).
       const seats = new THREE.InstancedMesh(seatG, white, empty.length);
       const bodies = new THREE.InstancedMesh(bodyG, white, fans.length), heads = new THREE.InstancedMesh(headG, white, fans.length);
       const M = new THREE.Matrix4();
       empty.forEach(([x, yy, zz], i) => {
         M.makeTranslation(x, yy, zz); seats.setMatrixAt(i, M);
-        seats.setColorAt(i, (Math.floor((x + len / 2) / 3) + Math.round(yy)) % 7 === 0 ? seatCol2 : seatCol);
+        seats.setColorAt(i, i >= empty.length - buffer.length ? tarp : (Math.floor((x + len / 2) / 3) + Math.round(yy)) % 7 === 0 ? seatCol2 : seatCol);
       });
-      fans.forEach(([x, yy, zz], i) => {
-        const stand = rnd() < 0.18 ? 0.12 : 0; // quelques supporters debout
+      fans.forEach((sl, i) => {
+        const [x, yy, zz] = sl;
+        const stand = rnd() < (inAway(x, sl[3]) ? 0.7 : 0.18) ? 0.12 : 0; // quelques supporters debout (tout le parcage)
         M.makeTranslation(x, yy + stand, zz - 0.02); bodies.setMatrixAt(i, M); heads.setMatrixAt(i, M);
-        const away = opts.away && opts.away(x);
+        const away = inAway(x, sl[3]);
         const r = rnd();
-        const col = away ? (r < 0.7 ? cA : r < 0.88 ? cA2 : others[(rnd() * others.length) | 0])
+        const col = away ? (r < 0.8 ? cA : r < 0.93 ? cA2 : others[(rnd() * others.length) | 0])
           : r < (opts.ultras ? 0.8 : 0.55) ? cH : r < (opts.ultras ? 0.92 : 0.7) ? cH2 : others[(rnd() * others.length) | 0];
         bodies.setColorAt(i, col); heads.setColorAt(i, skins[(rnd() * skins.length) | 0]);
       });
       for (const im of [seats, bodies, heads]) { im.instanceMatrix.needsUpdate = true; if (im.instanceColor) im.instanceColor.needsUpdate = true; }
       if (empty.length) g.add(seats);
+      // Parcage visiteur bien visible : filet de séparation, stewards en chasuble, banderole.
+      if (AW) {
+        const rowsA = rowsPos.filter((rp) => AW.tiers.includes(rp.tier));
+        if (rowsA.length) {
+          const y0 = rowsA[0].y, y1 = rowsA[rowsA.length - 1].y + 2.2, z0 = rowsA[0].z, z1 = rowsA[rowsA.length - 1].z;
+          const net = new THREE.Mesh(new THREE.PlaneGeometry(Math.hypot(z1 - z0, y1 - y0) + 1, 2.6), new THREE.MeshBasicMaterial({ color: '#dfe6ee', transparent: true, opacity: 0.42, side: THREE.DoubleSide, depthWrite: false }));
+          net.rotation.order = 'YXZ'; net.rotation.y = Math.PI / 2; net.rotation.x = -Math.atan2(y1 - y0, z1 - z0);
+          net.position.set(AW.x0 - 2.2, (y0 + y1) / 2 + 1, (z0 + z1) / 2); g.add(net);
+          const vest = new THREE.MeshLambertMaterial({ color: '#f4e21b' });
+          for (let k = 0; k < rowsA.length; k += 2) {
+            const st = new THREE.Mesh(bodyG, vest); st.position.set(AW.x0 - 2.2 + (k % 4 ? 1 : -1), rowsA[k].y + 0.12, rowsA[k].z); g.add(st);
+          }
+          const bw = Math.min(16, len / 2 - AW.x0 - 1);
+          if (bw > 4) {
+            const ban = new THREE.Mesh(new THREE.PlaneGeometry(bw, 1.2), new THREE.MeshBasicMaterial({ map: canvasTex(512, 48, (gg, w2, h2) => {
+              gg.fillStyle = a.color; gg.fillRect(0, 0, w2, h2); gg.fillStyle = a.color2 || '#fff'; gg.fillRect(0, 0, w2, 4); gg.fillRect(0, h2 - 4, w2, 4);
+              gg.font = '900 28px system-ui, sans-serif'; gg.textAlign = 'center'; gg.textBaseline = 'middle'; gg.fillText(`${(a.short || a.name).toUpperCase()} · AWAY`, w2 / 2, h2 / 2 + 1);
+            }), side: THREE.DoubleSide }));
+            const ry = AW.tiers[0] ? rowsA[0].y - 1.3 : 1.0, rz = AW.tiers[0] ? rowsA[0].z - 0.6 : dist - 0.62;
+            ban.position.set(AW.x0 + bw / 2 + 0.5, ry, rz); ban.rotation.y = Math.PI; g.add(ban);
+          }
+        }
+      }
       this.crowdHeads = (this.crowdHeads || []).concat(heads);
       const crowdG = new THREE.Group(); crowdG.add(bodies); crowdG.add(heads); g.add(crowdG);
       this.crowdGroups.push({ g: crowdG, ph: rnd() * 6, ultras: !!opts.ultras });
@@ -918,16 +971,26 @@ export class Match3D {
       s.add(g);
       return g;
     };
-    stand(L + 30, Math.PI, W / 2 + 9, { fill: 0.9 });                       // grande tribune, en face
-    stand(W + 16, Math.PI / 2, L / 2 + 10, { fill: 0.93, ultras: true });    // virage local
-    stand(W + 16, -Math.PI / 2, L / 2 + 10, { fill: 0.82, away: (x) => x > (W + 16) / 2 - 22 }); // virage avec parcage visiteur
-    // Coins : blocs de liaison (escaliers, écrans géants).
+    // Parcage visiteur selon le modèle : coin du virage, haut du virage, ou bout de la tribune latérale.
+    const endT = tiersOf(ST.ends), mainT = tiersOf(ST.main);
+    const endLen = W + 16, mainLen = L + 30;
+    const awayEnd = ST.away === 'side' ? null
+      : ST.away === 'upper' && endT.length > 1 ? { x0: 2, tiers: [endT.length - 1] } // moitié du dernier étage
+        : { x0: endLen / 2 - 22, tiers: endT.map((_, i) => i) };
+    stand(mainLen, Math.PI, W / 2 + 9, { fill: 0.9, tiers: mainT, away: ST.away === 'side' ? { x0: mainLen / 2 - 24, tiers: [0] } : null }); // grande tribune, en face
+    stand(endLen, Math.PI / 2, L / 2 + 10, { fill: 0.93, ultras: true, tiers: endT });   // virage local
+    stand(endLen, -Math.PI / 2, L / 2 + 10, { fill: 0.84, tiers: endT, away: awayEnd }); // virage avec parcage visiteur
+    // Coins : angles fermés (tribunes de coin) ou ouverts (blocs d'escaliers) ; écrans géants.
     const screenMat = new THREE.MeshBasicMaterial({ color: '#0b1220' });
     for (const sx of [-1, 1]) {
-      const blk = new THREE.Mesh(new THREE.BoxGeometry(14, 22, 14), concreteD);
-      blk.position.set(sx * (L / 2 + 17), 11, -(W / 2 + 18)); s.add(blk);
+      if (ST.corners === 'closed') {
+        stand(24, sx > 0 ? 3 * Math.PI / 4 : -3 * Math.PI / 4, 1, { pos: [sx * 70, -48], fill: 0.86, tiers: tiersOf([ST.ends[0]]), roof: ST.roof === 'low' ? 'low' : 'cant' });
+      } else {
+        const blk = new THREE.Mesh(new THREE.BoxGeometry(14, 22, 14), concreteD);
+        blk.position.set(sx * (L / 2 + 17), 11, -(W / 2 + 18)); s.add(blk);
+      }
       const scr = new THREE.Mesh(new THREE.PlaneGeometry(11, 6), screenMat);
-      scr.position.set(sx * (L / 2 + 14), 17, -(W / 2 + 10.9)); scr.lookAt(0, 8, 0); s.add(scr);
+      scr.position.set(sx * (L / 2 + 14), ST.corners === 'closed' ? 24 : 17, -(W / 2 + 10.9)); scr.lookAt(0, 8, 0); s.add(scr);
       (this.screens ||= []).push(scr);
     }
   }

@@ -11,7 +11,8 @@
  * Le rythme de match (p.sharp) pèse ensuite sur le rendement (jusqu'à -5 %) et se gagne en jouant.
  */
 import { clamp, hashSeed } from '../core/rng.js';
-import { DIVISIONS } from '../data/world.js';
+import { DIVISIONS, COUNTRIES } from '../data/world.js';
+import { confedOf } from '../data/nations.js';
 import { userClub, clubById, gameRng, pushMessage } from './state.js';
 import { matchdayRevenue } from './economy.js';
 import { allPlayers } from '../engine/match.js';
@@ -168,11 +169,44 @@ export function nextFriendlyDate(state, from = null) {
 export const friendlyToday = (state) => state.preseason?.friendlies.find((f) => !f.s && f.date === state.preseason.date) || null;
 export const friendliesLeft = (state) => (state.preseason?.friendlies || []).filter((f) => !f.s);
 
+/**
+ * Réponse d'un club à une demande d'amical : un grand club refuse souvent un petit,
+ * un club lointain hésite à voyager, un club déjà bien rempli décline. La réponse est
+ * stable (même demande = même réponse) et motivée.
+ */
+export function friendlyAnswer(state, oppId) {
+  const ps = state.preseason;
+  const opp = clubById(state, oppId), uc = userClub(state);
+  if (!opp || opp.id === uc.id) return { ok: false, p: 0, why: 'Adversaire invalide.' };
+  if ((ps.suggestions || []).includes(oppId)) return { ok: true, p: 1, why: `${opp.name} accepte avec plaisir.` };
+  const gap = opp.rep - uc.rep; // > 0 : l'adversaire est plus prestigieux
+  const conf = (c) => confedOf(COUNTRIES[c.country]?.name || '');
+  const far = opp.country === uc.country ? 0 : conf(opp) === conf(uc) ? 1 : 2;
+  const full = (ps.asked || []).filter((x) => x.ok).length; // plus on en a, plus les clubs sont pris
+  let p = 0.85 - Math.max(0, gap) * 0.025 + Math.max(0, -gap) * 0.01 - far * 0.18 - full * 0.03;
+  if (DIVISIONS[opp.div]?.level === 1 && DIVISIONS[uc.div]?.level > 2) p -= 0.15;
+  p = clamp(p, 0.05, 0.97);
+  const roll = (hashSeed(`${state.seed}-${state.season}-amireq-${oppId}`) % 1000) / 1000;
+  const ok = roll < p;
+  const why = ok ? (gap > 10 ? `${opp.name} accepte : bonne occasion de faire tourner son effectif.` : far === 2 ? `${opp.name} accepte le voyage.` : `${opp.name} accepte.`)
+    : gap > 10 ? `${opp.name} refuse : ils préfèrent des adversaires de leur standing.`
+      : far === 2 ? `${opp.name} refuse : trop loin, leur tournée de préparation est déjà bouclée.`
+        : far === 1 ? `${opp.name} refuse : leur calendrier d'été est déjà complet.`
+          : `${opp.name} décline poliment : ils ont déjà leurs adversaires.`;
+  return { ok, p, why };
+}
+
 export function addFriendly(state, oppId) {
   const ps = state.preseason;
   if (ps.friendlies.length >= 6) return { ok: false, msg: '6 matchs amicaux maximum.' };
   if (ps.friendlies.some((f) => f.oppId === oppId)) return { ok: false, msg: 'Déjà programmé.' };
   const opp = clubById(state, oppId), uc = userClub(state);
+  ps.asked ||= [];
+  const prev = ps.asked.find((x) => x.id === oppId);
+  if (prev && !prev.ok) return { ok: false, msg: `${opp.name} a déjà refusé votre invitation.` };
+  const ans = friendlyAnswer(state, oppId);
+  if (!prev) ps.asked.push({ id: oppId, ok: ans.ok });
+  if (!ans.ok) return { ok: false, msg: ans.why };
   // Petits clubs : on se déplace chez eux (la fête au village) ; grands clubs : on va chez eux.
   const alt = ps.friendlies.length % 2 === 0;
   const home = opp.rep < uc.rep - 4 ? false : alt;
@@ -180,7 +214,7 @@ export function addFriendly(state, oppId) {
   if (!date) return { ok: false, msg: 'Plus de date libre avant la reprise du championnat.' };
   ps.friendlies.push({ oppId, home, s: null, date });
   ps.friendlies.sort((a, b) => (a.date || '').localeCompare(b.date || ''));
-  return { ok: true, msg: `Amical contre ${clubById(state, oppId).name} le ${date.slice(8, 10)}/${date.slice(5, 7)}.` };
+  return { ok: true, msg: `${ans.why} Amical le ${date.slice(8, 10)}/${date.slice(5, 7)}.` };
 }
 
 /** Graine d'un amical. */

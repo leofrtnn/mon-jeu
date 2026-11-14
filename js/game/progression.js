@@ -78,11 +78,11 @@ export function seasonDevelopment(p, rng, mult = 1) {
   let delta;
   if (p.age <= 20) delta = (p.pot - before) * (0.12 + 0.14 * play) + rng.normal(0.5, 1.2);
   else if (p.age <= 24) delta = (p.pot - before) * (0.08 + 0.12 * play) + rng.normal(0.3, 1);
-  if (p.age <= 24 && p.traits?.includes('pepite')) delta *= 1.25; // Pépite : progresse plus vite
   else if (p.age <= 28) delta = (p.pot - before) * 0.15 * play + rng.normal(0, 0.8);
   else if (p.age <= 30) delta = rng.normal(-0.6, 0.8);
   else if (p.age <= 32) delta = rng.normal(-1.6, 1);
   else delta = rng.normal(-2.8, 1.2);
+  if (p.age <= 24 && delta > 0 && p.traits?.includes('pepite')) delta *= 1.25; // Pépite : progresse plus vite
   // Bonne saison = petit bonus.
   delta += (avgRating - 6.8) * 0.8 * play;
   if (delta > 0) delta *= 0.85 + 0.15 * mult; // installations, staff, intensité

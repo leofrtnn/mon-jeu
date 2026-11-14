@@ -23,7 +23,7 @@ test('deux saisons complètes sans erreur', () => {
       completeDay(state, m);
     }
     assert.equal(state.day, state.calendar.length);
-    assert.equal(state.calendar.length, 53); // 52 + supercoupe
+    assert.equal(state.calendar.length, 60); // 38 + 5 coupe + 13 continentale + 3 trêves + supercoupe
     for (const div of [1, 2, 3, 4]) {
       const tab = sortedTable(state, div);
       assert.equal(tab.length, 20);

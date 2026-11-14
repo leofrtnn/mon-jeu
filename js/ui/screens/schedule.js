@@ -3,7 +3,7 @@
  * coupes (nationales + continentale), sélections nationales.
  */
 import { countryFlag } from '../../data/nations.js';
-import { sortedTable, topScorers, CUP_ROUND_NAMES, CONTI_ROUND_NAMES, contiGroupTable, nationRanking, DIVISIONS, DIV_IDS, COUNTRIES, CONTI_NAME, ensureContis, userConti, contiZones } from '../../game/season.js';
+import { sortedTable, topScorers, CUP_ROUND_NAMES, CONTI_ROUND_NAMES, contiGroupTable, contiRoundName, contiFixturesAt, contiKnockouts, contiZonesOf, nationRanking, DIVISIONS, DIV_IDS, COUNTRIES, CONTI_NAME, ensureContis, userConti, contiZones } from '../../game/season.js';
 import { CONTI_COMPS, cupPrizes, LEAGUE_WEALTH } from '../../data/world.js';
 import { trophySvg, trophyArt, leagueTrophy, leagueLogo } from '../trophies.js';
 import { money, prizeMoney } from '../../game/economy.js';
@@ -103,8 +103,10 @@ function fixtures(s, uc) {
     } else if (e.type === 'conti') {
       const C = userConti(s);
       if (!C) return '';
-      f = e.round < 3 ? C.gfix[e.round].find((x) => x.h === uc.id || x.a === uc.id) : C.ko[e.round - 3]?.find((x) => x.h === uc.id || x.a === uc.id);
-      label = `${CONTI_COMPS[C.id]?.icon || '⭐'} ${esc(CONTI_COMPS[C.id]?.short || '')} · ${CONTI_ROUND_NAMES[e.round]}`;
+      const rn = contiRoundName(C, e.round);
+      if (!rn) return '';
+      f = contiFixturesAt(C, e.round).find((x) => x.h === uc.id || x.a === uc.id);
+      label = `${CONTI_COMPS[C.id]?.icon || '⭐'} ${esc(CONTI_COMPS[C.id]?.short || '')} · ${rn}`;
       if (!f) return day >= s.day && C.alive.includes(uc.id) ? line(label, 'Tirage à venir', day === s.day) : '';
     } else if (e.type === 'super') {
       f = s.supers?.[uc.country];
@@ -158,7 +160,7 @@ function tie(s, t, uc) {
 
 /** Dotation d'une coupe continentale (lignes lisibles). */
 function contiPrizeRows(P) {
-  return [['Participation', P.part], ['Victoire en groupe', P.win], ['Nul en groupe', P.draw], ['Qualification pour les quarts', P.qf], ['Accès aux demies', P.sf], ['Accès à la finale', P.final], ['Vainqueur', P.champ]]
+  return [['Participation', P.part], ['Victoire (ligue / groupes)', P.win], ['Nul (ligue / groupes)', P.draw], ['Barrages', P.po], ['Accès aux 8es', P.r16], ['Accès aux quarts', P.qf], ['Accès aux demies', P.sf], ['Accès à la finale', P.final], ['Vainqueur', P.champ]]
     .filter(([, v]) => v).map(([l, v]) => `<div class="row between"><span>${l}</span><b>${money(v)}</b></div>`).join('');
 }
 function cupPrizeRows(country, nRounds) {
@@ -200,7 +202,7 @@ function cups(app, s, uc) {
       <div class="label">${mine ? 'Autres coupes continentales' : 'Coupes continentales'}</div><div class="comp-grid">${cards.slice(3 + (mine ? 1 : 0)).join('')}</div>
       <div class="label">Coupes nationales</div>
       <div class="chips wrap">${Object.keys(s.cups).map((k) => `<button class="chip" data-act="cupw" data-v="${k}">${countryFlag(k)} ${esc(s.cups[k].name)}</button>`).join('')}</div>
-      <p class="muted" style="font-size:11px;margin:10px 4px">Dotations : ordres de grandeur des primes réelles (saison 2024-2025), adaptés au format du jeu (16 clubs, groupes puis quarts).</p>`;
+      <p class="muted" style="font-size:11px;margin:10px 4px">Dotations : ordres de grandeur des primes réelles (saison 2024-2025). Coupes d'Europe au format 2024 : phase de ligue à 36 clubs (8 matchs), barrages pour les 9e-24e, puis 8es, quarts, demies et finale sur un match.</p>`;
   }
   const back = '<button class="chip" data-act="cupw" data-v="home">◂ Toutes les compétitions</button>';
   if (which.startsWith('super:')) {
@@ -216,11 +218,23 @@ function cups(app, s, uc) {
       <div class="grow"><small>${esc(def.org || '')} · coupe continentale</small><h3>${esc(def.name || c?.name || '')}</h3>${def.nick ? `<p class="muted" style="margin:0">Surnommée ${esc(def.nick)}.</p>` : ''}</div>
       ${def.prize ? `<div class="prize-box"><b>Dotation</b>${contiPrizeRows(def.prize)}</div>` : ''}</div>`;
     if (!c) return html + '<div class="card"><p class="muted">Pas de participants cette saison.</p></div>';
-    html += `<div class="grid2">${[0, 1, 2, 3].map((g) => `<div class="card" style="padding:6px 8px;margin-top:0"><div class="label" style="margin:4px">Groupe ${'ABCD'[g]}</div><table class="tbl"><tbody>
-      ${contiGroupTable(s, g, c.id).map((r, i) => `<tr class="${r.id === uc.id ? 'me' : ''}" data-act="clubinfo" data-id="${r.id}" style="cursor:pointer"><td class="l ${i < 2 ? 'zone-up' : ''}">${i + 1}</td>
-        <td class="l"><span class="clubcell">${crest(r.club, 'sm')}${esc(r.club.name)} <small class="muted">${countryFlag(r.club.country)}</small></span></td><td>${r.p}</td><td>${r.gd > 0 ? '+' : ''}${r.gd}</td><td><b>${r.pts}</b></td></tr>`).join('')}
+    const row = (r, i, cls) => `<tr class="${r.id === uc.id ? 'me' : ''}" data-act="clubinfo" data-id="${r.id}" style="cursor:pointer"><td class="l ${cls}">${i + 1}</td>
+        <td class="l"><span class="clubcell">${crest(r.club, 'sm')}${esc(r.club.name)} <small class="muted">${countryFlag(r.club.country)}</small></span></td><td>${r.p}</td><td>${r.gd > 0 ? '+' : ''}${r.gd}</td><td><b>${r.pts}</b></td></tr>`;
+    if (c.fmt === 'league') {
+      const z = contiZonesOf(c);
+      html += `<div class="label">Phase de ligue · ${c.teams.length} clubs, 8 matchs chacun</div><div class="card" style="padding:6px 8px;margin-top:0">
+        <p class="muted" style="font-size:11px;margin:2px 4px 6px"><span class="zone-up" style="padding:0 4px">1-${z.direct}</span> qualifiés pour les 8es · <span class="zone-po" style="padding:0 4px">${z.direct + 1}-${z.playoff}</span> barrages · au-delà : éliminés</p>
+        <table class="tbl"><thead><tr><th class="l">#</th><th class="l">Club</th><th>J</th><th>Diff</th><th>Pts</th></tr></thead><tbody>
+        ${contiGroupTable(s, 0, c.id).map((r, i) => row(r, i, i < z.direct ? 'zone-up' : i < z.playoff ? 'zone-po' : 'zone-down')).join('')}</tbody></table></div>`;
+      const mineF = c.rounds.slice(0, 8).map((d, k) => (d || []).find((f) => f.h === uc.id || f.a === uc.id) && { k, f: d.find((f) => f.h === uc.id || f.a === uc.id) }).filter(Boolean);
+      if (mineF.length) html += `<div class="label">Mes 8 adversaires</div><div class="card" style="padding:4px 10px;margin-top:0">${mineF.map(({ k, f }) => `<div class="row" style="gap:6px"><small class="muted" style="width:28px">J${k + 1}</small><div class="grow">${tie(s, f, uc)}</div></div>`).join('')}</div>`;
+    } else {
+      const groups = c.groups || [];
+      html += `<div class="grid2">${groups.map((_, g) => `<div class="card" style="padding:6px 8px;margin-top:0"><div class="label" style="margin:4px">Groupe ${'ABCDEFGH'[g]}</div><table class="tbl"><tbody>
+      ${contiGroupTable(s, g, c.id).map((r, i) => row(r, i, i < 2 ? 'zone-up' : '')).join('')}
       </tbody></table></div>`).join('')}</div>`;
-    html += c.ko.map((ties, r) => `<div class="label">${CONTI_ROUND_NAMES[r + 3]}</div><div class="card" style="padding:4px 10px;margin-top:0">${ties.map((t) => tie(s, t, uc)).join('')}</div>`).join('');
+    }
+    html += contiKnockouts(c).map(({ name, ties }) => `<div class="label">${name}</div><div class="card" style="padding:4px 10px;margin-top:0">${ties.map((t) => tie(s, t, uc)).join('')}</div>`).join('');
     if (c.winner) html += `<div class="card center winner-card">${trophyArt(which, def.trophy || 'ears', 54)}<div><b>${esc(clubById(s, c.winner).name)}</b> remporte la ${esc(c.name)}</div></div>`;
     return html;
   }

@@ -212,6 +212,8 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; font-varian
 .tbl tr.me td { background: color-mix(in srgb, var(--accent) 16%, transparent); font-weight: 700; }
 .tbl td.zone-up { box-shadow: inset 3px 0 0 var(--good); }
 .tbl td.zone-down { box-shadow: inset 3px 0 0 var(--bad); }
+.tbl td.zone-po { box-shadow: inset 3px 0 0 #e3b341; }
+.zone-po { box-shadow: inset 3px 0 0 #e3b341; }
 .tbl td.zone-eu { box-shadow: inset 3px 0 0 var(--info); }
 .clubcell { display: flex; align-items: center; gap: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 240px; }
 

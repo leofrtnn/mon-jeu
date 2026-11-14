@@ -59,7 +59,11 @@ export function preseasonCard(app) {
     <div class="card"><h3>Matchs amicaux (${ps.friendlies.length}/6)</h3>
       ${ps.friendlies.map((f) => { const c = clubById(s, f.oppId); const today = !f.s && f.date === ps.date; return `<div class="row ${today ? 'fr-today' : ''}" style="padding:6px 0;border-bottom:1px solid var(--line);gap:6px"><small class="muted num" style="min-width:52px">${f.date ? `${f.date.slice(8, 10)}/${f.date.slice(5, 7)}` : ''}</small>${crest(c, 'sm')}
         <span class="grow">${f.tour ? `✈️ ${esc(f.place)} · ` : f.home ? '' : '@ '}${esc(c.name)} <small class="muted">${countryFlag(c.country)}</small></span>${f.s ? res(f) : today ? `<button class="btn sm" data-act="pssim" data-id="${c.id}">Simuler</button><button class="btn sm primary" data-act="psplay" data-id="${c.id}">Jouer</button>` : `<small class="muted">dans ${Math.round((new Date(f.date) - new Date(ps.date)) / 864e5)} j</small>`}</div>`; }).join('') || '<p class="muted" style="margin:0">Aucun amical programmé. Les amicaux donnent du rythme de match : sans eux, l\'équipe démarrera la saison rouillée.</p>'}
-      ${ps.friendlies.length < 6 ? `<div class="label">Adversaires proposés</div><div class="chips" style="flex-wrap:wrap">${ps.suggestions.filter((id) => !ps.friendlies.some((f) => f.oppId === id)).map((id) => { const c = clubById(s, id); return `<button class="chip" data-act="psadd" data-id="${id}">${countryFlag(c.country)} ${esc(c.name)} <small>(${DIVISIONS[c.div].short})</small></button>`; }).join('')}</div>` : ''}
+      ${ps.friendlies.length < 6 ? `<div class="label">Inviter n'importe quel club</div>
+        <label class="pk-search">🔎<input id="ps-q" type="search" placeholder="Nom du club (ex. Real Madrid, Ajax, Boca…)" autocomplete="off"></label>
+        <div id="ps-res" class="chips" style="flex-wrap:wrap;margin-top:6px"></div>
+        <small class="muted">Le club invité peut refuser : prestige, distance et calendrier comptent. Les clubs proposés ci-dessous ont déjà dit oui.</small>
+        <div class="label">Adversaires proposés</div><div class="chips" style="flex-wrap:wrap">${ps.suggestions.filter((id) => !ps.friendlies.some((f) => f.oppId === id)).map((id) => { const c = clubById(s, id); return `<button class="chip" data-act="psadd" data-id="${id}">${countryFlag(c.country)} ${esc(c.name)} <small>(${DIVISIONS[c.div].short})</small></button>`; }).join('')}</div>` : ''}
     </div>
     <button class="btn primary lg block" data-act="psstart" ${ps.meeting ? '' : 'disabled'}>Lancer la saison ▸</button>
     ${ps.meeting ? '' : '<p class="muted center" style="font-size:12px">La réunion avec le CA est obligatoire avant de commencer.</p>'}`;
@@ -107,13 +111,32 @@ function friendlyCfg(s, oppId) {
     home: teamCfg(s, h, a, true, h.id === uc.id), away: teamCfg(s, a, h, false, a.id === uc.id) }, userSide: f.home ? 0 : 1 };
 }
 
+/** Recherche d'un club pour un amical (n'importe quel club du monde). */
+export function preseasonMount(app, root) {
+  const q = root.querySelector('#ps-q'), box = root.querySelector('#ps-res');
+  if (!q || !box) return;
+  const s = app.state, uc = clubById(s, s.userClubId);
+  const asked = new Map((s.preseason.asked || []).map((x) => [x.id, x.ok]));
+  const norm = (t) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  let t = 0;
+  q.addEventListener('input', () => {
+    clearTimeout(t);
+    t = setTimeout(() => {
+      const v = norm(q.value.trim());
+      if (v.length < 2) { box.innerHTML = ''; return; }
+      const list = s.clubs.filter((c) => c.id !== uc.id && norm(c.name).includes(v)).sort((a, b) => b.rep - a.rep).slice(0, 12);
+      box.innerHTML = list.map((c) => { const a = asked.get(c.id); return `<button class="chip" data-act="psadd" data-id="${c.id}" ${a === false ? 'disabled title="A refusé"' : ''}>${countryFlag(c.country)} ${esc(c.name)} <small>(${DIVISIONS[c.div].short})${a === false ? ' · refus' : ''}</small></button>`; }).join('') || '<small class="muted">Aucun club trouvé.</small>';
+    }, 150);
+  });
+}
+
 export const preseasonActions = {
   psmeeting(el, app) { meetingSheet(app); },
   psday(el, app) { const r = advancePreDay(app.state, +el.dataset.v || 1); if (!r.ok) app.toast(r.msg, 3500); else if (r.stop) app.toast('Jour de match amical !'); app.save(); app.render(); },
   psdeals(el, app) { app.ui.clubTab = 'market'; app.ui.mktMode = 'deals'; app.go('club'); },
   pscamp(el, app) { const r = chooseCamp(app.state, el.dataset.v); app.toast(r.msg); app.save(); app.render(); },
   psint(el, app) { setIntensity(app.state, el.dataset.v); app.save(); app.render(); },
-  psadd(el, app) { const r = addFriendly(app.state, +el.dataset.id); app.toast(r.msg); app.save(); app.render(); },
+  psadd(el, app) { const r = addFriendly(app.state, +el.dataset.id); app.toast(r.msg, 3800); app.save(); app.render(); },
   pssim(el, app) {
     const s = app.state;
     const { cfg, userSide } = friendlyCfg(s, +el.dataset.id);

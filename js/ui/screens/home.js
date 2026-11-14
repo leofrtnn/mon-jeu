@@ -5,7 +5,7 @@ import { countryFlag } from '../../data/nations.js';
 import { today, tablePosition, DIV_NAMES, nationSquad, eligibleNations, changeClub, leagueRoundOf, onlineMustPlay } from '../../game/season.js';
 import { DIVISIONS, COUNTRIES } from '../../data/world.js';
 import { jobCandidates } from '../../game/career.js';
-import { preseasonCard, preseasonActions } from './preseasonUI.js';
+import { preseasonCard, preseasonActions, preseasonMount } from './preseasonUI.js';
 import { friendlyToday } from '../../game/preseason.js';
 import { userClub, clubById, clubPlayers, topMessages } from '../../game/state.js';
 import { isAvailable } from '../../engine/ratings.js';
@@ -188,6 +188,10 @@ function upcoming(s, n) {
 }
 
 /** Action du gros bouton « Continuer » de l'en-tête (comme dans les jeux de gestion). */
+export function mount(app, root) {
+  if (app.state?.preseason?.active) preseasonMount(app, root);
+}
+
 export function primaryAction(app) {
   const s = app.state;
   if (!s || s.sacked) return null;

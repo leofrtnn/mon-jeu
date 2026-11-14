@@ -144,7 +144,9 @@ const REAL = {
 /* ------------------------------------------------------------------ */
 
 /**
- * Coupes continentales (format du jeu : 16 clubs, 4 groupes de 4, puis quarts, demies, finale).
+ * Coupes continentales. size : nombre de clubs (36 = format 2024 avec phase de ligue à 8 matchs,
+ * barrages 9e-24e, huitièmes… ; 16 par défaut = 4 groupes de 4 aller-retour, puis quarts).
+ * Les tours à élimination directe se jouent en un seul match.
  * slots : places par pays (clubs de l'élite, dans l'ordre du classement final précédent) ;
  * les compétitions d'un même continent se partagent les places (la C1 prend les premiers, la C3 les suivants…).
  * prize (€) : participation, victoire / nul en groupe, accès aux quarts, demies, finale, titre
@@ -152,14 +154,14 @@ const REAL = {
  */
 export const CONTI_DEFS = [
   { id: 'ucl', name: 'Ligue des champions', short: 'LDC', org: 'UEFA', icon: '⭐', tier: 1, trophy: 'ears', color: '#1d3fbb', nick: 'la coupe aux grandes oreilles',
-    slots: { ENG: 3, ESP: 3, ITA: 2, GER: 2, FRA: 2, POR: 1, NED: 1, BEL: 1, TUR: 1 },
-    prize: { part: 18_600_000, win: 2_100_000, draw: 700_000, qf: 23_500_000, sf: 15_000_000, final: 18_500_000, champ: 6_500_000 } },
+    size: 36, slots: { ENG: 5, ESP: 5, ITA: 4, GER: 4, FRA: 4, POR: 3, NED: 2, BEL: 2, TUR: 1, CZE: 1, GRE: 1, NOR: 1, DEN: 1, CYP: 1, AUT: 1 },
+    prize: { part: 18_620_000, win: 2_100_000, draw: 700_000, po: 1_000_000, r16: 11_000_000, qf: 12_500_000, sf: 15_000_000, final: 18_500_000, champ: 6_500_000 } },
   { id: 'uel', name: 'Ligue Europa', short: 'C3', org: 'UEFA', icon: '🟠', tier: 2, trophy: 'vase', color: '#f26a1b', nick: 'la coupe UEFA',
-    slots: { ENG: 2, ESP: 2, ITA: 2, GER: 2, FRA: 1, POR: 1, NED: 1, BEL: 1, TUR: 1, SCO: 1, AUT: 1, CZE: 1 },
-    prize: { part: 4_300_000, win: 450_000, draw: 150_000, qf: 4_250_000, sf: 2_800_000, final: 4_000_000, champ: 6_000_000 } },
+    size: 36, slots: { ENG: 2, ESP: 2, ITA: 2, GER: 2, FRA: 2, POR: 2, NED: 2, BEL: 2, TUR: 2, CZE: 2, GRE: 2, SCO: 2, SUI: 2, AUT: 1, SWE: 1, CRO: 1, SRB: 1, HUN: 1, ROU: 1, ISR: 1, POL: 1, NOR: 1, DEN: 1 },
+    prize: { part: 4_310_000, win: 450_000, draw: 150_000, po: 300_000, r16: 1_750_000, qf: 2_500_000, sf: 2_800_000, final: 4_000_000, champ: 6_000_000 } },
   { id: 'uecl', name: 'Ligue Europa Conférence', short: 'C4', org: 'UEFA', icon: '🟢', tier: 3, trophy: 'cup', color: '#1fbf72', nick: '',
-    slots: { ENG: 1, ESP: 1, ITA: 1, GER: 1, FRA: 1, POR: 1, NED: 1, BEL: 1, TUR: 1, GRE: 1, NOR: 1, POL: 1, DEN: 1, SUI: 1, SVK: 1, BUL: 1 },
-    prize: { part: 3_200_000, win: 400_000, draw: 133_000, qf: 2_100_000, sf: 2_000_000, final: 3_000_000, champ: 2_000_000 } },
+    size: 36, slots: { ENG: 1, ESP: 1, ITA: 1, GER: 1, FRA: 1, POR: 1, NED: 1, BEL: 1, TUR: 1, CZE: 2, GRE: 2, SCO: 2, AUT: 2, SUI: 1, POL: 2, NOR: 1, DEN: 1, SWE: 2, CRO: 1, SRB: 1, HUN: 1, ROU: 2, ISR: 1, CYP: 2, UKR: 2, SVK: 1, BUL: 1 },
+    prize: { part: 3_170_000, win: 400_000, draw: 133_000, po: 200_000, r16: 800_000, qf: 1_300_000, sf: 2_000_000, final: 3_000_000, champ: 2_000_000 } },
   { id: 'lib', name: 'Copa Libertadores', short: 'LIB', org: 'CONMEBOL', icon: '🏆', tier: 1, trophy: 'lib', color: '#c9a227', nick: 'la Gloria Eterna',
     slots: { BRA: 4, ARG: 4, COL: 2, CHI: 1, ECU: 2, URU: 1, PER: 1, PAR: 1 },
     prize: { part: 2_800_000, win: 300_000, draw: 0, qf: 2_700_000, sf: 2_100_000, final: 6_500_000, champ: 16_000_000 } },
@@ -248,9 +250,10 @@ export function applyWorld(kind = 'fictional', divs = null) {
       const slots = {};
       for (const [c, n] of Object.entries(def.slots)) if (eliteOf(c)) slots[c] = n;
       // Places des pays absents : redistribuées aux pays présents, dans l'ordre.
-      let missing = 16 - Object.values(slots).reduce((a, n) => a + n, 0);
+      const size = def.size || 16;
+      let missing = size - Object.values(slots).reduce((a, n) => a + n, 0);
       const order = Object.keys(slots);
-      for (let i = 0; missing > 0 && order.length && i < 64; i++) { const c = order[i % order.length]; if (slots[c] < 8) { slots[c]++; missing--; } }
+      for (let i = 0; missing > 0 && order.length && i < 256; i++) { const c = order[i % order.length]; if (slots[c] < 8) { slots[c]++; missing--; } }
       if (Object.values(slots).reduce((a, n) => a + n, 0) < 16) continue;
       const byDiv = {};
       for (const c of Object.keys(slots)) { byDiv[+eliteOf(c)[0]] = { from: used[c] || 0, n: slots[c] }; used[c] = (used[c] || 0) + slots[c]; }

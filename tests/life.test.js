@@ -303,7 +303,19 @@ test('monde réel : 55 championnats (dont 5 deuxièmes divisions), vrais clubs e
   const { startCareer } = await import('../js/game/season.js');
   startCareer(s, s.clubs[0].id);
   assert.equal(Object.keys(s.contis).length, 7);
-  assert.ok(Object.values(s.contis).every((c) => c.teams.length === 16 && new Set(c.teams).size === 16));
+  // Coupes d'Europe au format 2024 : phase de ligue à 36, 8 matchs chacun, 8 journées complètes.
+  for (const id of ['ucl', 'uel', 'uecl']) {
+    const c = s.contis[id];
+    assert.equal(c.fmt, 'league'); assert.equal(c.teams.length, 36);
+    const games = Object.fromEntries(c.teams.map((t) => [t, new Set()]));
+    for (const d of c.rounds.slice(0, 8)) {
+      assert.equal(d.length, 18, `${id} : 18 matchs par journée`);
+      for (const f of d) { games[f.h].add(f.a); games[f.a].add(f.h); }
+    }
+    assert.ok(c.teams.every((t) => games[t].size === 8), `${id} : 8 adversaires différents`);
+  }
+  assert.equal(s.contis.lib.fmt, 'groups');
+  assert.ok(Object.values(s.contis).every((c) => c.teams.length === (c.fmt === 'league' ? 36 : 16) && new Set(c.teams).size === c.teams.length));
   assert.ok(Object.keys(s.supers).length >= 10, 'supercoupes nationales');
   assert.equal(new Set(s.clubs.map((c) => c.key)).size, s.clubs.length, 'identifiants de clubs uniques (Liverpool, Everton…)');
   // Le Championship (24 clubs) impose 46 créneaux : les championnats à 34 journées en sautent 12.
