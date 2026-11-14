@@ -680,6 +680,15 @@ export class Match3D {
     const celebrating = v.banner && v.banner.text === 'BUT !';
     if (v.replaying || celebrating) mode = 'close';
     const want = new THREE.Vector3(), look = new THREE.Vector3(bx, 0, bz * 0.35);
+    if (mode === 'intro') {
+      // Avant-match : lent travelling autour du stade, du haut des tribunes vers le terrain.
+      const t = (this._introT = (this._introT || 0) + dt);
+      const a = -0.9 + t * 0.2;
+      want.set(Math.sin(a) * 78, Math.max(14, 34 - t * 2.4), Math.cos(a) * 64); look.set(0, 0, 0); this.camera.fov = 36;
+      this.camPos.lerp(want, 1 - Math.exp(-dt * 1.6)); this.camLook.lerp(look, 1 - Math.exp(-dt * 2));
+      this.camera.position.copy(this.camPos); this.camera.lookAt(this.camLook); this.camera.updateProjectionMatrix();
+      return;
+    }
     if (mode === 'tv') { want.set(Math.max(-36, Math.min(36, bx * 0.9)), 21, 58); look.set(bx * 0.97, 0, bz * 0.35 - 1); this.camera.fov = 30; }
     else if (mode === 'close') { want.set(bx * 0.9 - 4, 13, bz + 30); look.set(bx, 1, bz); this.camera.fov = 34; }
     else if (mode === 'high') { want.set(bx * 0.4, 95, 52); look.set(bx * 0.4, 0, 0); this.camera.fov = 38; }

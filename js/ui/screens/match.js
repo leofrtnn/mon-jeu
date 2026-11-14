@@ -10,6 +10,9 @@ import { describe, iconFor } from '../../engine/commentary.js';
 import { FORMATION_NAMES, MENTALITIES, MENTALITY_LABELS, LEVELS, PRESSING_LABELS, TEMPO_LABELS, MAX_SUBS, POSITION_GROUP, TEAM_INSTRUCTIONS, DEFAULT_TACTICS, PLAYER_INSTRUCTIONS, WIDTH_LABELS } from '../../data/constants.js';
 import { ratingAt } from '../../engine/ratings.js';
 import { MatchView } from '../matchView.js';
+import { Broadcast, matchDay } from '../broadcast.js';
+import { currentDate } from '../../game/dates.js';
+import { coachName } from '../../game/coach.js';
 import { esc, crest, cmpBar, ratingChip, posBadge, seg, scaleColor, face } from '../components.js';
 import { MatchAudio } from '../audio.js';
 import { xgChart, heatmap } from '../charts.js';
@@ -63,7 +66,7 @@ export function openMatch(app, opts = {}) {
       <div class="sb-scorers"><div id="sc-0"></div><div id="sc-1"></div></div>
       <div class="momentum" title="Momentum"><i id="mo-0" style="width:50%;background:${hc.color}"></i><i id="mo-1" style="width:50%;background:${ac.color}"></i></div>
     </div>
-    <div class="pitch-area"><canvas id="pitch"></canvas><div class="tapcard hidden" id="tapcard"></div><div class="pitch-caption hidden" id="caption"></div></div>
+    <div class="pitch-area"><canvas id="pitch"></canvas><div class="bcast" id="bcast"></div><div class="tapcard hidden" id="tapcard"></div><div class="pitch-caption hidden" id="caption"></div></div>
     <div class="feed" id="feed"></div>
     <div class="controls">
       <button class="btn primary" data-c="pause" title="Compo, changements, tactique">📋 Compo &amp; tactique</button>
@@ -111,12 +114,14 @@ export function openMatch(app, opts = {}) {
   const ctx = { name: nameOf, teams: [hc.name, ac.name] };
 
   /* ---------- Rendu des infos ---------- */
+  let bc = null; // habillage télé (créé avec la vue)
   const setScore = (sc, pop) => {
+    bc?.bug(sc.slice(), bc.clock);
     const el = $('sb-score');
     el.textContent = `${sc[0]} - ${sc[1]}`;
     if (pop) { el.classList.remove('pop'); void el.offsetWidth; el.classList.add('pop'); }
   };
-  const setClock = (min, extra) => { $('sb-clock').textContent = clockLabel(min, extra); };
+  const setClock = (min, extra) => { $('sb-clock').textContent = clockLabel(min, extra); bc?.bug(bc.score, clockLabel(min, extra)); };
   const setMomentum = () => {
     const v = 50 + m.momentum / 2;
     $('mo-0').style.width = v + '%'; $('mo-1').style.width = (100 - v) + '%';
@@ -154,6 +159,7 @@ export function openMatch(app, opts = {}) {
       $('sc-' + ev.side).textContent = '⚽ ' + ctrl.scorers[ev.side].join(', ');
     }
     if (ev.type === 'var' && ev.outcome === 'cancelled' && ev.reason !== 'penalty') setScore(ev.score);
+    if (!ctrl.quick || ['goal', 'red', 'sub', 'added'].includes(ev.type)) bc?.event(ev);
     const text = describe(ev, ctx, Math.random, { verbose: !ctrl.quick });
     if (text) addLine(ev, text);
     setMomentum();
@@ -161,9 +167,9 @@ export function openMatch(app, opts = {}) {
     if (ev.type === 'ht') {
       view.pause();
       if (replay) { applyJournal(view.liveSteps || 0); app.toast('Mi-temps', 1500); setTimeout(() => { if (!ctrl.finished) view.play(); }, 1800); }
-      else setTimeout(halfTime, 400);
+      else bc.fullCard('ht').then(halfTime);
     }
-    if (ev.type === 'ft') { view.pause(); setTimeout(fullTime, 500); }
+    if (ev.type === 'ft') { view.pause(); bc.fullCard('ft', 2200).then(fullTime); }
   };
 
   /** Fiche rapide d'un joueur touché sur le terrain. */
@@ -229,7 +235,14 @@ export function openMatch(app, opts = {}) {
   const view = new MatchView($('pitch'), m, { userSide, onEventStart, onIdle, live: replay ? true : s.settings.liveEngine !== false,
     beforeStep: replay ? (n) => applyJournal(n) : null, labelMode: s.settings.labels || ((s.settings.matchStyle || '3d') !== 'anim' ? 'num' : 'name'), style: s.settings.matchStyle || '3d', onPlayerTap: showTapCard,
     on3DFail: () => { app.toast('3D indisponible sur cet appareil : vue 2D.', 3500); s.settings.matchStyle = 'fm'; root.querySelector('[data-c=style]').textContent = '2D'; } });
-  window.__view = view; window.__journal = journal; window.__cfgSnap = () => replayCfg(cfg); // débogage
+  bc = new Broadcast($('bcast'), { m, cfg, hc, ac, colors: view.colors, nameOf,
+    coachOf: (side) => { const c = side === 0 ? hc : ac; if (c.id === s.userClubId && s.coach) return coachName(s.coach); const mg = managerOf(s, c); return mg ? (mg.fullName || mg.name) : ''; } });
+  /** Présentation des équipes (caméra qui survole le stade), puis coup d'envoi. */
+  const kickoffShow = () => {
+    if (view.r3d) { view.r3d.camMode = 'intro'; view.r3d._introT = 0; }
+    return bc.intro(matchDay(m, cfg, currentDate(s))).then(() => { if (view.r3d) view.r3d.camMode = 'tv'; });
+  };
+  window.__bc = bc; window.__view = view; window.__journal = journal; window.__cfgSnap = () => replayCfg(cfg); // débogage
   view.setSpeed(SPEEDS[ctrl.speedIdx]);
   root.querySelector('[data-c="speed"]').textContent = `x${SPEEDS[ctrl.speedIdx]}`;
 
@@ -326,11 +339,12 @@ export function openMatch(app, opts = {}) {
         <b style="font-size:20px">VS</b>
         <div class="center grow">${crest(ac, 'lg')}<br><b>${esc(ac.name)}</b><br><small>${m.teams[1].tactics.formation}</small></div>
       </div>
-      <p class="muted center" style="margin:0 0 12px">Votre onze : ${T.onPitch.filter(Boolean).map((mp) => esc(mp.name.split(' ').slice(-1)[0])).join(', ')}</p>
+      ${(() => { const d = matchDay(m, cfg, currentDate(s)); return `<div class="pm-facts"><span>${d.weather.icon} ${d.weather.label} · ${d.temp} °C</span><span>🏟️ ${d.attendance.toLocaleString('fr-FR')} spectateurs attendus</span><span>🧑‍⚖️ ${esc(d.referee)}</span></div>`; })()}
+      <div class="pm-xi">${[0, 1].map((sd) => `<ol>${m.teams[sd].onPitch.filter(Boolean).map((mp) => `<li><em>${mp.number ?? ''}</em><span>${esc(mp.name)}</span><small>${m.teams[sd].slots[mp.slot].pos}</small></li>`).join('')}</ol>`).join('')}</div>
       ${scoutReport()}
       <div class="btns"><button class="btn" data-act="back">Retour</button>${!opts.cfg ? '<button class="btn" data-act="press" id="pressbtn">🎤 Conférence de presse</button>' : ''}<button class="btn primary lg" data-act="go">Coup d'envoi</button></div>`,
     actions: {
-      go: (el, a, h) => { h.close(); lockMatch(); if (s.settings.audio) audio.start(); view.play(); },
+      go: (el, a, h) => { h.close(); lockMatch(); kickoffShow().then(() => { if (s.settings.audio) audio.start(); view.play(); }); },
       press: (el) => {
         if (ctrl.pressDone) return;
         const conf = openDecisions(s, 'interview')[0];

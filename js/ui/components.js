@@ -82,17 +82,19 @@ export function scaleColor(v) {
 }
 
 export function formDot(form) {
-  return `<span class="dot" title="Forme" style="background:${scaleColor(form)}"></span>`;
+  const w = form >= 70 ? 'excellente' : form >= 55 ? 'bonne' : form >= 40 ? 'moyenne' : 'mauvaise';
+  return `<span class="dot" title="Forme ${w} (${Math.round(form)}/100)" style="background:${scaleColor(form)}"></span>`;
 }
 
 export function moraleIcon(m) {
   const sym = m >= 70 ? '▲' : m >= 45 ? '●' : '▼';
-  return `<span title="Moral" style="color:${scaleColor(m)};font-size:11px;width:12px;text-align:center">${sym}</span>`;
+  const w = m >= 70 ? 'au beau fixe' : m >= 45 ? 'correct' : 'en berne';
+  return `<span title="Moral ${w} (${Math.round(m)}/100)" style="color:${scaleColor(m)};font-size:11px;width:12px;text-align:center">${sym}</span>`;
 }
 
 export function condBar(fatigue) {
   const c = 100 - (fatigue || 0);
-  return `<span class="mini" title="Condition"><i style="width:${c}%;background:${scaleColor(c)}"></i></span>`;
+  return `<span class="mini" title="Condition physique : ${Math.round(c)} %"><i style="width:${c}%;background:${scaleColor(c)}"></i></span>`;
 }
 
 export function gauge(v, color) {

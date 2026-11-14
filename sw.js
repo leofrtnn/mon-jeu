@@ -6,7 +6,7 @@
  * VERSION est incrémentée par scripts/update-sw.js à chaque livraison.
  */
 const IMG_CACHE = 'cdp-img';
-const VERSION = 'cdp-v55';
+const VERSION = 'cdp-v56';
 const ASSETS = [
   './',
   './css/style.css',
@@ -68,6 +68,7 @@ const ASSETS = [
   './js/ui/audio.js',
   './js/ui/avatar.js',
   './js/ui/ballPhysics.js',
+  './js/ui/broadcast.js',
   './js/ui/charts.js',
   './js/ui/components.js',
   './js/ui/files.js',

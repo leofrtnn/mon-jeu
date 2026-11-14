@@ -33,7 +33,9 @@ export function render(app) {
       <small>${money(wageBill(players))}/sem</small>
     </div>
     ${seg('sort', ['pos', 'ovr', 'form'], sort, { pos: 'Poste', ovr: 'Niveau', form: 'Forme' })}
-    <p class="muted" style="font-size:12px;margin:8px 2px 0">● forme · ▲ moral · barre = condition · ★ = titulaire</p>
+    <div class="legend"><span><i class="dot" style="background:var(--good)"></i>Forme</span><span><b style="color:var(--good)">▲</b>Moral</span>
+      <span><i class="mini"><i style="width:80%;background:var(--good)"></i></i>Condition</span><span><b class="ovr-n" style="--oc:#4cc9f0">75</b>Note /100</span>
+      <span><b style="color:#e3b341">★★★</b>Niveau dans le championnat</span><span><b style="color:var(--accent)">★</b>Titulaire</span><span><b class="tag" style="padding:0 5px">Fin</b>Contrat qui se termine</span></div>
     ${list}`;
 }
 

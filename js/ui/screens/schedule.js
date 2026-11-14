@@ -82,9 +82,11 @@ function fixtures(s, uc) {
       if (r === 'N' && f.w) r = f.w === uc.id ? 'V' : 'D';
       res = `<b class="num">${f.s[0]}-${f.s[1]}</b> <span class="pill ${r}">${r}</span>`;
     } else res = `<small>${day === s.day ? '<b style="color:var(--accent)">Prochain</b>' : ''}</small>`;
-    return `<div class="row" id="${day === s.day ? 'nextfx' : ''}" style="padding:8px 2px;border-bottom:1px solid var(--line);${day === s.day ? 'background:var(--card2);border-radius:8px' : ''}">
-      <small style="width:86px">${label}</small>${crest(opp, 'sm')}
-      <span class="grow">${home ? '' : '@ '}${esc(opp.name)}</span>${res}</div>`;
+    const dt = e.date ? new Date(e.date + 'T12:00:00').toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' }) : '';
+    return `<div class="cal-row ${day === s.day ? 'next' : ''} ${day < s.day ? 'past' : ''}" id="${day === s.day ? 'nextfx' : ''}" data-act="clubinfo" data-id="${opp.id}">
+      <span class="fx-date">${esc(dt)}</span><small class="fx-comp">${label}</small>
+      <span class="fx-venue ${home ? 'h' : 'a'}" title="${home ? 'À domicile' : 'À l\'extérieur'}">${home ? 'DOM' : 'EXT'}</span>${crest(opp, 'sm')}
+      <span class="grow">${esc(opp.name)}</span>${res}</div>`;
   }).join('');
   return `<div class="card" style="padding:4px 10px">${items}</div>`;
 }
