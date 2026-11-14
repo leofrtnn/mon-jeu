@@ -951,7 +951,7 @@ export class LiveSim {
     for (const o of this.list(D.side)) {
       if (o.gk && Math.abs(this.X(o) - this.goalX(h.side)) > 16) continue;
       o.cd -= dt;
-      if (o.cd > 0) continue;
+      if (o.cd > 0 || o.fall > 0 || o.slide > 0) continue; // au sol ou en plein geste : pas de nouveau duel
       const d = Math.hypot((o.x - h.x) * L, (o.y - h.y) * W);
       if (d > 1.4) continue;
       if (o.role !== 'press' && o !== h.carry?.takeon?.def && d > 0.9) continue; // seul le presseur va au duel
@@ -974,10 +974,10 @@ export class LiveSim {
         }
         // Raté : le défenseur lit l'action et récupère le ballon (ou commet une faute).
         if (this.rand() < TUNE.foulP * 0.5 * (m.profile.fouls || 1)) { this.foul(h, o, out); return; }
-        o.slide = 0.45; h.fall = 0.5;
+        o.slide = 0.45; h.fall = 0.5; h.cd = 2.2;
         D.stats.tackles++; o.mp.tackles++; addRating(o.mp, 0.06);
         emit(m, out, { type: 'tackle', side: D.side, pid: o.mp.id, pid2: h.mp.id, x: this.P.x / L, y: this.P.y / W, zone: m.zone });
-        this.gain(o, out);
+        this.gain(o, out, true);
         return;
       }
       o.cd = 0.55 + this.rand() * 0.5 - press * 0.1;
@@ -992,7 +992,7 @@ export class LiveSim {
       const att = eff(h.mp, 'dri') * 0.75 + eff(h.mp, 'phy') * 0.25;
       const def = eff(o.mp, 'def') * 0.75 + eff(o.mp, 'phy') * 0.25;
       if (this.rand() < sig((def - att) / 13 - 0.25)) {
-        o.slide = 0.55; h.fall = 0.6;
+        o.slide = 0.55; h.fall = 0.6; h.cd = 2.2;
         D.stats.tackles++; o.mp.tackles++; addRating(o.mp, 0.06);
         emit(m, out, { type: 'tackle', side: D.side, pid: o.mp.id, pid2: h.mp.id, x: this.P.x / L, y: this.P.y / W, zone: m.zone });
         // Souvent, le tacle ne fait que chasser le ballon : il roule (parfois en touche).
@@ -1002,7 +1002,7 @@ export class LiveSim {
           P.vx = Math.cos(a) * v; P.vy = Math.sin(a) * v; P.vz = this.rand() < 0.3 ? 2 : 0;
           return;
         }
-        this.gain(o, out);
+        this.gain(o, out, true);
         return;
       }
       // Dribble réussi : le défenseur est éliminé un instant.
@@ -1042,14 +1042,16 @@ export class LiveSim {
   }
 
   /** Le joueur p récupère le ballon (contrôle, tacle, interception). */
-  gain(p, out) {
+  gain(p, out, fast = false) {
     const m = this.m;
     this.holder = p; this.inHands = false; this.pending = null;
     p.carry = null;
     for (const q of this.players.values()) q.faceBall = false;
     // Il prend le ballon face à lui (jamais « dans le dos »).
     if (this.dist(p, this.P.x, this.P.y) < 2.5) p.face = Math.atan2(this.P.y - p.y * W, this.P.x - p.x * L);
-    p.next = this.now + (0.35 + this.rand() * 0.45) * TUNE.recv;
+    // Ballon gagné dans un duel : on joue vite (sinon l'adversaire, juste à côté, retacle aussitôt).
+    p.next = this.now + (fast ? 0.25 + this.rand() * 0.3 : (0.35 + this.rand() * 0.45) * TUNE.recv);
+    if (fast) { this.duelCd = Math.max(this.duelCd || 0, 1.8); p.cd = 1.2; }
     p.touch = 0.2;
     this.lastTouch = p.side;
     if (this.poss !== p.side) {
@@ -1142,6 +1144,9 @@ export class LiveSim {
       const a = Math.atan2(P.vy, P.vx) + (deflect ? (this.rand() - 0.5) * 2.2 : (this.rand() - 0.5) * 0.9);
       const v = deflect ? 3 + spd * (0.25 + this.rand() * 0.35) : 3.5 + this.rand() * 3;
       P.vx = Math.cos(a) * v; P.vy = Math.sin(a) * v; P.vz = deflect && this.rand() < 0.4 ? 2.5 : 0; P.spin = 0;
+      // Près de son but, un défenseur qui dévie le ballon cherche à l'éloigner (pas à le pousser derrière sa ligne).
+      const own = this.goalX(1 - r.side);
+      if (deflect && Math.abs(P.x - own) < 22 && (own - P.x) * P.vx > 0 && this.rand() < 0.6) P.vx = -P.vx * 0.7;
       this.lastTouch = r.side; this.pending = null; r.touch = 0.2; r.ctrl = 0.25; r.ctrlH = P.z;
       return;
     }
@@ -1172,7 +1177,7 @@ export class LiveSim {
     const dir = this.dir(r.side);
     let tx = clamp(P.x + dir * (12 + this.rand() * 15), 3, L - 3), ty = clamp(P.y + (this.rand() - 0.5) * 20, 3, W - 3);
     // Tête défensive sous pression : parfois mise en corner.
-    if (r.side !== pd.from.side && this.rand() < 0.55) { tx = this.goalX(pd.from.side) + this.dir(pd.from.side) * 3; ty = P.y < W / 2 ? 8 : W - 8; }
+    if (r.side !== pd.from.side && this.rand() < 0.3) { tx = this.goalX(pd.from.side) + this.dir(pd.from.side) * 3; ty = P.y < W / 2 ? 8 : W - 8; }
     solveKick(P, { x: tx, y: ty, z: BR }, { T: 1.1 + this.rand() * 0.6 });
     this.lastTouch = r.side;
     if (this.poss !== r.side) { this.poss = r.side; changePossession(m, r.side, m.zone, r.mp); }
@@ -1271,13 +1276,13 @@ export class LiveSim {
         else {
           // Parade : souvent en corner (le gardien pousse le ballon derrière sa ligne), sinon repoussé.
           const sx = Math.sign(P.y - W / 2) || 1;
-          if (this.rand() < 0.4) { P.vx = -P.vx * 0.1 + this.dir(s.side) * 4; P.vy = sx * (6 + this.rand() * 4); P.vz = 3 + this.rand() * 2; }
+          if (this.rand() < 0.32) { P.vx = -P.vx * 0.1 + this.dir(s.side) * 4; P.vy = sx * (6 + this.rand() * 4); P.vz = 3 + this.rand() * 2; }
           else { P.vx = -P.vx * 0.25; P.vy = sx * (5 + this.rand() * 6); P.vz = 2 + this.rand() * 4; }
           P.spin = 0; this.lastTouch = s.gk.side;
         }
       } else if (s.outcome === 'blocked') {
         // Contre : dévié en corner une fois sur trois, sinon le ballon repart.
-        if (this.rand() < 0.3) { P.vx = this.dir(s.side) * (7 + this.rand() * 4); P.vy = (this.rand() - 0.5) * 10; P.vz = 1.5 + this.rand() * 2; }
+        if (this.rand() < 0.2) { P.vx = this.dir(s.side) * (7 + this.rand() * 4); P.vy = (this.rand() - 0.5) * 10; P.vz = 1.5 + this.rand() * 2; }
         else { P.vx = -P.vx * 0.25; P.vy += (this.rand() - 0.5) * 9; P.vz = 1.2 + this.rand() * 2; }
         P.spin = 0;
         if (s.blocker) this.lastTouch = s.blocker.side;
@@ -1506,10 +1511,18 @@ export class LiveSim {
     const step = (p, maxSp) => {
       const dx = (p.tx - p.x) * L, dy = (p.ty - p.y) * W;
       const dist = Math.hypot(dx, dy);
-      const want = dist < 0.15 ? 0 : Math.min(maxSp, Math.sqrt(2 * 6 * dist));
+      let want = dist < 0.15 ? 0 : Math.min(maxSp, Math.sqrt(2 * 6 * dist));
+      if (dist > 0.01 && p.face != null && Math.cos(Math.atan2(dy, dx) - p.face) < -0.5) want = Math.min(want, 5.6); // à reculons
       const dvx = dist > 0.01 ? (dx / dist) * want : 0, dvy = dist > 0.01 ? (dy / dist) * want : 0;
       const ax = dvx - p.vx, ay = dvy - p.vy, am = Math.hypot(ax, ay);
-      const lim = (want > (p.speed || 0) ? 5.2 : 8.5) * dt;
+      // Inertie : on accélère selon sa vitesse de pointe, on ne tourne pas sur place lancé
+      // (virage large ou appui pour freiner), on court moins vite à reculons.
+      const sp0 = p.speed || 0;
+      let lim = (want > sp0 ? 4.4 + (p.mp?.p?.attrs?.vit ?? 60) * 0.013 : 8.5) * dt;
+      if (sp0 > 3.5 && want > 0.5) {
+        const turn = Math.abs(Math.atan2(p.vx * dvy - p.vy * dvx, p.vx * dvx + p.vy * dvy));
+        if (turn > 1.3) lim *= 0.75;
+      }
       const before = p.speed || 0;
       if (am > lim) { p.vx += (ax / am) * lim; p.vy += (ay / am) * lim; } else { p.vx = dvx; p.vy = dvy; }
       p.x += (p.vx * dt) / L; p.y += (p.vy * dt) / W;
