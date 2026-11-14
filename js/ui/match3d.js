@@ -434,7 +434,8 @@ class Player3D {
     const jog = Math.min(1, sp / 3);
     const ph = p.phase || 0;
     const amp = 0.25 + 0.75 * run;                  // amplitude de la foulée
-    const sw = Math.sin(ph) * amp * jog;
+    // À reculons (face au jeu) : la foulée s'inverse et le buste se redresse.
+    const sw = Math.sin(ph) * amp * jog * (p.back ? -0.7 : 1);
     const [lL, lR] = this.legs;
     lL.hip.rotation.set(0, 0, sw); lR.hip.rotation.set(0, 0, -sw);
     // Épaules en opposition aux hanches ; cheville : pointe tendue pendant le retour de jambe, pied à plat à l'appui.
@@ -450,7 +451,7 @@ class Player3D {
       a.sh.rotation.x = -a.sgn * 0.12;
       a.el.rotation.z = 0.35 + 1.0 * run;
     }
-    const lean = Math.max(-0.25, Math.min(0.32, 0.05 + 0.2 * run + (p.acc || 0) * 0.025));
+    const lean = p.back ? -0.08 : Math.max(-0.25, Math.min(0.32, 0.05 + 0.2 * run + (p.acc || 0) * 0.025));
     // Virage : le joueur s'incline vers l'intérieur de la courbe, d'autant plus qu'il va vite.
     const dtp = ctx.dt || 0.016;
     let dF = (p.face || 0) - (this._pf ?? p.face ?? 0);
@@ -649,7 +650,9 @@ export class Match3D {
     this.canvas = document.createElement('canvas');
     this.canvas.className = 'pitch3d';
     parent.insertBefore(this.canvas, view.canvas);
-    this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true, powerPreference: 'high-performance' });
+    // Téléphones / tablettes : pas d'anticrénelage matériel (coûteux), ombres simplifiées, 40 images/s max.
+    this.mobile = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
+    this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: !this.mobile, powerPreference: 'high-performance' });
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;   // rendu « télé » : contrastes doux, couleurs riches
     this.renderer.toneMappingExposure = 1.15;
@@ -671,10 +674,11 @@ export class Match3D {
     this.sun = sun;
     sun.position.set(-30, 80, 40);
     // Ombres portées des joueurs sur la pelouse (désactivées sur les appareils trop lents).
-    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.enabled = !this.mobile;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    sun.castShadow = true;
-    sun.shadow.mapSize.set(2048, 2048);
+    sun.castShadow = !this.mobile;
+    sun.shadow.mapSize.set(1536, 1536);
+    sun.shadow.autoUpdate = true;
     Object.assign(sun.shadow.camera, { left: -62, right: 62, top: 42, bottom: -42, near: 10, far: 220 });
     sun.shadow.bias = -0.0005; sun.shadow.normalBias = 0.02;
     this.scene.add(sun);
@@ -997,7 +1001,7 @@ export class Match3D {
     // Résolution : au plus ~2,2 millions de pixels (grands écrans de PC), puis réglage
     // automatique selon la fluidité mesurée (this.quality, voir adaptQuality).
     const cap = Math.sqrt(2.2e6 / Math.max(1, v.cssW * v.cssH));
-    const dpr = Math.max(0.5, Math.min(window.devicePixelRatio || 1, 1.75, cap) * (this.quality ?? 1));
+    const dpr = Math.max(0.5, Math.min(window.devicePixelRatio || 1, this.mobile ? 1.5 : 1.75, cap) * (this.quality ?? 1));
     this.renderer.setPixelRatio(dpr);
     this.renderer.setSize(v.cssW, v.cssH, false);
     this.canvas.style.width = v.cssW + 'px';

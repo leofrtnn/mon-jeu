@@ -1,8 +1,8 @@
 /**
  * Écran de démarrage : 3 emplacements de sauvegarde (continuer, nouvelle partie,
- * import { countryFlag } from '../../data/nations.js';
-importer, supprimer), puis choix du club.
+ * importer, supprimer), puis choix du club.
  */
+import { countryFlag } from '../../data/nations.js';
 import { storedRatings, applyRatings } from '../../game/ratingsImport.js';
 import { newGame, startCareer, startingOffers } from '../../game/season.js';
 import { ensureCoachProfile, coachName } from '../../game/coach.js';

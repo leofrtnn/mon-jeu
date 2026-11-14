@@ -1,7 +1,7 @@
 /**
- * Accueil : prochain match, forme de l'équipe, messages import { countryFlag } from '../../data/nations.js';
-importants (3 max).
+ * Accueil : prochain match, forme de l'équipe, messages importants (3 max).
  */
+import { countryFlag } from '../../data/nations.js';
 import { today, tablePosition, DIV_NAMES, nationSquad, eligibleNations, changeClub, leagueRoundOf, onlineMustPlay } from '../../game/season.js';
 import { DIVISIONS, COUNTRIES } from '../../data/world.js';
 import { jobCandidates } from '../../game/career.js';

@@ -89,6 +89,7 @@ export const sharpFactor = (p) => (p.sharp == null ? 1 : 0.95 + 0.05 * Math.min(
 export function createMatch(cfg) {
   const rng = createRng(cfg.seed ?? 1);
   const m = {
+    maxSubs: cfg.maxSubs ?? MAX_SUBS, maxWindows: cfg.maxWindows ?? 3,
     rng, seed: cfg.seed ?? 1, neutral: !!cfg.neutral, homeAdv: cfg.homeAdv ?? 1.025, cup: !!cfg.cup, varEnabled: cfg.varEnabled !== false,
     teams: [makeTeam(cfg.home, 0), makeTeam(cfg.away, 1)],
     phase: 'pre', period: 1, minute: 0, extra: 0, added: [0, 0], stoppages: 0,
@@ -306,9 +307,10 @@ export function refreshMultipliers(m) {
     const cap = captainBoost(m, t);
     for (const mp of t.onPitch) {
       if (!mp) continue;
-      const fit = playerFit(mp.p, t.slots[mp.slot].pos);
+      const fit = mp.p.traits?.includes('polyvalent') ? Math.max(0.94, playerFit(mp.p, t.slots[mp.slot].pos)) : playerFit(mp.p, t.slots[mp.slot].pos);
+      const clutch = mp.p.traits?.includes('clutch') && m.minute >= 75 ? 1.03 : 1;
       const pm = { form: mp.p.form, morale: clamp(mp.morale + t.talk, 0, 100) };
-      mp.mult = conditionFactor(pm, mp.energy) * fit * home * numbers * cap * (mp.dayForm || 1) * (t.cm ? t.cm.perf : 1) * (1 + (t.edge || 0) * (m.live ? TACTIC_WEIGHT : TACTIC_WEIGHT_QUICK));
+      mp.mult = conditionFactor(pm, mp.energy) * fit * clutch * home * numbers * cap * (mp.dayForm || 1) * (t.cm ? t.cm.perf : 1) * (1 + (t.edge || 0) * (m.live ? TACTIC_WEIGHT : TACTIC_WEIGHT_QUICK));
     }
   }
 }
@@ -794,9 +796,10 @@ export function decayEnergy(m) {
         d = 0.42 - mp.p.attrs.phy * 0.0022 + pv * 0.06 + tv * 0.03 + (t.tactics.marking === 'man' ? 0.03 : 0);
         if (t.slots[mp.slot].pos === 'GB') d *= 0.35;
       }
-      mp.energy = clamp(mp.energy - d * (mp.work != null ? 1 : late) * (1 + (mp.p.age > 31 ? 0.1 : 0)) * (t.cm ? t.cm.fatigue : 1) * (m.wx?.fatigue || 1), 5, 100);
+      const trF = mp.p.traits ? (mp.p.traits.includes('infatigable') ? 0.85 : 1) * (mp.p.traits.includes('guerrier') ? 0.92 : 1) : 1;
+      mp.energy = clamp(mp.energy - d * (mp.work != null ? 1 : late) * (1 + (mp.p.age > 31 ? 0.1 : 0)) * trF * (t.cm ? t.cm.fatigue : 1) * (m.wx?.fatigue || 1), 5, 100);
       // Blessure "sans contact", plus fréquente quand le joueur est épuisé.
-      if (m.rng.chance(0.00005 * t.injuryMod * (m.wx?.injury || 1) * (mp.energy < 50 ? 2.5 : 1))) {
+      if (m.rng.chance(0.00005 * t.injuryMod * (m.wx?.injury || 1) * (mp.energy < 50 ? 2.5 : 1) * (mp.p.traits?.includes('fragile') ? 1.6 : 1))) {
         m._pendingInjury = m._pendingInjury || [];
         m._pendingInjury.push([t, mp]);
       }
@@ -931,7 +934,7 @@ export const allPlayers = (t) => [...t.onPitch.filter(Boolean), ...t.out, ...t.b
 /** Remplacement manuel. Retourne { ok, error, events }. */
 export function makeSub(m, side, outId, inId) {
   const T = m.teams[side];
-  if (T.subsUsed >= MAX_SUBS) return { ok: false, error: 'Plus de changement disponible' };
+  if (T.subsUsed >= (m.maxSubs ?? MAX_SUBS)) return { ok: false, error: 'Plus de changement disponible' };
   const outMp = T.onPitch.find((mp) => mp && mp.id === outId && mp.onPitch);
   const inMp = T.bench.find((mp) => mp.id === inId && !mp.onPitch && mp.minOut == null);
   if (!outMp || !inMp) return { ok: false, error: 'Changement impossible' };
@@ -1018,20 +1021,88 @@ export function setTactic(m, side, key, value) {
 }
 
 /** Causerie : 'calm' | 'encourage' | 'demand'. Retourne { delta, text }. */
+/** Causeries (mi-temps, avant-match) : l'effet dépend du score, de l'adversaire et de la répétition. */
+export const TALKS = {
+  calm: { icon: '😌', label: 'Rester calme et confiant' },
+  encourage: { icon: '👏', label: 'Encourager le groupe' },
+  demand: { icon: '😤', label: 'Hausser le ton' },
+  praise: { icon: '🙌', label: 'Féliciter : continuez comme ça' },
+  focus: { icon: '🎯', label: 'Rester concentrés jusqu\'au bout' },
+  nopressure: { icon: '😊', label: 'Pas de pression, prenez du plaisir' },
+  disappointed: { icon: '😞', label: 'Exprimer sa déception' },
+  faith: { icon: '💪', label: 'Je crois en vous, on peut le faire' },
+  fight: { icon: '🔥', label: 'Mettez du cœur, battez-vous' },
+};
 export function teamTalk(m, side, kind) {
   const T = m.teams[side];
   const diff = m.score[side] - m.score[1 - side];
-  let delta;
-  if (kind === 'calm') delta = diff > 0 ? 6 : diff === 0 ? 3 : -2;
-  else if (kind === 'encourage') delta = diff < 0 ? 7 : diff === 0 ? 5 : 2;
-  else delta = diff < 0 ? (m.rng.chance(0.6) ? 10 : -6) : diff === 0 ? 3 : -5;
+  const lead = diff > 0, tie = diff === 0, behind = diff < 0, big = Math.abs(diff) >= 2;
+  const R = (x) => (m.rng.chance(x) ? 1 : 0);
+  const table = {
+    calm: lead ? 6 : tie ? 3 : -2,
+    encourage: behind ? 7 : tie ? 5 : 2,
+    demand: behind ? (R(0.6) ? 10 : -6) : tie ? 3 : -5,
+    praise: lead ? (big ? 7 : 5) : tie ? 1 : -6,
+    focus: lead ? (big ? 2 : 7) : tie ? 4 : 1,
+    nopressure: tie ? 5 : behind && big ? 3 : lead ? 2 : 1,
+    disappointed: behind ? (R(0.5) ? 8 : -4) : tie ? -2 : -8,
+    faith: behind ? (big ? 6 : 8) : tie ? 4 : 1,
+    fight: behind ? 7 : tie ? 5 : lead ? 1 : 0,
+  };
+  let delta = table[kind] ?? 0;
+  // Un discours répété perd de son effet.
+  T.talkUses = T.talkUses || {};
+  delta = Math.round(delta * Math.pow(0.6, T.talkUses[kind] || 0));
+  T.talkUses[kind] = (T.talkUses[kind] || 0) + 1;
   delta += Math.round(m.rng.normal(0, 2));
   if (T.cm) delta = Math.round(delta * (delta > 0 ? T.cm.talk : 2 - T.cm.talk));
   T.talk = clamp(T.talk + delta, -15, 15);
   for (const mp of activePlayers(T)) mp.morale = clamp(mp.morale + delta * 0.5, 0, 100);
+  if (kind === 'focus' && delta > 0) T.focusUntil = m.minute + 15;   // moins d'erreurs défensives en fin de match
   const text = delta >= 7 ? 'Les joueurs sont gonflés à bloc !' : delta >= 3 ? 'Le message est bien passé.'
     : delta >= 0 ? 'Réaction mitigée dans le vestiaire.' : 'Les joueurs semblent contrariés…';
+  refreshMultipliers(m);
   return { delta, text };
+}
+
+/** Consignes criées depuis le banc (pendant le jeu) : effet court, moins fort qu'une causerie. */
+export const SHOUTS = {
+  push: { icon: '📣', label: 'Allez, on pousse !' },
+  calm: { icon: '🤚', label: 'Calmez le jeu' },
+  focus: { icon: '🎯', label: 'Concentration !' },
+  praise: { icon: '👍', label: 'Bien joué, continuez !' },
+  demand: { icon: '😠', label: 'Réveillez-vous !' },
+};
+export const PLAYER_SHOUTS = {
+  praise: { icon: '👍', label: 'Le féliciter' },
+  encourage: { icon: '💬', label: 'L\'encourager' },
+  demand: { icon: '😠', label: 'Exiger plus' },
+  calm: { icon: '🤚', label: 'Le calmer (cartons)' },
+};
+export function teamShout(m, side, kind) {
+  const T = m.teams[side];
+  if ((T.shoutAt ?? -99) > m.minute - 5) return { delta: 0, text: 'Les joueurs vous ont déjà entendu : attendez quelques minutes.' };
+  T.shoutAt = m.minute;
+  const diff = m.score[side] - m.score[1 - side];
+  const base = { push: diff <= 0 ? 4 : 1, calm: diff > 0 ? 3 : -1, focus: 3, praise: diff >= 0 ? 3 : -2, demand: diff < 0 ? (m.rng.chance(0.55) ? 5 : -3) : -2 }[kind] ?? 0;
+  const delta = Math.round(base + m.rng.normal(0, 1.2));
+  T.talk = clamp(T.talk + delta * 0.6, -15, 15);
+  if (kind === 'calm') T.calmUntil = m.minute + 10;
+  refreshMultipliers(m);
+  return { delta, text: delta >= 3 ? 'Les joueurs réagissent !' : delta >= 0 ? 'Message reçu.' : 'Ça agace sur le terrain…' };
+}
+export function playerShout(m, side, pid, kind) {
+  const T = m.teams[side];
+  const mp = activePlayers(T).find((x) => x.id === pid);
+  if (!mp) return { delta: 0, text: 'Joueur introuvable.' };
+  if ((mp.shoutAt ?? -99) > m.minute - 6) return { delta: 0, text: `${mp.name} vient déjà de vous entendre.` };
+  mp.shoutAt = m.minute;
+  const good = mp.rating >= 6.8, bad = mp.rating < 6.0, lead = (mp.p.lead ?? 12) >= 14;
+  const delta = Math.round(({ praise: good ? 8 : bad ? -2 : 4, encourage: bad ? 6 : 3, demand: bad ? (m.rng.chance(lead ? 0.75 : 0.5) ? 9 : -7) : -4, calm: 2 }[kind] ?? 0) + m.rng.normal(0, 1.5));
+  mp.morale = clamp(mp.morale + delta, 0, 100);
+  if (kind === 'calm') mp.calm = m.minute + 15;
+  refreshMultipliers(m);
+  return { delta, text: delta >= 5 ? `${mp.name} répond présent !` : delta >= 0 ? `${mp.name} hoche la tête.` : `${mp.name} n'apprécie pas du tout…` };
 }
 
 /* ------------------------------------------------------------------ */

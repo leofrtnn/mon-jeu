@@ -33,6 +33,7 @@ import { injuryLength, noteInjury, logInjury, SEVERE_NAMES } from './injuries.js
 import { runSummerTournaments, breakLabel } from './international.js';
 import { dealsDaily } from './deals.js';
 import { retire } from './afterlife.js';
+import { assignAllTraits, updateTraits, TRAITS } from './traits.js';
 import { cohesionDaily, cohesionAfterUserMatch, linksWeekly, teamCohesion, cohMult, clubCoh } from './cohesion.js';
 import { aiSeasonBudget, finHealth } from './owners.js';
 import { BAL } from '../data/balance.js';
@@ -119,6 +120,7 @@ export function newGame(seed = (Date.now() >>> 0), { real = null } = {}) {
     if (co.ph) m.photo = co.ph;
   }
   applyTop100(state);   // notes du top 100 intégré (monde réel)
+  assignAllTraits(state); // traits (Magicien, Maestro…) d'après les vraies qualités
   return state;
 }
 
@@ -748,6 +750,7 @@ export function completeDay(state, userMatch = null) {
       const rested = isUser && tp.autoRest && (p.fatigue || 0) > 60;
       if (rested) p.fatigue = clamp(p.fatigue - 12, 0, 90);
       const tev = rested ? null : weeklyTraining(p, rng, p._mins || 0, tp);
+      if (tev && isUser) { const tr = updateTraits(p); for (const k of tr.gained) withHuman(state, hu, () => pushMessage(state, { prio: 2, icon: TRAITS[k].icon, title: `${p.name} débloque un trait : ${TRAITS[k].name}`, text: TRAITS[k].desc, action: { type: 'player', pid: p.id } })); for (const k of tr.lost) withHuman(state, hu, () => pushMessage(state, { prio: 3, icon: '📉', title: `${p.name} perd le trait ${TRAITS[k].name}`, text: 'Son niveau ne suffit plus.', action: { type: 'player', pid: p.id } })); }
       if (tev && isUser) { const g = ((c.trainSeason ||= {})[p.id] ||= { up: 0, down: 0 }); if (tev.down) g.down++; else if (!tev.learned) g.up++; }
       if (tev && isUser) (c.trainLog ||= []).unshift({ pid: p.id, day: state.day, ...tev });
       if (tp.injury && p.injury === 0 && rng.chance(tp.injury)) {
@@ -1215,6 +1218,9 @@ export function endSeason(state) {
     for (const id of c.playerIds.slice()) {
       const p = state.players[id];
       const dev = seasonDevelopment(p, rng, mult);
+      // Traits gagnés / perdus avec l'évolution du niveau.
+      const tr = updateTraits(p);
+      if (rep && (tr.gained.length || tr.lost.length)) (rep.traits ||= []).push({ name: p.name, gained: tr.gained, lost: tr.lost });
       if (rep && dev.after !== dev.before) rep.progress.push({ name: p.name, pos: p.pos, before: dev.before, after: dev.after, age: p.age });
       if (shouldRetire(p, rng)) {
         c.playerIds = c.playerIds.filter((x) => x !== id);

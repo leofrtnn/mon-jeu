@@ -564,7 +564,7 @@ export class MatchView {
   liveSpeed(dt) {
     if (!this.live || this.speed > 8) return this.speed; // avance rapide demandée (différé)
     if (!this.highlights || this.hlMode !== 'auto') return this.hlMode === 'auto' ? this.speed : +this.hlMode;
-    const target = this.inHL ? 2 : 4; // temps fort : x2 (le x1 paraissait au ralenti)
+    const target = this.inHL ? 2 : (this.ffSpeed || 4); // temps fort : x2 ; accéléré : x4, x6 ou x8 au choix
     this.effSpeed += (target - this.effSpeed) * Math.min(1, dt * (target < this.effSpeed ? 6 : 1.6));
     if (Math.abs(this.effSpeed - target) < 0.02) this.effSpeed = target;
     return this.effSpeed;
@@ -1453,7 +1453,13 @@ export class MatchView {
 
   /** Vue 3D : rendu WebGL, puis bandeaux (BUT, cartons, ralenti) sur le canevas 2D transparent posé dessus. */
   draw3D() {
-    this.r3d.render(this.lastDt || 0.016);
+    // Mobile : 40 images/s au plus (le moteur, lui, continue au pas fixe) — moins de chauffe et de batterie.
+    if (this.r3d.mobile) {
+      const now = performance.now();
+      if (now - (this._last3d || 0) < 24) return;
+      this._r3dDt = (now - (this._last3d || now)) / 1000; this._last3d = now;
+    }
+    this.r3d.render(this.r3d.mobile ? Math.min(0.05, this._r3dDt || 0.025) : (this.lastDt || 0.016));
     const g = this.ctx, W = this.canvas.width, H = this.canvas.height;
     // Le calque 2D n'est effacé que s'il contient quelque chose (économise une image pleine par frame).
     const need = !!(this.banner || this.replaying);

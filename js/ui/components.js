@@ -1,6 +1,7 @@
 /**
  * Petits composants d'interface (chaînes HTML) : badges, jauges, lignes de joueurs.
  */
+import { TRAITS } from '../game/traits.js';
 import { imgTag, face } from './images.js';
 import { POSITION_GROUP } from '../data/constants.js';
 import { overall } from '../engine/ratings.js';
@@ -159,3 +160,10 @@ export function seg(name, options, current, labels) {
 }
 
 export { face };
+
+/** Pastille d'un trait de joueur (icône + nom, description au survol). */
+export function traitChip(k) {
+  const T = TRAITS[k];
+  if (!T) return '';
+  return `<span class="trait ${T.bad ? 'bad' : ''}" title="${T.desc.replace(/"/g, '&quot;')}">${T.icon} ${T.name}</span>`;
+}

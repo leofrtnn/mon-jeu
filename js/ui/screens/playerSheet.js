@@ -3,6 +3,7 @@
  * extérieurs), état, stats, sélection, contrat, actions de transfert.
  */
 import { dealFor, STAGE_LABEL } from '../../game/deals.js';
+import { traitChip } from '../components.js';
 import { playerLinks } from '../../game/cohesion.js';
 import { nationFlag, flagImg } from '../../data/nations.js';
 import { ATTRS, ATTR_LABELS, POSITION_LABELS } from '../../data/constants.js';
@@ -116,6 +117,7 @@ export function showPlayer(app, pid, onChange) {
           <small>${club ? `<a data-act="club" style="text-decoration:underline;cursor:pointer">${esc(club.name)}</a>` : 'Libre'}${p.onLoanFrom ? ` (prêt de ${esc(clubById(s, p.onLoanFrom).short)})` : ''}</small></div>
         <div class="center">${ovrHtml}</div>
       </div>
+      ${(p.traits || []).length ? `<div class="traits-row">${p.traits.map((k) => traitChip(k)).join('')}</div>` : ''}
       ${p.requested ? '<div class="tag ok" style="display:block;margin-bottom:8px">🧑‍💼 Son agent réclame un transfert</div>' : ''}
       ${p.injury > 0 ? `<div class="tag bad" style="display:block;margin-bottom:8px">✚ ${esc(p.injuryName)} — indisponible ${p.injury} match(s)</div>` : ''}
       ${!e.exact ? `<p class="muted" style="font-size:12px;margin:0 2px 6px">🔭 Connaissance : ${e.k}% · les valeurs affichées sont des estimations du recruteur.</p>` : ''}

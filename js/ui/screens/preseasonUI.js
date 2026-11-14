@@ -103,7 +103,7 @@ function friendlyCfg(s, oppId) {
   const f = s.preseason.friendlies.find((x) => x.oppId === oppId);
   const [h, a] = f.home ? [uc, opp] : [opp, uc];
   const weather = matchConditions({ seed: s.seed + s.season, country: h.country, date: f.date || s.preseason.date, comp: 'friendly', h: h.id, a: a.id });
-  return { cfg: { seed: friendlySeed(s, oppId), varEnabled: s.settings.var, profile: {}, weather, neutral: !!f.neutral, ...(f.neutral ? { homeAdv: 1 } : {}),
+  return { cfg: { seed: friendlySeed(s, oppId), varEnabled: s.settings.var, profile: {}, weather, maxSubs: 11, maxWindows: 99, friendly: true, neutral: !!f.neutral, ...(f.neutral ? { homeAdv: 1 } : {}),
     home: teamCfg(s, h, a, true, h.id === uc.id), away: teamCfg(s, a, h, false, a.id === uc.id) }, userSide: f.home ? 0 : 1 };
 }
 

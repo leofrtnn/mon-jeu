@@ -19,8 +19,9 @@ const eligible = (state, club) => clubPlayers(state, club).filter((p) => !p.onLo
 export function leadership(state, p) {
   if (!p) return 0;
   // Leadership connu (base de joueurs) : il pèse lourd ; sinon influence dans le vestiaire et sang-froid.
-  if (p.lead != null) return clamp(Math.round(p.lead * 5 * 0.6 + influence(state, p) * 0.4), 0, 100);
-  return clamp(Math.round(influence(state, p) * 0.75 + (p.attrs?.sf ?? 60) * 0.25), 0, 100);
+  const bonus = p.traits?.includes('leader') ? 12 : 0;
+  if (p.lead != null) return clamp(Math.round(p.lead * 5 * 0.6 + influence(state, p) * 0.4 + bonus), 0, 100);
+  return clamp(Math.round(influence(state, p) * 0.75 + (p.attrs?.sf ?? 60) * 0.25 + bonus), 0, 100);
 }
 
 /** Capitaine et vice-capitaine d'un club (choisis automatiquement s'ils manquent). */

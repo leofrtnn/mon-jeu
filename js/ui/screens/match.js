@@ -5,6 +5,8 @@
  * pause (changements, tactique), mi-temps (stats + causerie), fin de match.
  */
 import { userMatchCfg, completeDay, today, fixtureKey } from '../../game/season.js';
+import { traitChip } from '../components.js';
+import { TALKS, SHOUTS, PLAYER_SHOUTS, teamShout, playerShout } from '../../engine/match.js';
 import { createMatch, stepMinute, makeSub, changeFormation, swapSlots, moveSlot, setRole, setTactic, snapshotMatch, restoreMatch, replayCfg, applyPlan, teamTalk, summarize, penaltyShootout, clockLabel, activePlayers } from '../../engine/match.js';
 import { describe, iconFor } from '../../engine/commentary.js';
 import { FORMATION_NAMES, FORMATION_GROUPS, ROLES, rolesFor, MENTALITIES, MENTALITY_LABELS, LEVELS, PRESSING_LABELS, TEMPO_LABELS, MAX_SUBS, POSITION_GROUP, TEAM_INSTRUCTIONS, DEFAULT_TACTICS, PLAYER_INSTRUCTIONS, WIDTH_LABELS } from '../../data/constants.js';
@@ -27,7 +29,7 @@ import { openInterview } from './inboxUI.js';
 import { showDayReport } from './dayReport.js';
 
 const SPEEDS = ['auto', 2, 4]; // auto : temps forts en x2, le reste en accéléré x4 (visible, panneau tactique)
-const speedLabel = (v, hl) => (v === 'auto' ? (hl ? '⚡ Temps fort' : '⏩ Accéléré x4') : `x${v}`);
+const speedLabel = (v, hl, ff = 4) => (v === 'auto' ? (hl ? '⚡ Temps fort' : `⏩ Accéléré x${ff}`) : `x${v}`);
 /** Événements montrés en mode "Résumé rapide". */
 const QUICK_KEEP = new Set(['goal', 'red', 'yellow', 'penalty', 'var', 'ht', 'ft', 'injury', 'kickoff', 'freekick']);
 
@@ -74,6 +76,7 @@ export function openMatch(app, opts = {}) {
     <div class="controls">
       <button class="btn primary" data-c="pause" title="Compo, changements, tactique">📋 Compo &amp; tactique</button>
       <button class="btn" data-c="speed" title="Auto : temps forts en x2, le reste en accéléré x4">${speedLabel(s.settings.hlMode === 1 ? 2 : s.settings.hlMode || 'auto')}</button>
+      <button class="btn" data-c="nexthl" title="Avance rapide jusqu'à la prochaine action dangereuse">⏩ Temps fort</button>
       <button class="btn" data-c="skip">⏭ Fin</button>
       <button class="btn" data-c="style" style="flex:.6" title="Vue">${{ fm: '2D', '3d': '3D', anim: '🎥' }[s.settings.matchStyle || '3d']}</button>
       <button class="btn" data-c="cam" style="flex:.6" title="Caméra">📹</button>
@@ -84,7 +87,7 @@ export function openMatch(app, opts = {}) {
   document.body.style.overflow = 'hidden';
 
   const $ = (id) => root.querySelector('#' + id);
-  const ctrl = { speedIdx: Math.max(0, SPEEDS.indexOf(s.settings.hlMode === 1 ? 2 : s.settings.hlMode || 'auto')), quick: false, finished: false, scorers: [[], []], recent: [] };
+  const ctrl = { pendingSubs: [], windows: 0, speedIdx: Math.max(0, SPEEDS.indexOf(s.settings.hlMode === 1 ? 2 : s.settings.hlMode || 'auto')), quick: false, finished: false, scorers: [[], []], recent: [] };
   const official = !opts.cfg;
   // Journal des décisions du coach (instant précis = nombre de pas du moteur) : permet de
   // rejouer ce match À L'IDENTIQUE sur un autre appareil (match entre managers, en ligne).
@@ -185,7 +188,9 @@ export function openMatch(app, opts = {}) {
     card.innerHTML = `<div class="row" style="gap:10px">${mp.p.photo ? face(mp.p, t.club) : ''}<span class="tc-num" style="background:${view.colors[t.side]};color:${view.textColors[t.side]}">${mp.number}</span>
       <div class="grow"><b>${esc(mp.p.first || '')} ${esc(mp.p.last || mp.name)}</b><br><small>${pos} · ${esc(t.club.short)}${(t.roles[mp.slot] && t.roles[mp.slot] !== 'std') ? ' · ' + esc(t.roles[mp.slot]) : ''}</small></div>${ratingChip(mp.rating)}</div>
       <div class="row" style="gap:6px;margin-top:6px;font-size:12px"><span style="width:52px">Énergie</span><span class="mini" style="flex:1;width:auto"><i style="width:${mp.energy}%;background:${scaleColor(mp.energy)}"></i></span><b>${Math.round(mp.energy)}</b></div>
-      <small>${mp.goals ? `⚽ ${mp.goals} ` : ''}${mp.assists ? `🅰 ${mp.assists} ` : ''}${mp.yellow ? '🟨 ' : ''}Passes ${mp.passesOk}/${mp.passes} · Tirs ${mp.shots} · Tacles ${mp.tackles}</small>`;
+      <div class="tc-stats"><span><b>${mp.goals || 0}</b>Buts</span><span><b>${mp.assists || 0}</b>PD</span><span><b>${mp.shots || 0}</b>Tirs</span><span><b>${mp.passesOk || 0}/${mp.passes || 0}</b>Passes</span><span><b>${mp.keyPasses || 0}</b>P. clés</span><span><b>${mp.tackles || 0}</b>Tacles</span>${mp.saves ? `<span><b>${mp.saves}</b>Arrêts</span>` : ''}<span><b>${mp.work ? (mp.work / 1000).toFixed(1) : '—'}</b>km</span></div>
+      ${(mp.p.traits || []).length ? `<div class="tc-traits">${mp.p.traits.slice(0, 4).map((k) => traitChip(k)).join('')}</div>` : ''}
+      <small class="muted">${mp.yellow ? '🟨 Averti · ' : ''}Physique ${Math.round(mp.p.attrs.phy)} · Vitesse ${Math.round(mp.p.attrs.vit)} · ${mp.p.height ? `${mp.p.height} cm` : ''}</small>`;
     card.classList.remove('hidden');
     clearTimeout(ctrl.tapT);
     ctrl.tapT = setTimeout(() => { card.classList.add('hidden'); view.selected = null; }, 5000);
@@ -198,7 +203,9 @@ export function openMatch(app, opts = {}) {
     else if (ev.type === 'foul' || ev.type === 'offside') audio.whistle(1);
     else if (ev.type === 'ht' || ev.type === 'ft' || ev.type === 'et' || ev.type === 'eht') audio.whistle(ev.type === 'ft' ? 3 : 2, true);
     else if (ev.type === 'goal') audio.roar();
-    else if (ev.type === 'shot' && ev.outcome !== 'goal' && (ev.xg >= 0.1 || ev.outcome === 'post')) audio.ooh();
+    else if (ev.type === 'shot' && ev.outcome !== 'goal' && (ev.xg >= 0.1 || ev.outcome === 'post')) (ev.outcome === 'wide' ? audio.groan() : audio.ooh());
+    else if (ev.type === 'foul' && ev.side === 1) audio.boo();   // faute de l'équipe visiteuse : le stade siffle
+    else if ((ev.type === 'yellow' || ev.type === 'red') && ev.side === 0) audio.boo();
     const homeAttack = ev.poss === 0 ? ev.zone ?? 1 : 0;
     audio.intensity(Math.min(1, 0.15 + homeAttack * 0.22 + Math.max(0, m.momentum) / 250));
   }
@@ -235,7 +242,7 @@ export function openMatch(app, opts = {}) {
   };
 
   const view = new MatchView($('pitch'), m, { userSide, onEventStart, onIdle, live: replay ? true : s.settings.liveEngine !== false, hlMode: SPEEDS[ctrl.speedIdx],
-    onHighlight: (on) => { const b = root.querySelector('[data-c="speed"]'); if (b && SPEEDS[ctrl.speedIdx] === 'auto') { b.textContent = speedLabel('auto', on); b.classList.toggle('hl-on', on); } ffUpdate(true); },
+    onHighlight: (on) => { audio.swell(on); const b = root.querySelector('[data-c="speed"]'); if (b && SPEEDS[ctrl.speedIdx] === 'auto') { b.textContent = speedLabel('auto', on, view.ffSpeed); b.classList.toggle('hl-on', on); } ffUpdate(true); },
     beforeStep: replay ? (n) => applyJournal(n) : null, labelMode: s.settings.labels || ((s.settings.matchStyle || '3d') !== 'anim' ? 'num' : 'name'), style: s.settings.matchStyle || '3d', onPlayerTap: showTapCard,
     on3DFail: () => { app.toast('3D indisponible sur cet appareil : vue 2D.', 3500); s.settings.matchStyle = 'fm'; root.querySelector('[data-c=style]').textContent = '2D'; } });
   bc = new Broadcast($('bcast'), { m, cfg, hc, ac, colors: view.colors, nameOf, holderOf: () => (view.hl === 'skip' ? null : view.holder),
@@ -247,11 +254,12 @@ export function openMatch(app, opts = {}) {
     return bc.intro(matchDay(m, cfg, currentDate(s))).then(() => { if (view.r3d) view.r3d.camMode = 'tv'; });
   };
   window.__bc = bc; window.__view = view; window.__journal = journal; window.__cfgSnap = () => replayCfg(cfg); // débogage
+  view.ffSpeed = s.settings.ffSpeed || 4;
   const applySpeed = () => {
     const v = SPEEDS[ctrl.speedIdx];
     view.hlMode = v;
     view.setSpeed((v === 'auto' ? 4 : v) * (ctrl.quick ? (view.live ? 3 : 1.5) : 1));
-    root.querySelector('[data-c="speed"]').textContent = speedLabel(v, view.inHL);
+    root.querySelector('[data-c="speed"]').textContent = speedLabel(v, view.inHL, view.ffSpeed);
   };
   applySpeed();
   /* ---------- Accéléré : bandeau + panneau tactique et stats (rien d'important ne se passe) ---------- */
@@ -275,10 +283,13 @@ export function openMatch(app, opts = {}) {
     return `<div class="ffr"><small>Mentalité</small>${seg('mentality', Object.fromEntries(MENTALITIES.map((k) => [k, MENTALITY_LABELS[k]])))}</div>
       <div class="ffr"><small>Pressing</small>${seg('pressing', Object.fromEntries(LEVELS.map((k) => [k, PRESSING_LABELS[k]])))}</div>
       <div class="ffr"><small>Tempo</small>${seg('tempo', Object.fromEntries(LEVELS.map((k) => [k, TEMPO_LABELS[k]])))}</div>
+      <div class="ffr"><small>Depuis le banc</small><div class="ffq" style="margin:0">${Object.entries(SHOUTS).map(([k, sh]) => `<button class="btn sm" data-ff="shout" data-v="${k}" title="${esc(sh.label)}">${sh.icon} ${sh.label}</button>`).join('')}</div></div>
       <div class="ffq">${QUICK_PLANS.map((q) => `<button class="btn sm" data-ff="qplan" data-v="${q.id}">${q.icon} ${q.label}</button>`).join('')}<button class="btn sm primary" data-ff="full">📋 Compo &amp; changements</button></div>`;
   };
   const ffRender = () => {
-    ff.innerHTML = `<div class="ff-head"><b>${esc(hc.short)} ${m.score[0]} - ${m.score[1]} ${esc(ac.short)}</b><small>${esc(view.clockText ? view.clockText() : '')} · le jeu continue en accéléré</small><button class="ff-x" data-ff="hide" title="Masquer">×</button></div>
+    ff.innerHTML = `<div class="ff-head"><b>${esc(hc.short)} ${m.score[0]} - ${m.score[1]} ${esc(ac.short)}</b><small>${esc(view.clockText ? view.clockText() : '')} · le jeu continue en accéléré</small>
+      <span class="seg sm ff-spd">${[4, 6, 8].map((v) => `<button data-ff="spd" data-v="${v}" class="${(view.ffSpeed || 4) === v ? 'on' : ''}">x${v}</button>`).join('')}</span>
+      <button class="btn sm" data-ff="nexthl">⏩ Prochain temps fort</button><button class="ff-x" data-ff="hide" title="Masquer">×</button></div>
       <div class="ff-body"><div class="ff-stats">${ffStats()}</div><div class="ff-tac">${ffTac()}</div></div>`;
   };
   function ffUpdate(force = false) {
@@ -298,6 +309,9 @@ export function openMatch(app, opts = {}) {
     if (k === 'ti') { setTactic(m, userSide, b.dataset.k, b.dataset.v); rec('ti', { side: userSide, k: b.dataset.k, v: b.dataset.v }); }
     if (k === 'qplan') { const q = QUICK_PLANS.find((x) => x.id === b.dataset.v); for (const [kk, v] of Object.entries(q.tac)) { setTactic(m, userSide, kk, v); rec('ti', { side: userSide, k: kk, v }); } app.toast(`${q.icon} ${q.label}`); }
     if (k === 'full') { if (m.phase === 'live') { view.pause(); pauseSheet(); } return; }
+    if (k === 'shout') { const r = teamShout(m, userSide, b.dataset.v); rec('shout', { side: userSide, kind: b.dataset.v }); app.toast(`${SHOUTS[b.dataset.v].icon} ${r.text}`); return; }
+    if (k === 'spd') { view.ffSpeed = +b.dataset.v; s.settings.ffSpeed = view.ffSpeed; app.save(); }
+    if (k === 'nexthl') { view.hl = 'skip'; view.hlForce = false; view.setVeil(true); view.hlGrace = 0; return; }
     ffRender();
   });
   // Horloge à la seconde (en haut à gauche et dans l'habillage télé).
@@ -305,6 +319,9 @@ export function openMatch(app, opts = {}) {
     if (!root.isConnected) { clearInterval(clockTimer); return; }
     ffUpdate();
     if (view.inHL) ctrl.ffHidden = false;
+    if (ctrl.pendingSubs.length && stoppageNow() && !view.paused) applyPendingSubs();
+    // Chants réguliers des tribunes (toutes les 35-70 s réelles), plus fréquents quand on gagne à domicile.
+    if (audio.on && m.phase === 'live' && !view.paused && (ctrl.chantT = (ctrl.chantT || 0) + 0.2) > (ctrl.chantNext ||= 35 + Math.random() * 35)) { ctrl.chantT = 0; ctrl.chantNext = (m.score[0] > m.score[1] ? 25 : 40) + Math.random() * 30; audio.chant(8 + Math.floor(Math.random() * 8)); }
     if (!view.live || m.phase !== 'live' || view.replayLive) return;
     const t = view.clockText();
     $('sb-clock').textContent = t;
@@ -322,6 +339,10 @@ export function openMatch(app, opts = {}) {
       applySpeed();
       s.settings.hlMode = SPEEDS[ctrl.speedIdx]; app.save();
       app.toast(SPEEDS[ctrl.speedIdx] === 'auto' ? 'Auto : temps forts en x2, le reste en accéléré x4' : `Vitesse fixe x${SPEEDS[ctrl.speedIdx]}`);
+    }
+    if (c === 'nexthl') {
+      if (!view.live || m.phase !== 'live' || replay) { app.toast('Disponible pendant le jeu.'); return; }
+      view.hl = 'skip'; view.hlForce = false; view.setVeil(true); view.hlGrace = 0; return;
     }
     if (c === 'skip') { if (replay) { view.setSpeed(12); app.toast('Avance rapide'); } else { rec('skip', {}); skipToEnd(); } }
     if (c === 'style') {
@@ -443,6 +464,25 @@ export function openMatch(app, opts = {}) {
     },
   });
 
+  /** Arrêt de jeu en cours ? (remise en jeu, mi-temps, avant le coup d'envoi) */
+  function stoppageNow() { return m.phase !== 'live' || !view.live || !!view.live.restart; }
+  /** Effectue les changements en attente (au premier arrêt de jeu). Une fenêtre est décomptée hors mi-temps. */
+  function applyPendingSubs() {
+    if (!ctrl.pendingSubs.length) return;
+    const atHT = m.phase === 'ht' || m.phase === 'pre';
+    let done = 0;
+    for (const q of ctrl.pendingSubs) {
+      const r = makeSub(m, userSide, q.out, q.in);
+      if (!r.ok) { app.toast(r.error); continue; }
+      rec('sub', { side: userSide, out: q.out, in: q.in });
+      view.queue.unshift(...r.events);
+      done++;
+    }
+    ctrl.pendingSubs = [];
+    if (done && !atHT) ctrl.windows++;
+    if (done) app.toast(`🔁 ${done} changement(s) effectué(s)`);
+  }
+
   /** Différé : applique les décisions du coach enregistrées pour cet instant du match. */
   function applyJournal(n) {
     const list = replay?.journal || [];
@@ -457,6 +497,8 @@ export function openMatch(app, opts = {}) {
       else if (op === 'ti') setTactic(m, a.side, a.k, a.v);
       else if (op === 'plan') { applyPlan(m, a.side, a.plan); syncPitch(); }
       else if (op === 'talk') teamTalk(m, a.side, a.kind);
+      else if (op === 'shout') teamShout(m, a.side, a.kind);
+      else if (op === 'pshout') playerShout(m, a.side, a.pid, a.kind);
       else if (op === 'skip') { skipToEnd(); return; }
     }
   }
@@ -513,10 +555,12 @@ export function openMatch(app, opts = {}) {
     const benchHtml = () => {
       const T = t();
       const bench = T.bench.filter((x) => !x.onPitch && x.minOut == null);
-      const subsLeft = MAX_SUBS - T.subsUsed;
+      const subsLeft = (m.maxSubs ?? MAX_SUBS) - T.subsUsed - ctrl.pendingSubs.length;
       const selMp = sel ? T.onPitch.find((x) => x && x.id === sel) : null;
       const pos = selMp ? T.slots[selMp.slot].pos : null;
-      return `<div class="label" style="margin-top:0">Banc · ${subsLeft} changement(s) restant(s)</div>
+      const pend = ctrl.pendingSubs.map((q) => `<div class="msg"><span class="ic">⏳</span><div class="grow"><b>${esc(nameOf(q.in))}</b> remplacera <b>${esc(nameOf(q.out))}</b> au prochain arrêt de jeu</div><button class="btn sm" data-act="unsub" data-v="${q.in}">Annuler</button></div>`).join('');
+      const winLeft = m.maxWindows >= 99 ? ' · amical : changements libres' : ` · ${Math.max(0, m.maxWindows - ctrl.windows)} fenêtre(s) de changement`;
+      return `${pend}<div class="label" style="margin-top:0">Banc · ${subsLeft} changement(s) restant(s)${winLeft}</div>
         <div class="list">${bench.map((x) => `<div class="prow ${selMp && subsLeft > 0 ? '' : 'dim'}" data-act="in" data-id="${x.id}">
           ${posBadge(x.pos)}<div class="pname"><b>${esc(x.name)}</b><small>${pos ? `Au poste ${pos} : ${Math.round(ratingAt(x.p, pos))}` : `Note ${Math.round(ratingAt(x.p, x.pos))}`}</small></div>
           ${energyBar(x.energy)}</div>`).join('') || '<p class="muted">Banc vide.</p>'}</div>`;
@@ -528,6 +572,7 @@ export function openMatch(app, opts = {}) {
       const pi = T.pi[mp.slot] = { duty: 'sup', shoot: 'normal', dribble: 'normal', runs: 'normal', ...(T.pi[mp.slot] || {}) };
       return `<div class="card msel"><div class="row between"><b>${esc(mp.name)}</b><small>${T.slots[mp.slot].pos} · énergie ${Math.round(mp.energy)} % · note ${mp.rating.toFixed(1)}</small></div>
         <p class="muted mhelp">Touchez un remplaçant pour le faire entrer, un autre joueur pour échanger leurs postes, ou <b>un endroit libre du terrain pour le déplacer</b> (son poste s'adapte à la zone).</p>
+        <div class="mrow"><span>Lui parler</span><div class="seg sm wrap">${Object.entries(PLAYER_SHOUTS).map(([k, sh]) => `<button data-act="pshout" data-v="${k}">${sh.icon} ${sh.label}</button>`).join('')}</div></div>
         <div class="mrow"><span>Rôle</span><div class="seg sm wrap">${rolesFor(T.slots[mp.slot].pos).map((r) => `<button data-act="role" data-v="${r}" class="${(T.roles[mp.slot] || 'std') === r ? 'on' : ''}" title="${esc(ROLES[r].desc)}">${ROLES[r].label}</button>`).join('')}</div></div>
         ${PLAYER_INSTRUCTIONS.map((pd) => `<div class="mrow"><span>${pd.label}</span><div class="seg sm">${Object.entries(pd.opts).map(([v, l]) => `<button data-act="pi" data-k="${pd.key}" data-v="${v}" class="${pi[pd.key] === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>`).join('')}</div>`;
     };
@@ -553,11 +598,12 @@ export function openMatch(app, opts = {}) {
     const html = () => {
       const T = t();
       return `<div class="row between"><h2>${isHT ? 'Vestiaire' : 'Banc de touche'} · ${clockLabel(m.minute, m.extra)}</h2><b class="num" style="font-size:20px">${m.score[0]} - ${m.score[1]}</b></div>
-        <div style="margin:8px 0">${seg('ptab', ['compo', 'tac', 'stats'], tab, { compo: `Compo & changements (${MAX_SUBS - T.subsUsed})`, tac: 'Tactique', stats: 'Stats' })}</div>
+        <div style="margin:8px 0">${seg('ptab', ['compo', 'tac', 'stats', 'players'], tab, { compo: `Compo & changements (${(m.maxSubs ?? MAX_SUBS) - T.subsUsed})`, tac: 'Tactique', stats: 'Stats', players: 'Joueurs' })}</div>
         ${tab === 'compo' ? `
           <div class="form-groups">${FORMATION_GROUPS.map(([g, fs]) => `<div class="fg"><small>${g}</small><div class="chips wrap">${fs.map((f) => `<button class="chip sm ${T.tactics.formation === f && !T.tactics.custom ? 'on' : ''}" data-act="form" data-v="${f}">${f}</button>`).join('')}</div></div>`).join('')}${T.tactics.custom ? '<span class="tag ok">Système personnalisé</span>' : ''}</div>
           <div class="mlay"><div>${pitchHtml()}</div><div>${selPanel()}${benchHtml()}</div></div>`
         : tab === 'tac' ? tacHtml()
+        : tab === 'players' ? playersStatsHtml()
         : `${edgeHtml()}${statsHtml()}${adviceHtml()}`}
         <button class="btn primary lg block" style="margin-top:14px" data-act="close">${isHT ? 'Retour au vestiaire' : '▶ Reprendre le match'}</button>`;
     };
@@ -578,12 +624,18 @@ export function openMatch(app, opts = {}) {
         },
         in: (el) => {
           if (!sel) { app.toast('Touchez d\'abord le joueur à sortir sur le terrain.'); return; }
-          const r = makeSub(m, userSide, sel, +el.dataset.id);
-          if (!r.ok) { app.toast(r.error); return; }
-          rec('sub', { side: userSide, out: sel, in: +el.dataset.id });
-          view.queue.unshift(...r.events);
+          const inId = +el.dataset.id;
+          if (ctrl.pendingSubs.some((q) => q.in === inId || q.out === sel)) { app.toast('Déjà prévu.'); return; }
+          if (t().subsUsed + ctrl.pendingSubs.length >= (m.maxSubs ?? MAX_SUBS)) { app.toast('Plus de changement disponible.'); return; }
+          // Comme en vrai : le changement attend un arrêt de jeu (sauf à la mi-temps / ballon déjà arrêté).
+          if (!stoppageNow() && !ctrl.pendingSubs.length && ctrl.windows >= m.maxWindows) { app.toast('Vous avez utilisé toutes vos fenêtres de changement (hors mi-temps).', 3500); return; }
+          ctrl.pendingSubs.push({ out: sel, in: inId });
+          if (stoppageNow()) applyPendingSubs();
+          else app.toast('Changement prêt : il sera effectué au prochain arrêt de jeu.', 3000);
           sel = null; h.update(html());
         },
+        pshout: (el) => { if (!sel) return; const r = playerShout(m, userSide, sel, el.dataset.v); rec('pshout', { side: userSide, pid: sel, kind: el.dataset.v }); app.toast(r.text, 2500); h.update(html()); },
+        unsub: (el) => { ctrl.pendingSubs = ctrl.pendingSubs.filter((q) => q.in !== +el.dataset.v); h.update(html()); },
         pi: (el) => {
           const T = t(), mp = T.onPitch.find((x) => x && x.id === sel);
           if (!mp) return;
@@ -665,6 +717,21 @@ export function openMatch(app, opts = {}) {
     return `<div class="card" style="margin-top:8px"><b>📋 L'adjoint :</b><br><small>${tips.slice(0, Math.max(1, lvl)).map(esc).join('<br>')}</small></div>`;
   }
 
+  /** Statistiques détaillées de chaque joueur pendant le match (les deux équipes). */
+  function playersStatsHtml() {
+    const col = (T) => {
+      const rows = [...T.onPitch.filter(Boolean), ...T.bench.filter((x) => x.minIn != null)].sort((a, b) => b.rating - a.rating);
+      return `<div class="card" style="padding:4px 6px;overflow-x:auto"><b style="padding:4px 6px;display:block">${esc(T.club.name)}</b>
+        <table class="tbl mini ps-tbl"><thead><tr><th class="l">Joueur</th><th>Note</th><th>Min</th><th>B</th><th>PD</th><th>Tirs</th><th>Passes</th><th>%</th><th>Passes clés</th><th>Tacles</th><th>Arrêts</th><th>Fautes</th><th>Km</th><th>Énergie</th></tr></thead><tbody>
+        ${rows.map((mp) => `<tr><td class="l">${esc(mp.name)} <small class="muted">${T.slots[mp.slot]?.pos || mp.pos || ''}</small>${mp.yellow ? ' 🟨' : ''}${mp.red ? ' 🟥' : ''}${mp.injured ? ' ✚' : ''}</td>
+          <td>${ratingChip(mp.rating)}</td><td>${Math.max(0, (mp.minOut ?? m.minute) - (mp.minIn ?? 0))}'</td><td>${mp.goals || ''}</td><td>${mp.assists || ''}</td><td>${mp.shots || 0}</td>
+          <td>${mp.passesOk || 0}/${mp.passes || 0}</td><td>${mp.passes ? Math.round(mp.passesOk / mp.passes * 100) : '—'}</td><td>${mp.keyPasses || 0}</td><td>${mp.tackles || 0}</td><td>${mp.saves || ''}</td><td>${mp.fouls || ''}</td>
+          <td>${mp.work ? (mp.work / 1000 * 1.0).toFixed(1) : '—'}</td><td><span class="mini" style="width:40px"><i style="width:${mp.energy}%;background:${scaleColor(mp.energy)}"></i></span></td></tr>`).join('')}
+        </tbody></table></div>`;
+    };
+    return `${col(m.teams[userSide])}${col(m.teams[1 - userSide])}<p class="muted" style="font-size:11px">Km : distance parcourue estimée.</p>`;
+  }
+
   function statsHtml() {
     const sum = summarize(m);
     const st = sum.stats, cols = [hc.color, view.colors[1]];
@@ -686,11 +753,7 @@ export function openMatch(app, opts = {}) {
       ${adviceHtml()}
       <div class="label">Causerie</div>
       ${talked ? `<div class="card" style="margin-top:0">${esc(talked.text)} <small>(moral ${talked.delta >= 0 ? '+' : ''}${talked.delta})</small></div>` : `
-        <div class="btns" style="flex-direction:column">
-          <button class="btn block" data-act="talk" data-v="calm">😌 Rester calme et confiant</button>
-          <button class="btn block" data-act="talk" data-v="encourage">👏 Encourager le groupe</button>
-          <button class="btn block" data-act="talk" data-v="demand">😤 Hausser le ton</button>
-        </div>`}
+        <div class="talk-grid">${Object.entries(TALKS).map(([k, t]) => `<button class="btn" data-act="talk" data-v="${k}">${t.icon} ${t.label}</button>`).join('')}</div>`}
       <div class="btns" style="margin-top:12px"><button class="btn" data-act="subs">Changements</button>
         <button class="btn primary" data-act="resume" ${talked ? '' : 'disabled'}>▶ 2e mi-temps</button></div>`;
     const h = app.sheet({

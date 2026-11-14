@@ -70,8 +70,48 @@ export class MatchAudio {
     src.start(t, Math.random()); src.stop(t + dur + 0.1);
   }
 
-  roar() { this.burst({ gain: 0.16, dur: 4, freq: 1100, q: 0.5, type: 'bandpass' }); }
-  ooh() { this.burst({ gain: 0.06, dur: 1.5, freq: 600, q: 1.8, type: 'bandpass' }); }
+  roar() { this.burst({ gain: 0.2, dur: 5, freq: 1100, q: 0.5, type: 'bandpass' }); this.burst({ gain: 0.08, dur: 3.5, freq: 2400, q: 0.8, type: 'bandpass' }); setTimeout(() => this.chant(6), 3500); }
+  ooh() { this.burst({ gain: 0.09, dur: 1.8, freq: 600, q: 1.8, type: 'bandpass' }); }
+  /** Déception (tir manqué de peu) : un « ohhh » grave qui retombe. */
+  groan() { this.burst({ gain: 0.06, dur: 1.6, freq: 380, q: 1.5, type: 'bandpass' }); }
+  /** Sifflets de colère (faute contre l'équipe qui reçoit, décision contestée). */
+  boo() { this.burst({ gain: 0.05, dur: 2.2, freq: 260, q: 2.5, type: 'bandpass' }); this.burst({ gain: 0.02, dur: 1.8, freq: 3200, q: 6, type: 'bandpass' }); }
+
+  /** Montée de la foule pendant une action dangereuse (temps fort). */
+  swell(on) {
+    if (!this.on) return;
+    const t = this.ctx.currentTime;
+    this.crowdGain.gain.setTargetAtTime(BASE * (on ? 3 : 1), t, on ? 0.6 : 1.2);
+    this.crowdFilter.frequency.setTargetAtTime(on ? 2300 : 1300, t, 0.7);
+  }
+
+  /** Chant des supporters : syllabes rythmées (voix filtrées), tambour et clappements. */
+  chant(beats = 8) {
+    if (!this.on) return;
+    const ctx = this.ctx, t0 = ctx.currentTime + 0.05, bpm = 118 + Math.random() * 14, beat = 60 / bpm;
+    const vowel = [700, 1100, 900, 1200][Math.floor(Math.random() * 4)];
+    for (let i = 0; i < beats; i++) {
+      const t = t0 + i * beat;
+      // Voix (deux syllabes par temps fort : « Al-lez ! »).
+      for (const [dt, f, gn] of [[0, vowel, 0.05], [beat * 0.5, vowel * 0.8, i % 2 ? 0.035 : 0.06]]) {
+        const src = ctx.createBufferSource(); src.buffer = this.noise;
+        const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = f; bp.Q.value = 3;
+        const g = ctx.createGain(); g.gain.setValueAtTime(0.0001, t + dt); g.gain.exponentialRampToValueAtTime(gn, t + dt + 0.04); g.gain.exponentialRampToValueAtTime(0.0001, t + dt + beat * 0.42);
+        src.connect(bp).connect(g).connect(this.master); src.start(t + dt, Math.random() * 2); src.stop(t + dt + beat * 0.5);
+      }
+      // Tambour des ultras.
+      const o = ctx.createOscillator(); o.type = 'sine'; o.frequency.setValueAtTime(95, t); o.frequency.exponentialRampToValueAtTime(48, t + 0.18);
+      const dg = ctx.createGain(); dg.gain.setValueAtTime(0.11, t); dg.gain.exponentialRampToValueAtTime(0.0001, t + 0.25);
+      o.connect(dg).connect(this.master); o.start(t); o.stop(t + 0.3);
+      // Clappements (bruit très court, aigu).
+      if (i % 2 === 1) {
+        const c = ctx.createBufferSource(); c.buffer = this.noise;
+        const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 1800;
+        const cg = ctx.createGain(); cg.gain.setValueAtTime(0.05, t + beat * 0.5); cg.gain.exponentialRampToValueAtTime(0.0001, t + beat * 0.5 + 0.08);
+        c.connect(hp).connect(cg).connect(this.master); c.start(t + beat * 0.5, Math.random()); c.stop(t + beat * 0.5 + 0.1);
+      }
+    }
+  }
 
   /** Sifflet de l'arbitre : n coups, long ou court. */
   whistle(n = 1, long = false) {
