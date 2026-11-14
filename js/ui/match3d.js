@@ -22,6 +22,22 @@ function canvasTex(w, h, draw) {
   return t;
 }
 
+/** Fusionne des pavés [largeur, hauteur, profondeur, x, y, z] en une seule géométrie. */
+function mergeBoxes(list) {
+  const pos = [], nor = [], idx = [];
+  for (const [w, h, d, x, y, z] of list) {
+    const b = new THREE.BoxGeometry(w, h, d); b.translate(x, y, z);
+    const off = pos.length / 3;
+    pos.push(...b.attributes.position.array); nor.push(...b.attributes.normal.array);
+    idx.push(...Array.from(b.index.array, (i) => i + off));
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  g.setIndex(idx);
+  return g;
+}
+
 /** Texture du terrain : bandes de tonte et lignes réglementaires. */
 function pitchTexture(maxAniso) {
   const PAD = 5, S = 18; // pixels par mètre
@@ -305,6 +321,26 @@ class Player3D {
     this.ring = new THREE.Mesh(G.ring, mats.ring);
     this.ring.rotation.x = -Math.PI / 2; this.ring.position.y = 0.03; this.ring.visible = false;
     this.root.add(this.ring);
+    // Tête articulée (crâne, cheveux, oreilles, visage) : elle suit le ballon des yeux.
+    this.headPivot = new THREE.Group(); this.headPivot.position.y = 1.6; this.body.add(this.headPivot);
+    for (const c of this.body.children.slice()) if (c !== this.headPivot && c.position.y >= 1.64 && c.position.y < 2.2) { this.body.remove(c); c.position.y -= 1.6; this.headPivot.add(c); }
+    this._sm = null; // poses lissées (pas d'à-coups entre deux gestes)
+  }
+
+  /** Lissage des articulations : la pose calculée devient une cible vers laquelle on glisse. */
+  smoothPose(dt) {
+    const [lL, lR] = this.legs, [aL, aR] = this.arms;
+    const objs = [lL.hip.rotation, lR.hip.rotation, lL.knee.rotation, lR.knee.rotation, aL.sh.rotation, aR.sh.rotation, aL.el.rotation, aR.el.rotation, this.body.rotation, this.headPivot.rotation];
+    const cur = [];
+    for (const r of objs) cur.push(r.x, r.y, r.z);
+    cur.push(this.body.position.y);
+    if (!this._sm || !(dt > 0)) { this._sm = cur; return; }
+    const a = 1 - Math.exp(-dt * 24);
+    const sm = this._sm;
+    for (let i = 0; i < cur.length; i++) sm[i] += (cur[i] - sm[i]) * a;
+    let k = 0;
+    for (const r of objs) { r.set(sm[k], sm[k + 1], sm[k + 2]); k += 3; }
+    this.body.position.y = sm[k];
   }
 
   /**
@@ -346,7 +382,17 @@ class Player3D {
       a.el.rotation.z = 0.35 + 1.0 * run;
     }
     const lean = Math.max(-0.25, Math.min(0.32, 0.05 + 0.2 * run + (p.acc || 0) * 0.025));
-    this.body.rotation.set(0, 0, -lean);
+    // Virage : le joueur s'incline vers l'intérieur de la courbe, d'autant plus qu'il va vite.
+    const dtp = ctx.dt || 0.016;
+    let dF = (p.face || 0) - (this._pf ?? p.face ?? 0);
+    dF = Math.atan2(Math.sin(dF), Math.cos(dF));
+    this._pf = p.face || 0;
+    this._turn = (this._turn || 0) * 0.8 + (dF / dtp) * 0.2;
+    const bank = Math.max(-0.3, Math.min(0.3, this._turn * run * 0.09));
+    this.body.rotation.set(bank, 0, -lean);
+    // La tête suit le ballon (dans la limite de ce que permet le cou).
+    if (ctx.ballAng != null) { let r = ctx.ballAng - (p.face || 0); r = Math.atan2(Math.sin(r), Math.cos(r)); this.headPivot.rotation.set(0, -Math.max(-1.1, Math.min(1.1, r)), 0); }
+    else this.headPivot.rotation.set(0, 0, 0);
     this.body.position.set(0, Math.abs(Math.sin(ph)) * (0.03 + 0.06 * run) * jog, 0);
     // À l'arrêt : genoux souples ; le gardien se met en position d'attente quand le jeu approche.
     if (sp < 0.8) {
@@ -492,6 +538,13 @@ class Player3D {
       this.body.rotation.z = -0.25 + 0.5 * Math.max(0, Math.sin((t - 0.4) * Math.PI));
       lL.knee.rotation.z = lR.knee.rotation.z = -0.6 * Math.sin(t * Math.PI);
     }
+    // Duel au coude-à-coude : épaule contre épaule, bras qui tient l'adversaire à distance.
+    if (ctx.jostle && !(p.kick > 0) && !(p.slide > 0) && !(p.fall > 0)) {
+      const side = ctx.jostle; // -1 : adversaire à gauche, 1 : à droite
+      this.body.rotation.x += side * 0.16;
+      const a = side > 0 ? this.arms[1] : this.arms[0];
+      a.sh.rotation.x = -a.sgn * 1.05; a.sh.rotation.z = 0.35; a.el.rotation.z = 0.5;
+    }
     // Célébration : course bras écartés (« l'avion »), puis bonds bras levés.
     if (p.celeb > 0) {
       if (sp > 2) for (const a of this.arms) { a.sh.rotation.x = -a.sgn * 1.45; a.sh.rotation.z = 0; a.el.rotation.z = 0.05; }
@@ -597,50 +650,9 @@ export class Match3D {
       const b = new THREE.Mesh(new THREE.BoxGeometry(0.2, 1, W + 4), boards);
       b.position.set(x, 0.5, 0); s.add(b);
     }
-    // Tribunes en gradins (3 étages), toit.
-    const crowd = new THREE.MeshLambertMaterial({ map: crowdTexture(h.color, a.color) });
-    crowd.map.wrapS = crowd.map.wrapT = THREE.RepeatWrapping;
-    crowd.map.repeat.set(2.6, 0.5); // sièges d'environ 50 cm, 8 rangées par étage
-    const concrete = new THREE.MeshLambertMaterial({ color: '#2a3140' });
-    const stand = (len, depthAxis, sign, dist) => {
-      for (let k = 0; k < 4; k++) {
-        const hgt = 3.2, dep = 6;
-        const geom = depthAxis === 'z' ? new THREE.BoxGeometry(len, hgt, dep) : new THREE.BoxGeometry(dep, hgt, len);
-        const m = new THREE.Mesh(geom, k === 3 ? concrete : crowd);
-        const off = dist + k * dep;
-        if (depthAxis === 'z') m.position.set(0, hgt / 2 + k * hgt, sign * off); else m.position.set(sign * off, hgt / 2 + k * hgt, 0);
-        s.add(m);
-      }
-      const roof = new THREE.Mesh(depthAxis === 'z' ? new THREE.BoxGeometry(len, 0.5, 26) : new THREE.BoxGeometry(26, 0.5, len), concrete);
-      if (depthAxis === 'z') roof.position.set(0, 15.5, sign * (dist + 11)); else roof.position.set(sign * (dist + 11), 15.5, 0);
-      s.add(roof);
-    };
-    stand(L + 30, 'z', -1, W / 2 + 9);
-    // Gradins inclinés devant chaque tribune (on voit la pente, comme dans un vrai stade),
-    // ruban LED entre les étages, avancée du toit.
-    const rake = (len, depthAxis, sign, dist) => {
-      const slope = Math.hypot(13, 9.6), ang = Math.atan2(9.6, 13);
-      const pl = new THREE.Mesh(new THREE.PlaneGeometry(len, slope), crowd);
-      const led = new THREE.Mesh(new THREE.PlaneGeometry(len, 0.9), ledMat);
-      const fascia = new THREE.Mesh(new THREE.BoxGeometry(depthAxis === 'z' ? len : 1.2, 2.2, depthAxis === 'z' ? 1.2 : len), concrete);
-      if (depthAxis === 'z') {
-        pl.position.set(0, 1.4 + 4.8, sign * (dist - 0.2 + 6.5));
-        pl.rotation.set(0, sign < 0 ? 0 : Math.PI, 0); pl.rotateX(-(Math.PI / 2 - ang));
-        led.position.set(0, 0.9, sign * (dist - 0.6)); led.rotation.y = sign < 0 ? 0 : Math.PI;
-        fascia.position.set(0, 15, sign * (dist - 1));
-      } else {
-        pl.rotation.set(0, sign < 0 ? Math.PI / 2 : -Math.PI / 2, 0); pl.rotateX(-(Math.PI / 2 - ang));
-        pl.position.set(sign * (dist - 0.2 + 6.5), 1.4 + 4.8, 0);
-        led.position.set(sign * (dist - 0.6), 0.9, 0); led.rotation.y = sign < 0 ? Math.PI / 2 : -Math.PI / 2;
-        fascia.position.set(sign * (dist - 1), 15, 0);
-      }
-      s.add(pl); s.add(led); s.add(fascia);
-    };
+    // Tribunes : vraie enceinte à deux étages (gradins en marches, sièges, spectateurs 3D).
     const ledMat = new THREE.MeshBasicMaterial({ map: boardsTexture([h.name, a.name]), color: '#ffffff' });
-    this.crowdMat = crowd;
-    rake(L + 30, 'z', -1, W / 2 + 9);
-    rake(W + 16, 'x', -1, L / 2 + 10);
-    rake(W + 16, 'x', 1, L / 2 + 10);
+    this.buildBowl(h, a, ledMat);
     // Bancs de touche (abris transparents) côté caméra, et zone technique.
     const glass = new THREE.MeshLambertMaterial({ color: '#9fc3e6', transparent: true, opacity: 0.35 });
     const seatM = new THREE.MeshLambertMaterial({ color: '#1b2233' });
@@ -651,9 +663,6 @@ export class Match3D {
       const seat = new THREE.Mesh(new THREE.BoxGeometry(6.6, 0.5, 0.8), seatM); seat.position.set(0, 0.45, 0.6); g2.add(seat);
       g2.position.set(sx, 0, W / 2 + 4.6); s.add(g2);
     }
-    // Pas de tribune côté caméra : elle masquerait le terrain (comme à la télé).
-    stand(W + 16, 'x', -1, L / 2 + 10);
-    stand(W + 16, 'x', 1, L / 2 + 10);
     // Projecteurs.
     const glowTex = canvasTex(64, 64, (g, w, hh) => { const rg = g.createRadialGradient(w / 2, hh / 2, 0, w / 2, hh / 2, w / 2); rg.addColorStop(0, 'rgba(255,255,255,1)'); rg.addColorStop(0.25, 'rgba(255,240,200,.6)'); rg.addColorStop(1, 'rgba(255,240,200,0)'); g.fillStyle = rg; g.fillRect(0, 0, w, hh); });
     const mast = new THREE.MeshLambertMaterial({ color: '#555c69' });
@@ -685,6 +694,157 @@ export class Match3D {
     for (const [x, z] of [[-L / 2, -W / 2], [L / 2, -W / 2], [-L / 2, W / 2], [L / 2, W / 2]]) {
       const p = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 1.6, 6), post); p.position.set(x, 0.8, z); s.add(p);
       const f = new THREE.Mesh(new THREE.PlaneGeometry(0.4, 0.3), flag); f.position.set(x + 0.2, 1.45, z); s.add(f);
+    }
+  }
+
+  /**
+   * ENCEINTE DU STADE
+   * Trois tribunes (la 4e, côté caméra, est retirée comme à la télé), chacune avec :
+   *  - deux étages de gradins en marches (béton), séparés par une coursive et un ruban LED ;
+   *  - des sièges et des spectateurs en 3D (maillots surtout aux couleurs du club qui reçoit,
+   *    parcage visiteur dans un coin, quelques sièges vides) ;
+   *  - un toit en porte-à-faux avec rampe d'éclairage, une façade, des poteaux ;
+   *  - drapeaux et tifo derrière le but des supporters locaux.
+   * Sièges et spectateurs sont des InstancedMesh (quelques appels de dessin seulement).
+   */
+  buildBowl(h, a, ledMat) {
+    const s = this.scene;
+    const coarse = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
+    const SP = coarse ? 1.05 : 0.8;                  // espacement des sièges (m)
+    const concrete = new THREE.MeshLambertMaterial({ color: '#8b9099' });
+    const concreteD = new THREE.MeshLambertMaterial({ color: '#4a505b' });
+    const steel = new THREE.MeshLambertMaterial({ color: '#2b3038' });
+    const roofUnder = new THREE.MeshLambertMaterial({ color: '#d9dde3', side: THREE.DoubleSide });
+    const roofGlass = new THREE.MeshLambertMaterial({ color: '#b9d3ea', transparent: true, opacity: 0.35, side: THREE.DoubleSide, depthWrite: false });
+    const lightStrip = new THREE.MeshBasicMaterial({ color: '#fff6dc' });
+    const darken = (hex, k) => { const c = new THREE.Color(hex); c.multiplyScalar(k); return c; };
+    const seatCol = darken(h.color, 0.55), seatCol2 = new THREE.Color('#3c4350');
+    const skins = ['#f1c9a5', '#e0b28a', '#c68f63', '#a0673f', '#6e4429', '#f3d2b5'].map((c) => new THREE.Color(c));
+    const others = ['#e8e8e8', '#20242c', '#5d6b85', '#8b2d2d', '#2f5d3a', '#c9b38a'].map((c) => new THREE.Color(c));
+    const cH = new THREE.Color(h.color), cH2 = new THREE.Color(h.color2 || '#ffffff'), cA = new THREE.Color(a.color), cA2 = new THREE.Color(a.color2 || '#ffffff');
+    let seed = 7;
+    const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    const bodyG = new THREE.BoxGeometry(0.46, 0.62, 0.3); bodyG.translate(0, 0.55, 0.05);
+    const headG = new THREE.BoxGeometry(0.22, 0.24, 0.22); headG.translate(0, 1.0, 0.05);
+    // Siège = assise + dossier dans une seule géométrie (un seul appel de dessin).
+    const seatG = mergeBoxes([[0.46, 0.1, 0.4, 0, 0.38, 0.05], [0.46, 0.42, 0.06, 0, 0.6, 0.27]]);
+    const white = new THREE.MeshLambertMaterial({ color: '#ffffff' });
+    this.crowdGroups = [];
+    this.flags = [];
+    /** Tiers : [rangs, profondeur, montée] ; le 2e étage commence après la coursive. */
+    const TIERS = [{ rows: 15, dep: 0.82, rise: 0.4 }, { rows: 13, dep: 0.82, rise: 0.58 }];
+    const stand = (len, rotY, dist, opts = {}) => {
+      const g = new THREE.Group();
+      g.rotation.y = rotY;
+      // Profil des marches (z vers l'extérieur, y vers le haut).
+      const shape = new THREE.Shape();
+      const rowsPos = [];
+      let z = dist, y = 1.1;
+      shape.moveTo(dist - 0.4, 0); shape.lineTo(dist - 0.4, y);
+      TIERS.forEach((t, ti) => {
+        if (ti === 1) { // coursive + façade du 2e étage (support du ruban LED)
+          shape.lineTo(z + 2.4, y); z += 2.4;
+          const yTop = y + 3.2;
+          const led = new THREE.Mesh(new THREE.PlaneGeometry(len, 1.1), ledMat);
+          led.position.set(0, y + 1.9, z - 0.05); led.rotation.y = Math.PI; g.add(led);
+          shape.lineTo(z, yTop); y = yTop;
+        }
+        for (let r = 0; r < t.rows; r++) {
+          rowsPos.push({ z: z + t.dep * 0.5, y, tier: ti });
+          shape.lineTo(z + t.dep, y); z += t.dep;
+          if (r < t.rows - 1) { shape.lineTo(z, y + t.rise); y += t.rise; }
+        }
+      });
+      const zBack = z, yTop = y;
+      shape.lineTo(zBack + 1.2, yTop); shape.lineTo(zBack + 1.2, 0); shape.lineTo(dist - 0.4, 0);
+      const steps = new THREE.Mesh(new THREE.ExtrudeGeometry(shape, { depth: len, bevelEnabled: false }), concrete);
+      steps.rotation.y = -Math.PI / 2; steps.position.x = len / 2;
+      g.add(steps);
+      // Façade arrière et mur d'enceinte.
+      const facade = new THREE.Mesh(new THREE.BoxGeometry(len, yTop + 7, 0.6), concreteD);
+      facade.position.set(0, (yTop + 7) / 2, zBack + 1.5); g.add(facade);
+      for (let x = -len / 2; x <= len / 2 + 0.1; x += 12) {
+        const rib = new THREE.Mesh(new THREE.BoxGeometry(0.5, yTop + 7.5, 0.8), steel); rib.position.set(x, (yTop + 7.5) / 2, zBack + 1.9); g.add(rib);
+      }
+      // Toit en porte-à-faux, légèrement relevé vers le terrain, rampe lumineuse au bord.
+      const rLen = zBack - dist + 6, rY0 = yTop + 6.5, rY1 = yTop + 8.2;
+      const roof = new THREE.Mesh(new THREE.PlaneGeometry(len + 2, rLen), roofUnder);
+      roof.rotation.x = -Math.PI / 2 + Math.atan2(rY1 - rY0, rLen); roof.position.set(0, (rY0 + rY1) / 2, zBack + 1.5 - rLen / 2); g.add(roof);
+      const edge = new THREE.Mesh(new THREE.PlaneGeometry(len + 2, 3.2), roofGlass);
+      edge.rotation.x = -Math.PI / 2 + 0.08; edge.position.set(0, rY1 + 0.15, zBack + 1.5 - rLen - 1.5); g.add(edge);
+      const strip = new THREE.Mesh(new THREE.BoxGeometry(len, 0.18, 0.3), lightStrip); strip.position.set(0, rY1 - 0.25, zBack + 1.5 - rLen + 0.4); g.add(strip);
+      const beam = new THREE.Mesh(new THREE.BoxGeometry(len + 2, 0.7, 0.7), steel); beam.position.set(0, rY0, zBack + 1.4); g.add(beam);
+      for (let x = -len / 2; x <= len / 2 + 0.1; x += len / 4) {
+        const col = new THREE.Mesh(new THREE.BoxGeometry(0.6, rY0, 0.6), steel); col.position.set(x, rY0 / 2, zBack + 2.2); g.add(col);
+        const truss = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.9, rLen), steel);
+        truss.position.set(x, (rY0 + rY1) / 2 + 0.5, zBack + 1.5 - rLen / 2); truss.rotation.x = -Math.atan2(rY1 - rY0, rLen); g.add(truss);
+      }
+      // Muret devant le premier rang + escaliers d'accès (bandes claires).
+      const wall = new THREE.Mesh(new THREE.BoxGeometry(len, 1.3, 0.3), concreteD); wall.position.set(0, 0.65, dist - 0.45); g.add(wall);
+      // Sièges et spectateurs.
+      const nPer = Math.floor(len / SP);
+      const slots = [];
+      for (const rp of rowsPos) for (let i = 0; i < nPer; i++) {
+        const x = -len / 2 + SP * (i + 0.5);
+        if (Math.abs(((x + len / 2) % 18) - 9) < SP * 0.6) continue; // allées d'escalier
+        slots.push([x + (rp.tier ? 0 : (rnd() - 0.5) * 0.04), rp.y, rp.z, rp]);
+      }
+      const fill = opts.fill ?? 0.9;
+      const fans = [], empty = [];
+      for (const sl of slots) (rnd() < fill ? fans : empty).push(sl);
+      // Sièges : seuls les sièges vides sont dessinés (les autres sont cachés par les spectateurs).
+      const seats = new THREE.InstancedMesh(seatG, white, empty.length);
+      const bodies = new THREE.InstancedMesh(bodyG, white, fans.length), heads = new THREE.InstancedMesh(headG, white, fans.length);
+      const M = new THREE.Matrix4();
+      empty.forEach(([x, yy, zz], i) => {
+        M.makeTranslation(x, yy, zz); seats.setMatrixAt(i, M);
+        seats.setColorAt(i, (Math.floor((x + len / 2) / 3) + Math.round(yy)) % 7 === 0 ? seatCol2 : seatCol);
+      });
+      fans.forEach(([x, yy, zz], i) => {
+        const stand = rnd() < 0.18 ? 0.12 : 0; // quelques supporters debout
+        M.makeTranslation(x, yy + stand, zz - 0.02); bodies.setMatrixAt(i, M); heads.setMatrixAt(i, M);
+        const away = opts.away && opts.away(x);
+        const r = rnd();
+        const col = away ? (r < 0.7 ? cA : r < 0.88 ? cA2 : others[(rnd() * others.length) | 0])
+          : r < (opts.ultras ? 0.8 : 0.55) ? cH : r < (opts.ultras ? 0.92 : 0.7) ? cH2 : others[(rnd() * others.length) | 0];
+        bodies.setColorAt(i, col); heads.setColorAt(i, skins[(rnd() * skins.length) | 0]);
+      });
+      for (const im of [seats, bodies, heads]) { im.instanceMatrix.needsUpdate = true; if (im.instanceColor) im.instanceColor.needsUpdate = true; }
+      if (empty.length) g.add(seats);
+      this.crowdHeads = (this.crowdHeads || []).concat(heads);
+      const crowdG = new THREE.Group(); crowdG.add(bodies); crowdG.add(heads); g.add(crowdG);
+      this.crowdGroups.push({ g: crowdG, ph: rnd() * 6, ultras: !!opts.ultras });
+      // Tifo et drapeaux (virage des supporters locaux).
+      if (opts.ultras) {
+        const tifo = new THREE.Mesh(new THREE.PlaneGeometry(Math.min(40, len * 0.5), 2.2), new THREE.MeshBasicMaterial({ map: canvasTex(1024, 64, (gg, w2, h2) => {
+          gg.fillStyle = h.color; gg.fillRect(0, 0, w2, h2); gg.fillStyle = h.color2 || '#fff'; gg.fillRect(0, 0, w2, 6); gg.fillRect(0, h2 - 6, w2, 6);
+          gg.font = '900 40px system-ui, sans-serif'; gg.textAlign = 'center'; gg.textBaseline = 'middle'; gg.fillText(`ALLEZ ${h.short || h.name}`.toUpperCase(), w2 / 2, h2 / 2 + 2);
+        }), side: THREE.DoubleSide }));
+        tifo.position.set(0, 1.9, dist - 0.65); tifo.rotation.y = Math.PI; g.add(tifo);
+        const fm = [h.color, h.color2 || '#ffffff'].map((c) => new THREE.MeshLambertMaterial({ color: c, side: THREE.DoubleSide }));
+        for (let k = 0; k < 9; k++) {
+          const rp = rowsPos[3 + ((k * 5) % 10)];
+          const pole = new THREE.Group();
+          pole.position.set(-len * 0.3 + k * len * 0.075, rp.y + 1.2, rp.z);
+          const stick = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 2.4, 4), steel); stick.position.y = 1.2; pole.add(stick);
+          const fl = new THREE.Mesh(new THREE.PlaneGeometry(1.8, 1.1), fm[k % 2]); fl.position.set(0.9, 1.9, 0); pole.add(fl);
+          g.add(pole); this.flags.push({ pole, ph: k * 0.9 });
+        }
+      }
+      s.add(g);
+      return g;
+    };
+    stand(L + 30, Math.PI, W / 2 + 9, { fill: 0.9 });                       // grande tribune, en face
+    stand(W + 16, Math.PI / 2, L / 2 + 10, { fill: 0.93, ultras: true });    // virage local
+    stand(W + 16, -Math.PI / 2, L / 2 + 10, { fill: 0.82, away: (x) => x > (W + 16) / 2 - 22 }); // virage avec parcage visiteur
+    // Coins : blocs de liaison (escaliers, écrans géants).
+    const screenMat = new THREE.MeshBasicMaterial({ color: '#0b1220' });
+    for (const sx of [-1, 1]) {
+      const blk = new THREE.Mesh(new THREE.BoxGeometry(14, 22, 14), concreteD);
+      blk.position.set(sx * (L / 2 + 17), 11, -(W / 2 + 18)); s.add(blk);
+      const scr = new THREE.Mesh(new THREE.PlaneGeometry(11, 6), screenMat);
+      scr.position.set(sx * (L / 2 + 14), 17, -(W / 2 + 10.9)); scr.lookAt(0, 8, 0); s.add(scr);
+      (this.screens ||= []).push(scr);
     }
   }
 
@@ -857,6 +1017,8 @@ export class Match3D {
         const avg = this._acc / this._n;
         const q = this.quality ?? 1;
         if (avg > 24 && q > 0.55) { this.quality = Math.max(0.55, q - 0.15); this._good = 0; this.resize(); }
+        // Appareil vraiment lent : on allège la foule (têtes masquées : on garde la silhouette des tribunes).
+        else if (avg > 34 && q <= 0.55 && !this._liteCrowd) { this._liteCrowd = true; for (const hd of this.crowdHeads || []) hd.visible = false; }
         else if (avg < 18.5 && q < 1 && (this._good = (this._good || 0) + 1) >= 3) { this.quality = Math.min(1, q + 0.1); this._good = 0; this.resize(); }
         this._acc = 0; this._n = 0;
       }
@@ -868,10 +1030,15 @@ export class Match3D {
     const v = this.v;
     this.stepPrecip(Math.min(0.05, dt || 0.016));
     // La foule se lève et saute après un but (la texture des tribunes « vibre »).
-    if (this.crowdMat?.map) {
+    {
       const cheer = v.banner && v.banner.text === 'BUT !';
-      this._cheerT = (this._cheerT || 0) + dt;
-      this.crowdMat.map.offset.y = cheer ? Math.abs(Math.sin(this._cheerT * 9)) * 0.012 : 0;
+      const tense = !cheer && v.inHL; // temps fort : la foule se lève à moitié
+      this._cheerT = (this._cheerT || 0) + (dt || 0.016);
+      for (const c of this.crowdGroups || []) {
+        const target = cheer ? Math.abs(Math.sin(this._cheerT * 8 + c.ph)) * 0.32 : tense ? 0.08 : c.ultras ? Math.abs(Math.sin(this._cheerT * 4 + c.ph)) * 0.05 : 0;
+        c.g.position.y += (target - c.g.position.y) * 0.3;
+      }
+      for (const f of this.flags || []) f.pole.rotation.z = Math.sin(this._cheerT * (cheer ? 6 : 2.2) + f.ph) * (cheer ? 0.5 : 0.22);
     }
     if (!document.hidden) this.adaptQuality();
     this.syncPlayers();
@@ -883,7 +1050,16 @@ export class Match3D {
       e.p3.root.position.set(x, 0, z);
       const dB = Math.hypot((p.x - v.ball.x) * L, (p.y - v.ball.y) * W);
       const isCar = id === carrier;
-      e.p3.pose(p, flip, { ballNear: p.gk && dB < 30, restFar: dB > 28 && !isCar, shield: isCar && !v.inHands && (p.shieldK || 0) > 0, holding: isCar && v.inHands && p.gk });
+      // Adversaire au contact (duel) : de quel côté est-il ?
+      let jostle = 0;
+      if (dB < 4 && !p.gk) for (const [id2, q] of v.players) {
+        if (id2 === id || q.side === p.side) continue;
+        const dx = (q.x - p.x) * L, dy = (q.y - p.y) * W;
+        if (dx * dx + dy * dy < 1.69) { const rel = Math.atan2(dy, dx) - (p.face || 0); jostle = Math.sin(rel) > 0 ? 1 : -1; break; }
+      }
+      const ballAng = dB < 45 ? Math.atan2((v.ball.y - p.y) * W, (v.ball.x - p.x) * L) : null;
+      e.p3.pose(p, flip, { dt: dt || 0.016, ballAng, jostle, ballNear: p.gk && dB < 30, restFar: dB > 28 && !isCar, shield: isCar && !v.inHands && (p.shieldK || 0) > 0, holding: isCar && v.inHands && p.gk });
+      e.p3.smoothPose(dt || 0.016);
       const hl = id === carrier || id === v.selected;
       e.p3.ring.visible = id === v.selected;   // pas de rond sous le porteur : seulement le joueur touché
       e.p3.ring.material = this.mats[p.side].ring;

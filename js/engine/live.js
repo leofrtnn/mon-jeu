@@ -1566,7 +1566,7 @@ export class LiveSim {
         if (rv < 0) {
           a.vx += ux * rv * ka; a.vy += uy * rv * ka;
           c.vx -= ux * rv * kc; c.vy -= uy * rv * kc;
-          if (-rv > 4.5) { a.bump = Math.max(a.bump || 0, 0.35 * ka * 2); c.bump = Math.max(c.bump || 0, 0.35 * kc * 2); a.bumpDir = Math.atan2(-uy, -ux); c.bumpDir = Math.atan2(uy, ux); }
+          if (-rv > 3.5) { const kb = Math.min(0.9, -rv * 0.085); a.bump = Math.max(a.bump || 0, kb * ka * 2); c.bump = Math.max(c.bump || 0, kb * kc * 2); a.bumpDir = Math.atan2(-uy, -ux); c.bumpDir = Math.atan2(uy, ux); }
         }
       }
     }

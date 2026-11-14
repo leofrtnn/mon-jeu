@@ -26,7 +26,8 @@ import { openDecisions } from '../../game/inbox.js';
 import { openInterview } from './inboxUI.js';
 import { showDayReport } from './dayReport.js';
 
-const SPEEDS = [2, 4, 8]; // x2 = temps réel ×2 : un match dure 45 minutes (temps forts seulement)
+const SPEEDS = ['auto', 1, 4]; // auto : temps forts en x1 (temps réel), le reste en accéléré x4 (visible)
+const speedLabel = (v, hl) => (v === 'auto' ? (hl ? 'x1 ⚡' : 'x4 ⏩') : `x${v}`);
 /** Événements montrés en mode "Résumé rapide". */
 const QUICK_KEEP = new Set(['goal', 'red', 'yellow', 'penalty', 'var', 'ht', 'ft', 'injury', 'kickoff', 'freekick']);
 
@@ -72,7 +73,7 @@ export function openMatch(app, opts = {}) {
     <div class="feed" id="feed"></div>
     <div class="controls">
       <button class="btn primary" data-c="pause" title="Compo, changements, tactique">📋 Compo &amp; tactique</button>
-      <button class="btn" data-c="speed">x${SPEEDS[0]}</button>
+      <button class="btn" data-c="speed" title="Auto : temps forts en x1, le reste en x4">${speedLabel(s.settings.hlMode || 'auto')}</button>
       <button class="btn" data-c="skip">⏭ Fin</button>
       <button class="btn" data-c="style" style="flex:.6" title="Vue">${{ fm: '2D', '3d': '3D', anim: '🎥' }[s.settings.matchStyle || '3d']}</button>
       <button class="btn" data-c="cam" style="flex:.6" title="Caméra">📹</button>
@@ -83,7 +84,7 @@ export function openMatch(app, opts = {}) {
   document.body.style.overflow = 'hidden';
 
   const $ = (id) => root.querySelector('#' + id);
-  const ctrl = { speedIdx: Math.max(0, SPEEDS.indexOf(s.settings.speed || 2)), quick: false, finished: false, scorers: [[], []], recent: [] };
+  const ctrl = { speedIdx: Math.max(0, SPEEDS.indexOf(s.settings.hlMode || 'auto')), quick: false, finished: false, scorers: [[], []], recent: [] };
   const official = !opts.cfg;
   // Journal des décisions du coach (instant précis = nombre de pas du moteur) : permet de
   // rejouer ce match À L'IDENTIQUE sur un autre appareil (match entre managers, en ligne).
@@ -233,7 +234,8 @@ export function openMatch(app, opts = {}) {
     } while (view.queue.length === 0 && m.phase === 'live' && guard++ < 30);
   };
 
-  const view = new MatchView($('pitch'), m, { userSide, onEventStart, onIdle, live: replay ? true : s.settings.liveEngine !== false,
+  const view = new MatchView($('pitch'), m, { userSide, onEventStart, onIdle, live: replay ? true : s.settings.liveEngine !== false, hlMode: SPEEDS[ctrl.speedIdx],
+    onHighlight: (on) => { const b = root.querySelector('[data-c="speed"]'); if (b && SPEEDS[ctrl.speedIdx] === 'auto') { b.textContent = speedLabel('auto', on); b.classList.toggle('hl-on', on); } },
     beforeStep: replay ? (n) => applyJournal(n) : null, labelMode: s.settings.labels || ((s.settings.matchStyle || '3d') !== 'anim' ? 'num' : 'name'), style: s.settings.matchStyle || '3d', onPlayerTap: showTapCard,
     on3DFail: () => { app.toast('3D indisponible sur cet appareil : vue 2D.', 3500); s.settings.matchStyle = 'fm'; root.querySelector('[data-c=style]').textContent = '2D'; } });
   bc = new Broadcast($('bcast'), { m, cfg, hc, ac, colors: view.colors, nameOf, holderOf: () => (view.hl === 'skip' ? null : view.holder),
@@ -245,8 +247,21 @@ export function openMatch(app, opts = {}) {
     return bc.intro(matchDay(m, cfg, currentDate(s))).then(() => { if (view.r3d) view.r3d.camMode = 'tv'; });
   };
   window.__bc = bc; window.__view = view; window.__journal = journal; window.__cfgSnap = () => replayCfg(cfg); // débogage
-  view.setSpeed(SPEEDS[ctrl.speedIdx]);
-  root.querySelector('[data-c="speed"]').textContent = `x${SPEEDS[ctrl.speedIdx]}`;
+  const applySpeed = () => {
+    const v = SPEEDS[ctrl.speedIdx];
+    view.hlMode = v;
+    view.setSpeed((v === 'auto' ? 4 : v) * (ctrl.quick ? (view.live ? 3 : 1.5) : 1));
+    root.querySelector('[data-c="speed"]').textContent = speedLabel(v, view.inHL);
+  };
+  applySpeed();
+  // Horloge à la seconde (en haut à gauche et dans l'habillage télé).
+  const clockTimer = setInterval(() => {
+    if (!root.isConnected) { clearInterval(clockTimer); return; }
+    if (!view.live || m.phase !== 'live' || view.replayLive) return;
+    const t = view.clockText();
+    $('sb-clock').textContent = t;
+    if (bc && bc.clock !== t) bc.bug(bc.score, t);
+  }, 200);
 
   /* ---------- Contrôles ---------- */
   root.querySelector('.controls').addEventListener('click', (e) => {
@@ -256,9 +271,9 @@ export function openMatch(app, opts = {}) {
     if (c === 'pause') { if (replay) { app.toast('Match en différé : pas de changement possible.'); return; } if (m.phase === 'live') { view.pause(); pauseSheet(); } }
     if (c === 'speed') {
       ctrl.speedIdx = (ctrl.speedIdx + 1) % SPEEDS.length;
-      view.setSpeed(SPEEDS[ctrl.speedIdx] * (ctrl.quick ? (view.live ? 3 : 1.5) : 1));
-      b.textContent = `x${SPEEDS[ctrl.speedIdx]}`;
-      s.settings.speed = SPEEDS[ctrl.speedIdx]; app.save();
+      applySpeed();
+      s.settings.hlMode = SPEEDS[ctrl.speedIdx]; app.save();
+      app.toast(SPEEDS[ctrl.speedIdx] === 'auto' ? 'Auto : temps forts en x1, le reste en accéléré x4' : `Vitesse fixe x${SPEEDS[ctrl.speedIdx]}`);
     }
     if (c === 'skip') { if (replay) { view.setSpeed(12); app.toast('Avance rapide'); } else { rec('skip', {}); skipToEnd(); } }
     if (c === 'style') {

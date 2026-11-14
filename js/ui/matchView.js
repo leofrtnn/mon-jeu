@@ -113,6 +113,8 @@ export class MatchView {
       this.TS = 1; // temps réel : x2 = un match de 45 minutes
       this.highlights = opts.highlights !== false; // temps forts : le reste est passé en avance rapide
       this.hl = 'show'; this.hlCalm = 0; this.hlGrace = 10;
+      // Mode « auto » : x1 pendant les temps forts, x4 (visible) le reste du temps.
+      this.hlMode = opts.hlMode || 'auto'; this.inHL = false; this.effSpeed = 4;
     }
     this.resize();
     if (this.style === '3d') this.setStyle('3d');
@@ -435,7 +437,7 @@ export class MatchView {
     this.lastTs = ts;
     this.lastDt = dt;
     // Le ralenti garde une vitesse lisible même en x4.
-    if (!this.paused) this.update(dt * (this.cur?.replay ? Math.min(this.speed, 1.5) : this.speed), dt);
+    if (!this.paused) this.update(dt * (this.cur?.replay ? Math.min(this.speed, 1.5) : this.liveSpeed(dt)), dt);
     else this.updateIdle(dt);
     this.draw();
     this.raf = requestAnimationFrame(this._loop);
@@ -543,36 +545,66 @@ export class MatchView {
     }
     if (L.shot || L.celebrate) return true;
     const side = L.holder ? L.holder.side : L.poss;
-    return Math.hypot(L.goalX(side) - P.x, PITCH_W / 2 - P.y) < 30;
+    const d = Math.hypot(L.goalX(side) - P.x, PITCH_W / 2 - P.y);
+    if (d < 32) return true;
+    // Contre-attaque : porteur lancé vers le but adverse dans la moitié offensive.
+    if (L.holder && d < 50) {
+      const pl = this.players.get(L.holder.mp.id);
+      const toward = pl ? (L.goalX(side) - P.x) * (pl.vx || 0) > 0 : false;
+      if (toward && (pl.speed || 0) > 5.5) return true;
+    }
+    return false;
   }
 
-  /** Gestion des temps forts. Retourne true si l'image a servi à l'avance rapide. */
+  /**
+   * Vitesse effective. Mode auto : x1 pendant un temps fort, x4 entre deux (on voit le jeu
+   * en accéléré), avec une transition douce. Un temps fort dure tant que l'action est
+   * dangereuse, puis encore ~7 s de jeu : il peut très bien ne déboucher sur rien.
+   */
+  liveSpeed(dt) {
+    if (!this.live || this.speed > 8) return this.speed; // avance rapide demandée (différé)
+    if (!this.highlights || this.hlMode !== 'auto') return this.hlMode === 'auto' ? this.speed : +this.hlMode;
+    const target = this.inHL ? 1 : 4;
+    this.effSpeed += (target - this.effSpeed) * Math.min(1, dt * (target < this.effSpeed ? 6 : 1.6));
+    if (Math.abs(this.effSpeed - target) < 0.02) this.effSpeed = target;
+    return this.effSpeed;
+  }
+
+  /** Gestion des temps forts. Retourne true si l'image a servi à l'avance rapide (forcée). */
   updateHighlights(realDt) {
     if (this.hl === 'show') {
-      const game = realDt * this.speed;
+      const game = realDt * this.effSpeed;
       if (this.hlGrace > 0) { this.hlGrace -= game; return false; }
-      this.hlCalm = this.hlWant() ? 0 : this.hlCalm + game;
-      if (this.hlCalm > 3.5) { this.hl = 'skip'; this.setVeil(true); }
+      const want = this.hlWant();
+      this.hlCalm = want ? 0 : this.hlCalm + game;
+      const on = want || (this.inHL && this.hlCalm < 7);
+      if (on !== this.inHL) { this.inHL = on; this.opts.onHighlight?.(on); }
       return false;
     }
-    // Avance rapide : simulation au pas fixe (identique au direct), sans rien afficher, ~14 ms par image.
+    // Avance rapide forcée (jusqu'à la mi-temps, tests) : simulation au pas fixe, sans affichage.
     const t0 = performance.now();
-    let want = false;
     while (!this.paused && performance.now() - t0 < (this.ffBudget || 14)) {
       for (let i = 0; i < 24 && !this.paused; i++) {
         this.opts.beforeStep?.(this.liveSteps || 0);
         this.liveSteps = (this.liveSteps || 0) + 1;
-        for (const ev of this.live.step(LIVE_STEP)) { this.liveEvent(ev); if (ev.type === 'ht' || ev.type === 'ft' || ev.type === 'kickoff') this.hlGrace = 8; }
+        for (const ev of this.live.step(LIVE_STEP)) this.liveEvent(ev);
       }
-      if ((want = this.hlWant())) break;
+      if (this.hlWant() && !this.hlForce) break;
     }
     this.holder = this.live.holder ? this.live.holder.mp.id : null;
     this.inHands = this.live.inHands;
     const b = this.ball, P = this.phys;
     b.x = P.x / PITCH_L; b.y = P.y / PITCH_W; b.h = Math.max(0, P.z - BALL_R) / 26;
-    if (want || this.paused) { this.hl = 'show'; this.hlCalm = 0; this.liveAcc = 0; this.slowmo = null; this.setVeil(false); }
+    if (this.paused || (!this.hlForce && this.hlWant())) { this.hl = 'show'; this.hlCalm = 0; this.liveAcc = 0; this.slowmo = null; this.setVeil(false); }
     this.updateFx(realDt);
     return true;
+  }
+
+  /** Horloge à la seconde (mm:ss) du moteur en direct. */
+  clockText() {
+    const m = this.m, sec = Math.floor(this.live?.sec || 0);
+    const mm = m.phase === 'live' ? m.minute + (m.extra || 0) : m.minute;
+    return `${String(mm).padStart(2, '0')}:${String(m.phase === 'live' ? sec : 0).padStart(2, '0')}`;
   }
 
   /** Voile de coupure (avance rapide entre deux temps forts). */

@@ -1215,3 +1215,4 @@ ul.notes { margin: 4px 0 0; padding-left: 18px; font-size: 13px; line-height: 1.
 .camp-opt:disabled { opacity: .45; cursor: not-allowed; }
 .camp-opt .ci { font-size: 26px; }
 .camp-opt small { color: var(--muted); font-size: 12px; }
+.controls .btn.hl-on { background: linear-gradient(135deg, #f4c430, #ff8a3d); color: #1a1205; border-color: transparent; }
