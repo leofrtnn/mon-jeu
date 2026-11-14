@@ -259,6 +259,9 @@ function marketRow(s, p, price) {
   });
 }
 
+/** Tenue des membres du staff sur leur portrait (survêtement, polo, blouse…). */
+const STAFF_KIT = { assistant: '#1d2b53', gk: '#14532d', fitness: '#7c2d12', physio: '#e5e7eb', scout: '#3f3f46', youth: '#065f46', analyst: '#312e81' };
+
 function staff(app) {
   const s = app.state;
   const uc = userClub(s);
@@ -267,8 +270,8 @@ function staff(app) {
   const pool = (s.staffPool || []).filter((m) => !role || m.role === role).sort((a, b) => b.rating - a.rating);
   const rc = (r) => (r >= 15 ? 'var(--good)' : r >= 10 ? 'var(--ok)' : 'var(--muted)');
   const member = (m, act) => `<div class="prow" style="cursor:default">
-      ${portraitSvg(personLook(m.id, m.nat, m.age), 40, '#1c2333')}
-      <div class="pname"><b>${esc(m.first)} ${esc(m.last)}</b><small>${STAFF_ROLES[m.role].icon} ${STAFF_ROLES[m.role].label} · ${esc(m.nat)} · ${m.age} ans · ${money(m.wage)}/sem${act === 'fire' ? ` · ${m.contract} an(s)` : ''}</small></div>
+      ${m.photo ? face({ first: m.first, last: m.last, photo: m.photo }, null, 'md') : portraitSvg(personLook(m.id, m.nat, m.age), 48, STAFF_KIT[m.role] || '#1c2333')}
+      <div class="pname"><b>${esc(m.first)} ${esc(m.last)}</b>${m.exPlayer ? ` <span class="tag ok" style="font-size:10px">${m.legend ? '⭐ ' : ''}${esc(m.note || 'Ancien joueur')}</span>` : ''}<small>${STAFF_ROLES[m.role].icon} ${STAFF_ROLES[m.role].label} · ${esc(m.nat)} · ${m.age} ans · ${money(m.wage)}/sem${act === 'fire' ? ` · ${m.contract} an(s)` : ''}</small></div>
       <b style="font-family:var(--display);font-size:22px;color:${rc(m.rating)};min-width:30px;text-align:center">${m.rating}</b>
       <div class="btns" style="flex-direction:column;gap:4px">${act === 'fire' && m.contract <= 1 ? `<button class="btn sm primary" data-act="renewstaff" data-id="${m.id}">Prolonger</button>` : ''}
       <button class="btn sm ${act === 'hire' ? 'primary' : 'danger'}" data-act="${act}staff" data-id="${m.id}">${act === 'hire' ? 'Négocier' : 'Licencier'}</button></div></div>`;
@@ -302,7 +305,11 @@ function training(s) {
       <p class="muted" style="font-size:13px">${TRAINING_FOCUS[t.focus].desc}</p>
       <div class="label">Intensité</div>${seg('tint', ['low', 'mid', 'high'], t.intensity, INTENSITY)}
       <p class="muted" style="font-size:12px;margin-bottom:0">Intense : progression +45 %, mais fatigue et risque de blessure à l'entraînement. Légère : récupération.</p>
+      <div class="label">Options</div>
+      <label class="row" style="gap:8px;padding:4px 0"><input type="checkbox" data-act="topt" data-k="oppPrep" ${t.oppPrep ? 'checked' : ''}><span><b>Préparer spécifiquement le prochain adversaire</b><br><small class="muted">Vidéo, coups de pied arrêtés, plan de jeu : léger avantage au prochain match, mais −12 % de progression.</small></span></label>
+      <label class="row" style="gap:8px;padding:4px 0"><input type="checkbox" data-act="topt" data-k="autoRest" ${t.autoRest !== false ? 'checked' : ''}><span><b>Gestion automatique de la charge</b><br><small class="muted">Les joueurs dont la condition passe sous 40 % sont mis au repos (récupération, pas de progression cette semaine).</small></span></label>
     </div>
+    ${seasonProgress(s, uc)}
     <div class="card"><h3>Effets actuels</h3>
       <div class="row between"><span>Centre d'entraînement</span>${stars(uc.facilities.training)}</div>
       <div class="row between"><span>Entraîneur adjoint</span><b>${bestStaff(uc, 'assistant') || '—'}/20</b></div>
@@ -310,6 +317,17 @@ function training(s) {
       <div class="row between"><span>Maîtrise tactique</span><b style="color:${scaleColor(uc.fam ?? 60)}">${Math.round(uc.fam ?? 60)} %</b></div></div>
     ${trainReport(s, uc)}
     ${individualTraining(s, uc)}`;
+}
+
+/** Bilan de la saison : qui progresse le plus à l'entraînement (et qui régresse). */
+function seasonProgress(s, uc) {
+  const T = uc.trainSeason || {};
+  const rows = Object.entries(T).map(([id, g]) => ({ p: s.players[id], ...g })).filter((x) => x.p && x.p.clubId === uc.id && (x.up || x.down));
+  if (!rows.length) return '';
+  rows.sort((a, b) => (b.up - b.down) - (a.up - a.down));
+  const bar = (x) => `<span class="mtr" style="width:90px"><i style="width:${Math.min(100, x.up * 12)}%;background:var(--good)"></i></span>`;
+  return `<div class="card"><h3>📈 Progrès de la saison</h3>${rows.slice(0, 8).map((x) => `<div class="row between tr-row" data-act="player" data-id="${x.p.id}"><span>${posBadge(x.p.pos)} ${esc(x.p.name)} <small class="muted">${x.p.age} ans</small></span><span>${bar(x)} <b class="pos-txt">+${x.up}</b>${x.down ? ` <b class="neg-txt">−${x.down}</b>` : ''}</span></div>`).join('')}
+    ${rows.length > 8 && rows[rows.length - 1].down > rows[rows.length - 1].up ? `<p class="muted" style="font-size:12px;margin:6px 0 0">En baisse : ${rows.filter((x) => x.down > x.up).slice(0, 4).map((x) => esc(x.p.name)).join(', ')} (âge, manque de temps de jeu ?)</p>` : ''}</div>`;
 }
 
 /** Rapport d'entraînement : les dernières progressions (et baisses) observées. */
@@ -442,6 +460,7 @@ export const actions = {
   ...settings.actions,
   ...friends.actions,
   ctab(el, app) { app.ui.clubTab = el.dataset.v; app.render(); },
+  topt(el, app) { if (el.tagName !== 'INPUT') return; const uc = userClub(app.state); uc.training[el.dataset.k] = el.checked; app.save(); app.render(); },
   split(el, app) { if (el.tagName !== 'INPUT') return; const r = setSplit(app.state, +el.value / 100); if (r.msg) app.toast(r.ok ? `Enveloppes : ${el.value} % transferts` : r.msg); app.save(); app.render(); },
   alloc(el, app) { if (el.tagName !== 'SELECT') return; const uc = userClub(app.state); (uc.alloc ||= { scout: 1, youth: 1, medical: 1 })[el.dataset.k] = +el.value; app.save(); app.render(); },
   deal(el, app) { import('./deals.js').then((mod) => mod.dealSheet(app, +el.dataset.id, () => app.render())); },

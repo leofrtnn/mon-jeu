@@ -7,6 +7,7 @@ const shade = (hex, k) => {
   return '#' + [f((v >> 16) & 255), f((v >> 8) & 255), f(v & 255)].map((x) => x.toString(16).padStart(2, '0')).join('');
 };
 
+let AVID = 0;
 export function avatarSvg(look, size = 96, bg = '#1f352b') {
   const L = look || {};
   const skin = L.skin || '#d9a066', hair = L.hairColor || '#3d2a1a', cloth = L.outfitColor || '#1c2333';
@@ -75,19 +76,48 @@ export function avatarSvg(look, size = 96, bg = '#1f352b') {
     : L.acc === 'headset' ? `<path d="M26 46 Q26 18 50 18 Q74 18 74 46" stroke="#222" stroke-width="2.5" fill="none"/><rect x="22" y="42" width="7" height="11" rx="3" fill="#222"/><path d="M27 52 Q32 62 42 62" stroke="#222" stroke-width="1.6" fill="none"/>`
     : '';
   const scarf = L.acc === 'scarf' ? `<path d="M34 74 Q50 82 66 74 L66 80 Q50 88 34 80Z" fill="#c1121f"/><path d="M58 80 L62 98 L54 98 L54 82Z" fill="#c1121f"/><path d="M34 77 Q50 85 66 77" stroke="#fff" stroke-width="1.5" fill="none" opacity=".8"/>` : '';
+  // Rendu « peinture numérique » : volumes de la peau, yeux détaillés, nez, lèvres, reflets.
+  const u = 'av' + (++AVID);
+  const sk1 = shade(skin, 1.1), sk2 = shade(skin, 0.74), lip = shade(skin, 0.68), lipL = shade(skin, 0.86), blush = shade(skin, 0.92);
+  const iris = eye === '#1d1d1d' ? '#3b2416' : eye;
+  const eyeG = (cx) => `<path d="M${cx - 5.2} 48.4 Q${cx} 44.2 ${cx + 5.2} 48.4 Q${cx} 51.6 ${cx - 5.2} 48.4Z" fill="#f7f3ee"/>
+      <circle cx="${cx + 0.3}" cy="48.2" r="2.45" fill="${iris}"/><circle cx="${cx + 0.3}" cy="48.2" r="2.45" fill="url(#${u}i)"/><circle cx="${cx + 0.3}" cy="48.2" r="1.05" fill="#0b0b0b"/>
+      <circle cx="${cx + 1.1}" cy="47.3" r=".6" fill="#fff"/>
+      <path d="M${cx - 5.6} 48.3 Q${cx} 43.6 ${cx + 5.6} 48.3" stroke="${shade(skin, 0.45)}" stroke-width="1.15" fill="none" stroke-linecap="round"/>
+      <path d="M${cx - 4.6} 49.9 Q${cx} 51.9 ${cx + 4.6} 49.9" stroke="${sk2}" stroke-width=".6" fill="none" opacity=".7"/>`;
+  const brow = (cx, flip) => { const t = browW; const a = flip ? -1 : 1;
+    return `<path d="M${cx - 6 * a} ${42.6} Q${cx - 1 * a} ${39.2 - t * 0.4} ${cx + 5.5 * a} ${41.6} L${cx + 5.2 * a} ${41.6 + t * 0.55} Q${cx - 1 * a} ${40.8} ${cx - 5.8 * a} ${43.4 + t * 0.2}Z" fill="${hairDark}"/>`; };
+  const lips = L.mouth === 'smile'
+    ? `<path d="M42 62.6 Q50 61.2 58 62.6 Q50 69.5 42 62.6Z" fill="${lip}"/><path d="M43.5 63.2 Q50 66.6 56.5 63.2" stroke="#fff" stroke-width=".9" fill="none" opacity=".75"/>`
+    : L.mouth === 'stern' ? `<path d="M42.5 64.2 Q50 62.6 57.5 64.2 Q50 65.6 42.5 64.2Z" fill="${lip}"/><path d="M43.5 64.6 Q50 67.4 56.5 64.6 Q50 66 43.5 64.6Z" fill="${lipL}"/>`
+    : `<path d="M42.5 63.6 Q46 62.2 50 63 Q54 62.2 57.5 63.6 Q50 64.8 42.5 63.6Z" fill="${lip}"/><path d="M43.2 63.9 Q50 68.4 56.8 63.9 Q50 65.4 43.2 63.9Z" fill="${lipL}"/><path d="M46 66.2 Q50 67.2 54 66.2" stroke="#fff" stroke-width=".6" fill="none" opacity=".45"/>`;
   return `<svg viewBox="0 0 100 100" width="${size}" height="${size}" role="img" aria-label="Avatar du coach" style="border-radius:50%;background:${L.bg || bg};flex:none">
-    ${hairBack}
-    <rect x="43" y="64" width="14" height="16" rx="5" fill="${dark}"/>
-    ${outfit}${scarf}
-    <ellipse cx="27" cy="50" rx="4" ry="6" fill="${dark}"/><ellipse cx="73" cy="50" rx="4" ry="6" fill="${dark}"/>
-    <path d="${faceP}" fill="${skin}"/>
+    <defs>
+      <radialGradient id="${u}s" cx="44%" cy="38%" r="68%"><stop offset="0" stop-color="${sk1}"/><stop offset=".62" stop-color="${skin}"/><stop offset="1" stop-color="${sk2}"/></radialGradient>
+      <radialGradient id="${u}i" cx="40%" cy="35%" r="70%"><stop offset="0" stop-color="#fff" stop-opacity=".35"/><stop offset=".6" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".45"/></radialGradient>
+      <linearGradient id="${u}h" x1="0" y1="0" x2=".3" y2="1"><stop offset="0" stop-color="${shade(hair, 1.35)}"/><stop offset=".45" stop-color="${hair}"/><stop offset="1" stop-color="${hairDark}"/></linearGradient>
+      <radialGradient id="${u}b" cx="50%" cy="35%" r="75%"><stop offset="0" stop-color="#fff" stop-opacity=".10"/><stop offset="1" stop-color="#000" stop-opacity=".35"/></radialGradient>
+      <linearGradient id="${u}c" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".12"/><stop offset="1" stop-color="#000" stop-opacity=".35"/></linearGradient>
+    </defs>
+    <rect width="100" height="100" fill="url(#${u}b)"/>
+    ${hairBack.replace(/fill="[^"]*"/, `fill="url(#${u}h)"`)}
+    <path d="M42.5 62 L57.5 62 L58.5 80 Q50 84 41.5 80Z" fill="${sk2}"/>
+    <path d="M42.5 66 Q50 72 57.5 66 L57.5 70 Q50 75 42.5 70Z" fill="#000" opacity=".18"/>
+    ${outfit}<path d="M10 100 Q14 80 34 76 L50 84 L66 76 Q86 80 90 100Z" fill="url(#${u}c)"/>${scarf}
+    <ellipse cx="27" cy="50" rx="4.2" ry="6.4" fill="${skin}"/><ellipse cx="73" cy="50" rx="4.2" ry="6.4" fill="${skin}"/>
+    <path d="M26.2 47 Q28 50 26.8 54 M73.8 47 Q72 50 73.2 54" stroke="${sk2}" stroke-width="1.1" fill="none"/>
+    <path d="${faceP}" fill="url(#${u}s)"/>
+    <ellipse cx="38" cy="57" rx="5.5" ry="3.2" fill="${blush}" opacity=".35"/><ellipse cx="62" cy="57" rx="5.5" ry="3.2" fill="${blush}" opacity=".35"/>
+    <path d="M31 60 Q36 72 50 74 Q64 72 69 60 Q66 70 50 72 Q34 70 31 60Z" fill="${sk2}" opacity=".35"/>
     ${beard}
-    <path d="M36 42 Q40 39 45 41 M55 41 Q60 39 64 42" stroke="${hairDark}" stroke-width="${browW}" fill="none" stroke-linecap="round"/>
-    <circle cx="40" cy="48" r="2.3" fill="${eye}"/><circle cx="60" cy="48" r="2.3" fill="${eye}"/><circle cx="40.8" cy="47.2" r=".7" fill="#fff"/><circle cx="60.8" cy="47.2" r=".7" fill="#fff"/>
-    <path d="M50 50 Q48 57 51 58" stroke="${dark}" stroke-width="1.6" fill="none"/>
-    ${mouth}
+    ${brow(40, false)}${brow(60, true)}
+    ${eyeG(40)}${eyeG(60)}
+    <path d="M48.6 47 Q47.4 54 46.6 57.2 Q48.4 59.4 50.8 58.8" stroke="${sk2}" stroke-width="1.1" fill="none" opacity=".85"/>
+    <path d="M47 58.2 Q48.2 59.8 50 59.4 Q51.8 59.8 53 58.2" stroke="${shade(skin, 0.55)}" stroke-width="1" fill="none"/>
+    <ellipse cx="50.6" cy="55.8" rx="1.6" ry="1" fill="#fff" opacity=".25"/>
+    ${lips}
     ${glasses}
-    ${L.acc === 'cap' || L.acc === 'beanie' ? acc : hairFront + acc}
+    ${L.acc === 'cap' || L.acc === 'beanie' ? acc : hairFront.replace(new RegExp(`fill="${hair}"`, 'g'), `fill="url(#${u}h)"`) + (L.hairStyle !== 'bald' && L.hairStyle !== 'buzz' ? `<path d="M34 27 Q46 22 62 25" stroke="#fff" stroke-width="1.2" fill="none" opacity=".18"/>` : '') + acc}
   </svg>`;
 }
 
@@ -126,20 +156,9 @@ export function personLook(id, nat = '', age = 30) {
 /** Portrait réaliste (dégradés de peau, ombres, nez, lèvres) en tenue de club ou de survêtement. */
 export function portraitSvg(look, size = 40, shirt = '#203a6b') {
   const L = look || {};
-  const id = 'pt' + (++PID);
-  const skin = L.skin || '#e1ad86', hair = L.hairColor || '#3d2a1a';
-  const sk1 = shade(skin, 1.08), sk2 = shade(skin, 0.78), hairD = shade(hair, 0.7);
-  const wr = L.age > 45 ? `<path d="M38 41 Q41 40 44 41 M56 41 Q59 40 62 41" stroke="${sk2}" stroke-width=".7" fill="none" opacity=".6"/>` : '';
-  // On réutilise l'avatar pour les cheveux, la barbe, les lunettes ; le visage est redessiné avec du relief.
-  const base = avatarSvg({ ...L, outfit: 'polo', outfitColor: shirt, acc: 'none', bg: '#2a3140' }, size);
-  const relief = `<defs><radialGradient id="${id}f" cx="45%" cy="40%" r="62%"><stop offset="0" stop-color="${sk1}"/><stop offset=".7" stop-color="${skin}"/><stop offset="1" stop-color="${sk2}"/></radialGradient>
-    <linearGradient id="${id}n" x1="0" x2="1"><stop offset="0" stop-color="${sk2}" stop-opacity=".0"/><stop offset="1" stop-color="${sk2}" stop-opacity=".55"/></linearGradient></defs>
-    <path d="M30 45 Q30 24 50 23 Q70 24 70 45 Q70 70 50 72 Q30 70 30 45Z" fill="url(#${id}f)" opacity=".9"/>
-    <path d="M49 46 L46 57 Q49 59 53 57 L51 46Z" fill="url(#${id}n)"/><path d="M45 57.5 Q50 60 55 57.5" stroke="${sk2}" stroke-width="1.1" fill="none"/>
-    <ellipse cx="40" cy="48.3" rx="3.4" ry="2.1" fill="#fff" opacity=".9"/><ellipse cx="60" cy="48.3" rx="3.4" ry="2.1" fill="#fff" opacity=".9"/>
-    <circle cx="40" cy="48.3" r="1.7" fill="${L.eyes || '#2a1a10'}"/><circle cx="60" cy="48.3" r="1.7" fill="${L.eyes || '#2a1a10'}"/>
-    <path d="M44 64 Q50 ${L.mouth === 'smile' ? 67.5 : 65.5} 56 64 Q50 63 44 64Z" fill="${shade(skin, 0.68)}"/>
-    <path d="M36 42 Q40 39.5 45 41.2 M55 41.2 Q60 39.5 64 42" stroke="${hairD}" stroke-width="${{ thick: 2.8, thin: 1.2 }[L.brows] || 1.9}" fill="none" stroke-linecap="round"/>${wr}`;
-  // Le relief est inséré juste après le visage de l'avatar (avant barbe, lunettes et cheveux).
-  return base.replace(/(<path d="M2[789] 4[46][^"]*" fill="[^"]*"\/>)/, `$1${relief}`);
+  // Même rendu détaillé que l'avatar du coach (relief, yeux, nez, lèvres), en tenue de club ;
+  // les plus âgés ont quelques rides.
+  const wr = L.age > 45 ? `<path d="M36 39.5 Q40 38.4 44 39.4 M56 39.4 Q60 38.4 64 39.5 M35 51 Q34 53 35.5 55 M65 51 Q66 53 64.5 55" stroke="${shade(L.skin || '#e1ad86', 0.72)}" stroke-width=".6" fill="none" opacity=".7"/>` : '';
+  const out = L.outfit || (L.age <= 21 ? 'tracksuit' : 'polo');
+  return avatarSvg({ ...L, outfit: out, outfitColor: shirt, acc: 'none', bg: L.bg || '#2a3140' }, size).replace('</svg>', `${wr}</svg>`);
 }

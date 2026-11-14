@@ -1312,3 +1312,53 @@ ul.notes { margin: 4px 0 0; padding-left: 18px; font-size: 13px; line-height: 1.
 .slot-grid .slot-card.empty { opacity: .75; border-style: dashed; }
 .slot-btns { display: flex; flex-direction: column; gap: 5px; }
 .brand .logo-mark { filter: none; }
+
+/* ---------- Effectif (tableau) ---------- */
+.sq-head { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; margin: 8px 0; }
+.sq-kpi { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 8px 12px; display: flex; flex-direction: column; }
+.sq-kpi b { font-family: var(--display); font-size: 22px; line-height: 1.1; }
+.sq-kpi small { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+.sq-kpi.warn b { color: var(--warn, #f59e0b); }
+.sq-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; margin: 8px 0; }
+.sq-bar .seg { flex: 1 1 320px; }
+.sq-table-wrap { padding: 0; overflow-x: auto; }
+.sq-table { min-width: 640px; }
+.sq-table th { cursor: pointer; white-space: nowrap; user-select: none; }
+.sq-table th.on { color: var(--accent); }
+.sq-table td { vertical-align: middle; padding: 6px 8px; }
+.sq-table tbody tr { cursor: pointer; transition: background .15s; }
+.sq-table tbody tr:hover td { background: rgba(255, 255, 255, .04); }
+.sq-table tr.dim td { opacity: .6; }
+.sq-table td.nm { display: flex; gap: 8px; align-items: center; min-width: 190px; }
+.sq-table td.nm b { font-size: 14px; }
+.mtr { display: inline-block; width: 56px; height: 6px; border-radius: 3px; background: rgba(255, 255, 255, .08); overflow: hidden; vertical-align: middle; }
+.mtr i { display: block; height: 100%; }
+
+/* ---------- Journal ---------- */
+.np-mast { text-align: center; border-top: 3px double var(--line); border-bottom: 3px double var(--line); padding: 10px 0; margin: 6px 0 10px; }
+.np-mast b { display: block; font-family: Georgia, 'Times New Roman', serif; font-size: 34px; letter-spacing: .06em; }
+.np-mast small { color: var(--muted); font-style: italic; }
+.np-art { background: var(--card); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; display: flex; flex-direction: column; }
+.np-art.big { display: grid; grid-template-columns: 1.2fr 1fr; margin: 10px 0; }
+@media (max-width: 760px) { .np-art.big { grid-template-columns: 1fr; } }
+.np-img { position: relative; aspect-ratio: 16 / 9; overflow: hidden; background: #0f172a; }
+.np-art.big .np-img { aspect-ratio: auto; min-height: 240px; }
+.np-img .np-scene { position: absolute; inset: 0; width: 100%; height: 100%; }
+.np-img img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 22%; filter: saturate(1.05) contrast(1.05); }
+.np-img.photo::after { content: ''; position: absolute; inset: 0; background: linear-gradient(180deg, transparent 55%, rgba(2, 6, 23, .55)); }
+.np-crest { position: absolute; left: 50%; top: 52%; transform: translate(-50%, -50%) scale(1.8); filter: drop-shadow(0 6px 16px rgba(0, 0, 0, .6)); }
+.np-txt { padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; }
+.np-tag { align-self: flex-start; font: 800 10px/1 var(--body); letter-spacing: .14em; padding: 4px 7px; border-radius: 4px; background: var(--tc); color: #0b1020; }
+.np-txt h3 { margin: 0; font-family: Georgia, 'Times New Roman', serif; font-size: 18px; line-height: 1.25; }
+.np-art.big .np-txt h3 { font-size: 26px; }
+.np-body { margin: 0; font-size: 13.5px; line-height: 1.5; color: var(--text, #e5e7eb); }
+.np-txt blockquote { margin: 2px 0; padding: 6px 10px; border-left: 3px solid var(--accent); font-style: italic; font-size: 13px; color: var(--muted); }
+.np-txt cite { font-style: normal; font-size: 12px; }
+.np-by { color: var(--muted); font-size: 11px; }
+.np-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; }
+/* Marché des entraîneurs */
+.cm-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; }
+.cm-card { display: flex; gap: 10px; align-items: center; padding: 10px 12px; margin: 0; }
+.cm-card .grow small { display: block; color: var(--muted); }
+.cm-rep { text-align: center; min-width: 52px; }
+.cm-rep b { font-family: var(--display); font-size: 22px; display: block; }

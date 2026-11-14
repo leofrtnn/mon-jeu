@@ -16,6 +16,7 @@ import { createRng, hashSeed } from '../../core/rng.js';
 import { CONTI_SLOTS } from '../../data/world.js';
 import { divPicker } from './stats.js';
 import { nationSquad } from '../../game/season.js';
+import { newspaperHtml } from '../newspaper.js';
 import { TOURNAMENTS, tournamentsIn, summerYear } from '../../game/international.js';
 import { nationFlag, confedOf } from '../../data/nations.js';
 import { clubPlayers as clubPlayersOf } from '../../game/state.js';
@@ -26,14 +27,14 @@ export function render(app) {
   const tab = app.ui.schedTab || 'table';
   const div = app.ui.schedDiv || uc.div;
   let body = '', title = '', chips = '';
-  const world = [['news', 'Actualités'], ['managers', 'Entraîneurs'], ['nations', 'Sélections']];
+  const world = [['news', 'Journal'], ['managers', 'Marché des entraîneurs'], ['nations', 'Sélections']];
   if (tab === 'table' || tab === 'scorers') { title = 'Championnat'; body = divPicker(s, div, uc, 'sdiv') + table(s, div, uc); }
   else if (tab === 'fixtures') { title = 'Calendrier'; body = fixtures(s, uc); }
   else if (tab === 'cup') { title = 'Coupes & trophées'; body = cups(app, s, uc); }
   else {
     title = 'Monde du foot';
     chips = `<div class="chips sub-tabs">${world.map(([k, l]) => `<button class="chip ${tab === k ? 'on' : ''}" data-act="stab" data-v="${k}">${l}</button>`).join('')}</div>`;
-    body = tab === 'managers' ? divPicker(s, div, uc, 'sdiv') + managersView(s, uc, div) : tab === 'news' ? newsView(s) : nations(s, uc, app);
+    body = tab === 'managers' ? managersView(s, uc, div) : tab === 'news' ? newspaperHtml(s, app.ui.npf || 'all') : nations(s, uc, app);
   }
   return `<div class="page-head"><h2>${title}</h2>${chips}</div>${body}`;
 }
@@ -284,22 +285,28 @@ function nationDetail(s, uc, n) {
 
 function managersView(s, uc, div) {
   ensureManagers(s);
-  const vac = s.clubs.filter((c) => c.vacantSince && c.id !== uc.id);
+  const vac = s.clubs.filter((c) => c.vacantSince && c.id !== uc.id).sort((a, b) => b.rep - a.rep);
   const look = (m) => randomLook(createRng(hashSeed(m.id)).next);
   const confC = (v) => (v >= 55 ? 'var(--good)' : v >= 30 ? 'var(--ok)' : 'var(--bad)');
-  const row = (c, m) => `<div class="prow" style="cursor:default">${m ? (m.photo ? face({ first: m.first, last: m.last, photo: m.photo }, c, 'md') : avatarSvg(look(m), 44)) : avatarSvg(s.coach.look, 44)}
+  const pic = (m, c) => (m.photo ? face({ first: m.first, last: m.last, photo: m.photo }, c, 'md') : avatarSvg(look(m), 48));
+  const free = freeManagers(s).sort((a, b) => b.rep - a.rep);
+  const hot = Object.values(s.managers || {}).filter((m) => m.clubId != null && m.conf < 30).map((m) => ({ m, c: clubById(s, m.clubId) })).filter((x) => x.c).sort((a, b) => a.m.conf - b.m.conf).slice(0, 8);
+  const row = (c, m) => `<div class="prow" style="cursor:default">${m ? pic(m, c) : avatarSvg(s.coach.look, 48)}
       <div class="pname"><b>${m ? esc(m.first + ' ' + m.last) : esc(coachName(s.coach)) + ' <small>(vous)</small>'}</b>
-        <small>${c ? esc(c.name) + ' · ' : ''}${esc(m ? m.nat : s.coach.nationality)} · ${m ? m.age : s.coach.age} ans · ${esc(PHILOSOPHIES[m ? m.philosophy : s.coach.philosophy].label)} · ${esc(m ? m.formation : s.coach.formation)}</small></div>
+        <small>${c ? esc(c.name) + ' · ' : ''}${esc(m ? m.nat : s.coach.nationality)} · ${m ? m.age : s.coach.age} ans · ${esc(PHILOSOPHIES[m ? m.philosophy : s.coach.philosophy]?.label || '')} · ${esc(m ? m.formation : s.coach.formation)}</small></div>
       <div class="center" style="min-width:58px"><b style="font-family:var(--display);font-size:18px">${Math.round(m ? m.rep : s.coach.rep)}</b><br>
         ${m && c ? `<span class="mini" style="width:46px"><i style="width:${m.conf}%;background:${confC(m.conf)}"></i></span>` : '<small>rép.</small>'}</div></div>`;
-  return `${vac.length ? `<div class="label">Postes vacants</div><div class="card" style="margin-top:0">${vac.map((c) => `<div class="row" style="padding:6px 0">${crest(c)}
-      <div class="grow"><b>${esc(c.name)}</b><br><small>${DIVISIONS[c.div].name} · réputation ${c.rep}</small></div>
-      <button class="btn sm primary" data-act="apply" data-id="${c.id}" ${c.rejected ? 'disabled' : ''}>${c.rejected ? 'Refusé' : 'Postuler'}</button></div>`).join('')}</div>` : ''}
-    <div class="label">${esc(DIVISIONS[div].name)} · réputation et confiance du président</div>
+  return `<div class="card row between" style="padding:10px 14px"><span>🪑 <b>${vac.length}</b> poste(s) vacant(s) · <b>${free.length}</b> entraîneur(s) libre(s) · <b>${hot.length}</b> sur la sellette</span><small class="muted">Votre réputation : ${Math.round(s.coach.rep)}</small></div>
+    <div class="label">Postes vacants</div>
+    ${vac.length ? `<div class="cm-grid">${vac.map((c) => `<div class="card cm-card">${crest(c, 'lg')}<div class="grow"><b>${esc(c.name)}</b><small>${esc(DIVISIONS[c.div].name)} · réputation ${c.rep}</small><small>${c.vacantSince != null ? `Sans entraîneur depuis la journée ${c.vacantSince + 1}` : ''}</small></div>
+      <button class="btn sm primary" data-act="apply" data-id="${c.id}" ${c.rejected ? 'disabled' : ''}>${c.rejected ? 'Refusé' : 'Postuler'}</button></div>`).join('')}</div>` : '<div class="card"><p class="muted" style="margin:0">Aucun poste vacant pour le moment. Les limogeages tombent souvent après une mauvaise série.</p></div>'}
+    <div class="label">Entraîneurs libres</div>
+    <div class="cm-grid">${free.slice(0, 24).map((m) => `<div class="card cm-card">${pic(m, null)}<div class="grow"><b>${esc(m.first)} ${esc(m.last)}</b>${m.exPlayer ? ' <span class="tag ok" style="font-size:10px">Ancien joueur</span>' : ''}<small>${esc(m.nat)} · ${m.age} ans · ${esc(PHILOSOPHIES[m.philosophy]?.label || '')} · ${esc(m.formation)}</small><small>${m.history?.length ? `Dernier club : ${esc(m.history[m.history.length - 1].club)}` : 'Premier poste à trouver'}</small></div><div class="cm-rep"><b>${Math.round(m.rep)}</b><small>rép.</small></div></div>`).join('')}</div>
+    ${hot.length ? `<div class="label">Sur la sellette</div><div class="cm-grid">${hot.map(({ m, c }) => `<div class="card cm-card">${pic(m, c)}<div class="grow"><b>${esc(m.first)} ${esc(m.last)}</b><small>${esc(c.name)} · ${esc(DIVISIONS[c.div].name)}</small><small>Confiance du président : <b style="color:${confC(m.conf)}">${Math.round(m.conf)} %</b></small></div>${crest(c, 'sm')}</div>`).join('')}</div>` : ''}
+    <div class="label">Entraîneurs en poste · ${esc(DIVISIONS[div].name)}</div>
+    ${divPicker(s, div, uc, 'sdiv')}
     <div class="card list cols2" style="padding:0 10px;margin-top:0">${s.clubs.filter((c) => c.div === div).sort((a, b) => b.rep - a.rep)
-      .map((c) => (c.id === uc.id ? row(c, null) : row(c, s.managers[c.managerId]))).join('')}</div>
-    <div class="label">Sans club</div>
-    <div class="card list cols2" style="padding:0 10px;margin-top:0">${freeManagers(s).sort((a, b) => b.rep - a.rep).slice(0, 12).map((m) => row(null, m)).join('')}</div>`;
+      .map((c) => (c.id === uc.id ? row(c, null) : row(c, s.managers[c.managerId]))).join('')}</div>`;
 }
 
 function newsView(s) {
@@ -318,6 +325,7 @@ export const actions = {
   stab(el, app) { app.ui.schedTab = el.dataset.v; app.ui.natView = null; app.render(); },
   natv(el, app) { app.ui.schedTab = 'nations'; app.ui.natView = el.dataset.v || null; app.render(); },
   tourv(el, app) { app.ui.tournV = el.dataset.v; app.render(); },
+  npf(el, app) { app.ui.npf = el.dataset.v; app.render(); },
   sdiv(el, app) { if (el.tagName === 'SELECT' && !el.value) return; app.ui.schedDiv = +(el.value || el.dataset.v); app.render(); },
   cupw(el, app) {
     if (el.dataset.v === 'league') { app.ui.schedTab = 'table'; app.ui.schedDiv = null; app.render(); return; }

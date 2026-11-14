@@ -2,6 +2,7 @@
  * CARRIÈRE LONGUE : réputation du coach, offres d'emploi, staff,
  * installations (centre d'entraînement, stade) et plan d'entraînement.
  */
+import { seedLegendStaff } from './afterlife.js';
 import { COUNTRIES } from '../data/world.js';
 import { clamp } from '../core/rng.js';
 import { userClub, clubById, pushMessage, gameRng } from './state.js';
@@ -81,10 +82,11 @@ export function ensureStaff(state) {
     club.staffMembers = Object.keys(STAFF_ROLES).map((role) => makeStaff(rng, role, old[role] ? old[role] * 3 + 3 : base + rng.normal(-1, 2)));
   }
   if (!state.staffPool || state.staffPool.length < 12) refreshStaffPool(state, rng);
+  seedLegendStaff(state, rng); // anciens joueurs connus reconvertis dans l'encadrement
 }
 
 export function refreshStaffPool(state, rng = gameRng(state)) {
-  const pool = (state.staffPool || []).filter(() => rng.chance(0.5));
+  const pool = (state.staffPool || []).filter((m) => m.exPlayer ? rng.chance(0.8) : rng.chance(0.5));
   while (pool.length < 28) {
     const role = rng.pick(Object.keys(STAFF_ROLES));
     pool.push(makeStaff(rng, role, clamp(rng.normal(10, 3.5), 2, 20)));
@@ -228,11 +230,12 @@ export function trainingParams(club, isUser) {
   const eff = staffEffects(club);
   return {
     focus: t.focus, intensity: t.intensity, individual: true,
-    mult: base.mult * imult * eff.progression * (t.focus === 'rest' ? 0.3 : 1),
+    mult: base.mult * imult * eff.progression * (t.focus === 'rest' ? 0.3 : 1) * (t.oppPrep ? 0.88 : 1),
+    oppPrep: !!t.oppPrep, autoRest: t.autoRest !== false,
     fatigue: ({ low: -6, mid: 0, high: 7 }[t.intensity]) + (t.focus === 'physical' ? 3 : 0) + (t.focus === 'rest' ? -10 : 0),
     injury: t.intensity === 'high' ? 0.004 : 0,
     morale: t.focus === 'rest' ? 1 : t.intensity === 'high' ? -0.5 : 0,
-    form: t.focus === 'tactical' ? 1 : 0,
+    form: (t.focus === 'tactical' ? 1 : 0) + (t.oppPrep ? 0.5 : 0),
   };
 }
 
