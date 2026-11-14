@@ -3,6 +3,7 @@
  * Chaque écran exporte : render(app) -> HTML, actions {nom: fn(el, app, ev)},
  * et éventuellement mount(app, root) appelé après le rendu.
  */
+import { logoMark } from './logo.js';
 import { save as saveState, userClub } from '../game/state.js';
 import { money } from '../game/economy.js';
 import { esc, clubAccent, refreshStarRef, crest } from './components.js';
@@ -120,7 +121,7 @@ export const app = {
     this.$tabs = document.getElementById('tabbar');
     this.$overlay = document.getElementById('overlay-root');
     const item = (n) => `<button data-nav="${n.key}" class="${n.main ? 'main' : 'more'}" aria-label="${n.label}">${svg(n.icon)}<span>${n.label}</span>${n.key === 'mail' ? '<em class="nav-badge" id="mailbadge"></em>' : ''}</button>`;
-    this.$tabs.innerHTML = `<div class="brand">${BRAND}<b>Coach<br>de Poche</b></div>
+    this.$tabs.innerHTML = `<div class="brand">${logoMark(34)}<b>Coach<br>de Poche</b></div>
       <div class="inner">${NAV.filter((n) => !n.bottom).map((n) => (n.group ? `<div class="nav-group">${n.group}</div>` : item(n))).join('')}</div>
       <div class="nav-foot">${NAV.filter((n) => n.bottom).map(item).join('')}</div>`;
     // Bouton Retour du navigateur / du téléphone : même effet que ◂.

@@ -125,35 +125,35 @@ export function createRealWorld(rng, data) {
     players[p.id] = p;
     club.playerIds.push(p.id);
   }
-  // Effectifs incomplets sur Wikipédia : on complète (2 gardiens et 22 joueurs au minimum).
-  const NEED = ['GB', 'GB', 'DC', 'DC', 'DC', 'DG', 'DD', 'MDC', 'MC', 'MC', 'MO', 'AG', 'AD', 'BU', 'BU', 'DC', 'DG', 'DD', 'MC', 'MDC', 'AG', 'BU'];
+  // Aucun joueur inventé : les effectifs viennent des sources réelles (Wikipédia, Wikidata).
+  // Les clubs aux effectifs pléthoriques (prêtés, réservistes) libèrent leurs joueurs en trop :
+  // ces VRAIS joueurs forment le marché des joueurs libres, où les clubs incomplets se servent.
+  const freeAgents = [];
   for (const c of clubs) {
-    const have = {};
-    for (const id of c.playerIds) have[players[id].pos] = (have[players[id].pos] || 0) + 1;
-    const crng = createRng(hashSeed('effectif ' + c.key));
-    const used = {};
-    for (const pos of NEED) {
-      used[pos] = (used[pos] || 0) + 1;
-      if ((have[pos] || 0) >= used[pos] && !(c.playerIds.length < 22 && pos !== 'GB' && used[pos] > (have[pos] || 0))) continue;
-      if (c.playerIds.length >= 22 && (have[pos] || 0) >= used[pos]) continue;
-      const p = createPlayer(crng, { pos, level: Math.round(26 + c.rep * 0.5 + crng.normal(0, 2.5)), age: crng.int(19, 31), clubId: c.id, country: c.country });
-      p.wage = playerWage(p); p.value = playerValue(p);
-      players[p.id] = p;
-      c.playerIds.push(p.id);
-      have[pos] = (have[pos] || 0) + 1;
+    if (c.playerIds.length <= 30) continue;
+    const sorted = c.playerIds.map((id) => players[id]).sort((a, b) => overall(b) - overall(a));
+    const gks = sorted.filter((p) => p.pos === 'GB');
+    const keep = new Set([...sorted.slice(0, 28), ...gks.slice(0, 3)].map((p) => p.id));
+    for (const p of sorted) if (!keep.has(p.id)) { p.clubId = null; p.contract = 0; p.number = 0; freeAgents.push(p.id); }
+    c.playerIds = c.playerIds.filter((id) => keep.has(id));
+  }
+  // Les clubs incomplets complètent avec ces joueurs libres (ils devront recruter au mercato sinon).
+  const pool = freeAgents.map((id) => players[id]).sort((a, b) => overall(b) - overall(a));
+  for (const c of clubs.slice().sort((a, b) => b.rep - a.rep)) {
+    for (const need of ['GB', 'GB', 'DC', 'DC', 'DC', 'DG', 'DD', 'MDC', 'MC', 'MC', 'MO', 'AG', 'AD', 'BU', 'BU', 'DC', 'MC', 'BU', 'DG', 'DD']) {
+      if (c.playerIds.length >= 22) break;
+      const have = c.playerIds.filter((id) => players[id].pos === need).length;
+      const want = { GB: 2, DC: 4, MC: 3, BU: 3 }[need] || 1;
+      if (have >= want) continue;
+      const i = pool.findIndex((p) => p.pos === need && Math.abs(overall(p) - (40 + c.rep * 0.4)) < 14);
+      if (i < 0) continue;
+      const p = pool.splice(i, 1)[0];
+      p.clubId = c.id; p.contract = 1 + (p.id % 2); c.playerIds.push(p.id);
+      freeAgents.splice(freeAgents.indexOf(p.id), 1);
     }
+    if (c.playerIds.length < 18) c.shortSquad = true;
   }
   for (const c of clubs) assignNumbers(c.playerIds.map((id) => players[id]));
-  // Joueurs libres (fictifs) : un petit marché d'appoint.
-  const freeAgents = [];
-  const countries = [...new Set(clubs.map((c) => c.country))];
-  for (let k = 0; k < 60; k++) {
-    const pos = rng.pick(['GB', 'DC', 'DC', 'DG', 'DD', 'MDC', 'MC', 'MC', 'MO', 'AG', 'AD', 'BU', 'BU']);
-    const p = createPlayer(rng, { pos, level: rng.int(52, 70), age: rng.int(20, 34), country: rng.pick(countries) });
-    p.contract = 0;
-    players[p.id] = p;
-    freeAgents.push(p.id);
-  }
   const coaches = (data.coaches || []).filter((c) => byKey[c.club]).map((c) => ({ clubId: byKey[c.club].id, name: c.name, nat: fixNat(c.nat), age: c.age, ph: c.ph || null }));
   return { clubs, players, freeAgents, coaches, nextId: getNextId() };
 }

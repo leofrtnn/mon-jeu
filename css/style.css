@@ -1294,3 +1294,21 @@ ul.notes { margin: 4px 0 0; padding-left: 18px; font-size: 13px; line-height: 1.
 .appr button { text-align: left; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--line); background: transparent; color: inherit; cursor: pointer; font: inherit; display: flex; flex-direction: column; gap: 2px; }
 .appr button.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
 .appr small { color: var(--muted); font-size: 11px; }
+
+/* ---------- Écran titre & logo ---------- */
+.logo-full { display: flex; align-items: center; gap: 16px; }
+.logo-mark { filter: drop-shadow(0 10px 30px rgba(124, 58, 237, .45)); flex: none; }
+.logo-word { display: flex; flex-direction: column; line-height: .9; font-family: var(--display); letter-spacing: .02em; }
+.logo-word b { font-size: 54px; font-weight: 900; color: #fff; }
+.logo-word em { font-style: normal; font-size: 46px; font-weight: 900; background: linear-gradient(90deg, #a78bfa, #f0abfc 60%, #fcd34d); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.logo-word small { font-family: var(--body); font-size: 12px; letter-spacing: .3em; text-transform: uppercase; color: var(--muted); margin-top: 8px; }
+.title-screen .hero { position: relative; }
+.title-screen .hero::before { content: ''; position: absolute; inset: -40px -20px; background: radial-gradient(circle at 30% 30%, rgba(139, 92, 246, .28), transparent 60%), radial-gradient(circle at 70% 80%, rgba(245, 158, 11, .12), transparent 55%); pointer-events: none; z-index: -1; }
+.tagline { font-size: 18px; margin: 18px 0 8px; }
+.lang-pick { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 12px 0; }
+.continue-last { margin-bottom: 10px; }
+.slot-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 8px; }
+.slot-grid .slot-card { margin: 0; display: flex; gap: 10px; align-items: center; }
+.slot-grid .slot-card.empty { opacity: .75; border-style: dashed; }
+.slot-btns { display: flex; flex-direction: column; gap: 5px; }
+.brand .logo-mark { filter: none; }

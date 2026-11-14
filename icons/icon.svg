@@ -1,11 +1,22 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="96" fill="#0d1117"/>
-  <rect x="96" y="64" width="320" height="384" rx="18" fill="#1f703d" stroke="#e6edf3" stroke-width="12"/>
-  <line x1="96" y1="256" x2="416" y2="256" stroke="#e6edf3" stroke-width="10"/>
-  <circle cx="256" cy="256" r="52" fill="none" stroke="#e6edf3" stroke-width="10"/>
-  <rect x="176" y="64" width="160" height="62" fill="none" stroke="#e6edf3" stroke-width="10"/>
-  <rect x="176" y="386" width="160" height="62" fill="none" stroke="#e6edf3" stroke-width="10"/>
-  <circle cx="200" cy="330" r="20" fill="#3fb950"/>
-  <circle cx="312" cy="190" r="20" fill="#f85149"/>
-  <circle cx="256" cy="256" r="14" fill="#fff"/>
+<svg xmlns="http://www.w3.org/2000/svg" class="logo-mark" viewBox="0 0 120 140" width="512" height="597" role="img" aria-label="Coach de Poche">
+  <defs>
+    <linearGradient id="lg1a" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#8b5cf6"/><stop offset=".55" stop-color="#5b21b6"/><stop offset="1" stop-color="#1e1b4b"/></linearGradient>
+    <linearGradient id="lg1b" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fde68a"/><stop offset="1" stop-color="#f59e0b"/></linearGradient>
+    <radialGradient id="lg1c" cx=".38" cy=".32" r=".75"><stop offset="0" stop-color="#ffffff"/><stop offset=".7" stop-color="#e7ecf5"/><stop offset="1" stop-color="#aab4c8"/></radialGradient>
+    <clipPath id="lg1k"><path d="M60 6 110 22v44c0 34-21 58-50 70C31 124 10 100 10 66V22z"/></clipPath>
+  </defs>
+  <path d="M60 6 110 22v44c0 34-21 58-50 70C31 124 10 100 10 66V22z" fill="url(#lg1a)"/>
+  <g clip-path="url(#lg1k)" opacity=".28" stroke="#fff" stroke-width="2" fill="none">
+    <path d="M10 96h100"/><circle cx="60" cy="96" r="22"/><path d="M38 136v-18h44v18"/>
+  </g>
+  <path d="M60 6 110 22v44c0 34-21 58-50 70C31 124 10 100 10 66V22z" fill="none" stroke="url(#lg1b)" stroke-width="4"/>
+  <path d="M60 14 102 27" stroke="rgba(255,255,255,.35)" stroke-width="2" stroke-linecap="round"/>
+  <path d="M22 84C34 40 74 30 100 44" fill="none" stroke="url(#lg1b)" stroke-width="5" stroke-linecap="round" stroke-dasharray="1 9" opacity=".9"/>
+  <g transform="translate(60 66)">
+    <circle r="24" fill="url(#lg1c)" stroke="#0f172a" stroke-width="2"/>
+    <path d="M0-9 8.6-2.8 5.3 7.3H-5.3L-8.6-2.8Z" fill="#0f172a"/>
+    <path d="M0-9V-22M8.6-2.8 20.6-7.6M5.3 7.3 12.7 19M-5.3 7.3-12.7 19M-8.6-2.8-20.6-7.6" stroke="#0f172a" stroke-width="2.4"/>
+    <path d="M-17-17-12-22 0-24M17-17 12-22M22 6 18 14M-22 6-18 14M-6 23 6 23" stroke="#0f172a" stroke-width="2.4" fill="none" stroke-linecap="round"/>
+  </g>
+  <path d="M60 104l3.5 7.2 7.9 1.1-5.7 5.6 1.4 7.9-7.1-3.8-7.1 3.8 1.4-7.9-5.7-5.6 7.9-1.1z" fill="url(#lg1b)"/>
 </svg>

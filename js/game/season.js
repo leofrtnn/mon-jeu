@@ -129,6 +129,8 @@ export function startCareer(state, clubId, coach = null) {
   // Carrière réaliste : le coach déjà créé (réputation, parcours) arrive au club qui l'a choisi.
   state.coach = ensureCoachProfile(coach ? { ...newCoach(club), ...coach, clubs: [club.name] } : newCoach(club));
   onUserArrives(state, club);
+  // Effectif incomplet (sources réelles insuffisantes) : il faudra recruter.
+  if (club.playerIds.length < 20) pushMessage(state, { prio: 1, icon: '⚠', title: `Effectif incomplet : ${club.playerIds.length} joueurs`, text: 'Les sources réelles ne listent pas assez de joueurs pour ce club. Recrutez au mercato (joueurs libres, prêts, transferts) pour atteindre au moins 20 joueurs dont 2 gardiens.', action: { type: 'scouting' } });
   // Centre de formation : une première génération de jeunes (16-18 ans) attend le nouveau coach.
   if (!(club.youthIds || []).length) {
     const yr = createRng(hashSeed(`centre-${state.seed}-${club.id}`));

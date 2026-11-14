@@ -384,8 +384,11 @@ export function fillSquad(state, c, rng, min = 22) {
     const count = (pos) => squad.filter((p) => p.pos === pos).length;
     const need = count('GB') < 2 ? 'GB' : ['DC', 'MC', 'BU', 'DG', 'DD', 'AG', 'AD', 'MDC', 'MO'].sort((a, b) => count(a) - count(b))[0];
     const lvl = squadStrength(squad) - 5;
-    let p = state.freeAgents.map((id) => state.players[id]).filter((x) => x.pos === need && overall(x) <= lvl + 6)
-      .sort((a, b) => overall(b) - overall(a))[0];
+    const free = state.freeAgents.map((id) => state.players[id]).filter(Boolean);
+    let p = free.filter((x) => x.pos === need && overall(x) <= lvl + 6).sort((a, b) => overall(b) - overall(a))[0];
+    // Monde réel : jamais de joueur inventé — un vrai joueur libre à un poste voisin, sinon on reste court.
+    if (!p && state.world === 'real') p = free.filter((x) => overall(x) <= lvl + 8).sort((a, b) => overall(b) - overall(a))[0];
+    if (!p && state.world === 'real') break;
     if (!p) { p = createPlayer(rng, { pos: need, level: Math.round(lvl), age: rng.int(19, 30), country: c.country }); state.players[p.id] = p; }
     else state.freeAgents = state.freeAgents.filter((id) => id !== p.id);
     p.contract = rng.int(1, 3);

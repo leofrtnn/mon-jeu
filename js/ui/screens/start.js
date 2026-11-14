@@ -5,7 +5,7 @@
 import { storedRatings, applyRatings } from '../../game/ratingsImport.js';
 import { newGame, startCareer, startingOffers } from '../../game/season.js';
 import { ensureCoachProfile, coachName } from '../../game/coach.js';
-import { load, deleteSave, clubPlayers, slotsInfo, SLOTS, setSlot, importFile, legacySave, dropLegacy, restoreSlot, lastKey } from '../../game/state.js';
+import { load, deleteSave, clubPlayers, slotsInfo, SLOTS, setSlot, importFile, legacySave, dropLegacy, restoreSlot, lastKey, copySlot } from '../../game/state.js';
 import { squadStrength, overall } from '../../engine/ratings.js';
 import { money } from '../../game/economy.js';
 import { esc, crest, playerRow, noteChip } from '../components.js';
@@ -22,6 +22,8 @@ import { loadRealData } from '../../data/realWorld.js';
 import { busy } from '../sim.js';
 import { onlineSection, lobbyHtml, onlineActions, refreshGames } from './online.js';
 import { APP_VERSION } from '../../version.js';
+import { logoFull } from '../logo.js';
+import { LANGS, getLang, setLang } from '../../i18n.js';
 
 /** Applique la philosophie et la formation préférée du coach à son club. */
 export function applyPhilosophy(state) {
@@ -39,30 +41,36 @@ export function render(app) {
   if (ui.step === 'lobby') return lobbyHtml(app);
   if (ui.step === 'menu' || !app.state) {
     const info = slotsInfo();
-    return `<div class="start-layout"><div class="hero">
-      <svg class="logo-ball" viewBox="0 0 100 100"><circle cx="50" cy="50" r="46" fill="#e6edf3"/><path d="M50 22l15 11-6 18H41l-6-18z" fill="#0d1117"/><path d="M50 4v18M65 33l26-6M59 51l14 22M41 51 27 73M35 33 9 27" stroke="#0d1117" stroke-width="4"/></svg>
-      <h1>Coach<br><em>de Poche</em></h1>
-      <p>Le manager de foot qui tient dans une main.</p>
-      <p class="muted" style="font-size:11px">Version ${APP_VERSION}</p>
+    const lang = getLang();
+    const used = SLOTS.filter((n) => info[n]);
+    const free = SLOTS.filter((n) => !info[n]);
+    return `<div class="start-layout title-screen"><div class="hero">
+      ${logoFull(120)}
+      <p class="tagline">Le manager de foot qui tient dans une main.</p>
+      <p class="muted" style="font-size:12px;max-width:420px">55 championnats (dont les D2 des 5 grands) · vrais clubs, joueurs et entraîneurs · coupes nationales, supercoupes, 7 coupes continentales, Coupe du monde et Euro</p>
+      <div class="lang-pick"><span>🌐</span>${Object.entries(LANGS).map(([k, l]) => `<button class="chip ${lang === k ? 'on' : ''}" data-act="lang" data-v="${k}">${l.flag} ${l.label}</button>`).join('')}</div>
       <p class="account-line">👤 <b>${esc(app.user?.username || '')}</b> <button class="btn sm ghost" data-act="logout">Se déconnecter</button></p>
-      <p class="muted" style="font-size:12px">55 championnats (dont les D2 des 5 grands) · vrais clubs, joueurs et entraîneurs · coupes nationales, supercoupes et 7 coupes continentales</p>
+      <p class="muted" style="font-size:11px">Version ${APP_VERSION}</p>
     </div><div>
     ${legacySave() ? `<div class="card"><small>Une sauvegarde d'une ancienne version a été trouvée : elle n'est pas compatible avec le nouveau monde (3 pays, 80 clubs).</small>
       <button class="btn sm block" style="margin-top:8px" data-act="droplegacy">Supprimer l'ancienne sauvegarde</button></div>` : ''}
-    ${SLOTS.map((n) => {
+    ${used.length ? `<button class="btn primary lg block continue-last" data-act="continue" data-v="${used.sort((a, b) => info[b].at - info[a].at)[0]}">▶ Continuer · ${esc(info[used[0]].club || '')}</button>` : ''}
+    <div class="label">Emplacements de sauvegarde</div>
+    <div class="slot-grid">${SLOTS.map((n) => {
       const m = info[n];
-      return `<div class="card slot-card">
+      return `<div class="card slot-card ${m ? 'full' : 'empty'}">
         ${m ? `<span class="crest" style="background:${m.color};color:${m.color2}">${esc(m.short || '')}</span>
-          <div class="grow"><b>${esc(m.club)}</b><br><small>Emplacement ${n} · saison ${m.season}-${m.season + 1} · journée ${m.day + 1}<br>${new Date(m.at).toLocaleString('fr-FR')} · ${Math.round(m.size / 1024)} Ko</small></div>
-          <div style="display:flex;flex-direction:column;gap:6px"><button class="btn sm primary" data-act="continue" data-v="${n}">Continuer</button>
+          <div class="grow"><b>${esc(m.club)}</b><br><small>Saison ${m.season}-${String(m.season + 1).slice(2)} · journée ${m.day + 1}${m.copyOf ? ` · copie de ${m.copyOf}` : ''}<br>${new Date(m.at).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })} · ${Math.round(m.size / 1024)} Ko</small></div>
+          <div class="slot-btns"><button class="btn sm primary" data-act="continue" data-v="${n}">Continuer</button>
+          ${free.length ? `<button class="btn sm" data-act="copyslot" data-v="${n}" title="Copier dans un emplacement libre">Copier</button>` : ''}
           <button class="btn sm danger" data-act="delete" data-v="${n}">Effacer</button></div>`
         : `<div class="grow"><b>Emplacement ${n}</b><br><small>Vide</small></div>
-          <div style="display:flex;flex-direction:column;gap:6px"><button class="btn sm primary" data-act="new" data-v="${n}">Nouvelle partie</button>
+          <div class="slot-btns"><button class="btn sm primary" data-act="new" data-v="${n}">Nouvelle partie</button>
           <label class="btn sm">Importer<input type="file" accept=".json,application/json" data-act="import" data-v="${n}" hidden></label>
           ${ui.cloud?.[n] ? `<button class="btn sm" data-act="cloudrestore" data-v="${n}">☁ Récupérer</button>` : ''}</div>`}
       </div>`;
-    }).join('')}
-    <p class="muted center" style="font-size:12px">Sauvegarde automatique sur cet appareil</p>
+    }).join('')}</div>
+    <p class="muted center" style="font-size:12px">Sauvegarde automatique sur cet appareil · « Copier » garde une version de secours (avant un mercato, une finale…)</p>
     ${onlineSection(app)}</div></div>`;
   }
   return pickerHtml(app, ui);
@@ -274,6 +282,13 @@ export const actions = {
       setupSheet(app, st, () => (st.opts.career === 'real' ? realCareer(app, slot, st) : startNew(app, slot, st)));
     } catch (e) { app.toast('Impossible de charger les championnats (vérifiez la connexion).', 4000); }
     finally { busy(false); }
+  },
+  lang(el, app) { setLang(el.dataset.v); },
+  async copyslot(el, app) {
+    const info = slotsInfo();
+    const to = SLOTS.find((n) => !info[n]);
+    if (!to) { app.toast('Aucun emplacement libre.'); return; }
+    if (await copySlot(+el.dataset.v, to)) { app.toast(`Copie enregistrée dans l'emplacement ${to}.`); app.render(); }
   },
   async delete(el, app) {
     const n = +el.dataset.v;

@@ -98,7 +98,7 @@ export function setAccount(id) {
     }
   } catch { /* ignore */ }
 }
-export const SLOTS = [1, 2, 3];
+export const SLOTS = [1, 2, 3, 4, 5, 6];
 let currentSlot = 1;
 export const setSlot = (n) => { currentSlot = n; };
 export const getSlot = () => currentSlot;
@@ -222,6 +222,17 @@ export async function load(slot = currentSlot) {
 
 export function hasSave(slot = currentSlot) {
   try { return !!readMeta()[slot]; } catch { return false; }
+}
+
+/** Copie d'une sauvegarde dans un autre emplacement (pour garder une version « avant le mercato »…). */
+export async function copySlot(from, to) {
+  const data = await kvGet(SLOT_KEY(from));
+  if (!data) return false;
+  await kvSet(SLOT_KEY(to), data);
+  const meta = readMeta();
+  meta[to] = { ...meta[from], at: Date.now(), copyOf: from };
+  localStorage.setItem(metaKey(), JSON.stringify(meta));
+  return true;
 }
 
 export function deleteSave(slot = currentSlot) {

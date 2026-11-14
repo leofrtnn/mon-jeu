@@ -1,6 +1,7 @@
 /**
  * Connexion / création de compte (obligatoire pour jouer).
  */
+import { logoMark } from '../logo.js';
 import { esc } from '../components.js';
 import { setAccount, claimDeviceSaves } from '../../game/state.js';
 
@@ -9,7 +10,7 @@ export function render(app) {
   const local = app.backend?.kind !== 'supabase';
   const signup = ui.mode === 'signup';
   return `<div class="start-layout"><div class="hero">
-      <svg class="logo-ball" viewBox="0 0 100 100"><circle cx="50" cy="50" r="46" fill="#e6edf3"/><path d="M50 22l15 11-6 18H41l-6-18z" fill="#0d1117"/><path d="M50 4v18M65 33l26-6M59 51l14 22M41 51 27 73M35 33 9 27" stroke="#0d1117" stroke-width="4"/></svg>
+      ${logoMark(110)}
       <h1>Coach<br><em>de Poche</em></h1>
       <p>Un compte est nécessaire pour jouer : vos carrières vous suivent, et vous pouvez affronter vos amis en ligne.</p>
     </div><div>

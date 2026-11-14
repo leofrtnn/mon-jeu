@@ -4,6 +4,7 @@ import { APP_VERSION } from './version.js';
  * enregistrement du service worker (hors ligne).
  */
 import { app } from './ui/app.js';
+import { installI18n } from './i18n.js';
 import { watchViewport } from './ui/viewport.js';
 
 watchViewport();
@@ -11,6 +12,7 @@ import { load, setSlot, saveSync, setAccount, lastKey, setCloudHook, claimDevice
 import { getBackend } from './online/backend.js';
 
 app.init();
+installI18n(); // langue choisie (traduction de l'interface à la volée)
 (async () => {
   // Compte obligatoire : on récupère la session (Supabase, ou comptes locaux en repli).
   try { app.backend = await getBackend(); app.user = await app.backend.user(); } catch (e) { console.warn(e); app.user = null; }
