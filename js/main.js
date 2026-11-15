@@ -52,6 +52,11 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   navigator.serviceWorker.addEventListener('controllerchange', () => {
     if (!hadController || reloaded) return;
     reloaded = true;
+    // Garde-fou anti-boucle : au plus un rechargement automatique par minute.
+    let last = 0;
+    try { last = +localStorage.getItem('cdp-swreload') || 0; } catch { /* ignore */ }
+    if (Date.now() - last < 60000) return;
+    try { localStorage.setItem('cdp-swreload', String(Date.now())); } catch { /* ignore */ }
     reloadWhenIdle();
   });
   window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' })
@@ -78,15 +83,13 @@ function forceUpdate(v) {
   if (updating) return;
   // Pas en plein match : on attend qu'il se termine.
   if (document.querySelector('.match-screen')) { setTimeout(() => forceUpdate(v), 5000); return; }
-  // Garde-fou : si le serveur sert déjà version.json mais pas encore les nouveaux fichiers,
-  // on ne redémarre pas en boucle (3 essais par version, puis nouvel essai 2 min plus tard).
-  let tries = {};
-  try { tries = JSON.parse(sessionStorage.getItem('cdp-upd') || '{}'); } catch { /* ignore */ }
-  const t = tries[v] || { n: 0, at: 0 };
-  if (t.n >= 3 && Date.now() - t.at < 120000) return;
-  if (t.n >= 3) t.n = 0;
-  tries[v] = { n: t.n + 1, at: Date.now() };
-  try { sessionStorage.setItem('cdp-upd', JSON.stringify(tries)); } catch { /* ignore */ }
+  // Garde-fou anti-boucle : UN SEUL redémarrage automatique par version. L'hébergeur garde
+  // parfois les anciens fichiers en cache quelques minutes : au lieu de recharger en boucle,
+  // on affiche un petit bandeau « mise à jour disponible » (la partie continue normalement).
+  let done = null;
+  try { done = localStorage.getItem('cdp-upd-v'); } catch { /* ignore */ }
+  if (done === String(v)) { updateBanner(v); return; }
+  try { localStorage.setItem('cdp-upd-v', String(v)); } catch { /* ignore */ }
   updating = true;
   try { if (app.state?.userClubId) saveSync(app.state); } catch { /* ignore */ }
   const o = document.createElement('div');
@@ -103,8 +106,17 @@ function forceUpdate(v) {
     setTimeout(() => location.reload(), 600);
   })();
 }
+/** Bandeau discret : mise à jour prête, l'utilisateur recharge quand il veut. */
+function updateBanner(v) {
+  if (document.getElementById('upd-banner') || document.querySelector('.match-screen')) return;
+  const b = document.createElement('button');
+  b.id = 'upd-banner';
+  b.textContent = `⬆ Version ${v} disponible · toucher pour mettre à jour`;
+  b.onclick = () => { try { if (app.state?.userClubId) saveSync(app.state); } catch { /* ignore */ } location.reload(); };
+  document.body.appendChild(b);
+}
 checkUpdate();
-setInterval(checkUpdate, 30 * 1000);
+setInterval(checkUpdate, 60 * 1000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) checkUpdate(); });
 window.addEventListener('focus', checkUpdate);
 window.addEventListener('online', checkUpdate);

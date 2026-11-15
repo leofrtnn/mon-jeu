@@ -45,10 +45,15 @@ export function render(app) {
     const lang = getLang();
     const used = SLOTS.filter((n) => info[n]);
     const free = SLOTS.filter((n) => !info[n]);
-    return `<div class="start-layout title-screen"><div class="hero">
+    return `<div class="start-layout title-screen"><div class="stadium-bg" aria-hidden="true"><i class="beam b1"></i><i class="beam b2"></i><i class="pitch-lines"></i></div><div class="hero">
       ${logoFull(120)}
       <p class="tagline">Le manager de foot qui tient dans une main.</p>
-      <p class="muted" style="font-size:12px;max-width:420px">55 championnats (dont les D2 des 5 grands) · vrais clubs, joueurs et entraîneurs · coupes nationales, supercoupes, 7 coupes continentales, Coupe du monde et Euro</p>
+      <div class="feat-grid">
+        <span class="feat"><b>⚽</b>55 championnats<small>vrais clubs et joueurs</small></span>
+        <span class="feat"><b>🏆</b>Coupes d'Europe<small>nouveau format</small></span>
+        <span class="feat"><b>🎮</b>Matchs en 3D<small>22 joueurs qui décident</small></span>
+        <span class="feat"><b>🌐</b>En ligne<small>jusqu'à 8 amis</small></span>
+      </div>
       <div class="lang-pick"><span>🌐</span>${Object.entries(LANGS).map(([k, l]) => `<button class="chip ${lang === k ? 'on' : ''}" data-act="lang" data-v="${k}">${l.flag} ${l.label}</button>`).join('')}</div>
       <p class="account-line">👤 <b>${esc(app.user?.username || '')}</b> <button class="btn sm ghost" data-act="logout">Se déconnecter</button></p>
       <p class="muted" style="font-size:11px">Version ${APP_VERSION}</p>
@@ -65,7 +70,7 @@ export function render(app) {
           <div class="slot-btns"><button class="btn sm primary" data-act="continue" data-v="${n}">Continuer</button>
           ${free.length ? `<button class="btn sm" data-act="copyslot" data-v="${n}" title="Copier dans un emplacement libre">Copier</button>` : ''}
           <button class="btn sm danger" data-act="delete" data-v="${n}">Effacer</button></div>`
-        : `<div class="grow"><b>Emplacement ${n}</b><br><small>Vide</small></div>
+        : `<span class="slot-plus">＋</span><div class="grow"><b>Emplacement ${n}</b><br><small>Libre · nouvelle carrière</small></div>
           <div class="slot-btns"><button class="btn sm primary" data-act="new" data-v="${n}">Nouvelle partie</button>
           <label class="btn sm">Importer<input type="file" accept=".json,application/json" data-act="import" data-v="${n}" hidden></label>
           ${ui.cloud?.[n] ? `<button class="btn sm" data-act="cloudrestore" data-v="${n}">☁ Récupérer</button>` : ''}</div>`}

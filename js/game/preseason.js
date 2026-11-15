@@ -61,6 +61,9 @@ export function startPreseason(state) {
     p.sharp = Math.round(clamp(30 + rng.range(0, 14) + (late ? 18 : 0) + (p.attrs?.phy ?? 60) * 0.08, 25, 70));
     p.fatigue = clamp(Math.round(late ? 18 + load * 3 : rng.range(0, 6)), 0, 60);
     if (late) p.lateBack = true; else delete p.lateBack;
+    // Retour de vacances : les internationaux qui ont joué un tournoi l'été rentrent 2 à 3
+    // semaines après les autres (absents des premiers amicaux) ; quelques-uns rentrent 1-2 jours en retard.
+    p.holiday = late ? 14 + Math.floor(rng.range(0, 8)) : rng.next() < 0.12 ? 1 + Math.floor(rng.range(0, 2)) : 0;
     tests.push({ id, sharp: p.sharp, fat: p.fatigue, late });
   }
   state.preseason = { active: true, meeting: false, friendlies: [], suggestions: sugg, camp: null, intensity: 'normal', tests, week: 1, date: `${state.season}-07-01` };
@@ -257,6 +260,10 @@ export function advancePreDay(state, n = 1) {
     if ((ps.date || '') >= last) return { ok: false, msg: 'La préparation touche à sa fin : lancez la saison.' };
     ps.date = addDays(ps.date || `${state.season}-07-01`, 1);
     ps.dayN = (ps.dayN || 0) + 1;
+    // Les vacanciers rentrent au fil des jours.
+    const back = [];
+    for (const id of userClub(state).playerIds) { const p = state.players[id]; if (p?.holiday > 0 && --p.holiday === 0) back.push(p.name); }
+    if (back.length) pushMessage(state, { prio: 3, icon: '✈️', title: `Retour à l'entraînement : ${back.slice(0, 3).join(', ')}${back.length > 3 ? '…' : ''}`, text: 'De retour de vacances, disponible(s) pour les prochains amicaux.' });
     if (ps.dayN % 4 === 0) { aiTransferActivity(state, rng); userTransferOffers(state, rng); }
     dealsDaily(state, rng);
     if (friendlyToday(state)) return { ok: true, stop: true }; // jour de match : on s'arrête
@@ -287,7 +294,7 @@ export function endPreseason(state) {
       logInjury(state, p, 'Préparation');
       hurt.push(`${p.name} (${p.injury} m.)`);
     }
-    delete p.lateBack;
+    delete p.lateBack; delete p.holiday;
   }
   uc.fam = clamp((uc.fam ?? 60) + camp.coh, 0, 100);
   uc.coh = clamp((uc.coh ?? 72) + camp.coh * 0.9, 0, 100); // vie de groupe pendant le stage

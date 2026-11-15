@@ -1544,9 +1544,9 @@ export class Match3D {
   }
 
   cycleCamera() {
-    const order = ['tv', 'close', 'high', 'goal'];
+    const order = ['tv', 'director', 'close', 'pitchside', 'player', 'tribune', 'high', 'goal'];
     this.camMode = order[(order.indexOf(this.camMode) + 1) % order.length];
-    return { tv: 'Caméra télé', close: 'Caméra rapprochée', high: 'Vue d\'ensemble', goal: 'Derrière le but' }[this.camMode];
+    return { tv: 'Caméra télé', director: 'Réalisation TV (plans automatiques)', close: 'Caméra rapprochée', pitchside: 'Bord du terrain', player: 'Derrière le porteur', tribune: 'Haut de tribune', high: 'Vue d\'ensemble', goal: 'Derrière le but' }[this.camMode];
   }
 
   updateCamera(dt) {
@@ -1568,7 +1568,31 @@ export class Match3D {
       this.camera.position.copy(this.camPos); this.camera.lookAt(this.camLook); this.camera.updateProjectionMatrix();
       return;
     }
+    // Réalisation TV : le réalisateur change de plan selon l'action (plan large, plan serré sur
+    // le porteur dans les 30 derniers mètres, derrière le but sur une frappe, bord terrain sur
+    // les coups de pied arrêtés), sans couper trop souvent.
+    if (mode === 'director') {
+      const L2 = v.live, P2 = v.phys;
+      const near = L2 && P2 ? Math.min(Math.abs(P2.x - 0), Math.abs(P2.x - L)) : 50;
+      let want2 = 'tv';
+      if (L2?.shot) want2 = 'goal';
+      else if (L2?.restart && ['corner', 'freekick', 'penalty'].includes(L2.restart.kind)) want2 = 'pitchside';
+      else if (near < 28 && v.holder != null) want2 = 'close';
+      const nowT = performance.now();
+      if (want2 !== this._dirMode && nowT - (this._dirAt || 0) > (want2 === 'goal' ? 600 : 2600)) { this._dirMode = want2; this._dirAt = nowT; }
+      mode = this._dirMode || 'tv';
+    }
     if (mode === 'tv') { want.set(Math.max(-36, Math.min(36, bx * 0.9)), 21, 58); look.set(bx * 0.97, 0, bz * 0.35 - 1); this.camera.fov = 30; }
+    else if (mode === 'pitchside') { want.set(Math.max(-48, Math.min(48, bx * 0.85)), 1.7, W / 2 + 3.2); look.set(bx, 1.1, bz); this.camera.fov = 42; }     // caméra à hauteur d'homme, au bord de la ligne
+    else if (mode === 'tribune') { want.set(Math.max(-30, Math.min(30, bx * 0.6)), 34, 74); look.set(bx * 0.8, 0, bz * 0.25); this.camera.fov = 34; }  // tout en haut de la tribune principale
+    else if (mode === 'player') {
+      // Derrière le porteur (ou le ballon), à 9 m, dans le sens de son jeu.
+      const hp = v.holder != null ? v.players.get(v.holder) : null;
+      const [hx, hz] = hp ? this.toWorld(hp.x, hp.y) : [bx, bz];
+      const ang = hp ? (this.flip() ? hp.face + Math.PI : hp.face) : 0;
+      want.set(hx - Math.cos(ang) * 9, 4.2, hz - Math.sin(ang) * 9);
+      look.set(hx + Math.cos(ang) * 8, 1, hz + Math.sin(ang) * 8); this.camera.fov = 50;
+    }
     else if (mode === 'close') { want.set(bx * 0.9 - 4, 13, bz + 30); look.set(bx, 1, bz); this.camera.fov = 34; }
     else if (mode === 'high') { want.set(bx * 0.4, 95, 52); look.set(bx * 0.4, 0, 0); this.camera.fov = 38; }
     else { const side = bx >= 0 ? 1 : -1; want.set(side * (L / 2 + 22), 12, bz * 0.3); look.set(bx, 0, bz); this.camera.fov = 40; }

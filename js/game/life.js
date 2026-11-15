@@ -14,7 +14,7 @@ import { initRelations, relationsDaily, relationsAfterMatch, hostileNoise } from
 import { ensureOwners, crisisDaily, takeovers, ownerSeasonStart, speculatorPush } from './owners.js';
 import { atmosphereAfterMatch, standsEvents, ensureSponsors, sponsorsAfterMatch, sponsorsCheck, sponsorsEndSeason } from './fans.js';
 import { injuriesDaily, relapseCheck, injuriesEndSeason } from './injuries.js';
-import { rumoursDaily, rumourOffers, goalBonuses, matchBonuses } from './agents.js';
+import { rumoursDaily, rumourOffers, goalBonuses, matchBonuses, agentPitches } from './agents.js';
 import { jobCandidates } from './career.js';
 import { changeClub, tablePosition, today } from './season.js';
 import { bigMatchReason } from './press.js';
@@ -58,6 +58,7 @@ export function lifeUserDaily(state, rng, t) {
   hostileNoise(state, rng);
   rumoursDaily(state, rng);
   rumourOffers(state, rng);
+  agentPitches(state, rng);
   injuriesDaily(state);
   if (league && t.entry.round % 3 === 2) sponsorsCheck(state, rng);
   if (league && (t.entry.round === 0 || t.entry.round === 19)) speculatorPush(state);

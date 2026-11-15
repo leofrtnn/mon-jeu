@@ -33,6 +33,7 @@ function serve() {
   const base = `http://localhost:${srv.address().port}/`;
   const browser = await chromium.launch();
   const ctx = await browser.newContext({ ...devices['Pixel 5 landscape'] });
+  await ctx.addInitScript(() => { try { if (!localStorage.getItem('cdp-tuto')) localStorage.setItem('cdp-tuto', JSON.stringify({ done: true })); } catch {} });
   const page = await ctx.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));

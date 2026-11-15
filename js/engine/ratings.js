@@ -24,7 +24,7 @@ export function overall(p) {
 
 /** Disponible pour un match ? */
 export function isAvailable(p) {
-  return !(p.injury > 0) && !(p.suspended > 0) && !p.loanedOut;
+  return !(p.injury > 0) && !(p.suspended > 0) && !p.loanedOut && !(p.holiday > 0);
 }
 
 /**

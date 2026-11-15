@@ -6,6 +6,7 @@ import { today, tablePosition, DIV_NAMES, nationSquad, eligibleNations, changeCl
 import { DIVISIONS, COUNTRIES } from '../../data/world.js';
 import { jobCandidates } from '../../game/career.js';
 import { preseasonCard, preseasonActions, preseasonMount } from './preseasonUI.js';
+import { startTutorial, tutoDone } from '../tutorial.js';
 import { friendlyToday } from '../../game/preseason.js';
 import { userClub, clubById, clubPlayers, topMessages } from '../../game/state.js';
 import { isAvailable } from '../../engine/ratings.js';
@@ -190,6 +191,8 @@ function upcoming(s, n) {
 /** Action du gros bouton « Continuer » de l'en-tête (comme dans les jeux de gestion). */
 export function mount(app, root) {
   if (app.state?.preseason?.active) preseasonMount(app, root);
+  // Premier passage sur l'accueil (une carrière en cours, pas de fenêtre ouverte) : tutoriel.
+  if (app.state?.userClubId && app.state.coach?.created && !tutoDone() && !app.sheets?.length && !globalThis.__noTuto) setTimeout(() => { if (!app.sheets?.length && !document.querySelector('.tuto')) startTutorial(app, 0); }, 600);
 }
 
 export function primaryAction(app) {

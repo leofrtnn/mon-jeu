@@ -32,6 +32,14 @@ export function openCoachEditor(app, { mode = 'edit', onDone } = {}) {
   const d = JSON.parse(JSON.stringify(coach)); // brouillon
   const base = { ...coach.skills };
   let step = 0;
+  // Brouillon sauvegardé à chaque action : si la page se recharge, on reprend là où on en était.
+  const DKEY = `cdp-coach-draft-${mode}`;
+  try {
+    const saved = JSON.parse(localStorage.getItem(DKEY) || 'null');
+    if (saved && saved.d && Date.now() - (saved.at || 0) < 7 * 864e5) { Object.assign(d, saved.d); step = saved.step || 0; }
+  } catch { /* ignore */ }
+  const saveDraft = () => { try { localStorage.setItem(DKEY, JSON.stringify({ d, step, at: Date.now() })); } catch { /* ignore */ } };
+  const clearDraft = () => { try { localStorage.removeItem(DKEY); } catch { /* ignore */ } };
   const startPts = () => START_POINTS + (BACKGROUNDS[d.background]?.points || 0) + (LICENCES[d.licence]?.points || 0);
   const remaining = () => (mode === 'create' ? startPts() - skillsTotal(d.skills) : coach.points - (skillsTotal(d.skills) - skillsTotal(base)));
   const fixPts = () => {
@@ -140,8 +148,8 @@ export function openCoachEditor(app, { mode = 'edit', onDone } = {}) {
     if (fn) d.firstName = fn.value.trim().slice(0, 20);
     if (ln) d.lastName = ln.value.trim().slice(0, 24);
   };
-  const refresh = () => { readInputs(); h.update(html()); };
-  const go = (i) => { readInputs(); step = Math.max(0, Math.min(STEPS.length - 1, i)); h.update(html()); h.body.scrollTop = 0; };
+  const refresh = () => { readInputs(); saveDraft(); h.update(html()); };
+  const go = (i) => { readInputs(); step = Math.max(0, Math.min(STEPS.length - 1, i)); saveDraft(); h.update(html()); h.body.scrollTop = 0; };
 
   // Aperçu 3D persistant (le rendu n'est pas recréé à chaque clic) : le coach tourne sur lui-même.
   let bodyEl = null;
@@ -197,11 +205,11 @@ export function openCoachEditor(app, { mode = 'edit', onDone } = {}) {
     full: true, dismissable: mode !== 'create', html,
     mount: (body) => {
       const fn = body.querySelector('#c-fn'), ln = body.querySelector('#c-ln'), age = body.querySelector('#c-agein');
-      fn?.addEventListener('input', () => { d.firstName = fn.value.trim().slice(0, 20); preview(); });
-      ln?.addEventListener('input', () => { d.lastName = ln.value.trim().slice(0, 24); preview(); });
+      fn?.addEventListener('input', () => { d.firstName = fn.value.trim().slice(0, 20); preview(); saveDraft(); });
+      ln?.addEventListener('input', () => { d.lastName = ln.value.trim().slice(0, 24); preview(); saveDraft(); });
       fn?.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); ln?.focus(); } });
       ln?.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); ln.blur(); } });
-      age?.addEventListener('input', () => { d.age = +age.value; preview(); });
+      age?.addEventListener('input', () => { d.age = +age.value; preview(); saveDraft(); });
       const hg = body.querySelector('#c-hgtin');
       hg?.addEventListener('input', () => { d.look.height = +hg.value; const t = body.querySelector('#c-hgt'); if (t) t.textContent = `${d.look.height} cm`; preview3d(true, body); });
       hg?.addEventListener('change', () => refresh());
@@ -217,7 +225,8 @@ export function openCoachEditor(app, { mode = 'edit', onDone } = {}) {
       prev: () => go(step - 1),
       rname: () => {
         const r = randomName(createRng((Date.now() ^ (Math.random() * 1e9)) >>> 0), NAT_ORIGIN[d.nationality] || 'FRA');
-        d.firstName = r.first; d.lastName = r.last; refresh();
+        // (pas de readInputs ici : il relirait les anciens champs et écraserait le nouveau nom)
+        d.firstName = r.first; d.lastName = r.last; saveDraft(); h.update(html());
       },
       nat: (el) => { d.nationality = el.value; readInputs(); preview(); },
       skin: (el) => { d.look.skin = el.dataset.v; refresh(); },
@@ -272,6 +281,7 @@ export function openCoachEditor(app, { mode = 'edit', onDone } = {}) {
           philosophy: d.philosophy, formation: d.formation, skills: d.skills, created: true, background: d.background, licence: d.licence, personality: d.personality });
         if (mode === 'edit') coach.points = Math.max(0, coach.points - spent);
         app.save(true);
+        clearDraft();
         h.close();
         onDone?.();
         app.render();

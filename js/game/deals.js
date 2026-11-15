@@ -13,6 +13,8 @@
  * Chaque joueur décide selon SES priorités (ambition, argent, temps de jeu, projet sportif,
  * pays, famille) : playerDecision explique ses raisons et fixe le prix de son accord.
  */
+import { setPitchDecision } from './agents.js';
+import { confedOf } from '../data/nations.js';
 import { clamp } from '../core/rng.js';
 import { overall } from '../engine/ratings.js';
 import { playerValue, money } from './economy.js';
@@ -20,7 +22,7 @@ import { clubById, userClub, clubPlayers, pushMessage, gameRng } from './state.j
 import { currentDate, windowInfo } from './dates.js';
 import { DIVISIONS, COUNTRIES } from '../data/world.js';
 import { startNegotiation, setSellOn, clubRespond, playerDemands, evaluateContract, completeTransfer, completeRenewal, playerInterest, sellerAccepts,
-  roleAcceptable, PROMISE_ROLES, MAX_SQUAD, ambition, logFinance, removeFromClubPublic, addToClubPublic, windowOpen } from './transfers.js';
+  roleAcceptable, PROMISE_ROLES, MAX_SQUAD, ambition, logFinance, removeFromClubPublic, addToClubPublic, windowOpen, recentlyJoined, joinedLeft } from './transfers.js';
 import { boardAllows, spendTransfer } from './board.js';
 import { sellPolicy, loanAllowed, relAdd } from './relations.js';
 import { hashSeed } from '../core/rng.js';
@@ -92,6 +94,16 @@ export function playerDecision(state, p, buyer, role = null) {
   if (p.requested || p.listed) add('Veut partir de son club', 10);
   // Âge : les anciens pensent au dernier gros contrat.
   if (p.age >= 30) add('Fin de carrière : sécurité financière', T.money * 0.3);
+  // Pré-retraite (34 ans et plus) : la plupart ne veulent plus du rythme européen ; ils
+  // préfèrent un dernier contrat aux États-Unis, dans le Golfe, ou un retour au pays.
+  if (p.age >= 34) {
+    const exotic = ['USA', 'KSA', 'QAT', 'UAE', 'JPN', 'AUS', 'MEX', 'BRA', 'ARG', 'TUR', 'CHN'].includes(buyer.country);
+    const homeBack = natCountry && natCountry === buyer.country;
+    const euro = !exotic && confedOf(COUNTRIES[buyer.country]?.name || '') === 'UEFA';
+    if (euro && !homeBack && !(from && from.country === buyer.country)) add('Ne veut plus du rythme européen', -(10 + (p.age - 34) * 6) + T.amb * 0.4);
+    if (exotic) add('Dernier défi au soleil', 8 + T.money * 0.4);
+    if (homeBack) add('Finir sa carrière à la maison', 8 + T.family * 0.5);
+  }
   const score = clamp(reasons.reduce((a, r) => a + r.v, 0), -100, 100);
   // Plus le club est peu attractif, plus il faut payer (selon son appât du gain).
   const wageMult = clamp(1 + (score < 25 ? (25 - score) / 100 * (0.6 + T.money / 25) : -0.03), 0.95, 1.6);
@@ -110,6 +122,7 @@ export function openDeal(state, pid, kind = 'buy') {
   if (kind !== 'renew') {
     if (p.clubId === uc.id) return { ok: false, msg: 'Il est déjà au club.' };
     if (p.clubId && !windowOpen(state)) return { ok: false, msg: 'Le mercato est fermé (seuls les joueurs libres peuvent signer).' };
+    if (p.clubId && recentlyJoined(state, p)) return { ok: false, msg: `${p.name} vient de signer à son club : pas de départ possible avant six mois (encore ${joinedLeft(state, p)} journée(s)).` };
     if (uc.playerIds.length + activeDeals(state).filter((d) => d.kind !== 'renew').length >= MAX_SQUAD) return { ok: false, msg: `Effectif complet (${MAX_SQUAD} max, dossiers en cours compris).` };
     const dec = playerDecision(state, p, uc);
     if (!dec.ok) return { ok: false, msg: `${p.name} ne souhaite pas venir : ${dec.reasons.filter((r) => r.v < 0).slice(0, 2).map((r) => r.t.toLowerCase()).join(', ')}.`, dec };
@@ -409,3 +422,6 @@ export function dealsDaily(state, rng = gameRng(state)) {
   const all = dealsOf(state);
   if (all.length > 60) state.deals = all.filter((d) => d.stage !== 'done' && d.stage !== 'dead').concat(all.filter((d) => d.stage === 'done' || d.stage === 'dead').slice(-30));
 }
+
+// Démarchage des agents : le joueur doit vraiment vouloir rejoindre le club.
+setPitchDecision((state, p, club) => playerDecision(state, p, club).score);

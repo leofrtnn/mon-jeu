@@ -6,7 +6,7 @@
  * VERSION est incrémentée par scripts/update-sw.js à chaque livraison.
  */
 const IMG_CACHE = 'cdp-img';
-const VERSION = 'cdp-v91';
+const VERSION = 'cdp-v92';
 const ASSETS = [
   './',
   './css/style.css',
@@ -121,6 +121,7 @@ const ASSETS = [
   './js/ui/screens/tactics.js',
   './js/ui/sim.js',
   './js/ui/trophies.js',
+  './js/ui/tutorial.js',
   './js/ui/viewport.js',
   './js/vendor/THREE-LICENSE.txt',
   './js/vendor/supabase/591.supabase.js',

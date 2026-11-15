@@ -15,6 +15,8 @@ export function render(app) {
   return `<div class="card"><h3>Affichage</h3>
       <div class="seg">${[['auto', 'Automatique'], ['pc', 'PC (souris, clavier)'], ['mobile', 'Téléphone']].map(([v, l]) => `<button data-act="display" data-v="${v}" class="${dm === v ? 'on' : ''}">${l}</button>`).join('')}</div>
       <p class="muted" style="font-size:12px;margin-bottom:0">Sur PC : <b>Espace</b> = Continuer / Jouer · <b>1 à 9</b> = menu · <b>Échap</b> = fermer une fenêtre.</p></div>
+    <div class="card"><h3>Aide</h3><p class="muted" style="font-size:12px;margin-top:0">Le tutoriel (moins de 5 minutes) explique les boutons, la réputation, la direction, le mercato et le quotidien d'un coach.</p>
+      <button class="btn" data-act="tutoAgain">📘 Revoir le tutoriel</button></div>
     <div class="card"><h3>Match</h3>
       <div class="row between" style="padding:6px 0"><span>Moteur de match<br><small class="muted">En direct : les 22 joueurs décident eux-mêmes. Classique : actions tirées au sort.</small></span>
         <button class="btn sm ${st.liveEngine !== false ? 'primary' : ''}" data-act="engine">${st.liveEngine !== false ? 'En direct' : 'Classique'}</button></div>
@@ -43,6 +45,7 @@ export function render(app) {
 }
 
 export const actions = {
+  tutoAgain(el, app) { import('../tutorial.js').then((t) => t.relaunchTutorial(app)); },
   gfx(el, app) { app.state.settings.gfx = el.dataset.v; app.save(); app.render(); app.toast('Qualité graphique : appliquée au prochain match.'); },
   engine(el, app) { app.state.settings.liveEngine = app.state.settings.liveEngine === false; app.save(); app.render(); },
   display(el, app) { setDisplayMode(el.dataset.v); app.render(); },

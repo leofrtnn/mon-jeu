@@ -74,6 +74,41 @@ export function rumoursDaily(state, rng) {
 }
 
 /** Les rumeurs vraies se concrétisent (offre pour un joueur de l'utilisateur). */
+/**
+ * Agents qui démarchent : pendant le mercato (ou à tout moment pour un joueur libre), un agent
+ * propose de lui-même un joueur qui serait heureux de rejoindre votre club. Pour faciliter
+ * l'affaire, son client accepte un salaire plus bas (10 à 20 %) pendant une dizaine de jours.
+ */
+export function agentPitches(state, rng) {
+  if (!state.userClubId || rng.next() > 0.12) return;
+  const uc = clubById(state, state.userClubId);
+  if (!uc) return;
+  const open = windowInfo(state).open;
+  const squad = uc.playerIds.map((id) => state.players[id]).filter(Boolean);
+  if (!squad.length) return;
+  const lvl = squad.map(overall).sort((a, b) => b - a).slice(0, 14);
+  const avg = lvl.reduce((a, b) => a + b, 0) / lvl.length;
+  const cands = [];
+  const consider = (p) => {
+    if (!p || p.clubId === uc.id || p.onLoanFrom || p.pitch) return;
+    if (p.clubId && (!open || p.joinedAt != null && (state.season * 400 + state.day) - p.joinedAt < 32)) return;
+    const o = overall(p);
+    if (o < avg - 6 || o > avg + 5) return;
+    cands.push(p);
+  };
+  for (const id of state.freeAgents || []) consider(state.players[id]);
+  if (open) for (let k = 0; k < 400; k++) { const c = state.clubs[Math.floor(rng.next() * state.clubs.length)]; if (c.id !== uc.id) consider(state.players[c.playerIds[Math.floor(rng.next() * c.playerIds.length)]]); }
+  if (!cands.length) return;
+  // Le joueur doit vraiment vouloir venir (ses priorités : temps de jeu, prestige, pays…).
+  const p = cands.sort((a, b) => overall(b) - overall(a)).slice(0, 8).find((x) => { try { return pitchDecision(state, x, uc) > 8; } catch { return false; } });
+  if (!p) return;
+  const mult = Math.round((0.8 + rng.next() * 0.1) * 100) / 100;
+  p.pitch = { club: uc.id, mult, until: state.day + 10 };
+  pushMessage(state, { prio: 2, icon: '📞', title: `L'agent de ${p.name} vous le propose`, text: `${p.age} ans · ${p.pos} · ${overall(p)}. Son client rêve de venir et accepterait un salaire ${Math.round((1 - mult) * 100)} % plus bas (offre valable 10 jours).${p.clubId ? '' : ' Libre de tout contrat.'}`, action: { type: 'player', pid: p.id } });
+}
+let pitchDecision = () => 0;
+export const setPitchDecision = (fn) => { pitchDecision = fn; };
+
 export function rumourOffers(state, rng) {
   const uc = userClub(state);
   if (!windowInfo(state).open) return;

@@ -75,6 +75,7 @@ export function marketList(state, { pos = null, maxPrice = Infinity, youngOnly =
     if (x.ovr < minOvr) break; // liste triée : plus rien au-dessus du seuil
     const p = x.p;
     if (p.onLoanFrom || (uid != null && p.clubId === uid) || (pos && p.pos !== pos) || (youngOnly && p.age > 23)) continue;
+    if (p.clubId && recentlyJoined(state, p)) continue;   // recrue de moins de six mois : intransférable
     if (where && !where(p)) continue;
     cand.push({ p, ovr: x.ovr });
   }
@@ -101,7 +102,20 @@ function removeFromClub(state, p) {
   }
 }
 
+/**
+ * Règle des 6 mois : un joueur qui vient de signer ne peut pas être revendu avant environ la
+ * moitié d'une saison (comme les clubs le pratiquent : on ne revend pas une recrue tout de suite).
+ */
+const absDay = (state) => (state.season || 0) * 400 + (state.day || 0);
+export function recentlyJoined(state, p) {
+  if (p.joinedAt == null) return false;
+  const half = Math.max(20, Math.round((state.calendar?.length || 64) / 2));
+  return absDay(state) - p.joinedAt < half;
+}
+export const joinedLeft = (state, p) => Math.max(0, Math.max(20, Math.round((state.calendar?.length || 64) / 2)) - (absDay(state) - (p.joinedAt ?? -999)));
+
 function addToClub(state, p, club) {
+  p.joinedAt = absDay(state);
   p.clubId = club.id;
   club.playerIds.push(p.id);
   p.number = 0;
@@ -162,6 +176,7 @@ export function loanIn(state, pid) {
 
 /** Une offre d'un club IA pour un joueur de l'utilisateur. */
 export function findBuyer(state, p, rng) {
+  if (recentlyJoined(state, p)) return null;
   const value = playerValue(p);
   const cands = state.clubs.filter((c) => !isHumanClub(state, c.id) && c.budget > value * 0.8 && c.playerIds.length < MAX_SQUAD - 2);
   if (!cands.length) return null;
@@ -235,6 +250,7 @@ export function renewContract(state, pid) {
  * 16 joueurs (hors prêtés) dont 2 gardiens.
  */
 export function canLetGo(state, club, p) {
+  if (recentlyJoined(state, p)) return { ok: false, msg: `${p.name} vient d'arriver : il ne peut pas repartir avant six mois (encore ${joinedLeft(state, p)} journée(s)).` };
   const squad = clubPlayers(state, club).filter((q) => !q.loanedOut && q.id !== p.id);
   if (squad.length < MIN_SQUAD - 4) return { ok: false, msg: `Effectif trop réduit : il faut garder au moins ${MIN_SQUAD - 4} joueurs.` };
   if (p.pos === 'GB' && squad.filter((q) => q.pos === 'GB').length < 2) return { ok: false, msg: 'Il faut garder au moins 2 gardiens.' };
@@ -455,7 +471,9 @@ export function clubRespond(neg, offer) {
 
 /** Exigences du joueur (et de son agent) pour un contrat. */
 export function playerDemands(state, p, rng) {
-  const base = Math.max(p.wage, playerWage(p));
+  let base = Math.max(p.wage, playerWage(p));
+  // Joueur proposé par son agent : il accepte de gagner moins pour venir (offre limitée dans le temps).
+  if (p.pitch && p.pitch.club === state.userClubId) { if (state.day <= p.pitch.until) base *= p.pitch.mult; else delete p.pitch; }
   const greed = p.agentGreed ?? (p.agentGreed = Math.round(rng.range(0, 0.15) * 100) / 100);
   return agentDemands(p, { wage: Math.round(base * (1.08 + greed) / 100) * 100, agentFeeRate: 0.04 + greed / 3, tries: 3 });
 }

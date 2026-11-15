@@ -2,6 +2,9 @@
 <html lang="fr">
 <head>
   <meta charset="utf-8">
+  <!-- Connexion sécurisée : toutes les ressources en HTTPS, et redirection http → https. -->
+  <meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests">
+  <script>if (location.protocol === 'http:' && !/^(localhost|127\.|\[::1\]|192\.168\.|10\.)/.test(location.hostname)) location.replace('https://' + location.host + location.pathname + location.search + location.hash);</script>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
   <meta name="theme-color" content="#090b16">
   <meta name="apple-mobile-web-app-capable" content="yes">

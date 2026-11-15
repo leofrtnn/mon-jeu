@@ -3,8 +3,10 @@
  * Chaque écran exporte : render(app) -> HTML, actions {nom: fn(el, app, ev)},
  * et éventuellement mount(app, root) appelé après le rendu.
  */
+import { relaunchTutorial, startTutorial, tutoDone } from './tutorial.js';
 import { assignAllTraits } from '../game/traits.js';
 import { assignAllStars } from '../game/stars.js';
+import { playerValue } from '../game/economy.js';
 import { logoMark } from './logo.js';
 import { save as saveState, userClub } from '../game/state.js';
 import { money } from '../game/economy.js';
@@ -159,6 +161,7 @@ export const app = {
       if (e.target.closest('#topcoach')) { openCoachEditor(this, { mode: 'edit' }); return; }
       if (e.target.closest('[data-act="topgo"]')) { home.primaryAction(this)?.run(); return; }
       if (e.target.closest('[data-act="navback"]')) { this.back(); return; }
+      if (e.target.closest('[data-act="tuto"]')) { relaunchTutorial(this); return; }
       if (e.target.closest('[data-act="topclub"]')) { this.ui.schedTab = 'table'; this.go('schedule'); return; }
       this.dispatch(e, this.current()?.actions);
     });
@@ -168,7 +171,14 @@ export const app = {
     const el = e.target.closest('[data-act]');
     if (!el || !actions) return;
     const fn = actions[el.dataset.act];
-    if (fn) { e.preventDefault(); fn(el, this, e); }
+    if (fn) { e.preventDefault(); fn(el, this, e); this.autosave(); }
+  },
+
+  /** Sauvegarde automatique après chaque action (regroupée : une écriture après 1,2 s de calme). */
+  autosave() {
+    if (!this.state?.userClubId) return;
+    clearTimeout(this._autoT);
+    this._autoT = setTimeout(() => { try { this.save(); } catch { /* ignore */ } }, 1200);
   },
 
   /** Entrée du menu correspondant à l'écran affiché. */
@@ -216,6 +226,7 @@ export const app = {
       if (this.state.world === 'real' && this.state.top100V !== TOP100_V) { applyTop100(this.state); this.save(); }
       if (this.state.traitsV !== 1) { assignAllTraits(this.state); this.save(); } // traits pour les anciennes sauvegardes
       if (this.state.starsV !== 1) { assignAllStars(this.state); this.save(); } // étoiles (gestes, mauvais pied)
+      if (this.state.valueV !== 2) { for (const p of Object.values(this.state.players)) p.value = playerValue(p); this.state.valueV = 2; this.save(); } // valeurs recalculées (âge, notoriété)
       // Logos gardés sur l'appareil : téléchargés une fois, puis toujours affichés (même hors ligne).
       if (this.state.world === 'real' && !this._logosQueued) {
         let done = false;
@@ -238,6 +249,7 @@ export const app = {
         ${this.state.online ? `<span class="tag online-tag">🌐 ${esc(this.online?.game?.code || 'En ligne')}</span>` : ''}
         <span class="top-date">${svg('cal')}<span><b>${esc(longDate(dt))}</b><small>${esc(this.state.preseason?.active ? 'Préparation' : t ? t.label : 'Fin de saison')}</small></span></span>
         <span class="budget">${money(c.budget)}</span>
+        <button class="top-help" data-act="tuto" aria-label="Tutoriel" title="Tutoriel / aide">?</button>
         <button class="topcoach" id="topcoach" aria-label="Mon coach">${avatarSvg(this.state.coach?.look, 40)}</button>
         ${cont ? `<button class="btn primary top-go" data-act="topgo"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 4.5v15l12.5-7.5z"/></svg><span>${esc(cont.label)}</span><i>→</i></button>` : ''}`;
       this.$top.classList.remove('hidden');
@@ -324,7 +336,7 @@ export const app = {
       if (!el) return;
       if (el.dataset.act === 'close') { handle.close(); return; }
       const fn = handle.actions[el.dataset.act];
-      if (fn) { e.preventDefault(); fn(el, this, handle, e); }
+      if (fn) { e.preventDefault(); fn(el, this, handle, e); this.autosave(); }
     });
     wrap.addEventListener('change', (e) => {
       const el = e.target.closest('[data-act]');

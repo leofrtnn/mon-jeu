@@ -6,7 +6,7 @@
  * - Pool d'entraîneurs sans club, carrousel de fin de saison, fil d'actualité.
  */
 import { isHumanClub } from './humans.js';
-import { COUNTRIES } from '../data/world.js';
+import { COUNTRIES, DIVISIONS, LEAGUE_WEALTH } from '../data/world.js';
 import { clamp, createRng, hashSeed } from '../core/rng.js';
 import { randomName } from '../data/names.js';
 import { FORMATION_NAMES, COMMON_FORMATIONS } from '../data/constants.js';
@@ -98,7 +98,7 @@ export function managersAfterRound(state, round, tablePos) {
 }
 
 export function sack(state, club, m, why) {
-  m.clubId = null;
+  m.clubId = null; m.freeSince = state.day;
   m.rep = clamp(m.rep - 3, 15, 95);
   m.history[m.history.length - 1].to = state.season;
   club.managerId = null;
@@ -110,10 +110,41 @@ export function sack(state, club, m, why) {
   }
 }
 
+/**
+ * Un entraîneur décide, comme un joueur : prestige du club par rapport à sa propre cote,
+ * richesse du championnat, revenir au pays, stabilité (le chômage rend moins exigeant),
+ * et sa propre ambition (stable). Retourne un score (accepte au-dessus de 0).
+ */
+export function coachDecision(state, m, club) {
+  const amb = 5 + (hashSeed(`amb-${m.id}`) >>> 0) % 16;            // ambition 5-20
+  let sc = (club.rep - m.rep) * (0.6 + amb / 25);
+  sc += ((LEAGUE_WEALTH[club.country] ?? 0.4) - 0.6) * 12;           // championnat riche et exposé
+  if (COUNTRIES[club.country]?.name === m.nat) sc += 6;              // retour au pays
+  if (DIVISIONS[club.div]?.level > 1) sc -= 4 + amb * 0.3;           // deuxième division
+  const idle = m.clubId ? 0 : Math.max(0, state.day - (m.freeSince ?? state.day));
+  sc += Math.min(18, idle * 0.6);                                    // longtemps sans club : moins exigeant
+  if (m.age >= 60) sc += 4;                                          // fin de carrière : dernier défi
+  return sc;
+}
+
 function hireForClub(state, club, rng) {
-  const pool = freeManagers(state).filter((m) => m.rep <= club.rep + 12).sort((a, b) => b.rep - a.rep);
-  let m = pool[Math.min(pool.length - 1, rng.int(0, 2))];
+  // Le club sonde les meilleurs profils à sa portée (libres d'abord, puis en poste dans un
+  // club moins prestigieux) ; chacun accepte ou refuse selon ses priorités.
+  const free = freeManagers(state).filter((m) => m.rep <= club.rep + 12).sort((a, b) => b.rep - a.rep);
+  const poachable = Object.values(state.managers || {}).filter((m) => m.clubId && m.clubId !== club.id && !isHumanClub(state, m.clubId) && m.rep >= club.rep - 4 && m.rep <= club.rep + 8 && (clubById(state, m.clubId)?.rep || 99) < club.rep - 6)
+    .sort((a, b) => b.rep - a.rep).slice(0, 3);
+  let m = null, refused = 0;
+  for (const c of [...poachable, ...free.slice(0, 6)]) {
+    if (coachDecision(state, c, club) + (rng.next() - 0.5) * 6 > 0) { m = c; break; }
+    refused++;
+  }
+  if (m && m.clubId) {
+    // Débauché : son ancien club se retrouve sans entraîneur.
+    const old = clubById(state, m.clubId);
+    if (old) { old.managerId = null; old.vacantSince = state.day; news(state, 'manager', `${m.first} ${m.last} quitte ${old.name} pour ${club.name}.`, { clubId: old.id }); }
+  }
   if (!m) { m = makeManager(rng, state, club.rep - 5, club.country); state.managers[m.id] = m; }
+  if (refused >= 2) news(state, 'manager', `${club.name} essuie ${refused} refus avant de trouver son entraîneur.`, { clubId: club.id });
   m.clubId = club.id; m.conf = 65; m.contract = rng.int(2, 3);
   m.history.push({ club: club.name, from: state.season });
   club.managerId = m.id;

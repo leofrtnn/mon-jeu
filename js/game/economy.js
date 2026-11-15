@@ -19,8 +19,14 @@ export function playerValue(p) {
   const gap = Math.max(0, (p.pot ?? o) - o);
   const w = p.age <= 19 ? 0.6 : p.age <= 21 ? 0.45 : p.age <= 23 ? 0.3 : p.age <= 25 ? 0.15 : 0;
   let v = 160000 * Math.pow(1.18, o + gap * w - 50);
-  if (p.age >= 30) v *= Math.max(0.12, 1 - (p.age - 29) * 0.15);
-  if (p.contract <= 1) v *= 0.65;
+  // Après 29 ans, la valeur baisse progressivement (≈ −12 % par an) : une star de 39 ans
+  // reste cotée (Messi ~10-15 M€), un joueur moyen de 34 ans ne vaut presque plus rien.
+  if (p.age >= 30) v *= Math.exp(-(p.age - 29) * 0.13);
+  // Notoriété (sélections, buts en carrière) : une légende garde une forte valeur commerciale
+  // (maillots, image) même en fin de carrière.
+  const fame = Math.min(1.6, (p.caps || 0) / 110 + ((p.career?.goals || 0) + (p.stats?.goals || 0)) / 380);
+  if (p.age >= 29 && fame > 0.2) v += fame * 4.5e6;
+  if (p.contract <= 1) v *= 0.75;
   return roundMoney(v);
 }
 

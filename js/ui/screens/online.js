@@ -26,7 +26,9 @@ export function onlineSection(app) {
   return `<div class="card online-card">
     <div class="row between"><h3 style="margin:0">🌐 Carrière en ligne</h3><small class="muted">2 à 8 managers · comme FM</small></div>
     ${!available ? '<p class="muted" style="font-size:12px;margin:8px 0 0">Indisponible : le serveur en ligne n\'est pas encore configuré.</p>' : `
-    ${games.length ? games.map((g) => `<div class="prow" data-act="ogame" data-id="${g.id}"><span class="tag">${esc(g.code)}</span><div class="pname"><b>${esc(g.name)}</b><small>${g.status === 'lobby' ? 'Salon d\'attente' : `En cours · version ${g.version}`}</small></div><span class="btn sm primary">${g.status === 'lobby' ? 'Salon' : 'Reprendre'}</span></div>`).join('') : '<p class="muted" style="font-size:13px;margin:8px 0">Aucune partie en ligne pour le moment.</p>'}
+    ${games.length ? games.map((g) => `<div class="prow"><span class="tag">${esc(g.code)}</span><div class="pname" data-act="ogame" data-id="${g.id}" style="cursor:pointer"><b>${esc(g.name)}</b><small>${g.status === 'lobby' ? 'Salon d\'attente' : `En cours · version ${g.version}`}${g.host === app.user?.id ? ' · 👑 vous êtes l\'hôte' : ''}</small></div>
+      <button class="btn sm primary" data-act="ogame" data-id="${g.id}">${g.status === 'lobby' ? 'Salon' : 'Reprendre'}</button>
+      ${g.host === app.user?.id ? `<button class="btn sm danger" data-act="odelete" data-id="${g.id}" title="Supprimer définitivement la partie (pour tout le monde)">🗑</button>` : `<button class="btn sm" data-act="oleave" data-id="${g.id}" title="Quitter la partie">Quitter</button>`}</div>`).join('') : '<p class="muted" style="font-size:13px;margin:8px 0">Aucune partie en ligne pour le moment.</p>'}
     <div class="btns" style="margin-top:8px"><button class="btn primary" data-act="ocreate">Créer une partie</button><button class="btn" data-act="ojoin">Rejoindre avec un code</button></div>`}
   </div>`;
 }
@@ -229,6 +231,16 @@ function optsSummary(o) {
 }
 
 export const onlineActions = {
+  async oleave(el, app) {
+    const g = (app.ui.start.games || []).find((x) => x.id === el.dataset.id);
+    if (!(await app.confirm('Quitter la partie ?', `Vous quittez « ${esc(g?.name || '')} ». Votre club redeviendra géré par l'ordinateur.`, 'Quitter'))) return;
+    try { await app.backend.leaveGame(el.dataset.id); app.toast('Partie quittée.'); refreshGames(app); } catch (e) { app.toast(e.message, 4000); }
+  },
+  async odelete(el, app) {
+    const g = (app.ui.start.games || []).find((x) => x.id === el.dataset.id);
+    if (!(await app.confirm('Supprimer la partie ?', `« ${esc(g?.name || '')} » sera supprimée définitivement, pour tous les managers.`, 'Supprimer'))) return;
+    try { await app.backend.deleteGame(el.dataset.id); app.toast('Partie supprimée.'); refreshGames(app); } catch (e) { app.toast(e.message, 4000); }
+  },
   oopts(el, app) {
     const L = app.ui.lobby;
     const o = L.opts = L.opts || defaultOptions();

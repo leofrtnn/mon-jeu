@@ -38,6 +38,32 @@ async function hash(s) {
   let h = 0; for (const c of s) h = (h * 31 + c.charCodeAt(0)) | 0; return String(h);
 }
 
+/*
+ * Session « restez connecté » : stockée dans le navigateur (localStorage) ET dans un cookie
+ * sécurisé valable un an (Secure, SameSite=Lax). Si le navigateur vide l'un des deux
+ * (Safari après 7 jours, nettoyage…), l'autre permet de rester connecté.
+ */
+const COOKIE_MAX = 3800;
+const cookieKey = (k) => 'cdp_' + k.replace(/[^a-zA-Z0-9]/g, '_');
+function readCookie(k) {
+  const n = cookieKey(k) + '=';
+  for (const part of (globalThis.document?.cookie || '').split('; ')) if (part.startsWith(n)) { try { return decodeURIComponent(part.slice(n.length)); } catch { return null; } }
+  return null;
+}
+function writeCookie(k, v) {
+  if (!globalThis.document) return;
+  const secure = globalThis.location?.protocol === 'https:' ? '; Secure' : '';
+  if (v == null) { document.cookie = `${cookieKey(k)}=; Max-Age=0; Path=/; SameSite=Lax${secure}`; return; }
+  const enc = encodeURIComponent(v);
+  if (enc.length > COOKIE_MAX) return; // trop gros pour un cookie : localStorage seul
+  document.cookie = `${cookieKey(k)}=${enc}; Max-Age=31536000; Path=/; SameSite=Lax${secure}`;
+}
+export const sessionStore = {
+  getItem(k) { let v = null; try { v = globalThis.localStorage?.getItem(k); } catch { /* ignore */ } if (v == null) { v = readCookie(k); if (v != null) try { globalThis.localStorage?.setItem(k, v); } catch { /* ignore */ } } return v; },
+  setItem(k, v) { try { globalThis.localStorage?.setItem(k, v); } catch { /* ignore */ } writeCookie(k, v); },
+  removeItem(k) { try { globalThis.localStorage?.removeItem(k); } catch { /* ignore */ } writeCookie(k, null); },
+};
+
 export class LocalBackend {
   /** db : stockage partagé ; session : stockage de la session (différent par « appareil » en test). */
   constructor(db = globalThis.localStorage, session = db, bus = null) {
@@ -144,6 +170,15 @@ export class LocalBackend {
     const me = await this.user();
     this._set(`players-${id}`, this._get(`players-${id}`, []).filter((p) => p.user_id !== me.id)); this._emit(id);
   }
+  /** Suppression définitive (hôte seulement). */
+  async deleteGame(id) {
+    const me = await this.user();
+    const games = this._get('games', {});
+    if (!games[id] || games[id].host !== me.id) throw new Error('Seul l\'hôte peut supprimer la partie.');
+    delete games[id]; this._set('games', games);
+    try { this.db.set(`cdp-db-players-${id}`, 'null'); this.db.set(`cdp-db-state-${id}`, 'null'); } catch { /* ignore */ }
+    this._emit(id);
+  }
 }
 
 /* ====================== Supabase ====================== */
@@ -174,7 +209,7 @@ export class SupabaseBackend {
 
   static async create() {
     await loadScript(new URL('../vendor/supabase/supabase.js', import.meta.url).href);
-    return new SupabaseBackend(globalThis.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { persistSession: true, autoRefreshToken: true } }));
+    return new SupabaseBackend(globalThis.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { persistSession: true, autoRefreshToken: true, storage: sessionStore } }));
   }
 
   async user() {
@@ -277,6 +312,8 @@ export class SupabaseBackend {
     return () => { clearInterval(poll); this.sb.removeChannel(ch); };
   }
   async leaveGame(id) { const me = await this.user(); check(await this.sb.from('game_players').delete().eq('game_id', id).eq('user_id', me.id)); }
+  /** Suppression définitive (hôte seulement ; les joueurs et l'état suivent en cascade). */
+  async deleteGame(id) { check(await this.sb.from('games').delete().eq('id', id)); }
 }
 
 let instance = null;
