@@ -5,12 +5,14 @@
  * pause (changements, tactique), mi-temps (stats + causerie), fin de match.
  */
 import { userMatchCfg, completeDay, today, fixtureKey, liveTable } from '../../game/season.js';
+import { refereeProfile } from '../../game/referee.js';
 import { traitChip } from '../components.js';
 import { TALKS, SHOUTS, PLAYER_SHOUTS, teamShout, playerShout } from '../../engine/match.js';
 import { createMatch, stepMinute, makeSub, changeFormation, swapSlots, moveSlot, setRole, setTactic, snapshotMatch, restoreMatch, replayCfg, applyPlan, teamTalk, summarize, penaltyShootout, tieLevel, clockLabel, activePlayers } from '../../engine/match.js';
 import { describe, iconFor } from '../../engine/commentary.js';
 import { FORMATION_NAMES, FORMATION_GROUPS, ROLES, rolesFor, MENTALITIES, MENTALITY_LABELS, LEVELS, PRESSING_LABELS, TEMPO_LABELS, MAX_SUBS, POSITION_GROUP, TEAM_INSTRUCTIONS, DEFAULT_TACTICS, PLAYER_INSTRUCTIONS, WIDTH_LABELS } from '../../data/constants.js';
 import { ratingAt } from '../../engine/ratings.js';
+const ratingOfMP = (mp, t) => ratingAt(mp.p, t.slots[mp.slot]?.pos || mp.pos);
 import { MatchView } from '../matchView.js';
 import { Broadcast, matchDay } from '../broadcast.js';
 import { hourLabel, weatherEffectText } from '../../game/weather.js';
@@ -431,11 +433,31 @@ export function openMatch(app, opts = {}) {
         <b style="font-size:20px">VS</b>
         <div class="center grow">${crest(ac, 'lg')}<br><b>${esc(ac.name)}</b><br><small>${m.teams[1].tactics.formation}</small></div>
       </div>
-      ${(() => { const d = matchDay(m, cfg, currentDate(s)); return `<div class="pm-facts"><span>${d.hour != null ? `🕘 Coup d'envoi ${hourLabel(d.hour)} · ` : ''}${d.weather.icon} ${d.weather.label} · ${d.temp} °C${d.wind >= 30 ? ` · vent ${d.wind} km/h` : ''}</span><span class="wx-eff">⚠ ${esc(weatherEffectText(cfg.weather))}</span><span>🏟️ ${d.attendance.toLocaleString('fr-FR')} spectateurs attendus</span><span>🧑‍⚖️ ${esc(d.referee)}</span></div>`; })()}
+      ${(() => { const d = matchDay(m, cfg, currentDate(s)); return `<div class="pm-facts"><span>${d.hour != null ? `🕘 Coup d'envoi ${hourLabel(d.hour)} · ` : ''}${d.weather.icon} ${d.weather.label} · ${d.temp} °C${d.wind >= 30 ? ` · vent ${d.wind} km/h` : ''}</span><span class="wx-eff">⚠ ${esc(weatherEffectText(cfg.weather))}</span><span>🏟️ ${d.attendance.toLocaleString('fr-FR')} spectateurs attendus</span><span>🧑‍⚖️ ${esc(d.referee)}${d.refStyle ? ` · <b>${esc(d.refStyle)}</b>` : ''}</span></div>`; })()}
       <div class="pm-xi">${[0, 1].map((sd) => `<ol>${m.teams[sd].onPitch.filter(Boolean).map((mp) => `<li><em>${mp.number ?? ''}</em><span>${esc(mp.name)}</span><small>${m.teams[sd].slots[mp.slot].pos}</small></li>`).join('')}</ol>`).join('')}</div>
       ${scoutReport()}
+      <div class="card adj-card"><b>🤝 Pas le temps de tout régler ?</b><br><small class="muted">Votre adjoint adapte la tactique à l'adversaire, à l'arbitre et à la météo, et vous explique ses choix.</small>
+        <div id="adjout"></div><button class="btn sm" data-act="adjoint" style="margin-top:6px">Laisser l'adjoint préparer le match</button></div>
       <div class="btns"><button class="btn" data-act="back">Retour</button>${!opts.cfg ? '<button class="btn" data-act="press" id="pressbtn">🎤 Conférence de presse</button>' : ''}<button class="btn primary lg" data-act="go">Coup d'envoi</button></div>`,
     actions: {
+      adjoint: (el, a, h) => {
+        // Rapport de force (notes des titulaires), arbitre, météo → réglages simples et expliqués.
+        const str = (t) => { const ps = t.onPitch.filter(Boolean); return ps.reduce((x, mp) => x + (mp.p ? ratingOfMP(mp, t) : 60), 0) / Math.max(1, ps.length); };
+        const gap = str(T) - str(O);
+        const ref = refereeProfile(m.seed);
+        const wet = ['rain', 'storm', 'snow'].includes(cfg.weather?.kind);
+        const why = [];
+        const set = (k, v, txt) => { if (T.tactics[k] !== v) { setTactic(m, userSide, k, v); rec('ti', { side: userSide, k, v }); why.push(txt); } };
+        if (gap > 4) { set('mentality', 'offensive', `Nous sommes plus forts (${gap.toFixed(0)} pts) : on prend le jeu à notre compte (mentalité offensive).`); set('pressing', 'high', 'Pressing haut pour les étouffer.'); }
+        else if (gap < -4) { set('mentality', 'defensive', `Ils sont plus forts (${(-gap).toFixed(0)} pts) : bloc prudent (mentalité défensive).`); set('counter', 'on', 'Contre-attaques rapides à la récupération.'); set('pressing', 'mid', 'Pressing moyen pour ne pas s\'épuiser.'); }
+        else { set('mentality', 'balanced', 'Match équilibré : mentalité équilibrée.'); }
+        if (ref.label === 'sévère' || ref.label === 'pointilleux') set('tackling', 'soft', `Arbitre ${ref.label} : tacles prudents pour éviter les cartons.`);
+        if (wet) set('passing', 'short', 'Terrain glissant : passes courtes, moins de longs ballons.');
+        if (!why.length) why.push('Vos réglages actuels sont déjà adaptés : je ne change rien.');
+        const box = h.body.querySelector('#adjout');
+        if (box) box.innerHTML = `<ul class="adj-why">${why.map((w) => `<li>${esc(w)}</li>`).join('')}</ul>`;
+        el.disabled = true; el.textContent = '✔ Tactique réglée par l\'adjoint';
+      },
       go: (el, a, h) => { h.close(); lockMatch(); kickoffShow().then(() => { if (s.settings.audio) audio.start(); view.play(); }); },
       press: (el) => {
         if (ctrl.pressDone) return;

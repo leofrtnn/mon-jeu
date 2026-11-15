@@ -8,6 +8,7 @@
  *  - cartes de mi-temps / fin de match (score et statistiques clés).
  * Tout est en HTML par-dessus le terrain (2D ou 3D) : lisible, net, et sans coût 3D.
  */
+import { refereeProfile } from '../game/referee.js';
 import { esc, crest } from './components.js';
 import { face } from './images.js';
 import { createRng, hashSeed } from '../core/rng.js';
@@ -35,7 +36,7 @@ export function matchDay(m, cfg, date) {
   const ref = randomName(rng, cfg.home.club.country || 'FRA');
   const cap = cfg.home.club.stadium || 20000;
   const fill = Math.min(1, 0.62 + (cfg.home.club.rep || 60) / 260 + (cfg.away.club.rep || 60) / 700 + rng.range(-0.04, 0.04));
-  return { weather: w, temp, hour: cfg.weather?.hour ?? null, wind: cfg.weather?.wind ?? null, referee: `${ref.first} ${ref.last}`, attendance: Math.round((cap * (cfg.neutral ? 0.7 : fill)) / 10) * 10, capacity: cap };
+  return { weather: w, temp, hour: cfg.weather?.hour ?? null, wind: cfg.weather?.wind ?? null, referee: `${ref.first} ${ref.last}`, refStyle: refereeProfile(cfg.seed).label, attendance: Math.round((cap * (cfg.neutral ? 0.7 : fill)) / 10) * 10, capacity: cap };
 }
 
 export class Broadcast {
@@ -152,7 +153,7 @@ export class Broadcast {
       <div class="head">${crest(c)}<div><b>${esc(c.name)}</b><small>${esc(t.tactics.formation || '')}${coachOf(side) ? ` · ${esc(coachOf(side))}` : ''}</small></div>${coachImg ? `<span class="bc-coach">${coachImg(side) || ''}</span>` : ''}</div><ol>${xi(side)}</ol></div>`; };
     const el = this.$('bc-full');
     el.innerHTML = `<div class="intro">${col(0)}<div class="mid"><small>COMPOSITIONS</small>
-        <div class="facts"><span>${day.hour != null ? `🕘 ${hourLabel(day.hour)} · ` : ''}${day.weather.icon} ${day.weather.label} · ${day.temp} °C${day.wind >= 30 ? ` · vent ${day.wind} km/h` : ''}</span><span>🏟️ ${day.attendance.toLocaleString('fr-FR')} spectateurs</span><span>🧑‍⚖️ Arbitre : ${esc(day.referee)}</span></div>
+        <div class="facts"><span>${day.hour != null ? `🕘 ${hourLabel(day.hour)} · ` : ''}${day.weather.icon} ${day.weather.label} · ${day.temp} °C${day.wind >= 30 ? ` · vent ${day.wind} km/h` : ''}</span><span>🏟️ ${day.attendance.toLocaleString('fr-FR')} spectateurs</span><span>🧑‍⚖️ Arbitre : ${esc(day.referee)}${day.refStyle ? ` <small>(${esc(day.refStyle)})</small>` : ''}</span></div>
         <button class="btn sm" data-bc="skip">Passer ▸</button></div>${col(1)}</div>`;
     this.pop(el);
     return new Promise((res) => {

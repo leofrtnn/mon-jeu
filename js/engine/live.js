@@ -20,6 +20,7 @@
  * Aucune dépendance au navigateur : testable et calibrable en Node.
  */
 import { SKILL_MOVES, movesFor } from '../game/stars.js';
+import { refereeProfile } from '../game/referee.js';
 import { createBall, stepBall, solveKick, R as BR, GOAL_HALF, PITCH_L as L, PITCH_W as W } from '../ui/ballPhysics.js';
 import { formationPos } from './positions.js';
 import { clamp } from '../core/rng.js';
@@ -48,12 +49,12 @@ const TUNE = {   // calibré en TEMPS RÉEL (horloge 1) : ~2,8 buts, ~28 tirs, ~
   passRisk: 2,      // sévérité des interceptions
   lossW: 6,         // coût de la perte de balle dans le choix des passes
   tackleRate: 0.65,    // fréquence des tentatives de tacle
-  foulP: 0.1,         // part des tentatives de tacle qui finissent en faute
-  xg: 0.47,          // échelle du modèle d'xG géométrique
+  foulP: 0.088,        // part des tentatives de tacle qui finissent en faute
+  xg: 0.46,          // échelle du modèle d'xG géométrique
   takeonW: 0.3,       // attrait du crochet / débordement
   hold: 1.6,            // temps de réflexion avant de jouer le ballon (×)
   recv: 3.2,            // temps de contrôle à la réception (×)
-  clearCorner: 0.05,  // part des dégagements d'urgence qui finissent en corner
+  clearCorner: 0.025,  // part des dégagements d'urgence qui finissent en corner
   loftPen: 0.2,       // coût de choix d'un ballon aérien (réalisme : surtout des passes au sol)
 };
 
@@ -68,6 +69,7 @@ export class LiveSim {
   constructor(m, opts = {}) {
     this.m = m;
     m.live = true;
+    this.ref = refereeProfile(m.seed);   // personnalité de l'arbitre (sévérité, tolérance au contact)
     this.rng = m.rng;
     this.players = opts.players || new Map();
     this.P = opts.ball || createBall();
@@ -722,7 +724,7 @@ export class LiveSim {
     }
     const offside = this.isOffside(h, r);
     // Le passeur ne voit pas toujours le hors-jeu ; un piège bien tendu le surprend encore plus.
-    if (offside) p *= this.m.teams[1 - A.side].tactics.offsideTrap === 'on' ? 0.92 : 0.6;
+    if (offside) p *= this.m.teams[1 - A.side].tactics.offsideTrap === 'on' ? 0.95 : 0.76;
     const ment = MENT[A.tactics.mentality] || 0;
     const dirW = { short: 1, mid: 1, direct: 1 }[A.tactics.passing] || 1;
     let lenW = 1;
@@ -953,7 +955,7 @@ export class LiveSim {
       o = this.rand() < onP ? 'saved' : this.rand() < 0.07 ? 'post' : 'wide';
     }
     // Frappe non cadrée déviée par un défenseur : corner.
-    if (o === 'wide' && blocker && this.rand() < 0.5) o = 'blocked';
+    if (o === 'wide' && blocker && this.rand() < 0.3) o = 'blocked';
     // Trajectoire selon l'issue et la technique (la physique fait le reste).
     const r1 = this.rand(), r2 = this.rand(), r3 = this.rand();
     const tech = kind === 'open' ? (h.shotTech || this.shotTech(h)) : kind;
@@ -1108,7 +1110,7 @@ export class LiveSim {
       const tk = TK[D.tactics.tackling] || 0;
       // Dans sa propre surface, un défenseur se retient (sinon c'est penalty).
       const ownBox = Math.abs(this.P.x - this.goalX(h.side)) < 16.5 && Math.abs(this.P.y - W / 2) < 20.15;
-      const foulP = TUNE.foulP * (m.profile.fouls || 1) * (1 + tk * 0.35) * (TR(o, 'rugueux') ? 1.35 : 1) * (TR(o, 'sangchaud') ? 1.2 : 1) * ((h.speed || 0) > 5 ? 1.3 : 1) * (ownBox ? 0.07 : 1) * (behind ? 2.2 : 1) * (h.prep ? 0.35 : 1);
+      const foulP = TUNE.foulP * this.ref.whistle * (m.profile.fouls || 1) * (1 + tk * 0.35) * (TR(o, 'rugueux') ? 1.35 : 1) * (TR(o, 'sangchaud') ? 1.2 : 1) * ((h.speed || 0) > 5 ? 1.3 : 1) * (ownBox ? 0.07 : 1) * (behind ? 2.2 : 1) * (h.prep ? 0.35 : 1);
       o.face = Math.atan2((h.y - o.y) * W, (h.x - o.x) * L);
       if (this.rand() < foulP) { this.foul(h, o, out); return; }
       const att = eff(h.mp, 'dri') * 0.75 + eff(h.mp, 'phy') * 0.25;
@@ -1119,7 +1121,7 @@ export class LiveSim {
         emit(m, out, { type: 'tackle', side: D.side, pid: o.mp.id, pid2: h.mp.id, x: this.P.x / L, y: this.P.y / W, zone: m.zone });
         // Souvent, le tacle ne fait que chasser le ballon : il roule (parfois en touche).
         if (o.tk === 'slide' || this.rand() < 0.3) {
-          const P = this.P, a = Math.atan2((h.y - o.y) * W, (h.x - o.x) * L) + (this.rand() - 0.5) * 1.6, v = 5 + this.rand() * 6;
+          const P = this.P, a = Math.atan2((h.y - o.y) * W, (h.x - o.x) * L) + (this.rand() - 0.5) * 1.6, v = 3.5 + this.rand() * 4.5;
           this.releaseBall(h); this.pending = null; this.lastTouch = D.side;
           P.vx = Math.cos(a) * v; P.vy = Math.sin(a) * v; P.vz = this.rand() < 0.3 ? 2 : 0;
           return;
@@ -1144,12 +1146,12 @@ export class LiveSim {
     const z = m.zone;
     emit(m, out, { type: 'foul', side: D.side, pid: offender.mp.id, pid2: victim.mp.id, x: fx / L, y: fy / W, zone: z });
     m.stoppages += 0.15;
-    let yP = 0.135 + (z === 1 || z === 2 ? 0.05 : 0) + (m.minute > 75 ? 0.04 : 0) + (z === 3 ? 0.08 : 0);
+    let yP = 0.105 + (z === 1 || z === 2 ? 0.04 : 0) + (m.minute > 75 ? 0.04 : 0) + (z === 3 ? 0.08 : 0);
     if (offender.mp.yellow) yP *= 0.45;
     if (offender.mp.p?.traits?.includes('sangchaud')) yP *= 1.5;
     if (offender.mp.p?.traits?.includes('veteran')) yP *= 0.8;
     if ((offender.mp.calm || 0) > m.minute || (D.calmUntil || 0) > m.minute) yP *= 0.6; // consigne « calmez-vous » du banc
-    yP *= (m.profile.cards || 1) * (1 + (TK[D.tactics.tackling] || 0) * 0.18) * (D.cm ? D.cm.cards : 1) * captainCalm(D);
+    yP *= this.ref.strict * (m.profile.cards || 1) * (1 + (TK[D.tactics.tackling] || 0) * 0.18) * (D.cm ? D.cm.cards : 1) * captainCalm(D);
     if (this.rand() < 0.003) sendOff(m, out, D, offender.mp, 'direct');
     else if (this.rand() < yP) {
       offender.mp.yellow++; D.stats.yellows++;
@@ -1302,7 +1304,7 @@ export class LiveSim {
     const dir = this.dir(r.side);
     let tx = clamp(P.x + dir * (12 + this.rand() * 15), 3, L - 3), ty = clamp(P.y + (this.rand() - 0.5) * 20, 3, W - 3);
     // Tête défensive sous pression : parfois mise en corner.
-    if (r.side !== pd.from.side && this.rand() < 0.3) { tx = this.goalX(pd.from.side) + this.dir(pd.from.side) * 3; ty = P.y < W / 2 ? 8 : W - 8; }
+    if (r.side !== pd.from.side && this.rand() < 0.12) { tx = this.goalX(pd.from.side) + this.dir(pd.from.side) * 3; ty = P.y < W / 2 ? 8 : W - 8; }
     solveKick(P, { x: tx, y: ty, z: BR }, { T: 1.1 + this.rand() * 0.6 });
     this.lastTouch = r.side;
     if (this.poss !== r.side) { this.poss = r.side; changePossession(m, r.side, m.zone, r.mp); }
