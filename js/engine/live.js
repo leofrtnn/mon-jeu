@@ -47,7 +47,7 @@ const TUNE = {   // calibré en TEMPS RÉEL (horloge 1) : ~2,8 buts, ~28 tirs, ~
   lossW: 6,         // coût de la perte de balle dans le choix des passes
   tackleRate: 0.65,    // fréquence des tentatives de tacle
   foulP: 0.1,         // part des tentatives de tacle qui finissent en faute
-  xg: 0.57,          // échelle du modèle d'xG géométrique
+  xg: 0.52,          // échelle du modèle d'xG géométrique
   takeonW: 0.3,       // attrait du crochet / débordement
   hold: 1.6,            // temps de réflexion avant de jouer le ballon (×)
   recv: 3.2,            // temps de contrôle à la réception (×)
@@ -140,6 +140,8 @@ export class LiveSim {
   X(p) { return p.x * L; }
   Y(p) { return p.y * W; }
   foot(p, d = 0.55) { return { x: p.x * L + Math.cos(p.face) * d, y: p.y * W + Math.sin(p.face) * d }; }
+  /** Pied fort : +1 droitier, -1 gaucher (donnée du joueur, sinon ~ 1 sur 5 gaucher). */
+  footSign(p) { const f = p.mp?.p?.foot; return f === 'G' ? -1 : f === 'D' ? 1 : ((p.mp?.id ?? 0) % 5 === 0 ? -1 : 1); }
   dist(p, x, y) { return Math.hypot(p.x * L - x, p.y * W - y); }
   dir(side) { return side === 0 ? 1 : -1; }
   goalX(side) { return side === 0 ? L : 0; }           // but attaqué par `side`
@@ -754,7 +756,7 @@ export class LiveSim {
     this.lastTouch = h.side;
     P.inGoal = 0; P.hitPost = false;
     if (!lofted) return solveKick(P, { x: tx, y: ty }, { mode: 'ground', arrive: Math.min(12, 6 + len * 0.16) });
-    return solveKick(P, { x: tx, y: ty, z: z ?? (0.4 + this.rand() * 1.1) }, { T: 0.9 + len / 30, spin: (this.rand() - 0.5) * 6, top: 1.5 });
+    return solveKick(P, { x: tx, y: ty, z: z ?? (0.4 + this.rand() * 1.1) }, { T: 0.9 + len / 30, spin: h.throwIn > 0 ? 0 : this.footSign(h) * (0.5 + this.rand() * 3.5), top: h.throwIn > 0 ? 0 : 2.2 }); // longue passe : brossée de l'intérieur, rétro (elle « tient » en l'air)
   }
 
   releaseBall(h) {
@@ -775,7 +777,9 @@ export class LiveSim {
     if (!(h.kick > 0)) { h.kick = 0.32; h.kickPow = 0.85; } h.face = Math.atan2(ty - P.y, tx - P.x);
     this.lastTouch = h.side;
     const len = Math.hypot(tx - P.x, ty - P.y);
-    const T = solveKick(P, { x: tx, y: ty, z: 1.8 + this.rand() * 0.5 }, { T: 0.95 + len / 32, spin: -Math.sign(vy || 1) * dir * swing * (7 + this.rand() * 5) });
+    // Centre brossé de l'intérieur du pied (rentrant ou sortant selon le pied et le côté), parfois de l'extérieur.
+    const cf = this.footSign(h) * (this.rand() < 0.15 && eff(h.mp, 'pas') >= 76 ? -0.8 : 1);
+    const T = solveKick(P, { x: tx, y: ty, z: 1.8 + this.rand() * 0.5 }, { T: 0.95 + len / 32, spin: cf * (7 + this.rand() * 5) * (swing > 0 ? 1 : 0.6), top: 1.2 });
     // Duel aérien : l'attaquant visé contre le défenseur le plus proche (le gardien sort parfois).
     const D = m.teams[1 - A.side];
     const def = this.list(D.side).filter((p) => !p.gk).sort((a, b) => Math.hypot(this.X(a) - tx, this.Y(a) - ty) - Math.hypot(this.X(b) - tx, this.Y(b) - ty))[0];
@@ -830,7 +834,8 @@ export class LiveSim {
     const pr = this.pressure(h);
     if (pr < 1.5) xg *= 0.55; else if (pr < 3) xg *= 0.8;
     const q = (eff(h.mp, 'tir') * 0.7 + eff(h.mp, 'sf') * 0.3) / (m.level - 8);
-    xg *= Math.pow(q, 1.0) * (m.profile.goals || 1);
+    // De loin, la qualité du tireur pèse beaucoup plus (frappe, technique) qu'à bout portant.
+    xg *= Math.pow(q, d > 16.5 ? 1.8 : 1.0) * (m.profile.goals || 1);
     return clamp(xg, 0.005, 0.8);
   }
 
@@ -903,11 +908,28 @@ export class LiveSim {
     const side = r2 < (tech === 'finesse' || tech === 'curl' ? 0.7 : 0.55) ? far : -far;
     let tgt;
     let speed = { penalty: 24, header: 13, freekick: 23, finesse: 19 + r1 * 4, curl: 22 + r1 * 4, chip: 15, drive: 26 + r1 * 7 }[tech] || 26;
-    let spin = 0, top = 0;
-    if (kind === 'freekick') { spin = -side * gdir * (8 + r3 * 4); top = -3; }
-    else if (tech === 'curl' || tech === 'finesse') spin = -side * gdir * (tech === 'curl' ? 9 + r3 * 4 : 4 + r3 * 3);
-    else if (tech === 'drive') { spin = (r3 - 0.5) * 3; top = r1 < 0.4 ? -2.5 : 1; }  // frappe sèche, parfois flottante
-    else if (tech === 'chip') top = -4;
+    // Effet selon le PIED : l'intérieur du pied droit enroule de droite à gauche (rotation
+    // positive), l'extérieur (« trivela ») dans l'autre sens ; c'est l'inverse pour un gaucher.
+    // Le sens dont on a besoin pour ramener le ballon vers le but décide du geste.
+    const need = -side * gdir;                       // sens d'enroulé qui ramène le ballon vers le cadre
+    const foot = this.footSign(h);                   // +1 droitier, -1 gaucher
+    const skill = eff(h.mp, 'tir') * 0.5 + eff(h.mp, 'dri') * 0.5;
+    let spin = 0, top = 0, knuckle = 0, how = '';
+    if (kind === 'freekick') {
+      if (r1 < 0.22 && eff(h.mp, 'tir') >= 72) { knuckle = 1 + r3 * 5; speed = 28 + r2 * 4; top = 0; how = 'flottante'; } // frappe flottante « à la Juninho »
+      else { spin = foot * (8 + r3 * 4); top = -3; how = 'enroulée'; }
+    } else if (tech === 'curl' || tech === 'finesse') {
+      const mag = tech === 'curl' ? 9 + r3 * 4 : 4 + r3 * 3;
+      if (need === foot) { spin = need * mag; how = 'intérieur du pied'; }
+      else if (skill >= 74 && r1 < 0.45) { spin = need * mag * 0.8; how = 'extérieur du pied'; } // trivela
+      else { spin = foot * mag * 0.35; how = 'mauvais pied'; }    // ouvre moins, finit souvent à côté
+    } else if (tech === 'drive') {
+      // Frappe sèche : légère rotation, parfois sans aucune rotation (flottante) quand elle est très appuyée.
+      if (r1 < 0.18 && speed > 28) { knuckle = 1 + r3 * 5; how = 'flottante'; }
+      else { spin = foot * (r3 - 0.3) * 3; top = r1 < 0.5 ? -2.5 : 1; how = top < 0 ? 'qui plonge' : 'sèche'; }
+    } else if (tech === 'chip') top = -4;
+    h.lastHow = how;
+    if (how === 'extérieur du pied') { h.kickSide = false; h.kickOut = 0.35; }
     const low = r1 < (tech === 'finesse' ? 0.75 : 0.55);
     const zIn = tech === 'chip' ? 1.5 + r1 * 0.7 : low ? 0.15 + r3 * 0.5 : 1.3 + r3 * 0.9;
     if (o === 'goal') tgt = { x: gx + gdir * 0.9, y: cy + side * (GOAL_HALF - 0.35 - r3 * 0.9), z: zIn };
@@ -924,8 +946,8 @@ export class LiveSim {
     this.lastTouch = A.side;
     P.inGoal = 0; P.hitPost = false;
     const d = Math.hypot(tgt.x - P.x, tgt.y - P.y, tgt.z - P.z);
-    const T = solveKick(P, tgt, { T: Math.max(0.25, d / speed), spin, top });
-    this.shot = { side: A.side, outcome: o, shooter: h, gk, at: this.now + T, kind, xg, blocker: blocker?.o, catchIt: speed < 27 && r2 < 0.55 * (m.wx?.grip || 1) * (gk && TR(gk, 'chat') ? 1.35 : 1) };
+    const T = solveKick(P, tgt, { T: Math.max(0.25, d / speed), spin, top, knuckle });
+    this.shot = { side: A.side, outcome: o, shooter: h, gk, at: this.now + T, kind, xg, how, blocker: blocker?.o, catchIt: speed < 27 && r2 < 0.55 * (m.wx?.grip || 1) * (gk && TR(gk, 'chat') ? 1.35 : 1) };
     this.pending = null;
     // Le gardien plonge vers le ballon au bon moment (trop tard s'il y a but).
     if (gk && o !== 'blocked') {
@@ -934,7 +956,7 @@ export class LiveSim {
       const lat = tgt.y - this.Y(gk);
       if (Math.abs(lat) > 0.9 || tgt.z > 1.6) { gk.diveDelay = Math.max(0, T - 0.35); gk.diveDir = Math.sign(lat) || 1; gk.diveH = Math.min(1, tgt.z / 2.2); }
     }
-    const ev = emit(m, out, { type: 'shot', side: A.side, pid: h.mp.id, xg: +xg.toFixed(2), kind, zone: 3, outcome: o, x: tgt.x / L, y: tgt.y / W });
+    const ev = emit(m, out, { type: 'shot', side: A.side, pid: h.mp.id, xg: +xg.toFixed(2), kind, zone: 3, outcome: o, x: tgt.x / L, y: tgt.y / W, how: how || undefined });
     if (o === 'saved') { A.stats.onTarget++; D.stats.saves++; addRating(h.mp, 0.08); if (gk) { gk.mp.saves++; addRating(gk.mp, 0.2 + xg * 0.8); } ev.pid2 = gk?.mp.id ?? null; }
     if (o === 'blocked' && blocker) { ev.pid2 = blocker.o.mp.id; addRating(blocker.o.mp, 0.08); }
     if (o === 'post') addRating(h.mp, 0.05);
@@ -956,7 +978,7 @@ export class LiveSim {
     momentum(m, s.side, 18);
     m.stoppages += 0.6;
     m.goals.push({ side: s.side, pid: sc.id, name: sc.name, minute: m.minute, extra: m.extra, pen: s.kind === 'penalty', assist: assist ? assist.name : null });
-    emit(m, out, { type: 'goal', side: s.side, pid: sc.id, pid2: assist ? assist.id : null, kind: s.kind, x: this.P.x / L, y: this.P.y / W, zone: 3 });
+    emit(m, out, { type: 'goal', side: s.side, pid: sc.id, pid2: assist ? assist.id : null, kind: s.kind, how: s.how || undefined, x: this.P.x / L, y: this.P.y / W, zone: 3 });
     // Célébration : le buteur file vers le poteau de corner, ses coéquipiers le rejoignent.
     const cx = s.side === 0 ? 0.97 : 0.03, cyy = this.P.y < W / 2 ? 0.06 : 0.94;
     s.shooter.celebType = ['plane', 'knees', 'fist', 'point', 'jump'][Math.floor(this.rand() * 5)];
@@ -1636,7 +1658,7 @@ export class LiveSim {
       if (p.mp && !p.celeb) { const v = p.speed || 0; p.mp.work = (p.mp.work || 0) + v * dt * (0.6 + (v / 6.5) ** 2 * 1.6); }
       const gd = dt / GS;
       if (p.diveDelay != null) { p.diveDelay -= dt; if (p.diveDelay <= 0) { p.diveDelay = null; p.dive = 0.75; } }
-      for (const k of ['kick', 'slide', 'dive', 'jump', 'celeb', 'touch', 'fall', 'block', 'throwIn', 'ctrl', 'place', 'signal', 'bump', 'hurt', 'appeal', 'headHands']) if (p[k] > 0) p[k] = Math.max(0, p[k] - gd);
+      for (const k of ['kick', 'slide', 'dive', 'jump', 'celeb', 'touch', 'fall', 'block', 'throwIn', 'ctrl', 'place', 'signal', 'bump', 'hurt', 'appeal', 'headHands', 'kickOut']) if (p[k] > 0) p[k] = Math.max(0, p[k] - gd);
     }
     // Contacts : on ne se traverse pas.
     const arr = [...this.players.values()];

@@ -11,8 +11,11 @@ import { toLocal, localRect } from './viewport.js';
 import { personLook, portraitSvg } from './avatar.js';
 
 const L = 105, W = 68;
-const K = 1.25;              // agrandissement des joueurs (lisibilité sur téléphone)
-const BALL_R = 0.11 * 2.2;   // ballon agrandi lui aussi
+// Échelle RÉELLE face aux cages (7,32 × 2,44 m) : joueurs à leur taille, ballon de 22 cm.
+// Sur téléphone, très léger grossissement pour rester lisible sur un petit écran.
+const COARSE = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
+const K = COARSE ? 1.08 : 1;
+const BALL_R = 0.11 * (COARSE ? 1.45 : 1.15);
 
 function canvasTex(w, h, draw) {
   const c = document.createElement('canvas');
@@ -582,6 +585,8 @@ export class Player3D {
       lR.hip.rotation.z = hip; lR.knee.rotation.z = knee;
       // Plat du pied (passe, frappe placée) : pied ouvert vers l'extérieur, geste plus court.
       if (p.kickSide) { lR.hip.rotation.y = -0.75 * Math.sin(Math.min(1, t * 1.6) * Math.PI / 2); lR.hip.rotation.x = 0.18; }
+      // Extérieur du pied (trivela) : pied tourné vers l'intérieur, la jambe fouette de l'intérieur vers l'extérieur.
+      if (p.kickOut > 0) { lR.hip.rotation.y = 0.6 * Math.sin(Math.min(1, t * 1.6) * Math.PI / 2); lR.hip.rotation.x = -0.22; lR.ankle.rotation.y = 0.5; }
       lL.hip.rotation.z = 0.12; lL.knee.rotation.z = -0.25 - 0.15 * pow;
       // Bras opposé écarté pour l'équilibre, buste qui accompagne.
       this.arms[0].sh.rotation.x = 0.9 * pow; this.arms[1].sh.rotation.x = -0.4 * pow;

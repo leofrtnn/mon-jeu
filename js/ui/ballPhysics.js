@@ -19,8 +19,15 @@
 export const PITCH_L = 105, PITCH_W = 68;
 export const R = 0.11;                  // rayon du ballon
 export const G = 9.81;
-const K_DRAG = 0.0125;                  // ρ·Cd·A / 2m ≈ 1,2·0,25·0,038 / 0,86
-const K_MAGNUS = 0.0034;                // accélération par (rad/s)·(m/s)
+const K_DRAG = 0.0125;                  // ρ·Cd·A / 2m ≈ 1,2·0,25·0,038 / 0,86 (frappe rapide)
+const K_AIR = 0.053;                    // ρ·A / 2m : la traînée vaut K_AIR · Cd(v)
+/**
+ * Coefficient de traînée d'un ballon de foot : ~0,45 à faible vitesse, puis « crise de
+ * traînée » vers 12-18 m/s (couche limite turbulente) où il tombe à ~0,23 : une frappe
+ * puissante file, une passe lente freine davantage.
+ */
+const cdOf = (v) => 0.23 + 0.22 / (1 + Math.exp((v - 15) / 2.2));
+const K_MAGNUS = 0.03;                  // accélération par (unité d'effet)·(m/s) : un enroulé appuyé dévie de 1 à 3 m sur 25 m
 const SPIN_DECAY = 0.12;                // l'effet s'atténue en vol (par seconde)
 const BOUNCE_E = 0.58;                  // restitution verticale sur l'herbe
 const BOUNCE_F = 0.8;                   // perte de vitesse horizontale à chaque rebond
@@ -44,11 +51,24 @@ function sub(b, h, opts) {
   const air = b.z > R + 0.002 || b.vz > 0.05;
   if (air) {
     const v = Math.hypot(b.vx, b.vy, b.vz);
-    let ax = -K_DRAG * v * b.vx, ay = -K_DRAG * v * b.vy, az = -G - K_DRAG * v * b.vz;
+    const kd = K_AIR * cdOf(v);
+    let ax = -kd * v * b.vx, ay = -kd * v * b.vy, az = -G - kd * v * b.vz;
     // Magnus : rotation verticale (spin) → force latérale ; rotation horizontale (top) → portance / plongée.
-    ax += K_MAGNUS * -b.spin * b.vy;
-    ay += K_MAGNUS * b.spin * b.vx;
-    az += K_MAGNUS * b.top * Math.hypot(b.vx, b.vy);
+    // Le coefficient de portance sature quand la rotation est forte devant la vitesse (Cl ≈ 0,3 max).
+    const sat = (w) => w / (1 + Math.abs(w) / 18);
+    ax += K_MAGNUS * -sat(b.spin) * b.vy;
+    ay += K_MAGNUS * sat(b.spin) * b.vx;
+    az += K_MAGNUS * sat(b.top) * Math.hypot(b.vx, b.vy);
+    // Frappe flottante (sans rotation, très appuyée) : le sillage se décolle d'un côté puis de
+    // l'autre, le ballon « papillonne » et décroche, imprévisible pour le gardien.
+    if (b.knuckle && v > 16 && Math.abs(b.spin) < 2.5) {
+      b.kt = (b.kt || 0) + h;
+      const amp = 8 * Math.min(1, (v - 16) / 8);
+      const ph = b.knuckle;
+      ay += amp * Math.sin(b.kt * 6.5 + ph) * Math.sign(b.vx || 1);
+      ax += -amp * 0.4 * Math.sin(b.kt * 9.5 + ph) * Math.sign(b.vy || 0);
+      az += amp * 0.7 * Math.sin(b.kt * 7.1 + ph * 1.7) - 0.9;
+    }
     b.vx += ax * h; b.vy += ay * h; b.vz += az * h;
     b.x += b.vx * h; b.y += b.vy * h; b.z += b.vz * h;
     const dec = Math.exp(-SPIN_DECAY * h);
@@ -62,7 +82,7 @@ function sub(b, h, opts) {
         b.vx *= Math.min(0.97, BOUNCE_F * (b.skidK || 1)); b.vy *= Math.min(0.97, BOUNCE_F * (b.skidK || 1)); // pelouse mouillée : rebond rasant
         // L'effet « mord » l'herbe : il dévie un peu le rebond puis s'use.
         b.vx += -b.spin * 0.01 * b.vy; b.vy += b.spin * 0.01 * b.vx;
-        b.spin *= 0.5; b.top *= 0.3;
+        b.spin *= 0.5; b.top *= 0.3; b.knuckle = 0;
       } else { b.vz = 0; b.rolling = true; }
     }
   } else {
@@ -78,8 +98,8 @@ function sub(b, h, opts) {
     }
     b.x += b.vx * h; b.y += b.vy * h;
   }
-  // Rotation visuelle (le ballon roule sur lui-même).
-  b.rot.a += (Math.hypot(b.vx, b.vy) / R) * h;
+  // Rotation visuelle : au sol, le ballon roule ; en l'air, il tourne selon son effet brossé/coupé.
+  b.rot.a += (b.rolling ? Math.hypot(b.vx, b.vy) / R : -b.top * 2.2) * h;
   b.rot.b = Math.atan2(b.vy, b.vx);
   if (!opts.noFrame) frame(b);
 }
@@ -123,7 +143,7 @@ function collide(b, nx, ny, nz, pen, e) {
   const vn = b.vx * nx + b.vy * ny + b.vz * nz;
   if (vn < 0) {
     b.vx -= (1 + e) * vn * nx; b.vy -= (1 + e) * vn * ny; b.vz -= (1 + e) * vn * nz;
-    b.spin *= 0.4;
+    b.spin *= 0.4; b.knuckle = 0;
     b.hitPost = true;
   }
 }
@@ -144,8 +164,8 @@ export function predict(b, t) {
  *  mode 'air'    : ballon qui passe par la cible (x, y, z) au bout de T secondes.
  * Retourne le temps de trajet prévu (s).
  */
-export function solveKick(b, target, { mode = 'air', T = 1, arrive = 4, spin = 0, top = 0 } = {}) {
-  b.spin = spin; b.top = top; b.inGoal = 0; b.hitPost = false;
+export function solveKick(b, target, { mode = 'air', T = 1, arrive = 4, spin = 0, top = 0, knuckle = 0 } = {}) {
+  b.spin = spin; b.top = top; b.inGoal = 0; b.hitPost = false; b.knuckle = knuckle; b.kt = 0;
   const dx = target.x - b.x, dy = target.y - b.y, d = Math.hypot(dx, dy) || 0.01;
   if (mode === 'ground') {
     b.z = R; b.vz = 0; b.spin = spin * 0.3; b.top = 0;

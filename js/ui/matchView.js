@@ -1231,7 +1231,7 @@ export class MatchView {
       // Les gestes durent un temps « d'affichage » (indépendant de l'accéléré).
       const gd = dt / this.TS;
       if (p.diveIn != null) { p.diveIn -= gd; if (p.diveIn <= 0) { p.diveIn = null; this.startDive(p); } }
-      for (const k of ['kick', 'slide', 'dive', 'jump', 'celeb', 'touch', 'saveFx', 'fall', 'block', 'hurt', 'appeal', 'headHands']) if (p[k] > 0) p[k] = Math.max(0, p[k] - gd);
+      for (const k of ['kick', 'slide', 'dive', 'jump', 'celeb', 'touch', 'saveFx', 'fall', 'block', 'hurt', 'appeal', 'headHands', 'kickOut']) if (p[k] > 0) p[k] = Math.max(0, p[k] - gd);
     }
     // Contacts : deux joueurs ne se traversent pas (ils se repoussent à moins de 1,1 m),
     // sauf le tacleur qui va au duel.

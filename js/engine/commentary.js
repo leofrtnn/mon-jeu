@@ -232,6 +232,15 @@ function fill(s, v) {
  * names : (id) => nom du joueur ; teams : [nom0, nom1]
  * opts.verbose : commenter aussi des actions de construction (aléatoirement).
  */
+/** Geste technique de la frappe (effet du ballon). */
+const HOW = {
+  'extérieur du pied': 'Somptueux extérieur du pied de {p}, le ballon s\'enroule !',
+  flottante: 'Frappe flottante de {p}, le ballon papillonne !',
+  'intérieur du pied': 'Enroulé de l\'intérieur du pied de {p}…',
+  'qui plonge': 'Frappe brossée de {p} qui plonge brusquement…',
+};
+const RARE_HOW = new Set(['extérieur du pied', 'flottante']);
+
 export function describe(ev, ctx, r = Math.random, opts = {}) {
   const team = ev.side >= 0 ? ctx.teams[ev.side] : '';
   const opp = ev.side >= 0 ? ctx.teams[1 - ev.side] : '';
@@ -244,10 +253,11 @@ export function describe(ev, ctx, r = Math.random, opts = {}) {
       if (ev.kind === 'penalty' && ev.outcome !== 'goal') type = 'penalty_miss';
       else type = 'shot_' + ev.outcome;
       if (ev.kind === 'header' && r() < 0.6) return fill(pick('header_shot', r), v) + ' ' + fill(pick(type, r), v);
+      if (HOW[ev.how] && (RARE_HOW.has(ev.how) || r() < 0.35)) return fill(HOW[ev.how], v) + ' ' + fill(pick(type, r), v);
       break;
     case 'goal': {
       type = ev.kind === 'header' ? 'goal_header' : ev.kind === 'penalty' ? 'goal_penalty' : ev.kind === 'freekick' ? 'goal_freekick' : 'goal';
-      let s = fill(pick(type, r), v);
+      let s = (HOW[ev.how] && (RARE_HOW.has(ev.how) || r() < 0.5) ? fill(HOW[ev.how], v) + ' ' : '') + fill(pick(type, r), v);
       if (ev.pid2) s += fill(ASSIST[Math.floor(r() * ASSIST.length)], v);
       return s;
     }
