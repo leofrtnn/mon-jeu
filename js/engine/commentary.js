@@ -240,6 +240,15 @@ const HOW = {
   'qui plonge': 'Frappe brossée de {p} qui plonge brusquement…',
 };
 const RARE_HOW = new Set(['extérieur du pied', 'flottante']);
+/** Gestes techniques réussis (3 étoiles et plus). */
+const SKILL_TXT = {
+  petitpont: 'Petit pont de {p} sur {p2} ! Humiliant.',
+  talon: 'Talonnade de {p}, {p2} est pris à revers.',
+  roulette: 'Roulette de {p} ! {p2} est éliminé.',
+  sombrero: 'Sombrero de {p} par-dessus {p2} ! Le stade se lève.',
+  virgule: 'Virgule de {p} ! {p2} est cloué sur place.',
+  coupdusombrero: 'Coup du foulard de {p} ! Quelle audace.',
+};
 
 export function describe(ev, ctx, r = Math.random, opts = {}) {
   const team = ev.side >= 0 ? ctx.teams[ev.side] : '';
@@ -260,6 +269,10 @@ export function describe(ev, ctx, r = Math.random, opts = {}) {
       let s = (HOW[ev.how] && (RARE_HOW.has(ev.how) || r() < 0.5) ? fill(HOW[ev.how], v) + ' ' : '') + fill(pick(type, r), v);
       if (ev.pid2) s += fill(ASSIST[Math.floor(r() * ASSIST.length)], v);
       return s;
+    }
+    case 'skill': {
+      const t = SKILL_TXT[ev.move];
+      return t ? fill(t, v) : null;
     }
     case 'red': type = ev.kind === 'second' ? 'red_second' : 'red_direct'; break;
     case 'var':

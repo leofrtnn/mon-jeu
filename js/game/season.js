@@ -34,6 +34,7 @@ import { runSummerTournaments, breakLabel } from './international.js';
 import { dealsDaily } from './deals.js';
 import { retire } from './afterlife.js';
 import { assignAllTraits, updateTraits, TRAITS } from './traits.js';
+import { assignAllStars, evolveStars } from './stars.js';
 import { cohesionDaily, cohesionAfterUserMatch, linksWeekly, teamCohesion, cohMult, clubCoh } from './cohesion.js';
 import { aiSeasonBudget, finHealth } from './owners.js';
 import { BAL } from '../data/balance.js';
@@ -138,6 +139,7 @@ export function newGame(seed = (Date.now() >>> 0), { real = null } = {}) {
   }
   applyTop100(state);   // notes du top 100 intégré (monde réel)
   assignAllTraits(state); // traits (Magicien, Maestro…) d'après les vraies qualités
+  assignAllStars(state);  // étoiles de gestes techniques et de mauvais pied
   return state;
 }
 
@@ -1514,6 +1516,8 @@ export function endSeason(state) {
       // Traits gagnés / perdus avec l'évolution du niveau.
       const tr = updateTraits(p);
       if (rep && (tr.gained.length || tr.lost.length)) (rep.traits ||= []).push({ name: p.name, gained: tr.gained, lost: tr.lost });
+      const st = evolveStars(p);
+      if (rep && (st.sm || st.wf)) (rep.stars ||= []).push({ name: p.name, sm: p.sm, wf: p.wf, dsm: st.sm, dwf: st.wf });
       if (rep && dev.after !== dev.before) rep.progress.push({ name: p.name, pos: p.pos, before: dev.before, after: dev.after, age: p.age });
       if (shouldRetire(p, rng)) {
         c.playerIds = c.playerIds.filter((x) => x !== id);

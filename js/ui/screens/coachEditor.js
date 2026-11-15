@@ -25,6 +25,8 @@ const PRESETS = {
 };
 const NAT_ORIGIN = { France: 'FRA', Belgique: 'BEL', Suisse: 'SUI', Espagne: 'ESP', Portugal: 'POR', Italie: 'ITA', Allemagne: 'GER', Angleterre: 'ENG', Écosse: 'SCO', Brésil: 'BRA', Argentine: 'ESP', Croatie: 'CRO', Serbie: 'SRB', Japon: 'JPN', 'Pays-Bas': 'NED', Danemark: 'DEN', Suède: 'SWE' };
 
+const C3D = {};
+
 export function openCoachEditor(app, { mode = 'edit', onDone } = {}) {
   const coach = ensureCoachProfile(app.state.coach);
   const d = JSON.parse(JSON.stringify(coach)); // brouillon
@@ -77,7 +79,18 @@ export function openCoachEditor(app, { mode = 'edit', onDone } = {}) {
       <div class="label">Accessoire</div>${chips('accS', LOOK.accessories, d.look.acc || 'none')}
       <div class="label">Tenue</div>${chips('outfit', LOOK.outfits, d.look.outfit)}
       <div class="label">Couleur de la tenue</div>${sw('outfitColor', LOOK.outfitColors, d.look.outfitColor)}
-      <div class="btns" style="margin-top:12px"><button class="btn sm" data-act="random">🎲 Apparence au hasard</button></div>`;
+      <div class="ce-grid"><div><div class="label">Pantalon</div>${sw('trousersC', LOOK.trousers, d.look.trousers || LOOK.trousers[0])}</div>
+        <div><div class="label">Couleur d'accent (cravate, bandes, casquette)</div>${sw('accentC', LOOK.accents, d.look.accent || LOOK.accents[0])}</div></div>
+      <div class="label">Chaussures</div>${chips('shoesS', LOOK.shoes, d.look.shoes || 'city')}
+      <div class="label">Montre</div>${chips('watchS', { no: 'Non', yes: 'Oui' }, d.look.watch ? 'yes' : 'no')}
+      <h3 style="margin:16px 0 4px">Silhouette</h3>
+      <label class="field"><span>Taille : <b id="c-hgt">${d.look.height || 180} cm</b></span><input type="range" min="160" max="203" value="${d.look.height || 180}" id="c-hgtin"></label>
+      <div class="label">Corpulence</div>${chips('buildS', LOOK.builds, d.look.build || 'athletic')}
+      <h3 style="margin:16px 0 4px">Au bord du terrain</h3>
+      <div class="label">Attitude préférée</div>${chips('stanceS', LOOK.stances, d.look.stance || 'arms')}
+      <div class="label">Tempérament</div>${chips('temperS', LOOK.tempers, d.look.temper || 'normal')}
+      <div class="label">Célébration des buts</div>${chips('celebS', LOOK.celebs, d.look.celeb || 'fist')}
+      <div class="btns" style="margin-top:12px"><button class="btn sm" data-act="random">🎲 Apparence au hasard</button><button class="btn sm" data-act="c3dact" data-v="celebrate">▶ Voir sa célébration</button><button class="btn sm" data-act="c3dact" data-v="shout">▶ Le voir crier</button></div>`;
     if (k === 'style') return `
       <div class="label" style="margin-top:0">Philosophie de jeu</div>${chips('philo', PHILOSOPHIES, d.philosophy)}
       <p class="muted" style="font-size:12px;margin:6px 2px">Appliquée à la tactique de votre club (modifiable ensuite).</p>
@@ -99,6 +112,7 @@ export function openCoachEditor(app, { mode = 'edit', onDone } = {}) {
   const html = () => `<div class="coach-ed">
     <aside class="ce-side">
       <div id="cprev" class="ce-avatar">${avatarSvg(d.look, 132)}</div>
+      <div id="c3d" class="ce-3d" title="Votre coach en 3D (glissez pour le faire tourner)"></div>
       <small class="muted">${mode === 'create' ? 'Votre coach' : 'Mon coach'}</small>
       <h2 id="cname">${nameText()}</h2>
       <small id="csub">${sub()}</small>
@@ -129,6 +143,56 @@ export function openCoachEditor(app, { mode = 'edit', onDone } = {}) {
   const refresh = () => { readInputs(); h.update(html()); };
   const go = (i) => { readInputs(); step = Math.max(0, Math.min(STEPS.length - 1, i)); h.update(html()); h.body.scrollTop = 0; };
 
+  // Aperçu 3D persistant (le rendu n'est pas recréé à chaque clic) : le coach tourne sur lui-même.
+  let bodyEl = null;
+  const preview3d = (force = false, body = bodyEl) => {
+    if (body) bodyEl = body;
+    const host = bodyEl?.querySelector('#c3d');
+    if (!host) return;
+    import('../match3d.js').then((M) => {
+      if (!C3D.canvas) {
+        const T = M.THREE_NS;
+        const canvas = document.createElement('canvas');
+        const r = new T.WebGLRenderer({ canvas, antialias: true, alpha: true });
+        r.outputColorSpace = T.SRGBColorSpace; r.toneMapping = T.ACESFilmicToneMapping;
+        const sc = new T.Scene();
+        sc.add(new T.HemisphereLight('#ffffff', '#3a4a3a', 1.2));
+        const dl = new T.DirectionalLight('#ffffff', 1.4); dl.position.set(3, 5, 4); sc.add(dl);
+        const floor = new T.Mesh(new T.CircleGeometry(1.1, 40), new T.MeshStandardMaterial({ color: '#2f6b3f', roughness: 0.9 }));
+        floor.rotation.x = -Math.PI / 2; sc.add(floor);
+        const cam = new T.PerspectiveCamera(30, 1, 0.1, 50); cam.position.set(0, 1.25, 5.2); cam.lookAt(0, 1.0, 0);
+        Object.assign(C3D, { canvas, r, sc, cam, yaw: 0.6, drag: null });
+        canvas.addEventListener('pointerdown', (e) => { C3D.drag = e.clientX; });
+        window.addEventListener('pointerup', () => { C3D.drag = null; });
+        canvas.addEventListener('pointermove', (e) => { if (C3D.drag != null) { C3D.yaw += (e.clientX - C3D.drag) * 0.012; C3D.drag = e.clientX; } });
+        let last = performance.now();
+        const loop = (now) => {
+          if (!C3D.canvas.isConnected) { C3D.raf = 0; return; }
+          const dt = Math.min(0.05, (now - last) / 1000); last = now;
+          if (C3D.drag == null) C3D.yaw += dt * 0.5;
+          if (C3D.coach) { C3D.coach.update(dt, { x: 0, z: 0 }, { x: Math.cos(C3D.yaw) * 5, z: -Math.sin(C3D.yaw) * 5 }); }
+          C3D.r.render(C3D.sc, C3D.cam);
+          C3D.raf = requestAnimationFrame(loop);
+        };
+        C3D.loop = loop;
+      }
+      if (C3D.canvas.parentNode !== host) host.appendChild(C3D.canvas);
+      const w = host.clientWidth || 180, hh = host.clientHeight || 240;
+      C3D.r.setPixelRatio(Math.min(2, window.devicePixelRatio || 1)); C3D.r.setSize(w, hh, false);
+      C3D.canvas.style.width = '100%'; C3D.canvas.style.height = '100%';
+      C3D.cam.aspect = w / hh; C3D.cam.updateProjectionMatrix();
+      const key = JSON.stringify(d.look);
+      if (force || key !== C3D.key) {
+        C3D.key = key;
+        if (C3D.coach) C3D.sc.remove(C3D.coach.root);
+        C3D.coach = new M.Coach3D({ ...d.look, stance: d.look.stance || 'arms' });
+        C3D.coach.root.position.set(0, 0, 0);
+        C3D.sc.add(C3D.coach.root);
+      }
+      if (!C3D.raf) C3D.raf = requestAnimationFrame(C3D.loop);
+    }).catch((e) => console.warn('aperçu 3D', e));
+  };
+
   const h = app.sheet({
     full: true, dismissable: mode !== 'create', html,
     mount: (body) => {
@@ -138,6 +202,10 @@ export function openCoachEditor(app, { mode = 'edit', onDone } = {}) {
       fn?.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); ln?.focus(); } });
       ln?.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); ln.blur(); } });
       age?.addEventListener('input', () => { d.age = +age.value; preview(); });
+      const hg = body.querySelector('#c-hgtin');
+      hg?.addEventListener('input', () => { d.look.height = +hg.value; const t = body.querySelector('#c-hgt'); if (t) t.textContent = `${d.look.height} cm`; preview3d(true, body); });
+      hg?.addEventListener('change', () => refresh());
+      preview3d(false, body);
     },
     actions: {
       step: (el) => go(+el.dataset.v),
@@ -169,6 +237,15 @@ export function openCoachEditor(app, { mode = 'edit', onDone } = {}) {
       lic: (el) => { if (mode !== 'create') return; d.licence = el.dataset.v; fixPts(); refresh(); },
       pers: (el) => { d.personality = el.dataset.v; refresh(); },
       random: () => { d.look = randomLook(); refresh(); },
+      trousersC: (el) => { d.look.trousers = el.dataset.v; refresh(); },
+      accentC: (el) => { d.look.accent = el.dataset.v; refresh(); },
+      shoesS: (el) => { d.look.shoes = el.dataset.v; refresh(); },
+      watchS: (el) => { d.look.watch = el.dataset.v === 'yes'; refresh(); },
+      buildS: (el) => { d.look.build = el.dataset.v; refresh(); },
+      stanceS: (el) => { d.look.stance = el.dataset.v; refresh(); },
+      temperS: (el) => { d.look.temper = el.dataset.v; refresh(); },
+      celebS: (el) => { d.look.celeb = el.dataset.v; refresh(); C3D.coach?.react('celebrate', 3); },
+      c3dact: (el) => { C3D.coach?.react(el.dataset.v, 3); },
       philo: (el) => { d.philosophy = el.dataset.v; refresh(); },
       form: (el) => { d.formation = el.dataset.v; refresh(); },
       preset: (el) => { d.skills = { ...PRESETS[el.dataset.v].skills }; refresh(); },

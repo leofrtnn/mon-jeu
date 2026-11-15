@@ -4,6 +4,7 @@
  * et éventuellement mount(app, root) appelé après le rendu.
  */
 import { assignAllTraits } from '../game/traits.js';
+import { assignAllStars } from '../game/stars.js';
 import { logoMark } from './logo.js';
 import { save as saveState, userClub } from '../game/state.js';
 import { money } from '../game/economy.js';
@@ -214,6 +215,7 @@ export const app = {
       // Top 100 intégré : appliqué une fois aux parties « monde réel » déjà commencées.
       if (this.state.world === 'real' && this.state.top100V !== TOP100_V) { applyTop100(this.state); this.save(); }
       if (this.state.traitsV !== 1) { assignAllTraits(this.state); this.save(); } // traits pour les anciennes sauvegardes
+      if (this.state.starsV !== 1) { assignAllStars(this.state); this.save(); } // étoiles (gestes, mauvais pied)
       // Logos gardés sur l'appareil : téléchargés une fois, puis toujours affichés (même hors ligne).
       if (this.state.world === 'real' && !this._logosQueued) {
         let done = false;

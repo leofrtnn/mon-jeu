@@ -64,6 +64,15 @@ export const LOOK = {
   outfits: { suit: 'Costume', tracksuit: 'Survêtement', coat: 'Manteau', polo: 'Polo du club', puffer: 'Doudoune', jacket: 'Blouson', rollneck: 'Col roulé' },
   outfitColors: ['#1c2333', '#2b2f36', '#111111', '#0f3d2e', '#5a1d24', '#203a6b', '#3b2a5c', '#e8e8e8', '#6b4f2a', '#7a7f87', '#c1121f', '#1d6fd1'],
   bgs: ['#1f352b', '#1c2340', '#3a1f2b', '#2b2b2b', '#2d3b55', '#40331c'],
+  // Silhouette et tenue (visibles en 3D au bord du terrain).
+  builds: { slim: 'Mince', athletic: 'Athlétique', stocky: 'Trapu', heavy: 'Enrobé' },
+  trousers: ['#1a1d24', '#111111', '#2b2f36', '#203a6b', '#3a3f47', '#6b5a43', '#e8e8e8'],
+  accents: ['#ffffff', '#c1121f', '#1d6fd1', '#e3b341', '#1fbf72', '#111111', '#7b2cbf', '#ff7b00'],
+  shoes: { city: 'Chaussures de ville', sneakers: 'Baskets', boots: 'Bottines' },
+  // Comportement au bord du terrain.
+  stances: { arms: 'Bras croisés', pockets: 'Mains dans les poches', hips: 'Mains sur les hanches', note: 'Carnet de notes', point: 'Toujours en train de diriger' },
+  tempers: { calm: 'Calme', normal: 'Expressif', volcanic: 'Volcanique' },
+  celebs: { fist: 'Poing serré', arms: 'Bras au ciel', jump: 'Saut de joie', clap: 'Applaudit', knee: 'À genoux', calm: 'Reste de marbre' },
 };
 
 export const COACH_NATIONS = ['France', 'Belgique', 'Suisse', 'Espagne', 'Portugal', 'Italie', 'Allemagne', 'Angleterre', 'Écosse', 'Irlande',
@@ -79,6 +88,8 @@ export function randomLook(r = Math.random) {
     skin: pick(LOOK.skins), hairStyle: pick(Object.keys(LOOK.hairStyles)), hairColor: pick(LOOK.hairColors),
     beard: pick(Object.keys(LOOK.beards)), glasses: r() < 0.3 ? pick(['square', 'round']) : 'none', outfit: pick(Object.keys(LOOK.outfits)), outfitColor: pick(LOOK.outfitColors),
     face: pick(Object.keys(LOOK.faces)), eyes: pick(LOOK.eyes), brows: pick(Object.keys(LOOK.brows)), mouth: pick(['neutral', 'smile', 'stern']), acc: r() < 0.25 ? pick(['cap', 'scarf', 'headset']) : 'none',
+    height: 168 + Math.floor(r() * 26), build: pick(Object.keys(LOOK.builds)), trousers: pick(LOOK.trousers), accent: pick(LOOK.accents), shoes: pick(Object.keys(LOOK.shoes)),
+    stance: pick(Object.keys(LOOK.stances)), temper: pick(Object.keys(LOOK.tempers)), celeb: pick(Object.keys(LOOK.celebs)), watch: r() < 0.4,
   };
 }
 

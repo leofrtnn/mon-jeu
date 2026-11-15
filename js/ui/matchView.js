@@ -353,6 +353,7 @@ export class MatchView {
     this.animate(ev);
     // Gestes humains : le blessé se tient la jambe au sol, le fautif proteste auprès de
     // l'arbitre, le tireur qui manque une grosse occasion se prend la tête dans les mains.
+    if (!ev.replay) try { this.r3d?.coachEvent?.(ev); } catch { /* ignore */ }
     const who = ev.pid != null ? this.players.get(ev.pid) : null;
     if (who && !ev.replay) {
       if (ev.type === 'injury') { who.hurt = 4.5; who.fall = 0; }

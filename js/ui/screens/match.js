@@ -17,7 +17,7 @@ import { hourLabel, weatherEffectText } from '../../game/weather.js';
 import { currentDate } from '../../game/dates.js';
 import { coachName } from '../../game/coach.js';
 import { esc, crest, cmpBar, ratingChip, posBadge, seg, scaleColor, face } from '../components.js';
-import { avatarSvg } from '../avatar.js';
+import { avatarSvg, personLook } from '../avatar.js';
 import { MatchAudio } from '../audio.js';
 import { xgChart, heatmap } from '../charts.js';
 import { userClub, clubById } from '../../game/state.js';
@@ -243,6 +243,16 @@ export function openMatch(app, opts = {}) {
   };
 
   globalThis.__cdpGfx = s.settings.gfx || null;
+  // Coachs en 3D au bord du terrain : le vôtre (apparence de l'éditeur), l'adversaire (généré).
+  globalThis.__cdpCoaches = m.teams.map((t) => {
+    const c = t.club;
+    if (c && c.id === s.userClubId && s.coach?.look) return s.coach.look;
+    const mg = c ? managerOf(s, c) : null;
+    const lk = personLook(mg?.id ?? (c?.id ?? 0) + 5000, mg?.nat || '', mg?.age || 50);
+    const outfits = ['suit', 'tracksuit', 'coat', 'jacket', 'polo', 'puffer'];
+    const h = Math.abs((mg?.id ?? c?.id ?? 1) * 2654435761 % 997);
+    return { ...lk, outfit: outfits[h % outfits.length], outfitColor: ['#1c2333', '#111111', '#2b2f36', '#203a6b', c?.color || '#1c2333'][h % 5], height: 172 + (h % 20), build: ['slim', 'athletic', 'athletic', 'stocky', 'heavy'][h % 5], stance: ['arms', 'pockets', 'hips', 'note'][h % 4], temper: ['calm', 'normal', 'volcanic'][h % 3], celeb: ['fist', 'arms', 'clap', 'calm', 'jump'][h % 5], acc: h % 7 === 0 ? 'scarf' : 'none' };
+  });
   const view = new MatchView($('pitch'), m, { userSide, onEventStart, onIdle, live: replay ? true : s.settings.liveEngine !== false, hlMode: SPEEDS[ctrl.speedIdx],
     onHighlight: (on) => { audio.swell(on); const b = root.querySelector('[data-c="speed"]'); if (b && SPEEDS[ctrl.speedIdx] === 'auto') { b.textContent = speedLabel('auto', on, view.ffSpeed); b.classList.toggle('hl-on', on); } ffUpdate(true); },
     beforeStep: replay ? (n) => applyJournal(n) : null, labelMode: s.settings.labels || ((s.settings.matchStyle || '3d') !== 'anim' ? 'num' : 'name'), style: s.settings.matchStyle || '3d', onPlayerTap: showTapCard,

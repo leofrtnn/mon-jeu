@@ -19,6 +19,7 @@
  * les événements : l'écran de match, les commentaires et la fin de match fonctionnent à l'identique.
  * Aucune dépendance au navigateur : testable et calibrable en Node.
  */
+import { SKILL_MOVES, movesFor } from '../game/stars.js';
 import { createBall, stepBall, solveKick, R as BR, GOAL_HALF, PITCH_L as L, PITCH_W as W } from '../ui/ballPhysics.js';
 import { formationPos } from './positions.js';
 import { clamp } from '../core/rng.js';
@@ -54,6 +55,9 @@ const TUNE = {   // calibré en TEMPS RÉEL (horloge 1) : ~2,8 buts, ~28 tirs, ~
   clearCorner: 0.05,  // part des dégagements d'urgence qui finissent en corner
   loftPen: 0.2,       // coût de choix d'un ballon aérien (réalisme : surtout des passes au sol)
 };
+
+/** Durée (s) de l'animation de chaque geste technique. */
+const SKILL_DUR = { crochet: 0.35, feinte: 0.45, passement: 0.6, jongle: 0.8, petitpont: 0.4, talon: 0.4, roulette: 0.7, sombrero: 0.55, virgule: 0.45, coupdusombrero: 0.5 };
 
 export class LiveSim {
   /**
@@ -140,6 +144,21 @@ export class LiveSim {
   X(p) { return p.x * L; }
   Y(p) { return p.y * W; }
   foot(p, d = 0.55) { return { x: p.x * L + Math.cos(p.face) * d, y: p.y * W + Math.sin(p.face) * d }; }
+  /** Geste technique pour éliminer le défenseur à `d` mètres (seulement ceux permis par ses étoiles). */
+  pickMove(h, d) {
+    const can = movesFor(h.mp.p || { sm: 2 });
+    const w = can.map((k) => {
+      let x = 1 + SKILL_MOVES[k].stars * 0.35;                      // les virtuoses aiment le spectacle
+      if (k === 'petitpont') x *= d < 3.6 ? 1.6 : 0.3;               // il faut être tout près
+      if (k === 'sombrero') x *= d > 2.6 ? 1.1 : 0.4;
+      if (k === 'roulette') x *= d < 3 ? 1.4 : 0.6;                  // défenseur qui arrive au contact
+      if (k === 'jongle') x *= 0.5;
+      if (k === 'talon' || k === 'coupdusombrero') x *= 0.45;
+      return x * (this.m.minute > 85 && this.m.score[h.side] > this.m.score[1 - h.side] ? 0.5 : 1);
+    });
+    return can[this.rng.weightedIndex(w)] || 'crochet';
+  }
+
   /** Pied fort : +1 droitier, -1 gaucher (donnée du joueur, sinon ~ 1 sur 5 gaucher). */
   footSign(p) { const f = p.mp?.p?.foot; return f === 'G' ? -1 : f === 'D' ? 1 : ((p.mp?.id ?? 0) % 5 === 0 ? -1 : 1); }
   dist(p, x, y) { return Math.hypot(p.x * L - x, p.y * W - y); }
@@ -543,7 +562,13 @@ export class LiveSim {
       const pWin = sig((dri - def) / 11 + 0.15 + (TR(h, 'magicien') ? 0.6 : 0) + (TR(h, 'provocateur') ? 0.3 : 0) - (TR(opp.p, 'roc') ? 0.45 : 0) - (TR(opp.p, 'guerrier') ? 0.15 : 0));
       const w = TUNE.takeonW * ({ less: 0.5, normal: 1, more: 1.7 }[piOf(A, h.mp, 'dribble', 'normal')]) * mood.drib * (TR(h, 'magicien') || TR(h, 'provocateur') ? 1.45 : 1);
       const boxT = dGoal < 11 ? 0.5 : 1; // collé au but : on ne cherche plus à dribbler le dernier homme
-      opts.push({ k: 'takeon', u: (pWin * this.threat(A.side, tx2, ty2) - (1 - pWin) * this.threat(A.side, hx, hy) * TUNE.lossW) * w * boxT, x: tx2, y: ty2, opp: opp.p, pWin });
+      // Geste technique choisi selon ses étoiles et la situation (distance du défenseur, espace).
+      const mv = this.pickMove(h, opp.d);
+      const pW = clamp(pWin + (SKILL_MOVES[mv]?.bonus || 0) * (0.6 + (h.mp.p?.sm ?? 2) / 10), 0.03, 0.95);
+      let tx3 = tx2, ty3 = ty2;
+      if (mv === 'petitpont' || mv === 'sombrero') { tx3 = clamp(ox + dir * 4, 2, L - 2); ty3 = oy; } // par-dessous ou par-dessus : tout droit
+      if (mv === 'roulette') ty3 = clamp(oy + side * 3.2, 2, W - 2);
+      opts.push({ k: 'takeon', u: (pW * this.threat(A.side, tx3, ty3) - (1 - pW) * this.threat(A.side, hx, hy) * TUNE.lossW) * w * boxT, x: tx3, y: ty3, opp: opp.p, pWin: pW, move: mv });
     }
     // Centre : couloir, dernier tiers, coéquipiers dans la surface.
     const wide = Math.abs(hy - W / 2) > 15, deep = (gx - hx) * dir < 30;
@@ -589,8 +614,11 @@ export class LiveSim {
     else if (pick.k === 'carry') { h.carry = { x: pick.x, y: pick.y, t0: this.now, until: this.now + 1.2 + this.rand() * 1.4 }; h.next = h.carry.until; }
     else if (pick.k === 'takeon') {
       // Le crochet est joué : réussi, le défenseur se jette dans le vide ; raté, il gagne le duel.
-      h.carry = { x: pick.x, y: pick.y, t0: this.now, until: this.now + 2.2, takeon: { def: pick.opp, win: this.rand() < pick.pWin } };
+      h.carry = { x: pick.x, y: pick.y, t0: this.now, until: this.now + 2.2, takeon: { def: pick.opp, win: this.rand() < pick.pWin, move: pick.move } };
       h.next = h.carry.until;
+      // Le geste se joue à l'approche du défenseur (animation) ; le jongle lève déjà le ballon.
+      h.skill = pick.move; h.skillT = SKILL_DUR[pick.move] || 0.5; h.skillMax = h.skillT;
+      if (pick.move === 'jongle' && this.P.z < 0.3) { this.P.vz = 2.6; }
     }
     else if (pick.k === 'cross') this.doCross(h, pick.r, out);
     else if (pick.k === 'clear') this.doClear(h, out);
@@ -885,6 +913,8 @@ export class LiveSim {
     else { if (dShot > 18 && TR(h, 'sniper')) tb *= 1.3; if (dShot <= 16 && TR(h, 'renard')) tb *= 1.15; if (xg > 0.25 && TR(h, 'tueur')) tb *= 1.1; }
     if (TR(h, 'clutch') && m.minute >= 75) tb *= 1.08;
     if (gk && TR(gk, 'mur')) tb *= 0.88;
+    // Mauvais pied : environ une frappe sur trois part du pied faible ; 1 étoile = gros handicap, 5 = aucun.
+    if (kind !== 'header' && kind !== 'penalty') tb *= 1 - (5 - (h.mp.p?.wf ?? 3)) * 0.025;
     const goalP = clamp(xg * kf * tb / (1 - pBlock), 0, 0.95);
     A.stats.shots++; h.mp.shots++;
     A.stats.xg += xg;
@@ -922,6 +952,7 @@ export class LiveSim {
       const mag = tech === 'curl' ? 9 + r3 * 4 : 4 + r3 * 3;
       if (need === foot) { spin = need * mag; how = 'intérieur du pied'; }
       else if (skill >= 74 && r1 < 0.45) { spin = need * mag * 0.8; how = 'extérieur du pied'; } // trivela
+      else if ((h.mp.p?.wf ?? 3) >= 4) { spin = need * mag * 0.85; how = 'pied faible'; } // bon pied faible : il enroule de l'autre pied
       else { spin = foot * mag * 0.35; how = 'mauvais pied'; }    // ouvre moins, finit souvent à côté
     } else if (tech === 'drive') {
       // Frappe sèche : légère rotation, parfois sans aucune rotation (flottante) quand elle est très appuyée.
@@ -1024,8 +1055,16 @@ export class LiveSim {
       if (to && to.def === o) {
         o.cd = 1.2;
         if (to.win) {
-          // Crochet réussi : le défenseur se jette dans le vide.
-          o.slide = 0.9; o.cd = 1.8; h.carry.takeon = null;
+          // Geste réussi : le défenseur est éliminé (il se jette dans le vide, ou reste planté).
+          const P = this.P, mv = to.move;
+          const ang = Math.atan2(h.carry.y - P.y, h.carry.x - P.x);
+          if (mv === 'petitpont') { P.vx = Math.cos(ang) * 6.5; P.vy = Math.sin(ang) * 6.5; P.vz = 0; o.cd = 2.2; }        // entre les jambes
+          else if (mv === 'sombrero') { P.vx = Math.cos(ang) * 3.6; P.vy = Math.sin(ang) * 3.6; P.vz = 6.4; P.top = 0; P.spin = 0; o.jump = 0.45; o.cd = 2.2; } // par-dessus la tête
+          else if (mv === 'talon') { P.vx = Math.cos(ang) * 5; P.vy = Math.sin(ang) * 5; }
+          else o.slide = o.tk === 'slide' || this.rand() < 0.5 ? 0.9 : 0;
+          if (!o.slide) o.bump = 0.5; // planté sur place, déséquilibré
+          o.cd = Math.max(o.cd, 1.8); h.carry.takeon = null;
+          if (mv && SKILL_MOVES[mv]?.stars >= 3) emit(m, out, { type: 'skill', side: h.side, pid: h.mp.id, pid2: o.mp.id, move: mv, x: P.x / L, y: P.y / W, zone: m.zone });
           h.team.stats.dribbles = (h.team.stats.dribbles || 0) + 1; addRating(h.mp, 0.06);
           if (this.rand() < 0.5) emit(m, out, { type: 'dribble', side: h.side, pid: h.mp.id, pid2: o.mp.id, x: this.P.x / L, y: this.P.y / W, zone: m.zone });
           continue;
@@ -1658,7 +1697,7 @@ export class LiveSim {
       if (p.mp && !p.celeb) { const v = p.speed || 0; p.mp.work = (p.mp.work || 0) + v * dt * (0.6 + (v / 6.5) ** 2 * 1.6); }
       const gd = dt / GS;
       if (p.diveDelay != null) { p.diveDelay -= dt; if (p.diveDelay <= 0) { p.diveDelay = null; p.dive = 0.75; } }
-      for (const k of ['kick', 'slide', 'dive', 'jump', 'celeb', 'touch', 'fall', 'block', 'throwIn', 'ctrl', 'place', 'signal', 'bump', 'hurt', 'appeal', 'headHands', 'kickOut']) if (p[k] > 0) p[k] = Math.max(0, p[k] - gd);
+      for (const k of ['kick', 'slide', 'dive', 'jump', 'celeb', 'touch', 'fall', 'block', 'throwIn', 'ctrl', 'place', 'signal', 'bump', 'hurt', 'appeal', 'headHands', 'kickOut', 'skillT']) if (p[k] > 0) p[k] = Math.max(0, p[k] - gd);
     }
     // Contacts : on ne se traverse pas.
     const arr = [...this.players.values()];

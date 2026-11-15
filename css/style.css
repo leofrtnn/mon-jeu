@@ -1381,3 +1381,8 @@ ul.notes { margin: 4px 0 0; padding-left: 18px; font-size: 13px; line-height: 1.
 .lt-live { color: #ff4d4d; font-size: 9px; animation: ltpulse 1.4s infinite; }
 @keyframes ltpulse { 50% { opacity: .25; } }
 .sale-stage { margin-top: 6px; font-size: 12px; color: var(--warn, #e3b341); }
+.stars-y { color: #f4c542; letter-spacing: 1px; font-size: 14px; }
+.moves { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 6px; }
+.move-chip { font-size: 11px; padding: 2px 7px; border-radius: 10px; background: rgba(244,197,66,.12); border: 1px solid rgba(244,197,66,.35); color: #f4d27a; }
+.ce-3d { width: 100%; max-width: 220px; height: 260px; margin: 8px auto 0; border-radius: 14px; overflow: hidden; background: radial-gradient(ellipse at 50% 30%, rgba(255,255,255,.08), rgba(0,0,0,.25)); cursor: grab; touch-action: pan-y; }
+.ce-3d canvas { display: block; }

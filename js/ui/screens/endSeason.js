@@ -36,6 +36,7 @@ export function showEndSeason(app, report = null) {
       <div class="card"><h3>Évolution des joueurs</h3>
         ${prog.map((p) => `<div class="row between" style="padding:3px 0"><span>${esc(p.name)} <small>${p.age} ans</small></span>
           <span>${noteChip(p.before)} → ${noteChip(p.after)} <b style="color:${p.after > p.before ? 'var(--good)' : 'var(--bad)'}">${p.after > p.before ? '▲ +' : '▼ '}${Math.round(p.after - p.before)}</b></span></div>`).join('') || '<p class="muted">Pas de changement notable.</p>'}
+        ${(r.stars || []).length ? `<div class="label">Étoiles (gestes techniques · mauvais pied)</div>${r.stars.map((x) => `<div class="row between" style="padding:2px 0"><span>${esc(x.name)}</span><small>${x.dsm ? `Gestes ${x.dsm > 0 ? '▲' : '▼'} <b class="stars-y">${'★'.repeat(x.sm)}</b>` : ''}${x.dsm && x.dwf ? ' · ' : ''}${x.dwf ? `Mauvais pied ${x.dwf > 0 ? '▲' : '▼'} <b class="stars-y">${'★'.repeat(x.wf)}</b>` : ''}</small></div>`).join('')}` : ''}
         ${r.retired.length ? `<p style="margin-bottom:0"><small>Retraites : ${r.retired.map(esc).join(', ')}</small></p>` : ''}
         ${r.left.length ? `<p style="margin-bottom:0"><small>Fins de contrat : ${r.left.map(esc).join(', ')}</small></p>` : ''}
         ${r.youth.length ? `<p style="margin-bottom:0"><small>🌱 Nouveaux jeunes : ${r.youth.map(esc).join(', ')}</small></p>` : ''}</div>
