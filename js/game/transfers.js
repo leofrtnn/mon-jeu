@@ -47,18 +47,37 @@ export function askingPrice(state, p, buyer = null) {
  * Le prix (calcul coûteux) n'est évalué que pour les joueurs retenus : avec 14 000 joueurs,
  * minOvr / maxOvr / where / limit évitent de tout chiffrer.
  */
+// Index du marché de la journée : tous les joueurs (libres et sous contrat) triés par note.
+// Les notes ne bougent pas dans la journée : l'index sert à toutes les recherches des clubs IA.
+const MARKET_IDX = new WeakMap();
+function marketIndex(state) {
+  const key = `${state.season}-${state.day}-${state.clubs.length}`;
+  const e = MARKET_IDX.get(state);
+  if (e && e.key === key) return e.list;
+  const list = [];
+  const push = (id) => { const p = state.players[id]; if (p) list.push({ p, ovr: overall(p) }); };
+  for (const id of state.freeAgents) push(id);
+  for (const c of state.clubs) for (const id of c.playerIds) push(id);
+  list.sort((a, b) => b.ovr - a.ovr);
+  MARKET_IDX.set(state, { key, list });
+  return list;
+}
+
 export function marketList(state, { pos = null, maxPrice = Infinity, youngOnly = false, buyer = null, minOvr = -Infinity, maxOvr = Infinity, where = null, limit = Infinity } = {}) {
-  const ids = [...state.freeAgents];
-  for (const c of state.clubs) if (c.id !== state.userClubId) ids.push(...c.playerIds);
+  const uid = state.userClubId;
   const cand = [];
-  for (const id of ids) {
-    const p = state.players[id];
-    if (!p || p.onLoanFrom || (pos && p.pos !== pos) || (youngOnly && p.age > 23)) continue;
-    const ovr = overall(p);
-    if (ovr < minOvr || ovr > maxOvr || (where && !where(p))) continue;
-    cand.push({ p, ovr });
+  const L = marketIndex(state);
+  // Recherche dichotomique du premier joueur sous le plafond de note.
+  let lo = 0, hi = L.length;
+  while (lo < hi) { const mid = (lo + hi) >> 1; if (L[mid].ovr > maxOvr) lo = mid + 1; else hi = mid; }
+  for (let i = lo; i < L.length; i++) {
+    const x = L[i];
+    if (x.ovr < minOvr) break; // liste triée : plus rien au-dessus du seuil
+    const p = x.p;
+    if (p.onLoanFrom || (uid != null && p.clubId === uid) || (pos && p.pos !== pos) || (youngOnly && p.age > 23)) continue;
+    if (where && !where(p)) continue;
+    cand.push({ p, ovr: x.ovr });
   }
-  cand.sort((a, b) => b.ovr - a.ovr);
   const out = [];
   for (const x of cand) {
     x.price = askingPrice(state, x.p, buyer);

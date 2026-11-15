@@ -90,7 +90,7 @@ export function createMatch(cfg) {
   const rng = createRng(cfg.seed ?? 1);
   const m = {
     maxSubs: cfg.maxSubs ?? MAX_SUBS, maxWindows: cfg.maxWindows ?? 3,
-    rng, seed: cfg.seed ?? 1, neutral: !!cfg.neutral, homeAdv: cfg.homeAdv ?? 1.025, cup: !!cfg.cup, varEnabled: cfg.varEnabled !== false,
+    rng, seed: cfg.seed ?? 1, agg: cfg.agg ? cfg.agg.slice(0, 2) : null, neutral: !!cfg.neutral, homeAdv: cfg.homeAdv ?? 1.025, cup: !!cfg.cup, varEnabled: cfg.varEnabled !== false,
     teams: [makeTeam(cfg.home, 0), makeTeam(cfg.away, 1)],
     phase: 'pre', period: 1, minute: 0, extra: 0, added: [0, 0], stoppages: 0,
     score: [0, 0], poss: 0, zone: 1, carrier: null, counter: 0, setPiece: null,
@@ -837,7 +837,7 @@ export function minuteEnd(m, out) {
     if (m.period === 1) {
       m.phase = 'ht';
       emit(m, out, { type: 'ht', side: -1, x: 0.5, y: 0.5, zone: 1 });
-    } else if (m.period === 2 && m.extraTime && m.score[0] === m.score[1]) {
+    } else if (m.period === 2 && m.extraTime && tieLevel(m)) {
       // Prolongation : 2 x 15 minutes, sans pause.
       emit(m, out, { type: 'et', side: -1, x: 0.5, y: 0.5, zone: 1 });
       m.period = 3; m.minute = 90; m.extra = 0; m.stoppages = 0;
@@ -1134,13 +1134,18 @@ export function penaltyShootout(m) {
   return res;
 }
 
+/** Égalité dans la confrontation (score du match + match aller éventuel). */
+export function tieLevel(m) {
+  return m.score[0] + (m.agg?.[0] || 0) === m.score[1] + (m.agg?.[1] || 0);
+}
+
 /** Simulation complète sans affichage. */
 export function simulateMatch(cfg) {
   const m = createMatch(cfg);
   m.teams.forEach((t) => (t.isAI = true));
   let guard = 0;
   while (m.phase !== 'ft' && guard++ < 200) stepMinute(m);
-  if (cfg.cup && m.score[0] === m.score[1]) penaltyShootout(m);
+  if (cfg.cup && tieLevel(m)) penaltyShootout(m);
   m.phase = 'done';
   return m;
 }
@@ -1159,8 +1164,10 @@ export function summarize(m) {
   // Homme du match : meilleure note, priorité au vainqueur en cas d'égalité.
   const winner = m.score[0] > m.score[1] ? 0 : m.score[1] > m.score[0] ? 1 : -1;
   const motm = all.slice().sort((a, b) => (b.rating + (b.side === winner ? 0.05 : 0)) - (a.rating + (a.side === winner ? 0.05 : 0)))[0];
-  let winnerSide = winner;
-  if (winner === -1 && m.shootout) winnerSide = m.shootout.winner;
+  // Match retour : le vainqueur se décide au cumul des deux matchs.
+  const g0 = m.score[0] + (m.agg?.[0] || 0), g1 = m.score[1] + (m.agg?.[1] || 0);
+  let winnerSide = g0 > g1 ? 0 : g1 > g0 ? 1 : -1;
+  if (winnerSide === -1 && m.shootout) winnerSide = m.shootout.winner;
   return {
     score: m.score.slice(), shootout: m.shootout, goals: m.goals.slice(), possession,
     stats: m.teams.map((t) => ({ ...t.stats, xg: +t.stats.xg.toFixed(2) })),

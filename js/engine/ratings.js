@@ -55,11 +55,10 @@ export function autoLineup(players, formation) {
   const used = new Set();
   const lineup = new Array(slots.length).fill(null);
   // Ordre : gardien, puis postes avec le moins de candidats naturels.
-  const order = slots.map((s, i) => i).sort((a, b) => {
-    const ca = avail.filter((p) => p.pos === slots[a].pos).length + (slots[a].pos === 'GB' ? -100 : 0);
-    const cb = avail.filter((p) => p.pos === slots[b].pos).length + (slots[b].pos === 'GB' ? -100 : 0);
-    return ca - cb;
-  });
+  const nat = {};
+  for (const p of avail) nat[p.pos] = (nat[p.pos] || 0) + 1;
+  const scarce = (i) => (nat[slots[i].pos] || 0) + (slots[i].pos === 'GB' ? -100 : 0);
+  const order = slots.map((s, i) => i).sort((a, b) => scarce(a) - scarce(b));
   for (const i of order) {
     let best = null, bestS = -1;
     for (const p of avail) {
@@ -70,7 +69,8 @@ export function autoLineup(players, formation) {
     if (best) { lineup[i] = best.id; used.add(best.id); }
   }
   // Banc : un gardien remplaçant + les meilleurs restants, variés.
-  const rest = avail.filter((p) => !used.has(p.id)).sort((a, b) => overall(b) - overall(a));
+  const ov = new Map(avail.map((p) => [p.id, overall(p)]));
+  const rest = avail.filter((p) => !used.has(p.id)).sort((a, b) => ov.get(b.id) - ov.get(a.id));
   const bench = [];
   const gk = rest.find((p) => p.pos === 'GB');
   if (gk) bench.push(gk.id);

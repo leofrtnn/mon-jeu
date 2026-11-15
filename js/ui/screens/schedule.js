@@ -154,7 +154,7 @@ function tie(s, t, uc) {
   const me = t.h === uc.id || t.a === uc.id;
   return `<div class="row" style="padding:6px 0;border-bottom:1px solid var(--line);${me ? 'font-weight:700' : ''}">
     <span class="grow" style="text-align:right;${t.w === t.a ? 'opacity:.5' : ''}">${esc(h.name)}</span>
-    <b class="num" style="min-width:58px;text-align:center">${t.s ? `${t.s[0]}-${t.s[1]}` : 'vs'}${t.pens ? `<br><small>${t.pens[0]}-${t.pens[1]} tab</small>` : ''}</b>
+    <b class="num" style="min-width:58px;text-align:center">${t.s ? `${t.s[0]}-${t.s[1]}` : 'vs'}${t.sub ? `<br><small class="muted" style="font-weight:400">${t.sub}</small>` : ''}${t.pens ? `<br><small>${t.pens[0]}-${t.pens[1]} tab</small>` : ''}</b>
     <span class="grow" style="${t.w === t.h ? 'opacity:.5' : ''}">${esc(a.name)}</span></div>`;
 }
 
@@ -202,7 +202,7 @@ function cups(app, s, uc) {
       <div class="label">${mine ? 'Autres coupes continentales' : 'Coupes continentales'}</div><div class="comp-grid">${cards.slice(3 + (mine ? 1 : 0)).join('')}</div>
       <div class="label">Coupes nationales</div>
       <div class="chips wrap">${Object.keys(s.cups).map((k) => `<button class="chip" data-act="cupw" data-v="${k}">${countryFlag(k)} ${esc(s.cups[k].name)}</button>`).join('')}</div>
-      <p class="muted" style="font-size:11px;margin:10px 4px">Dotations : ordres de grandeur des primes réelles (saison 2024-2025). Coupes d'Europe au format 2024 : phase de ligue à 36 clubs (8 matchs), barrages pour les 9e-24e, puis 8es, quarts, demies et finale sur un match.</p>`;
+      <p class="muted" style="font-size:11px;margin:10px 4px">Dotations : ordres de grandeur des primes réelles (saison 2024-2025). Coupes d'Europe au format 2024 : phase de ligue à 36 clubs (8 matchs), barrages pour les 9e-24e, puis 8es, quarts et demies en aller-retour, finale sur un match.</p>`;
   }
   const back = '<button class="chip" data-act="cupw" data-v="home">◂ Toutes les compétitions</button>';
   if (which.startsWith('super:')) {

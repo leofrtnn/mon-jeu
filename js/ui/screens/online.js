@@ -3,6 +3,7 @@
  * (choix des clubs), puis en jeu : bouton « Prêt », attente des autres managers,
  * calcul de la journée par l'hôte et réception des nouvelles versions.
  */
+import { GAME_OPTIONS, defaultOptions } from '../../game/options.js';
 import { onlineMustPlay } from '../../game/season.js';
 import { esc, crest } from '../components.js';
 import { packState, unpackState, setSlot, clubById } from '../../game/state.js';
@@ -57,7 +58,8 @@ export function lobbyHtml(app) {
         <button class="btn sm" data-act="ocopy">Copier le code</button></div>
       <div class="card"><h3>Managers (${players.length}/${game.max_players})</h3>
         ${players.map((p) => { const c = clubs.find((x) => x.gameId === p.club_id); return `<div class="row between" style="padding:6px 0;border-bottom:1px solid var(--line)"><span>${p.user_id === game.host ? '👑 ' : ''}<b>${esc(p.username)}</b>${p.user_id === app.user.id ? ' <small>(vous)</small>' : ''}</span><small>${c ? esc(c.name) : '<span class="muted">choisit son club…</span>'}</small></div>`; }).join('')}
-        ${host ? `<button class="btn primary lg block" data-act="ostart" ${canStart ? '' : 'disabled'} style="margin-top:10px">Lancer la partie ▸</button>
+        ${host ? `<button class="btn block" data-act="oopts" style="margin-top:10px">⚙️ Paramètres de la partie <small class="muted">· ${esc(optsSummary(app.ui.lobby.opts))}</small></button>
+          <button class="btn primary lg block" data-act="ostart" ${canStart ? '' : 'disabled'} style="margin-top:8px">Lancer la partie ▸</button>
           <small class="muted">${canStart ? 'Tout le monde a choisi son club.' : 'Il faut au moins 2 managers, chacun avec un club.'}</small>`
           : '<p class="muted" style="margin:10px 0 0">En attente du lancement par l\'hôte 👑.</p>'}
       </div>
@@ -219,7 +221,31 @@ export async function setMeReady(app) {
   finally { busy(false); }
 }
 
+/** Résumé des paramètres choisis (ce qui diffère des valeurs par défaut). */
+function optsSummary(o) {
+  const d = defaultOptions();
+  const diff = Object.entries(o || {}).filter(([k, v]) => k !== 'career' && GAME_OPTIONS[k] && v !== d[k]).map(([k, v]) => GAME_OPTIONS[k].opts[v].label);
+  return diff.length ? diff.join(', ') : 'par défaut';
+}
+
 export const onlineActions = {
+  oopts(el, app) {
+    const L = app.ui.lobby;
+    const o = L.opts = L.opts || defaultOptions();
+    const html = () => `<h2>Paramètres de la partie</h2>
+      <p class="muted" style="margin-top:0">Les mêmes règles pour tous les managers. Vous pouvez les changer jusqu'au lancement.</p>
+      ${Object.entries(GAME_OPTIONS).filter(([k]) => k !== 'career').map(([k, g]) => `<div class="label">${g.label}</div>
+        <div class="opt-cards">${Object.entries(g.opts).map(([v, x]) => `<button class="opt-card ${o[k] === v ? 'on' : ''}" data-act="set" data-k="${k}" data-v="${v}"><b>${esc(x.label)}${v === g.def ? ' <small>(défaut)</small>' : ''}</b><small>${esc(x.desc)}</small></button>`).join('')}</div>`).join('')}
+      <div class="btns" style="margin-top:16px"><button class="btn" data-act="reset">Valeurs par défaut</button><button class="btn primary lg" data-act="ok">Valider</button></div>`;
+    const h = app.sheet({
+      html,
+      actions: {
+        set: (b) => { o[b.dataset.k] = b.dataset.v; h.update(html()); },
+        reset: () => { Object.assign(o, defaultOptions()); h.update(html()); },
+        ok: () => { h.close(); app.render(); },
+      },
+    });
+  },
   ocreate(el, app) {
     const h = app.sheet({
       html: `<h2>Nouvelle partie en ligne</h2>
@@ -267,7 +293,7 @@ export const onlineActions = {
     try {
       const players = (await app.backend.players(L.game.id)).sort((a, b) => (a.user_id === L.game.host ? -1 : b.user_id === L.game.host ? 1 : 0));
       if (players.length < 2 || players.some((p) => p.club_id == null)) throw new Error('Chaque manager doit choisir un club.');
-      const state = createOnlineCareer(await realData(), (Date.now() ^ (Math.random() * 1e9)) >>> 0, players, L.game.id);
+      const state = createOnlineCareer(await realData(), (Date.now() ^ (Math.random() * 1e9)) >>> 0, players, L.game.id, L.opts);
       await app.backend.startGame(L.game.id, await packState(state));
       L.unsub?.();
       await enterOnline(app, { ...L.game, status: 'running', version: 1 });

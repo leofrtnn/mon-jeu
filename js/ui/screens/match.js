@@ -7,7 +7,7 @@
 import { userMatchCfg, completeDay, today, fixtureKey } from '../../game/season.js';
 import { traitChip } from '../components.js';
 import { TALKS, SHOUTS, PLAYER_SHOUTS, teamShout, playerShout } from '../../engine/match.js';
-import { createMatch, stepMinute, makeSub, changeFormation, swapSlots, moveSlot, setRole, setTactic, snapshotMatch, restoreMatch, replayCfg, applyPlan, teamTalk, summarize, penaltyShootout, clockLabel, activePlayers } from '../../engine/match.js';
+import { createMatch, stepMinute, makeSub, changeFormation, swapSlots, moveSlot, setRole, setTactic, snapshotMatch, restoreMatch, replayCfg, applyPlan, teamTalk, summarize, penaltyShootout, tieLevel, clockLabel, activePlayers } from '../../engine/match.js';
 import { describe, iconFor } from '../../engine/commentary.js';
 import { FORMATION_NAMES, FORMATION_GROUPS, ROLES, rolesFor, MENTALITIES, MENTALITY_LABELS, LEVELS, PRESSING_LABELS, TEMPO_LABELS, MAX_SUBS, POSITION_GROUP, TEAM_INSTRUCTIONS, DEFAULT_TACTICS, PLAYER_INSTRUCTIONS, WIDTH_LABELS } from '../../data/constants.js';
 import { ratingAt } from '../../engine/ratings.js';
@@ -773,7 +773,7 @@ export function openMatch(app, opts = {}) {
     ctrl.finished = true;
     view.pause();
     saveSnap();
-    if (m.cup && m.score[0] === m.score[1] && !m.shootout) penaltyShootout(m);
+    if (m.cup && tieLevel(m) && !m.shootout) penaltyShootout(m);
     const sum = summarize(m);
     const my = sum.ratings[userSide];
     const res = sum.winnerSide === userSide ? 'Victoire !' : sum.winnerSide === -1 ? 'Match nul' : 'Défaite';

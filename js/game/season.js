@@ -11,7 +11,7 @@ import { DIVISIONS, DIV_IDS, COUNTRIES, CONTI_SLOTS, CONTI_NAME, DIV_NAMES, appl
 import { NATION_COLORS } from '../data/names.js';
 import { autoLineup, isAvailable, overall, squadStrength, ratingAt } from '../engine/ratings.js';
 import { aiPrepare } from '../engine/ai.js';
-import { simulateMatch, summarize, penaltyShootout, allPlayers, createMatch, restoreMatch } from '../engine/match.js';
+import { simulateMatch, summarize, penaltyShootout, tieLevel, allPlayers, createMatch, restoreMatch } from '../engine/match.js';
 import { wageBill, matchdayRevenue, sponsorIncome, prizeMoney, money, playerValue } from './economy.js';
 import { weeklyTraining, seasonDevelopment, shouldRetire, resetSeasonStats } from './progression.js';
 import { aiTransferActivity, userTransferOffers, fillSquad, logFinance, checkPromises } from './transfers.js';
@@ -47,12 +47,22 @@ export const CUP_ROUND_NAMES = ['16es de finale', '8es de finale', 'Quarts de fi
 export const CONTI_ROUND_NAMES = ['Groupes · J1', 'Groupes · J2', 'Groupes · J3', 'Quarts de finale', 'Demi-finales', 'Finale'];
 const CUP_AFTER = [5, 12, 20, 28, 34];
 /**
- * Coupes continentales (format 2024+) : 13 créneaux dans la saison.
- * Phase de ligue (36 clubs, 8 matchs) : créneaux 0-7, barrages 8, huitièmes 9, quarts 10, demies 11, finale 12.
- * Format à groupes (16 clubs, 4 groupes aller-retour) : créneaux 0-5, puis quarts 10, demies 11, finale 12.
+ * Coupes continentales (format 2024+) : 17 créneaux dans la saison.
+ * Phase de ligue (36 clubs, 8 matchs) : créneaux 0-7 ; puis en aller-retour : barrages 8-9,
+ * huitièmes 10-11, quarts 12-13, demies 14-15 ; finale sur un match (16).
+ * Format à groupes (16 clubs, 4 groupes aller-retour) : créneaux 0-5, puis quarts, demies, finale.
  */
-const CONTI_AFTER = [2, 4, 7, 10, 14, 16, 22, 24, 26, 30, 32, 35, 37];
-const LP_DAYS = 8, KO_LEAGUE = [8, 9, 10, 11, 12], KO_GROUPS = [10, 11, 12];
+const CONTI_AFTER = [2, 4, 6, 9, 11, 13, 16, 19, 21, 23, 25, 26, 29, 31, 33, 35, 37];
+const LP_DAYS = 8;
+const STAGES = {
+  league: [{ n: 'Barrages', k: [8, 9] }, { n: 'Huitièmes de finale', k: [10, 11] }, { n: 'Quarts de finale', k: [12, 13] }, { n: 'Demi-finales', k: [14, 15] }, { n: 'Finale', k: [16] }],
+  groups: [{ n: 'Quarts de finale', k: [12, 13] }, { n: 'Demi-finales', k: [14, 15] }, { n: 'Finale', k: [16] }],
+};
+// Saisons commencées avec la version à 13 créneaux (un seul match par tour).
+const STAGES_V2 = {
+  league: [{ n: 'Barrages', k: [8] }, { n: 'Huitièmes de finale', k: [9] }, { n: 'Quarts de finale', k: [10] }, { n: 'Demi-finales', k: [11] }, { n: 'Finale', k: [12] }],
+  groups: [{ n: 'Quarts de finale', k: [10] }, { n: 'Demi-finales', k: [11] }, { n: 'Finale', k: [12] }],
+};
 const BRACKET = [0, 7, 3, 4, 1, 6, 2, 5]; // ordre des têtes de série dans le tableau (1 et 2 ne se croisent qu'en finale)
 const INTL_AFTER = [8, 18, 27];
 const DEFAULT_PRIZE = { part: 3_000_000, win: 900_000, draw: 300_000, po: 500_000, r16: 4_000_000, qf: 6_000_000, sf: 9_000_000, final: 12_000_000, champ: 8_000_000 };
@@ -380,7 +390,7 @@ function createContis(state, rng) {
     const size = league ? Math.min(36, uniq.length - (uniq.length % 4)) : 16;
     const ts = uniq.slice(0, size);
     const table = {};
-    const rounds = Array(13).fill(null);
+    const rounds = Array(17).fill(null);
     let groups;
     if (league) {
       groups = [ts.slice()];
@@ -393,18 +403,20 @@ function createContis(state, rng) {
       GROUP_PAIRS6.forEach((pairs, r) => { rounds[r] = groups.flatMap((g, gi) => pairs.map(([x, y]) => ({ h: g[x], a: g[y], s: null, g: gi }))); });
       groups.forEach((g, gi) => g.forEach((id) => { table[id] = { p: 0, w: 0, d: 0, l: 0, gf: 0, ga: 0, pts: 0, g: gi }; }));
     }
-    state.contis[def.id] = { v: 2, fmt: league ? 'league' : 'groups', id: def.id, name: def.name, teams: ts, groups, rounds, table, ko: [], alive: ts.slice(), winner: null };
+    state.contis[def.id] = { v: 3, fmt: league ? 'league' : 'groups', id: def.id, name: def.name, teams: ts, groups, rounds, table, ko: [], alive: ts.slice(), winner: null };
     for (const id of ts) payPrize(state, id, def.prize.part, `${def.name} · participation`);
   }
 }
 
-/** Créneaux à élimination directe d'une coupe (format 2024). */
-const koSlots = (c) => (c.fmt === 'league' ? KO_LEAGUE : KO_GROUPS);
-const KO_NAMES = { 8: 'Barrages', 9: 'Huitièmes de finale', 10: 'Quarts de finale', 11: 'Demi-finales', 12: 'Finale' };
+/** Tours à élimination directe d'une coupe (format 2024) : [{ n, k: [aller, retour] | [finale] }]. */
+const stagesOf = (c) => (c.v === 2 ? STAGES_V2 : STAGES)[c.fmt === 'league' ? 'league' : 'groups'];
+const stageAt = (c, k) => { const st = stagesOf(c); const i = st.findIndex((x) => x.k.includes(k)); return i < 0 ? null : { i, st: st[i], leg: st[i].k.length === 2 ? st[i].k.indexOf(k) + 1 : 0, all: st }; };
+const koSlots = (c) => stagesOf(c).flatMap((x) => x.k);
 /** Nom du tour joué au créneau k (calendrier de la saison). */
 export function contiRoundName(c, k) {
   if (!c?.v) return CONTI_ROUND_NAMES[k] || '';
-  if (KO_NAMES[k] && koSlots(c).includes(k)) return KO_NAMES[k];
+  const sa = stageAt(c, k);
+  if (sa) return sa.leg ? `${sa.st.n} · ${sa.leg === 1 ? 'aller' : 'retour'}` : sa.st.n;
   if (c.fmt === 'league') return k < LP_DAYS ? `Phase de ligue · J${k + 1}` : '';
   return k < 6 ? `Groupes · J${k + 1}` : '';
 }
@@ -413,10 +425,18 @@ export function contiFixturesAt(c, k) {
   if (!c?.v) return (k < 3 ? c.gfix[k] : c.ko[k - 3]) || [];
   return c.rounds[k] || [];
 }
-/** Tours à élimination directe déjà tirés : [{ name, ties }]. */
+/** Tours à élimination directe déjà tirés : [{ name, ties }] (aller-retour : score cumulé). */
 export function contiKnockouts(c) {
   if (!c?.v) return c.ko.map((ties, r) => ({ name: CONTI_ROUND_NAMES[r + 3], ties }));
-  return koSlots(c).filter((k) => c.rounds[k]).map((k) => ({ name: KO_NAMES[k], ties: c.rounds[k] }));
+  return stagesOf(c).filter((x) => c.rounds[x.k[0]]).map((x) => {
+    if (x.k.length === 1) return { name: x.n, ties: c.rounds[x.k[0]] };
+    const l1 = c.rounds[x.k[0]], l2 = c.rounds[x.k[1]] || [];
+    return { name: `${x.n} (aller-retour)`, ties: l1.map((f, i) => {
+      const r = l2[i];
+      const s = f.s && r?.s ? [f.s[0] + r.s[1], f.s[1] + r.s[0]] : null;
+      return { h: f.h, a: f.a, s, w: r?.w, pens: r?.pens ? [r.pens[1], r.pens[0]] : null, sub: [f.s && `${f.s[0]}-${f.s[1]}`, r?.s && `${r.s[1]}-${r.s[0]}`].filter(Boolean).join(' · ') };
+    }) };
+  });
 }
 /** Nombre de clubs qualifiés par groupe / zones de la phase de ligue (pour l'affichage). */
 export function contiZonesOf(c) {
@@ -567,32 +587,44 @@ function ensureCupDraw(state, key, round) {
   cup.rounds[round] = ties;
 }
 
+/** Vainqueurs d'un tour (dans l'ordre du tableau). */
+const stageWinners = (c, st) => (c.rounds[st.k[st.k.length - 1]] || []).map((f) => f.w);
+
 /** Tirage d'un tour à élimination directe (format 2024), dès que le tour précédent est joué. */
 function ensureContiKO(state, k, c) {
-  if (c.rounds[k] || !koSlots(c).includes(k)) return;
-  const tab = contiGroupTable(state, 0, c.id);
-  if (c.fmt === 'league') {
-    if (k === 8) {
-      // 9e-24e : 9 contre 24, 10 contre 23… (le mieux classé reçoit).
-      c.rounds[8] = Array.from({ length: 8 }, (_, i) => ({ h: tab[8 + i].id, a: tab[23 - i].id, s: null, seed: i }));
-      return;
-    }
-    if (k === 9) {
-      // Huitièmes : les 8 premiers contre les vainqueurs des barrages (le 1er contre le vainqueur de 16e-17e…).
-      const po = c.rounds[8];
-      c.rounds[9] = BRACKET.map((i) => ({ h: tab[i].id, a: po[7 - i].w, s: null }));
-      return;
-    }
-  } else if (k === 10) {
-    const t = [0, 1, 2, 3].map((g) => contiGroupTable(state, g, c.id));
-    c.alive = t.flatMap((g) => [g[0].id, g[1].id]);
-    c.rounds[10] = [[0, 1], [2, 3], [1, 0], [3, 2]].map(([a, b]) => ({ h: t[a][0].id, a: t[b][1].id, s: null }));
+  if (c.rounds[k]) return;
+  const sa = stageAt(c, k);
+  if (!sa) return;
+  if (sa.leg === 2) {
+    // Match retour : on inverse le terrain.
+    const l1 = c.rounds[sa.st.k[0]];
+    if (l1) c.rounds[k] = l1.map((f) => ({ h: f.a, a: f.h, s: null, leg: 2 }));
     return;
   }
-  // Tableau : les vainqueurs de deux matchs voisins se rencontrent ; finale sur terrain neutre.
-  const prev = c.rounds[k - 1] || [];
-  c.rounds[k] = [];
-  for (let i = 0; i + 1 < prev.length; i += 2) c.rounds[k].push({ h: prev[i].w, a: prev[i + 1].w, s: null, neutral: k === 12 });
+  const legKey = sa.leg === 1 ? { leg: 1 } : {};
+  let pairs;
+  if (c.fmt === 'league' && sa.i === 0) {
+    // Barrages : 9e contre 24e, 10e contre 23e… (le mieux classé reçoit au retour).
+    const tab = contiGroupTable(state, 0, c.id);
+    pairs = Array.from({ length: 8 }, (_, i) => [tab[23 - i].id, tab[8 + i].id]);
+  } else if (c.fmt === 'league' && sa.i === 1) {
+    // Huitièmes : les 8 premiers contre les vainqueurs des barrages (le 1er contre le vainqueur de 16e-17e…).
+    const tab = contiGroupTable(state, 0, c.id);
+    const po = stageWinners(c, sa.all[0]);
+    pairs = BRACKET.map((i) => [po[7 - i], tab[i].id]);
+  } else if (c.fmt !== 'league' && sa.i === 0) {
+    const t = [0, 1, 2, 3].map((g) => contiGroupTable(state, g, c.id));
+    c.alive = t.flatMap((g) => [g[0].id, g[1].id]);
+    pairs = [[0, 1], [2, 3], [1, 0], [3, 2]].map(([a, b]) => [t[b][1].id, t[a][0].id]);
+  } else {
+    // Tableau : les vainqueurs de deux confrontations voisines se rencontrent.
+    const prev = stageWinners(c, sa.all[sa.i - 1]);
+    pairs = [];
+    for (let i = 0; i + 1 < prev.length; i += 2) pairs.push([prev[i], prev[i + 1]]);
+  }
+  const final = sa.i === sa.all.length - 1;
+  // Aller-retour : le mieux classé reçoit au retour (il est donc à l'extérieur à l'aller).
+  c.rounds[k] = pairs.map(([x, y]) => ({ h: x, a: y, s: null, ...legKey, ...(final ? { neutral: true } : {}) }));
 }
 
 function ensureContiDraw(state, k, c) {
@@ -643,7 +675,10 @@ export function today(state) {
         const k = entry.round;
         const ko = koSlots(c).includes(k);
         if (ko) ensureContiKO(state, k, c);
-        fixtures.push(...(c.rounds[k] || []).map((f) => ({ h: f.h, a: f.a, s: f.s, comp: 'conti', key: c.id, group: !ko, ko, neutral: f.neutral, ref: f })));
+        const sa = ko ? stageAt(c, k) : null;
+        const first = sa?.leg === 2 ? c.rounds[sa.st.k[0]] : null;
+        fixtures.push(...(c.rounds[k] || []).map((f, i) => ({ h: f.h, a: f.a, s: f.s, comp: 'conti', key: c.id, group: !ko, ko, neutral: f.neutral, ref: f,
+          ...(sa?.leg ? { leg: sa.leg } : {}), ...(first?.[i]?.s ? { agg: [first[i].s[1], first[i].s[0]] } : {}) })));
       } else if (entry.round < 3) fixtures.push(...c.gfix[entry.round].map((f) => ({ h: f.h, a: f.a, s: f.s, comp: 'conti', key: c.id, group: true, ref: f })));
       else {
         ensureContiDraw(state, entry.round, c);
@@ -705,12 +740,12 @@ export function matchCfgFor(state, f) {
   }
   const h = clubById(state, f.h), a = clubById(state, f.a);
   const uid = state.userClubId;
-  const knockout = f.comp === 'cup' || f.comp === 'super' || (f.comp === 'conti' && f.ko);
+  const knockout = f.comp === 'cup' || f.comp === 'super' || (f.comp === 'conti' && f.ko && f.leg !== 1);
   const prof = { ...(f.comp === 'league' ? DIVISIONS[f.div].profile : f.comp === 'cup' || f.comp === 'super' ? DIVISIONS[h.div].profile : {}) };
   const tens = tension(state, h.id, a.id);
   if (tens > 1) { prof.fouls = (prof.fouls ?? 1) * tens; prof.cards = (prof.cards ?? 1) * tens; }
   const cfg = {
-    ...base, cup: knockout, extraTime: knockout, homeAdv: f.neutral ? 1 : homeAdvantage(h),
+    ...base, cup: knockout, extraTime: knockout, ...(f.agg ? { agg: f.agg } : {}), homeAdv: f.neutral ? 1 : homeAdvantage(h),
     profile: prof,
     home: sideCfg(state, h, a, true, uid),
     away: sideCfg(state, a, h, false, uid),
@@ -842,7 +877,7 @@ export function completeDay(state, userMatch = null) {
       }
       for (const h of hh) withHuman(state, h, () => { if (state.playedMatch?.key === key) state.playedMatch = null; });
     }
-    if ((f.comp === 'cup' || f.comp === 'super' || f.ko) && m.score[0] === m.score[1] && !m.shootout) penaltyShootout(m);
+    if ((f.comp === 'cup' || f.comp === 'super' || (f.ko && f.leg !== 1)) && tieLevel(m) && !m.shootout) penaltyShootout(m);
     const sum = summarize(m);
     applyResult(state, f, sum, m, ctx);
     lifeAfterFixture(state, f, sum);
@@ -1063,14 +1098,19 @@ function finishContiV2(state, c, k) {
     }
     return;
   }
-  if (!koSlots(c).includes(k) || !c.rounds[k]) return;
+  const sa = stageAt(c, k);
+  if (!sa || !c.rounds[k] || sa.leg === 1) return; // rien à régler après un match aller
   const winners = c.rounds[k].map((f) => f.w);
-  const next = { 8: [P.r16 ?? P.qf, 'accès aux 8es'], 9: [P.qf, 'accès aux quarts'], 10: [P.sf, 'accès aux demies'], 11: [P.final, 'accès à la finale'], 12: [P.champ, 'vainqueur'] }[k];
-  for (const w of winners) payPrize(state, w, next[0], `${c.name} · ${next[1]}`);
+  const names = sa.all.map((x) => x.n);
+  const nextName = names[sa.i + 1];
+  const prizeKey = { 'Huitièmes de finale': 'r16', 'Quarts de finale': 'qf', 'Demi-finales': 'sf', Finale: 'final' }[nextName] || 'champ';
+  const prize = prizeKey === 'r16' ? (P.r16 ?? P.qf) : P[prizeKey];
+  for (const w of winners) payPrize(state, w, prize, `${c.name} · ${nextName ? `accès : ${nextName.toLowerCase()}` : 'vainqueur'}`);
   const played = c.rounds[k].some((f) => f.h === uc.id || f.a === uc.id);
-  if (played && !winners.includes(uc.id)) pushMessage(state, { prio: 2, icon: '⭐', title: `Élimination en ${c.name}`, text: KO_NAMES[k] });
-  c.alive = k === 8 ? [...contiGroupTable(state, 0, c.id).slice(0, 8).map((x) => x.id), ...winners] : winners;
-  if (k === 12) {
+  if (played && !winners.includes(uc.id)) pushMessage(state, { prio: 2, icon: '⭐', title: `Élimination en ${c.name}`, text: sa.st.n });
+  c.alive = c.fmt === 'league' && sa.i === 0 ? [...contiGroupTable(state, 0, c.id).slice(0, 8).map((x) => x.id), ...winners] : winners;
+  const isFinal = sa.i === sa.all.length - 1;
+  if (isFinal) {
     c.winner = winners[0];
     addHonour(state, c.winner, c.name, 'conti');
     const wc = clubById(state, c.winner);

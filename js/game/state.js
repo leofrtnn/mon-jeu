@@ -26,7 +26,22 @@ export function matchSeed(state, a, b) {
   return hashSeed(`${state.seed}-${state.season}-${state.day}-${a}-${b}`);
 }
 
-export const clubById = (state, id) => state.clubs.find((c) => c.id === id);
+// Index id → position dans state.clubs (reconstruit si la liste change) : évite de parcourir
+// les ~1 000 clubs à chaque appel (des dizaines de milliers par journée simulée).
+const CLUB_IDX = new WeakMap();
+export function clubById(state, id) {
+  const arr = state.clubs;
+  if (!arr) return undefined;
+  let m = CLUB_IDX.get(arr);
+  if (!m || m.n !== arr.length) { m = new Map(arr.map((c, i) => [c.id, i])); m.n = arr.length; CLUB_IDX.set(arr, m); }
+  const i = m.get(id);
+  const c = i == null ? undefined : arr[i];
+  if (c && c.id === id) return c;
+  const j = arr.findIndex((x) => x.id === id);
+  if (j < 0) return undefined;
+  m.set(id, j);
+  return arr[j];
+}
 export const userClub = (state) => clubById(state, state.userClubId);
 export const clubPlayers = (state, club) => club.playerIds.map((id) => state.players[id]).filter(Boolean);
 export const player = (state, id) => state.players[id];

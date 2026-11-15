@@ -12,7 +12,7 @@ test('deux saisons complètes sans erreur', () => {
   startCareer(state, state.clubs[8].id);
   for (let season = 0; season < 2; season++) {
     let guard = 0;
-    while (!state.seasonOver && guard++ < 60) {
+    while (!state.seasonOver && guard++ < 90) {
       const t = today(state);
       let m = null;
       if (t.userFixture && state.day % 3 === 0) {
@@ -23,7 +23,7 @@ test('deux saisons complètes sans erreur', () => {
       completeDay(state, m);
     }
     assert.equal(state.day, state.calendar.length);
-    assert.equal(state.calendar.length, 60); // 38 + 5 coupe + 13 continentale + 3 trêves + supercoupe
+    assert.equal(state.calendar.length, 64); // 38 + 5 coupe + 17 continentale + 3 trêves + supercoupe
     for (const div of [1, 2, 3, 4]) {
       const tab = sortedTable(state, div);
       assert.equal(tab.length, 20);

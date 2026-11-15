@@ -15,6 +15,8 @@ import { newGame, startCareer, completeDay, endSeason } from '../game/season.js'
 import { HUMAN_KEYS, switchTo, stashCurrent, humanIds } from '../game/humans.js';
 import { clubById, migrate } from '../game/state.js';
 import { applyWorld } from '../data/world.js';
+import { defaultOptions, optInfo } from '../game/options.js';
+import { ensureBoard, setBoardSeason } from '../game/board.js';
 
 const freshHuman = () => ({ userClubId: null, coach: null, board: { confidence: 60 }, life: null, objectives: undefined, seasonStats: undefined,
   sponsorDeals: undefined, preseason: undefined, pendingOffers: [], scout: {}, scoutQueue: [], missions: undefined, scoutReports: undefined,
@@ -24,8 +26,11 @@ const freshHuman = () => ({ userClubId: null, coach: null, board: { confidence: 
  * Crée l'état d'une carrière en ligne.
  * players : [{ user_id, username, club_id }] (le premier est l'hôte).
  */
-export function createOnlineCareer(realData, seed, players, gameId) {
+export function createOnlineCareer(realData, seed, players, gameId, opts = null) {
   const state = newGame(seed, { real: realData });
+  // Paramètres choisis par l'hôte (identiques pour tous les managers ; carrière libre en ligne).
+  state.opts = { ...defaultOptions(), ...(opts || {}), career: 'free' };
+  const bm = optInfo(state, 'budget').mult || 1;
   state.online = { gameId, humans: {}, clubOf: {}, names: {}, cur: players[0].user_id, host: players[0].user_id, version: 1 };
   players.forEach((p, i) => {
     if (i > 0) {
@@ -38,6 +43,7 @@ export function createOnlineCareer(realData, seed, players, gameId) {
     state.online.clubOf[p.club_id] = p.user_id;
     state.online.names[p.user_id] = p.username;
     startCareer(state, p.club_id);
+    if (bm !== 1) { const uc = clubById(state, p.club_id); uc.budget = Math.round(uc.budget * bm / 100000) * 100000; ensureBoard(state); setBoardSeason(state, true); }
   });
   stashCurrent(state);
   switchTo(state, players[0].user_id);
