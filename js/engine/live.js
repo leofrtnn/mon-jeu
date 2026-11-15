@@ -40,7 +40,7 @@ const TR = (pl, k) => !!pl?.mp?.p?.traits?.includes(k);
 const TUNE = {   // calibré en TEMPS RÉEL (horloge 1) : ~2,8 buts, ~28 tirs, ~22 fautes par match
   clock: 1,        // secondes de match par seconde de jeu simulé (1 = temps réel)
   shotW: 0.4,         // attrait de la frappe face aux autres options
-  shotCost: 3.6,     // coût de la perte de balle dans le choix de tirer
+  shotCost: 4.4,     // coût de la perte de balle dans le choix de tirer
   carryW: 0.5,        // attrait de la conduite de balle
   keepW: 0.25,        // valeur de garder le ballon (passe sûre à un partenaire libre)
   holdU: -0.025,       // temporiser balle au pied (négatif : seulement quand les autres options sont mauvaises)
@@ -606,7 +606,9 @@ export class LiveSim {
       const tgt = pick.k === 'pass' ? { x: pick.tx, y: pick.ty } : pick.k === 'cross' ? { x: this.X(pick.r), y: this.Y(pick.r) } : pick.k === 'shot' ? { x: gx, y: W / 2 } : { x: hx + dir * 30, y: hy };
       h.faceTo = Math.atan2(tgt.y - hy, tgt.x - hx);   // il s'oriente pendant l'armé (le ballon tourne avec lui)
       if (pick.k === 'shot') h.shotTech = this.shotTech(h);
-      h.kick = big ? 0.32 : 0.24; h.kickPow = pick.k === 'shot' ? (h.shotTech === 'drive' ? 1 : 0.8) : big ? 0.85 : 0.5; h.kickSide = (pick.k === 'pass' && !big) || h.shotTech === 'finesse' || h.shotTech === 'curl';
+      h.kick = big ? 0.32 : 0.24; h.kickMax = h.kick; h.kickPow = pick.k === 'shot' ? (h.shotTech === 'drive' ? 1 : 0.8) : big ? 0.85 : 0.5; h.kickSide = (pick.k === 'pass' && !big) || h.shotTech === 'finesse' || h.shotTech === 'curl';
+      h.kickFoot = this.footSign(h) > 0 ? 'R' : 'L';   // frappe et passe du pied fort
+      h.kickLoft = pick.k === 'cross' || pick.k === 'clear' || (pick.k === 'pass' && pick.lofted);
       h.prep = { pick, at: this.now + (h.kick - 0.16) * GS, until: this.now + (h.kick - 0.16) * GS + 0.5 };
       P.vx *= 0.3; P.vy *= 0.3;   // dernier contact pour placer le ballon avant la frappe
       h.next = h.prep.until;
@@ -802,7 +804,7 @@ export class LiveSim {
     if (Math.hypot(f.x - P.x, f.y - P.y) < 0.4 && P.z < 0.5) { P.x = f.x; P.y = f.y; }
     const len = Math.hypot(tx - P.x, ty - P.y);
     if (h.throwIn > 0) P.z = 2.0;                       // touche : le ballon part des mains, au-dessus de la tête
-    else if (!(h.kick > 0)) { h.kick = 0.32; h.kickPow = lofted ? 0.85 : 0.5; h.kickSide = !lofted; }
+    else if (!(h.kick > 0)) { h.kick = 0.32; h.kickMax = 0.32; h.kickPow = lofted ? 0.85 : 0.5; h.kickSide = !lofted; h.kickLoft = lofted; h.kickFoot = this.footSign(h) > 0 ? 'R' : 'L'; }
     h.face = Math.atan2(ty - P.y, tx - P.x);
     this.lastTouch = h.side;
     P.inGoal = 0; P.hitPost = false;
@@ -825,7 +827,7 @@ export class LiveSim {
     const vy = ty - P.y, swing = this.rand() < 0.65 ? 1 : -1;
     const f = this.foot(h);
     if (Math.hypot(f.x - P.x, f.y - P.y) < 0.4) { P.x = f.x; P.y = f.y; }
-    if (!(h.kick > 0)) { h.kick = 0.32; h.kickPow = 0.85; } h.face = Math.atan2(ty - P.y, tx - P.x);
+    if (!(h.kick > 0)) { h.kick = 0.32; h.kickMax = 0.32; h.kickPow = 0.85; h.kickLoft = true; h.kickFoot = this.footSign(h) > 0 ? 'R' : 'L'; } h.face = Math.atan2(ty - P.y, tx - P.x);
     this.lastTouch = h.side;
     const len = Math.hypot(tx - P.x, ty - P.y);
     // Centre brossé de l'intérieur du pied (rentrant ou sortant selon le pied et le côté), parfois de l'extérieur.
@@ -975,7 +977,7 @@ export class LiveSim {
       const mag = tech === 'curl' ? 9 + r3 * 4 : 4 + r3 * 3;
       if (need === foot) { spin = need * mag; how = 'intérieur du pied'; }
       else if (skill >= 74 && r1 < 0.45) { spin = need * mag * 0.8; how = 'extérieur du pied'; } // trivela
-      else if ((h.mp.p?.wf ?? 3) >= 4) { spin = need * mag * 0.85; how = 'pied faible'; } // bon pied faible : il enroule de l'autre pied
+      else if ((h.mp.p?.wf ?? 3) >= 4) { spin = need * mag * 0.85; how = 'pied faible'; h.kickFoot = h.kickFoot === 'L' ? 'R' : 'L'; } // bon pied faible : il enroule de l'autre pied
       else { spin = foot * mag * 0.35; how = 'mauvais pied'; }    // ouvre moins, finit souvent à côté
     } else if (tech === 'drive') {
       // Frappe sèche : légère rotation, parfois sans aucune rotation (flottante) quand elle est très appuyée.
@@ -994,7 +996,7 @@ export class LiveSim {
     if (tech === 'chip') speed = Math.max(11, Math.hypot(tgt.x - P.x, tgt.y - P.y) / 1.5);
     const f = this.foot(h);
     if (kind !== 'header' && Math.hypot(f.x - P.x, f.y - P.y) < 0.4 && P.z < 0.5) { P.x = f.x; P.y = f.y; }
-    if (kind === 'header') h.jump = 0.45; else if (!(h.kick > 0)) { h.kick = 0.32; h.kickPow = tech === 'drive' ? 1 : 0.8; h.kickSide = tech === 'finesse'; }
+    if (kind === 'header') h.jump = 0.45; else if (!(h.kick > 0)) { h.kick = 0.32; h.kickMax = 0.32; h.kickPow = tech === 'drive' ? 1 : 0.8; h.kickSide = tech === 'finesse'; h.kickLoft = false; h.kickFoot = this.footSign(h) > 0 ? 'R' : 'L'; }
     h.lastTech = tech;
     h.face = Math.atan2(tgt.y - P.y, tgt.x - P.x);
     this.lastTouch = A.side;
@@ -1365,6 +1367,11 @@ export class LiveSim {
         P.vx = (nx - P.x) / Math.max(dt, 1e-4); P.vy = (ny - P.y) / Math.max(dt, 1e-4);
         P.x = nx; P.y = ny; P.z = BR; P.vz = 0; P.spin = 0; P.top = 0;
         P.rot.a += (Math.hypot(P.vx, P.vy) / BR) * dt; P.rot.b = Math.atan2(P.vy, P.vx);
+        // En marchant balle au pied : petites touches de l'intérieur, au rythme des pas.
+        if (sp > 0.4 && !h.prep && this.now > (h.nextTouch || 0)) {
+          h.touch = 0.14; h.touchMax = 0.14; h.touchFoot = Math.sin(h.phase || 0) >= 0 ? 'L' : 'R'; h.touchIn = true;
+          h.nextTouch = this.now + 0.45 + this.rand() * 0.2;
+        }
       } else if (P.z < 0.6 && sp >= 1.8) {
         // Le ballon arrive à hauteur du pied (ou il est encore dessous) : nouvelle touche.
         const fx = Math.cos(h.face), fy = Math.sin(h.face);
@@ -1374,7 +1381,8 @@ export class LiveSim {
         if (ahead < 0.85 && ahead > -0.7 && lat < 1.0 && bv < sp + 0.6 && this.now > (h.nextTouch || 0)) {
           const dri = eff(h.mp, 'dri');
           const tight = h.carry?.takeon || this.pressure(h) < 4;            // collé au pied en un-contre-un
-          const push = (tight ? 0.7 : 1.5 + this.rand() * 0.8) + (1 - dri / 100) * (tight ? 0.4 : 1.2);
+          // Au trot, des touches courtes (le ballon reste à un pas) ; lancé, il le pousse plus loin.
+          const push = (tight ? 0.6 : 0.6 + sp * 0.2 + this.rand() * 0.6) + (1 - dri / 100) * (tight ? 0.4 : 1.0);
           const err = (this.rand() - 0.5) * 0.3 * (1.2 - dri / 100);
           let tx = h.carry ? h.carry.x - h.x * L : fx, ty = h.carry ? h.carry.y - h.y * W : fy;
           const n = Math.hypot(tx, ty) || 1; tx /= n; ty /= n;
@@ -1384,7 +1392,9 @@ export class LiveSim {
           const ny = P.y + P.vy * 0.7, nx = P.x + P.vx * 0.7;
           if (ny < 0.8 || ny > W - 0.8) P.vy = (P.y < W / 2 ? 1 : -1) * Math.abs(P.vy) * 0.3;
           if (nx < 0.8 || nx > L - 0.8) P.vx = (P.x < L / 2 ? 1 : -1) * Math.abs(P.vx) * 0.3;
-          h.touch = 0.16; h.nextTouch = this.now + 0.25;
+          // Touche avec le pied qui est devant dans la foulée (souvent l'intérieur ou l'extérieur du pied fort).
+          h.touch = 0.16; h.touchMax = 0.16; h.touchFoot = Math.sin(h.phase || 0) >= 0 ? 'L' : 'R'; h.touchIn = this.rand() < 0.55;
+          h.nextTouch = this.now + 0.25;
           this.lastTouch = h.side;
         }
       }
@@ -1621,7 +1631,7 @@ export class LiveSim {
     if (!(atBall && rs.t >= minT && (settled || (rs.hurry && kickoffOk) || rs.t > 30) && !(t.place > 0))) return;
     // Armé de la jambe avant de jouer le ballon (le geste précède le départ du ballon).
     if (rs.kind !== 'throw') {
-      if (rs.go == null) { rs.go = this.now + 0.12 * GS; t.kick = 0.28; t.kickPow = ['goalkick', 'corner', 'penalty'].includes(rs.kind) ? 1 : 0.55; t.kickSide = rs.kind === 'kickoff'; t.face = Math.atan2(W / 2 - this.P.y, this.goalX(rs.side) - this.P.x); return; }
+      if (rs.go == null) { rs.go = this.now + 0.12 * GS; t.kick = 0.28; t.kickMax = 0.28; t.kickFoot = this.footSign(t) > 0 ? 'R' : 'L'; t.kickLoft = ['goalkick', 'corner'].includes(rs.kind); t.kickPow = ['goalkick', 'corner', 'penalty'].includes(rs.kind) ? 1 : 0.55; t.kickSide = rs.kind === 'kickoff'; t.face = Math.atan2(W / 2 - this.P.y, this.goalX(rs.side) - this.P.x); return; }
       if (this.now < rs.go) return;
     } else { t.throwIn = 0.6; t.hold = 0; }
     this._wall = [...this.players.values()].filter((p) => p.wall);

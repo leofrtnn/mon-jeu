@@ -571,30 +571,63 @@ export class Player3D {
       this.body.position.y = -0.06 * ready;
       if (p.gk && ctx.ballNear) for (const a of this.arms) { a.sh.rotation.x = -a.sgn * 0.75; a.sh.rotation.z = -0.3; a.el.rotation.z = 0.5; }
     }
-    // Touche de balle (conduite) : petit coup de pied rapide.
+    // Conduite de balle : la jambe qui est devant dans la foulée va chercher le ballon (intérieur,
+    // extérieur ou cou-de-pied), pointe du pied vers le bas, puis repart dans la course.
     if (p.touch > 0) {
-      const k = Math.sin((1 - p.touch / 0.18) * Math.PI);
-      lR.hip.rotation.z = -0.15 + 0.55 * k; lR.knee.rotation.z = -0.35 * (1 - k);
+      const tm = p.touchMax || 0.18;
+      const u = Math.max(0, Math.min(1, 1 - p.touch / tm));
+      const k = Math.sin(u * Math.PI);
+      const leg = p.touchFoot === 'L' ? lL : lR, other = leg === lL ? lR : lL, sg = leg === lL ? 1 : -1;
+      leg.hip.rotation.z = Math.max(leg.hip.rotation.z, 0.15 + 0.5 * k);
+      leg.knee.rotation.z = -0.15 - 0.35 * (1 - k);
+      leg.ankle.rotation.z = -0.35 * k;
+      leg.hip.rotation.y = (p.touchIn ? -0.55 : 0.35) * sg * -1 * k;   // intérieur : pied ouvert ; extérieur : pied fermé
+      other.knee.rotation.z = Math.min(other.knee.rotation.z, -0.25 * k);          // appui fléchi
+      this.body.rotation.z += -0.06 * k;                                             // buste au-dessus du ballon
+      this.headPivot.rotation.z = -0.25 * k;                                         // coup d'œil au ballon
     }
-    // Frappe : appui de la jambe gauche, armé (talon en arrière), fouetté, accompagnement.
+    // Frappe / passe : course d'élan, pied d'appui planté à côté du ballon, armé (talon vers les
+    // fesses), fouetté de la jambe (cou-de-pied pour la frappe, intérieur pour la passe, sous le
+    // ballon pour un ballon aérien), accompagnement, bras opposé en balancier. Pied fort du joueur.
     if (p.kick > 0) {
+      if (!(this._kMax > 0) || p.kick > this._kPrev + 0.01) this._kMax = p.kickMax || Math.max(0.24, p.kick);
+      this._kPrev = p.kick;
       const pow = p.kickPow ?? 0.8;
-      const t = 1 - p.kick / 0.32;
-      let hip, knee;
-      if (t < 0.4) { const u = t / 0.4; hip = -0.6 * pow * u; knee = -(0.6 + 1.0 * pow) * u; }
-      else if (t < 0.6) { const u = (t - 0.4) / 0.2; hip = -0.6 * pow + (0.6 * pow + 1.1 * pow) * u; knee = -(0.6 + 1.0 * pow) * (1 - u); }
-      else { const u = (t - 0.6) / 0.4; hip = 1.1 * pow * (1 - 0.6 * u); knee = -0.1 - 0.3 * u; }
-      lR.hip.rotation.z = hip; lR.knee.rotation.z = knee;
-      // Plat du pied (passe, frappe placée) : pied ouvert vers l'extérieur, geste plus court.
-      if (p.kickSide) { lR.hip.rotation.y = -0.75 * Math.sin(Math.min(1, t * 1.6) * Math.PI / 2); lR.hip.rotation.x = 0.18; }
-      // Extérieur du pied (trivela) : pied tourné vers l'intérieur, la jambe fouette de l'intérieur vers l'extérieur.
-      if (p.kickOut > 0) { lR.hip.rotation.y = 0.6 * Math.sin(Math.min(1, t * 1.6) * Math.PI / 2); lR.hip.rotation.x = -0.22; lR.ankle.rotation.y = 0.5; }
-      lL.hip.rotation.z = 0.12; lL.knee.rotation.z = -0.25 - 0.15 * pow;
-      // Bras opposé écarté pour l'équilibre, buste qui accompagne.
-      this.arms[0].sh.rotation.x = 0.9 * pow; this.arms[1].sh.rotation.x = -0.4 * pow;
-      this.body.rotation.z = -0.1 - 0.25 * pow * Math.sin(t * Math.PI);
-      this.body.rotation.x = 0.12 * pow * Math.sin(t * Math.PI);
-    }
+      const t = Math.max(0, Math.min(1, 1 - p.kick / this._kMax));
+      const kl = p.kickFoot === 'L' ? lL : lR, pl = kl === lL ? lR : lL, sg = kl === lL ? 1 : -1;
+      const ease3 = (x) => x * x * (3 - 2 * x);
+      let hip, knee, ankle;
+      if (t < 0.38) {                       // armé : la jambe part en arrière, genou plié
+        const u = ease3(t / 0.38);
+        hip = -0.15 - 0.5 * pow * u; knee = -(0.5 + 1.15 * pow) * u; ankle = -0.2 * u;
+      } else if (t < 0.55) {                // fouetté jusqu'au contact (jambe tendue au contact)
+        const u = (t - 0.38) / 0.17;
+        hip = -0.15 - 0.5 * pow + (0.65 * pow + 0.15 + 0.75 * pow) * u; knee = -(0.5 + 1.15 * pow) * (1 - u) - 0.04; ankle = p.kickSide ? 0 : -0.6;
+      } else {                              // accompagnement, plus haut pour une frappe ou un ballon levé
+        const u = (t - 0.55) / 0.45;
+        const top = (p.kickSide ? 0.55 : 0.9) * pow + (p.kickLoft ? 0.35 : 0);
+        hip = (0.75 * pow) + (top - 0.75 * pow) * Math.sin(Math.min(1, u * 1.4) * Math.PI / 2) * (1 - u * 0.6);
+        knee = -0.08 - 0.35 * u; ankle = (p.kickSide ? 0 : -0.5) * (1 - u);
+      }
+      kl.hip.rotation.z = hip; kl.knee.rotation.z = knee; kl.ankle.rotation.z = ankle;
+      // Plat du pied : pied ouvert vers l'extérieur (rotation de la hanche), geste plus court.
+      if (p.kickSide) { kl.hip.rotation.y = 0.8 * sg * Math.sin(Math.min(1, t * 1.6) * Math.PI / 2); kl.hip.rotation.x = 0.16 * sg * -1; }
+      // Extérieur du pied (trivela) : pied tourné vers l'intérieur.
+      if (p.kickOut > 0) { kl.hip.rotation.y = -0.6 * sg * Math.sin(Math.min(1, t * 1.6) * Math.PI / 2); kl.hip.rotation.x = 0.22 * sg; kl.ankle.rotation.y = -0.5 * sg; }
+      // Pied d'appui planté, genou fléchi qui absorbe ; buste au-dessus du ballon (frappe basse)
+      // ou en arrière (ballon levé).
+      pl.hip.rotation.z = 0.1 - 0.05 * t; pl.knee.rotation.z = -0.3 - 0.22 * pow * Math.sin(Math.min(1, t * 1.8) * Math.PI);
+      pl.ankle.rotation.z = 0;
+      const lean = p.kickLoft ? 0.16 : -0.14;
+      this.body.rotation.z = (lean - 0.12 * pow) * Math.sin(t * Math.PI);
+      this.body.rotation.x = 0.12 * pow * sg * -1 * Math.sin(t * Math.PI);       // le corps s'enroule autour de l'appui
+      this.upper.rotation.y = 0.35 * pow * sg * Math.sin(Math.min(1, t * 1.3) * Math.PI);   // les épaules contre-tournent
+      // Bras : celui du côté opposé à la jambe de frappe s'ouvre en balancier, l'autre recule.
+      const ao = kl === lR ? this.arms[0] : this.arms[1], as = ao === this.arms[0] ? this.arms[1] : this.arms[0];
+      const kk = Math.sin(Math.min(1, t * 1.4) * Math.PI);
+      ao.sh.rotation.x = -ao.sgn * (0.5 + 0.7 * pow) * kk; ao.sh.rotation.z = 0.35 * kk; ao.el.rotation.z = 0.5;
+      as.sh.rotation.x = -as.sgn * 0.25 * kk; as.sh.rotation.z = -0.45 * pow * kk; as.el.rotation.z = 0.6;
+    } else this._kMax = 0;
     // Gestes techniques (seulement les joueurs qui ont les étoiles) : posés sur la course.
     if (p.skillT > 0 && p.skill) {
       if (!(this._skMax > 0) || p.skillT > this._skPrev + 0.01) this._skMax = p.skillMax || p.skillT;
