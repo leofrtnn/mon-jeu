@@ -10,7 +10,7 @@ import { ATTRS, ATTR_LABELS, POSITION_LABELS } from '../../data/constants.js';
 import { overall } from '../../engine/ratings.js';
 import { money } from '../../game/economy.js';
 import { clubById, userClub, gameRng } from '../../game/state.js';
-import { askingPrice, loanIn, loanOut, findBuyer, sellPlayer, releasePlayer, promoteYouth, windowOpen } from '../../game/transfers.js';
+import { askingPrice, loanIn, loanOut, findBuyer, sellPlayer, shopPlayer, releasePlayer, promoteYouth, windowOpen } from '../../game/transfers.js';
 import { estimate, rangeLabel, observe } from '../../game/scouting.js';
 import { esc, posBadge, ovrChip, scaleColor, gauge, stars, statusTags, a20, color20, face, ovrColor } from '../components.js';
 import { negotiateTransfer, negotiateContract } from './negotiation.js';
@@ -176,11 +176,8 @@ export function showPlayer(app, pid, onChange) {
       list: () => { const p = s.players[pid]; p.listed = !p.listed; done({ ok: true, msg: p.listed ? 'Placé sur la liste des transferts.' : 'Retiré de la liste.' }); },
       sell: async () => {
         const p = s.players[pid];
-        const offer = findBuyer(s, p, gameRng(s));
-        if (!offer) { app.toast('Aucun club intéressé pour le moment.'); return; }
-        const c = clubById(s, offer.clubId);
-        if (!(await app.confirm('Offre reçue', `${esc(c.name)} propose <b>${money(offer.amount)}</b> pour ${esc(p.name)} (valeur ${money(p.value)}).`, 'Accepter'))) return;
-        done(sellPlayer(s, offer), true);
+        // On propose le joueur aux clubs : les offres arrivent dans les jours qui suivent (onglet Ventes).
+        done(shopPlayer(s, p, gameRng(s)), true);
       },
       loanout: async () => {
         if (!(await app.confirm('Prêter ?', 'Le joueur partira jusqu\'à la fin de la saison. Vous payez 30 % de son salaire.', 'Prêter'))) return;

@@ -14,7 +14,7 @@ import { aiPrepare } from '../engine/ai.js';
 import { simulateMatch, summarize, penaltyShootout, tieLevel, allPlayers, createMatch, restoreMatch } from '../engine/match.js';
 import { wageBill, matchdayRevenue, sponsorIncome, prizeMoney, money, playerValue } from './economy.js';
 import { weeklyTraining, seasonDevelopment, shouldRetire, resetSeasonStats } from './progression.js';
-import { aiTransferActivity, userTransferOffers, fillSquad, logFinance, checkPromises } from './transfers.js';
+import { aiTransferActivity, userTransferOffers, salesDaily, fillSquad, logFinance, checkPromises } from './transfers.js';
 import { forEachHuman, withHuman, humanOfClub, isHumanClub, curHuman, humanIds, switchTo } from './humans.js';
 import { gameRng, matchSeed, clubById, userClub, clubPlayers, pushMessage, SAVE_VERSION } from './state.js';
 import { initClubExtras, newCoach, coachRep, coachAfterMatch, staffEffects, staffWages, trainingParams, dailyFacilities, checkJobOffers, jobCandidates, ensureStaff, resetClubStaff, refreshStaffPool, STAFF_ROLES, staffWageFor } from './career.js';
@@ -800,6 +800,61 @@ export function onlineMustPlay(state) {
 /** Clé d'une rencontre (pour retrouver le match joué en direct par un manager en ligne). */
 export const fixtureKey = (state, f) => `${state.season}-${state.day}-${f.comp}-${f.h}-${f.a}`;
 
+/*
+ * MULTIPLEX : les autres matchs de la compétition du manager sont simulés dès le coup d'envoi
+ * (mêmes graines que la fin de journée) ; leurs buts sont dévoilés minute par minute pendant
+ * son match, et la fin de journée reprend exactement ces résultats (classement en direct = final).
+ */
+const PRESIM = new WeakMap();
+export function presimDay(state) {
+  const t = today(state), uf = t?.userFixture;
+  if (!uf) return [];
+  const dayKey = `${state.season}-${state.day}`;
+  let e = PRESIM.get(state);
+  if (!e || e.key !== dayKey) { e = { key: dayKey, map: new Map() }; PRESIM.set(state, e); }
+  const country = (id) => clubById(state, id)?.country;
+  const same = (f) => f.comp === uf.comp && (f.comp === 'league' ? f.div === uf.div : f.comp === 'conti' ? f.key === uf.key && (!uf.group || clubById(state, f.h) && ensureContis(state)[f.key]?.table[f.h]?.g === ensureContis(state)[f.key]?.table[uf.h]?.g) : f.comp === 'cup' ? country(f.h) === country(uf.h) : false);
+  const out = [];
+  for (const f of t.fixtures) {
+    if ((f.h === uf.h && f.a === uf.a) || !same(f)) continue;
+    if (humanOfClub(state, f.h) !== undefined || humanOfClub(state, f.a) !== undefined) continue;
+    const k = fixtureKey(state, f);
+    let m = e.map.get(k);
+    if (!m) { m = simulateMatch(matchCfgFor(state, f)); e.map.set(k, m); }
+    out.push({ f, m });
+  }
+  return out;
+}
+/** Classement en direct : table de la compétition + scores en cours (buts jusqu'à `minute`). */
+export function liveTable(state, userScore, minute, ended = false) {
+  const t = today(state), uf = t?.userFixture;
+  if (!uf) return null;
+  let base;
+  if (uf.comp === 'league') base = state.tables[uf.div];
+  else if (uf.comp === 'conti' && uf.group) {
+    const C = ensureContis(state)[uf.key], g = C?.table[uf.h]?.g;
+    base = Object.fromEntries(Object.entries(C?.table || {}).filter(([, r]) => r.g === g));
+  } else return null;
+  const rows = Object.fromEntries(Object.entries(base).map(([id, r]) => [id, { id: +id, p: r.p, pts: r.pts, gf: r.gf, ga: r.ga }]));
+  const before = Object.values(rows).map((r) => ({ ...r })).sort((a, b) => b.pts - a.pts || (b.gf - b.ga) - (a.gf - a.ga) || b.gf - a.gf);
+  const apply = (h, a, sc) => {
+    for (const [id, gf, ga] of [[h, sc[0], sc[1]], [a, sc[1], sc[0]]]) {
+      const r = rows[id]; if (!r) continue;
+      r.p++; r.gf += gf; r.ga += ga; r.pts += gf > ga ? 3 : gf === ga ? 1 : 0; r.live = true;
+    }
+  };
+  const games = [];
+  for (const { f, m } of presimDay(state)) {
+    const sc = [0, 0];
+    for (const g of m.goals) if (ended || g.minute + (g.extra || 0) / 100 <= minute) sc[g.side]++;
+    apply(f.h, f.a, sc); games.push({ h: f.h, a: f.a, s: sc });
+  }
+  apply(uf.h, uf.a, userScore);
+  const sorted = Object.values(rows).sort((a, b) => b.pts - a.pts || (b.gf - b.ga) - (a.gf - a.ga) || b.gf - a.gf);
+  const pos0 = Object.fromEntries(before.map((r, i) => [r.id, i]));
+  return { rows: sorted.map((r, i) => ({ ...r, club: clubById(state, r.id), move: (pos0[r.id] ?? i) - i })), games };
+}
+
 /** S'assure que la compo de l'utilisateur est valide (blessés, suspendus, départs). */
 export function validateUserLineup(state) {
   const club = userClub(state);
@@ -869,6 +924,8 @@ export function completeDay(state, userMatch = null) {
       const owner = hh.length === 1 ? hh[0] : hh.length === 2 ? humanOfClub(state, f.h) : undefined;
       const played = owner !== undefined ? withHuman(state, owner, () => (state.playedMatch?.key === key ? state.playedMatch : null)) : null;
       m = played ? playedToMatch(state, played) : null;
+      // Multiplex : on reprend le match déjà simulé pendant celui du manager (même résultat).
+      if (!m) { const e = PRESIM.get(state); if (e?.key === `${state.season}-${state.day}`) m = e.map.get(key) || null; }
       if (!m) m = simulateMatch(matchCfgFor(state, f));
       else if (state.online) {
         // Différé pour les autres managers : configuration figée + journal des décisions.
@@ -976,7 +1033,10 @@ export function completeDay(state, userMatch = null) {
     userTransferOffers(state, rng);
     marketEvents(state, rng);
     scoutDaily(state);
-    state.pendingOffers = (state.pendingOffers || []).filter((o) => state.day - o.day <= 3 && state.players[o.pid]?.clubId === uc.id);
+    salesDaily(state, rng);
+    // Offres non traitées : elles expirent au bout de 4 jours (les dossiers en cours continuent).
+    state.pendingOffers = (state.pendingOffers || []).filter((o) => (o.stage && o.stage !== 'offer') || state.day - o.day <= 3)
+      .filter((o) => state.players[o.pid]?.clubId === uc.id);
     if (t.entry.type === 'league' && t.entry.round >= 6 && t.entry.round % 4 === 0) checkPromises(state);
     if (t.entry.type === 'league' && t.entry.round === 19) {
       const y = intakeYouth(rng, uc);

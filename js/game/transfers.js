@@ -552,13 +552,85 @@ export function completeRenewal(state, pid, offer) {
 }
 
 /** Contre-offre de l'utilisateur sur une offre reçue (+x %). */
+/*
+ * VENTES (rien n'est instantané) : offre reçue → vous acceptez ou faites une contre-proposition
+ * (réponse du club sous 1 à 2 jours : accord, offre améliorée ou retrait) → le club acheteur
+ * négocie les conditions personnelles avec le joueur (1 à 3 jours ; il peut refuser) →
+ * visite médicale (le lendemain) → transfert officialisé.
+ */
+const dayAdd = (state, n) => (windowInfo(state).deadline ? state.day : state.day + n); // dernier jour : tout se règle dans la journée
+export const SALE_STAGE = { pending: 'Clubs sondés · réponse sous 48 h', offer: 'Offre reçue', counter: 'Contre-proposition envoyée', terms: 'Le club négocie avec le joueur', medical: 'Visite médicale', };
+
+/** Proposer un joueur aux clubs : un acheteur se manifestera (ou non) dans 1 à 2 jours. */
+export function shopPlayer(state, p, rng) {
+  if ((state.pendingOffers || []).some((o) => o.pid === p.id)) return { ok: false, msg: 'Une offre est déjà en cours pour ce joueur (onglet Ventes).' };
+  const offer = findBuyer(state, p, rng);
+  if (!offer) return { ok: false, msg: 'Aucun club intéressé pour le moment.' };
+  (state.pendingOffers ||= []).push({ ...offer, day: state.day, stage: 'pending', due: dayAdd(state, rng.int(1, 2)) });
+  return { ok: true, msg: `${p.name} est proposé aux clubs : réponse sous 48 h (onglet Ventes).` };
+}
+
+/** Contre-proposition : le club acheteur répondra dans 1 à 2 jours. */
 export function counterIncoming(state, offer, ratio, rng) {
   const buyer = clubById(state, offer.clubId);
-  const asked = Math.round(offer.amount * ratio / 25000) * 25000;
-  const accept = buyer.budget >= asked && rng.chance(clamp(1 - (ratio - 1) * 4.5, 0.05, 0.95));
-  if (accept) { offer.amount = asked; return { ok: true, msg: `${buyer.name} accepte ${money(asked)} !` }; }
-  state.pendingOffers = state.pendingOffers.filter((o) => o !== offer);
-  return { ok: false, msg: `${buyer.name} retire son offre.` };
+  offer.ask = Math.round(offer.amount * ratio / 25000) * 25000;
+  offer.stage = 'counter'; offer.due = dayAdd(state, rng.int(1, 2));
+  return { ok: true, msg: `Contre-proposition à ${money(offer.ask)} envoyée à ${buyer.name}. Réponse sous 48 h.` };
+}
+
+/** Vous acceptez l'offre : le club acheteur doit encore convaincre le joueur, puis la visite médicale. */
+export function acceptIncoming(state, offer, rng) {
+  const p = state.players[offer.pid], club = userClub(state);
+  const can = canLetGo(state, club, p);
+  if (!can.ok) return can;
+  offer.stage = 'terms'; offer.due = dayAdd(state, rng.int(1, 3));
+  return { ok: true, msg: `Accord entre les clubs pour ${p.name} (${money(offer.amount)}). ${clubById(state, offer.clubId).name} négocie maintenant avec le joueur.` };
+}
+
+/** Avancement quotidien des ventes en cours (manager courant). */
+export function salesDaily(state, rng) {
+  const uc = userClub(state);
+  for (const o of (state.pendingOffers || []).slice()) {
+    const p = state.players[o.pid], buyer = clubById(state, o.clubId);
+    const drop = (title, text) => { state.pendingOffers = state.pendingOffers.filter((x) => x !== o); pushMessage(state, { prio: 2, icon: '✖', title, text }); };
+    if (!p || p.clubId !== uc.id || !buyer) { state.pendingOffers = state.pendingOffers.filter((x) => x !== o); continue; }
+    if (o.stage && o.stage !== 'offer' && o.stage !== 'pending' && !windowOpen(state)) { drop(`Mercato fermé : ${p.name} reste au club`, `Le transfert vers ${buyer.name} n'a pas pu être bouclé à temps.`); continue; }
+    if (!o.stage || o.stage === 'offer' || state.day < (o.due ?? 0)) continue;
+    if (o.stage === 'pending') {
+      // Joueur proposé aux clubs : un club se manifeste (ou personne).
+      if (rng.next() < 0.8) { o.stage = 'offer'; o.day = state.day; pushMessage(state, { prio: 1, icon: '📨', title: `${buyer.name} fait une offre pour ${p.name}`, text: money(o.amount), action: { type: 'offer', pid: p.id } }); }
+      else drop(`Pas de preneur pour ${p.name}`, 'Les clubs sondés ne donnent pas suite pour le moment.');
+      continue;
+    }
+    if (o.stage === 'counter') {
+      const ratio = o.ask / o.amount;
+      const pAcc = clamp(1 - (ratio - 1) * 4.2, 0.05, 0.95) * (buyer.budget >= o.ask ? 1 : 0);
+      const r = rng.next();
+      if (r < pAcc) { o.amount = o.ask; o.stage = 'offer'; o.agreed = true; o.day = state.day; pushMessage(state, { prio: 1, icon: '🤝', title: `${buyer.name} accepte vos conditions pour ${p.name}`, text: `${money(o.amount)} : à vous de confirmer la vente.`, action: { type: 'offer', pid: p.id } }); }
+      else if (r < pAcc + 0.45 && buyer.budget > o.amount) {
+        // Offre améliorée : on coupe la poire en deux (plafonnée par le budget).
+        const mid = Math.min(buyer.budget, Math.round((o.amount + (o.ask - o.amount) * rng.range(0.35, 0.65)) / 25000) * 25000);
+        o.amount = mid; o.stage = 'offer'; o.day = state.day; o.rounds = (o.rounds || 0) + 1;
+        pushMessage(state, { prio: 1, icon: '↩', title: `${buyer.name} revient avec une nouvelle offre pour ${p.name}`, text: `${money(mid)} (vous demandiez ${money(o.ask)}).`, action: { type: 'offer', pid: p.id } });
+        if (o.rounds >= 3) o.last = true; // dernière offre : une nouvelle contre-proposition les fera partir
+      } else drop(`${buyer.name} se retire`, `Votre demande pour ${p.name} (${money(o.ask)}) est jugée trop élevée.`);
+      continue;
+    }
+    if (o.stage === 'terms') {
+      // Le joueur décide selon ses priorités (prestige, salaire, temps de jeu, pays…).
+      let score = 10;
+      try { score = playerDecision(state, p, buyer).score; } catch { /* joueur sans profil */ }
+      const pOk = clamp(0.55 + score / 80, 0.1, 0.97);
+      if (rng.next() < pOk) { o.stage = 'medical'; o.due = dayAdd(state, 1); pushMessage(state, { prio: 2, icon: '✍️', title: `${p.name} trouve un accord avec ${buyer.name}`, text: 'Visite médicale demain.' }); }
+      else drop(`${p.name} refuse ${buyer.name}`, 'Pas d\'accord sur les conditions personnelles : le joueur reste au club.');
+      continue;
+    }
+    if (o.stage === 'medical') {
+      if ((p.injury || 0) > 2 && rng.next() < 0.5) { drop(`Visite médicale non concluante`, `${buyer.name} renonce à ${p.name} (blessure).`); continue; }
+      const r = sellPlayer(state, o);
+      if (r.ok) pushMessage(state, { prio: 1, icon: '✅', title: `Officiel : ${p.name} rejoint ${buyer.name}`, text: money(o.amount) });
+    }
+  }
 }
 
 

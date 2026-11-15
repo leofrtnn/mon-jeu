@@ -18,6 +18,8 @@ export function render(app) {
     <div class="card"><h3>Match</h3>
       <div class="row between" style="padding:6px 0"><span>Moteur de match<br><small class="muted">En direct : les 22 joueurs décident eux-mêmes. Classique : actions tirées au sort.</small></span>
         <button class="btn sm ${st.liveEngine !== false ? 'primary' : ''}" data-act="engine">${st.liveEngine !== false ? 'En direct' : 'Classique'}</button></div>
+      <div class="row between" style="padding:6px 0"><span>Qualité graphique<br><small class="muted">Ultra : ombres fines, anticrénelage, pleine résolution, jamais dégradé. Économie : pour les petits téléphones.</small></span>
+        <span class="seg sm">${[['ultra', 'Ultra'], ['high', 'Haute'], ['eco', 'Économie']].map(([v, l]) => `<button data-act="gfx" data-v="${v}" class="${(st.gfx || (matchMedia('(pointer: coarse)').matches ? 'high' : 'ultra')) === v ? 'on' : ''}">${l}</button>`).join('')}</span></div>
       ${tog('var', 'Arbitrage vidéo (VAR)')}${tog('replays', 'Ralentis des buts')}${tog('audio', 'Ambiance sonore')}</div>
     <div class="card"><h3>Données · noms</h3>
       <p class="muted" style="font-size:13px;margin-top:0">Le jeu n'utilise que des noms fictifs. Vous pouvez exporter le fichier de noms, le modifier (par exemple avec de vrais noms), puis le réimporter.</p>
@@ -41,6 +43,7 @@ export function render(app) {
 }
 
 export const actions = {
+  gfx(el, app) { app.state.settings.gfx = el.dataset.v; app.save(); app.render(); app.toast('Qualité graphique : appliquée au prochain match.'); },
   engine(el, app) { app.state.settings.liveEngine = app.state.settings.liveEngine === false; app.save(); app.render(); },
   display(el, app) { setDisplayMode(el.dataset.v); app.render(); },
   toggle(el, app) { const k = el.dataset.v; app.state.settings[k] = !app.state.settings[k]; app.save(); app.render(); },

@@ -303,7 +303,67 @@ function loadFace(file) {
 const BOOTS = new Map();
 const bootMat = (c) => { if (!BOOTS.has(c)) BOOTS.set(c, new THREE.MeshStandardMaterial({ color: c, roughness: 0.3, metalness: 0.15 })); return BOOTS.get(c); };
 
-class Player3D {
+/*
+ * GESTES AU SOL : séquences d'images clés (comme une capture de mouvement simplifiée).
+ * Chaque clé : t (0 → 1 sur la durée du geste), bz (bascule du corps autour des pieds, négatif =
+ * vers l'avant), by (hauteur du bassin), hL/hR (hanches, positif = cuisse vers l'avant),
+ * kL/kR (genoux, négatif = fléchi), aZ/aX (épaules), e (coudes), uz (buste sur les hanches).
+ * L'interpolation est lissée (accélérations naturelles, pas de basculement raide).
+ */
+const KEYS = {
+  // Fauché : il trébuche, les mains partent en avant pour amortir, il glisse sur la pelouse,
+  // reste au sol, puis se relève en passant par les genoux.
+  fall: [
+    { t: 0, bz: 0, by: 0, hL: 0, hR: 0, kL: -0.1, kR: -0.1, aZ: 0.2, aX: 0, e: 0.4, uz: 0 },
+    { t: 0.1, bz: -0.42, by: -0.12, hL: 0.55, hR: -0.35, kL: -0.55, kR: -1.0, aZ: 0.9, aX: 0.25, e: 0.35, uz: -0.25 },
+    { t: 0.24, bz: -1.05, by: -0.08, hL: 0.4, hR: 0.05, kL: -0.75, kR: -0.5, aZ: 1.9, aX: 0.2, e: 0.45, uz: -0.18 },
+    { t: 0.36, bz: -1.5, by: 0.13, hL: 0.08, hR: -0.04, kL: -0.4, kR: -0.15, aZ: 2.45, aX: 0.1, e: 1.25, uz: 0.06 },
+    { t: 0.5, bz: -1.53, by: 0.14, hL: 0.05, hR: 0.12, kL: -0.25, kR: -0.85, aZ: 2.3, aX: 0.15, e: 1.5, uz: 0.1 },
+    { t: 0.64, bz: -1.5, by: 0.13, hL: 0.1, hR: 0.0, kL: -0.6, kR: -0.3, aZ: 2.2, aX: 0.1, e: 1.6, uz: 0.08 },
+    { t: 0.76, bz: -0.95, by: -0.55, hL: 1.35, hR: 1.3, kL: -2.25, kR: -2.2, aZ: 1.15, aX: 0.05, e: 0.25, uz: -0.25 },
+    { t: 0.88, bz: -0.3, by: -0.36, hL: 1.45, hR: 0.15, kL: -1.55, kR: -1.95, aZ: 0.55, aX: 0.1, e: 0.9, uz: -0.2 },
+    { t: 1, bz: 0, by: 0, hL: 0, hR: 0, kL: -0.1, kR: -0.1, aZ: 0.2, aX: 0, e: 0.4, uz: 0 },
+  ],
+  // Tacle glissé : il se couche sur la hanche, jambe d'attaque tendue au ras du sol, jambe
+  // d'appui repliée dessous, une main en arrière qui frotte la pelouse ; puis il se relève.
+  slide: [
+    { t: 0, bz: 0, by: 0, hL: 0, hR: 0, kL: -0.2, kR: -0.2, aZ: 0.2, aX: 0, e: 0.5, uz: 0 },
+    { t: 0.12, bz: 0.4, by: 0, hL: 0.2, hR: 0.75, kL: -1.7, kR: -0.3, aZ: -0.2, aX: 0.35, e: 0.4, uz: -0.2 },
+    { t: 0.26, bz: 0.95, by: 0, hL: 0.15, hR: 0.62, kL: -2.45, kR: -0.04, aZ: -0.95, aX: 0.4, e: 0.2, uz: -0.45 },
+    { t: 0.55, bz: 0.98, by: 0, hL: 0.12, hR: 0.6, kL: -2.5, kR: -0.04, aZ: -1.0, aX: 0.4, e: 0.2, uz: -0.5 },
+    { t: 0.7, bz: 0.55, by: 0, hL: 1.4, hR: 0.5, kL: -2.2, kR: -0.9, aZ: -0.2, aX: 0.3, e: 0.5, uz: -0.55 },
+    { t: 0.86, bz: -0.1, by: 0, hL: 1.25, hR: 0.15, kL: -1.6, kR: -1.2, aZ: 0.5, aX: 0.1, e: 0.8, uz: -0.25 },
+    { t: 1, bz: 0, by: 0, hL: 0, hR: 0, kL: -0.15, kR: -0.15, aZ: 0.2, aX: 0, e: 0.5, uz: 0 },
+  ],
+  // Tacle debout : appui fléchi, jambe tendue qui va chercher le ballon, buste au-dessus.
+  stand: [
+    { t: 0, bz: 0, by: 0, hL: 0, hR: 0, kL: -0.2, kR: -0.2, aZ: 0.2, aX: 0, e: 0.5, uz: 0 },
+    { t: 0.3, bz: -0.12, by: -0.16, hL: -0.15, hR: 0.65, kL: -0.75, kR: -0.35, aZ: 0.5, aX: 0.55, e: 0.5, uz: -0.12 },
+    { t: 0.5, bz: 0.05, by: -0.2, hL: -0.1, hR: 1.05, kL: -0.85, kR: -0.05, aZ: 0.35, aX: 0.7, e: 0.4, uz: -0.2 },
+    { t: 0.75, bz: -0.05, by: -0.1, hL: 0.1, hR: 0.45, kL: -0.5, kR: -0.4, aZ: 0.3, aX: 0.35, e: 0.5, uz: -0.1 },
+    { t: 1, bz: 0, by: 0, hL: 0, hR: 0, kL: -0.2, kR: -0.2, aZ: 0.2, aX: 0, e: 0.5, uz: 0 },
+  ],
+};
+// Blessé : allongé sur le dos, une jambe ramenée contre lui, les mains sur le tibia.
+KEYS.hurt = [
+  { t: 0, bz: 1.5, by: 0, hL: 0.1, hR: 1.6, kL: -0.3, kR: -2.0, aZ: 1.3, aX: 0.1, e: 1.2, uz: 0.15 },
+  { t: 0.5, bz: 1.45, by: 0, hL: 0.25, hR: 1.85, kL: -0.6, kR: -2.2, aZ: 1.5, aX: 0.15, e: 1.0, uz: 0.35 },
+  { t: 1, bz: 1.5, by: 0, hL: 0.1, hR: 1.6, kL: -0.3, kR: -2.0, aZ: 1.3, aX: 0.1, e: 1.2, uz: 0.15 },
+];
+const ease = (u) => u * u * (3 - 2 * u);
+/** Pose interpolée d'une séquence à l'instant t (0 → 1). */
+function keyPose(seq, t) {
+  t = Math.max(0, Math.min(1, t));
+  let i = 0;
+  while (i < seq.length - 2 && seq[i + 1].t < t) i++;
+  const a = seq[i], b = seq[i + 1];
+  const u = ease((t - a.t) / Math.max(1e-6, b.t - a.t));
+  const o = {};
+  for (const k in a) if (k !== 't') o[k] = a[k] + (b[k] - a[k]) * u;
+  return o;
+}
+
+export class Player3D {
   constructor(mats, skin, hair, num, shirtHex, inkHex, photo = null, opts = {}) {
     const G = geo();
     this.root = new THREE.Group();
@@ -414,6 +474,38 @@ class Player3D {
    * Course : foulée qui s'allonge avec la vitesse, genou qui remonte, bras opposés aux jambes,
    * buste penché selon la vitesse et l'accélération, rebond vertical deux fois par cycle.
    */
+  /** Applique une pose d'images clés (corps entier). */
+  applyKeys(o, mirror = false) {
+    const [lL, lR] = this.legs;
+    const [hL, hR, kL, kR] = mirror ? [o.hR, o.hL, o.kR, o.kL] : [o.hL, o.hR, o.kL, o.kR];
+    this.body.rotation.set(0, 0, o.bz);
+    this.body.position.y = o.by * K;
+    lL.hip.rotation.set(0, 0, hL); lR.hip.rotation.set(0, 0, hR);
+    lL.knee.rotation.set(0, 0, kL); lR.knee.rotation.set(0, 0, kR);
+    lL.ankle.rotation.set(0, 0, 0); lR.ankle.rotation.set(0, 0, 0);
+    this.upper.rotation.set(0, 0, o.uz);
+    for (const a of this.arms) { a.sh.rotation.set(-a.sgn * o.aX, 0, o.aZ); a.el.rotation.set(0, 0, o.e); }
+    this.groundContact();
+  }
+
+  /**
+   * Contact au sol : le point le plus bas du corps (crampon, genou, main, tête…) est posé sur la
+   * pelouse. Ni joueur qui flotte, ni jambe qui s'enfonce dans le sol pendant une chute.
+   */
+  groundContact() {
+    const pts = this._contacts ||= [
+      ...this.legs.flatMap((l) => [l.ankle, l.knee, l.hip]),
+      ...this.arms.map((a) => a.hand || a.el),
+      this.headPivot, this.upper,
+    ];
+    this.root.updateMatrixWorld(true);
+    const v = this._v ||= new THREE.Vector3();
+    let min = Infinity;
+    for (const o of pts) { o.getWorldPosition(v); min = Math.min(min, v.y - this.root.position.y); }
+    // Rayon des membres (crampon, genou, main) : on garde un peu d'épaisseur au-dessus de l'herbe.
+    if (Number.isFinite(min)) this.body.position.y += 0.07 * K - min;
+  }
+
   /** Coiffure : crâne rasé, cheveux courts, afro, mi-longs… */
   setHair(style) {
     const h = this.hairMesh;
@@ -547,23 +639,13 @@ class Player3D {
     if (ctx.holding) {
       for (const a of this.arms) { a.sh.rotation.z = 0.9; a.sh.rotation.x = a.sgn * 0.25; a.el.rotation.z = 1.5; }
     }
-    // Tacle : glissé (buste en ARRIÈRE, jambe d'attaque tendue devant, appui sur une main)
-    // ou debout (jambe tendue vers le ballon, buste droit).
+    // Tacle (glissé ou debout) : séquence d'images clés, durée réelle du geste.
     if (p.slide > 0) {
-      const k = Math.sin((p.slide / 0.55) * Math.PI);
-      if (p.tk === 'stand') {
-        lR.hip.rotation.z = 1.0 * k; lR.knee.rotation.z = -0.1 * k;
-        lL.hip.rotation.z = -0.15 * k; lL.knee.rotation.z = -0.45 * k;
-        this.body.rotation.z = 0.12 * k;
-        this.arms[0].sh.rotation.x = 0.5 * k; this.arms[1].sh.rotation.x = -0.5 * k;
-      } else {
-        this.body.rotation.z = 1.1 * k;               // couché vers l'arrière
-        this.body.position.y = -0.25 * k;             // hanches au ras de la pelouse (glissade)
-        lR.hip.rotation.z = 0.35 * k; lR.knee.rotation.z = -0.05 * k; // jambe d'attaque tendue
-        lL.hip.rotation.z = -0.25 * k; lL.knee.rotation.z = -1.1 * k;  // jambe repliée dessous
-        this.arms[0].sh.rotation.z = -1.1 * k; this.arms[1].sh.rotation.x = -0.6 * k; // une main au sol
-      }
-    }
+      if (!(this._slideMax > 0) || p.slide > this._slidePrev + 0.01) this._slideMax = p.slide;
+      this._slidePrev = p.slide;
+      const t = 1 - p.slide / this._slideMax;
+      this.applyKeys(keyPose(p.tk === 'stand' ? KEYS.stand : KEYS.slide, t), (p.id ?? 0) % 2 === 1);
+    } else this._slideMax = 0;
     // Plongeon du gardien : il se projette sur le côté, bras tendus vers le ballon.
     if (p.dive > 0) {
       const t = 1 - p.dive / 0.75;
@@ -587,17 +669,28 @@ class Player3D {
       this.body.rotation.x += (flip ? -1 : 1) * side * 0.32 * k;
       for (const a of this.arms) { a.sh.rotation.x += a.sgn * 0.6 * k; a.el.rotation.z = Math.max(a.el.rotation.z, 0.4 * k); }
     }
-    // Fauché : il tombe en avant, reste au sol un instant, puis se relève.
-    if (p.fall > 0) {
-      const dur = p.fall > 0.6 || this._fallDur > 0.6 ? 1.1 : 0.6;
-      if (!this._fallDur || p.fall > this._lastFall) this._fallDur = Math.max(p.fall, 0.6);
-      this._lastFall = p.fall;
-      const t = 1 - p.fall / this._fallDur;
-      const k = t < 0.25 ? Math.sin((t / 0.25) * Math.PI / 2) : t > 0.75 ? Math.sin(((1 - t) / 0.25) * Math.PI / 2) : 1;
-      this.body.rotation.z = -1.4 * k;
-      this.body.position.y = 0.1 * k;
-      for (const a of this.arms) { a.sh.rotation.z = 1.6 * k; a.el.rotation.z = 0.4; }
-      lL.hip.rotation.z = lR.hip.rotation.z = -0.2 * k;
+    // Fauché : il trébuche, amortit avec les mains, reste au sol, se relève par les genoux.
+    if (p.fall > 0 && !(p.slide > 0)) {
+      if (!(this._fallMax > 0) || p.fall > this._fallPrev + 0.01) this._fallMax = p.fall;
+      this._fallPrev = p.fall;
+      const t = 1 - p.fall / this._fallMax;
+      // Chute courte (simple déséquilibre) : on ne joue que le début et la fin de la séquence.
+      const tt = this._fallMax < 0.9 ? (t < 0.5 ? t * 0.5 : 0.75 + (t - 0.5) * 0.5) : t;
+      this.applyKeys(keyPose(KEYS.fall, tt), (p.id ?? 0) % 2 === 0);
+    } else this._fallMax = 0;
+    // Blessé : il se tord de douleur au sol (léger balancement), jusqu'à l'arrivée des soigneurs.
+    if (p.hurt > 0 && !(p.slide > 0)) this.applyKeys(keyPose(KEYS.hurt, (p.hurt * 0.6) % 1), (p.id ?? 0) % 2 === 1);
+    // Fautif : bras écartés, paumes vers le ciel (« je n'ai rien fait ! »).
+    if (p.appeal > 0 && !(p.slide > 0) && !(p.fall > 0)) {
+      const k = Math.min(1, p.appeal / 0.4, (1.8 - p.appeal) / 0.3);
+      for (const a of this.arms) { a.sh.rotation.x = -a.sgn * 1.15 * k; a.sh.rotation.z = 0.3 * k; a.el.rotation.z = 1.35 * k; }
+      this.upper.rotation.z = 0.08 * k;
+    }
+    // Grosse occasion manquée : mains sur la tête, buste qui se cambre.
+    if (p.headHands > 0 && !(p.slide > 0) && !(p.fall > 0)) {
+      const k = Math.min(1, p.headHands / 0.35, (2.2 - p.headHands) / 0.3);
+      for (const a of this.arms) { a.sh.rotation.x = -a.sgn * 0.55 * k; a.sh.rotation.z = 2.7 * k; a.el.rotation.z = 2.1 * k; }
+      this.upper.rotation.z = 0.18 * k;
     }
     // Ballon sur lui : il se couche / bloque, mains en avant.
     if (p.block > 0) { for (const a of this.arms) { a.sh.rotation.z = 1.3; a.el.rotation.z = 0.3; } lL.knee.rotation.z = lR.knee.rotation.z = -0.5; }
@@ -653,7 +746,10 @@ export class Match3D {
     parent.insertBefore(this.canvas, view.canvas);
     // Téléphones / tablettes : pas d'anticrénelage matériel (coûteux), ombres simplifiées, 40 images/s max.
     this.mobile = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
-    this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: !this.mobile, powerPreference: 'high-performance' });
+    // Qualité graphique (Paramètres) : ultra (défaut sur PC), high (défaut sur téléphone), eco.
+    this.gfx = globalThis.__cdpGfx || (this.mobile ? 'high' : 'ultra');
+    const ultra = this.gfx === 'ultra', eco = this.gfx === 'eco';
+    this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: ultra || (!this.mobile && !eco), powerPreference: 'high-performance' });
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;   // rendu « télé » : contrastes doux, couleurs riches
     this.renderer.toneMappingExposure = 1.15;
@@ -675,10 +771,12 @@ export class Match3D {
     this.sun = sun;
     sun.position.set(-30, 80, 40);
     // Ombres portées des joueurs sur la pelouse (désactivées sur les appareils trop lents).
-    this.renderer.shadowMap.enabled = !this.mobile;
+    const shadows = ultra || (!this.mobile && !eco);
+    this.renderer.shadowMap.enabled = shadows;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    sun.castShadow = !this.mobile;
-    sun.shadow.mapSize.set(1536, 1536);
+    sun.castShadow = shadows;
+    const sm = ultra ? (this.mobile ? 2048 : 4096) : 1536;
+    sun.shadow.mapSize.set(sm, sm);
     sun.shadow.autoUpdate = true;
     Object.assign(sun.shadow.camera, { left: -62, right: 62, top: 42, bottom: -42, near: 10, far: 220 });
     sun.shadow.bias = -0.0005; sun.shadow.normalBias = 0.02;
@@ -1063,8 +1161,9 @@ export class Match3D {
     const v = this.v;
     // Résolution : au plus ~2,2 millions de pixels (grands écrans de PC), puis réglage
     // automatique selon la fluidité mesurée (this.quality, voir adaptQuality).
-    const cap = Math.sqrt(2.2e6 / Math.max(1, v.cssW * v.cssH));
-    const dpr = Math.max(0.5, Math.min(window.devicePixelRatio || 1, this.mobile ? 1.5 : 1.75, cap) * (this.quality ?? 1));
+    const ultra = this.gfx === 'ultra', eco = this.gfx === 'eco';
+    const cap = Math.sqrt((ultra ? 4.2e6 : eco ? 1.1e6 : 2.2e6) / Math.max(1, v.cssW * v.cssH));
+    const dpr = Math.max(0.5, Math.min(window.devicePixelRatio || 1, ultra ? 2 : eco ? 1 : this.mobile ? 1.5 : 1.75, cap) * (this.quality ?? 1));
     this.renderer.setPixelRatio(dpr);
     this.renderer.setSize(v.cssW, v.cssH, false);
     this.canvas.style.width = v.cssW + 'px';
@@ -1157,6 +1256,13 @@ export class Match3D {
   /** Baisse la résolution si les images mettent trop de temps à venir (PC sans grosse carte graphique), la remonte sinon. */
   adaptQuality() {
     const now = performance.now();
+    // Ultra : on ne dégrade jamais l'image (sauf appareil à bout de souffle, < 15 images/s).
+    if (this.gfx === 'ultra') {
+      if (this._lastT) { this._acc = (this._acc || 0) + Math.min(100, now - this._lastT); this._n = (this._n || 0) + 1; }
+      if (this._acc > 2000) { const avg = this._acc / this._n; if (avg > 66 && (this.quality ?? 1) > 0.7) { this.quality = 0.7; this.resize(); } this._acc = 0; this._n = 0; }
+      this._lastT = now;
+      return;
+    }
     if (this._lastT) {
       const ft = Math.min(100, now - this._lastT);
       this._acc = (this._acc || 0) + ft; this._n = (this._n || 0) + 1;
@@ -1208,6 +1314,8 @@ export class Match3D {
       const ballAng = dB < 45 ? Math.atan2((v.ball.y - p.y) * W, (v.ball.x - p.x) * L) : null;
       e.p3.pose(p, flip, { dt: dt || 0.016, ballAng, jostle, ballNear: p.gk && dB < 30, restFar: dB > 28 && !isCar, shield: isCar && !v.inHands && (p.shieldK || 0) > 0, holding: isCar && v.inHands && p.gk });
       e.p3.smoothPose(dt || 0.016);
+      // Gestes au sol : après le lissage, le point le plus bas du corps est reposé sur la pelouse.
+      if (p.fall > 0 || p.slide > 0 || p.hurt > 0 || p.place > 0 || p.block > 0 || (p.celeb > 0 && p.celebType === 'knees' && (p.speed || 0) <= 2) || (p.dive > 0 && p.dive < 0.3)) e.p3.groundContact();
       const hl = id === carrier || id === v.selected;
       e.p3.ring.visible = id === v.selected;   // pas de rond sous le porteur : seulement le joueur touché
       e.p3.ring.material = this.mats[p.side].ring;

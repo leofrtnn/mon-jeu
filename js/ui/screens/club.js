@@ -11,7 +11,7 @@ import { dealsList } from './deals.js';
 import { userClub, clubPlayers, clubById } from '../../game/state.js';
 import { money, wageBill, sponsorIncome, prizeMoney } from '../../game/economy.js';
 import { DIVISIONS } from '../../data/world.js';
-import { marketList, windowOpen, academyCost, upgradeAcademy, sellPlayer, counterIncoming, youthRecruitCost, upgradeYouthRecruit, releaseYouth, promoteYouth } from '../../game/transfers.js';
+import { marketList, windowOpen, academyCost, upgradeAcademy, sellPlayer, counterIncoming, acceptIncoming, SALE_STAGE, youthRecruitCost, upgradeYouthRecruit, releaseYouth, promoteYouth } from '../../game/transfers.js';
 import { tablePosition, DIV_NAMES, CONTI_NAME } from '../../game/season.js';
 import { STAFF_ROLES, staffWages, hireStaff, fireStaff, bestStaff, staffEffects, trainingUpgradeCost, upgradeTraining, STADIUM_OPTIONS, stadiumCost, expandStadium, TRAINING_FOCUS, INTENSITY, staffDemand, staffOffer } from '../../game/career.js';
 import { randomLook } from '../../game/coach.js';
@@ -174,8 +174,9 @@ function market(app) {
     const listed = clubPlayers(s, uc).filter((p) => p.listed);
     html += `<div class="label">Offres reçues</div><div class="card" style="margin-top:0">${offers.map((o) => {
       const p = s.players[o.pid]; const c = clubById(s, o.clubId);
-      return `<div style="padding:6px 0;border-bottom:1px solid var(--line)"><b>${esc(p.name)}</b> ${ovrChip(overall(p))} <small>${esc(c.name)} · <b>${money(o.amount)}</b></small>
-        <div class="btns" style="margin-top:6px"><button class="btn sm" data-act="decline" data-id="${p.id}">Non</button><button class="btn sm" data-act="counter" data-id="${p.id}">+15 %</button><button class="btn sm primary" data-act="accept" data-id="${p.id}">Oui</button></div></div>`;
+      return `<div style="padding:6px 0;border-bottom:1px solid var(--line)"><b>${esc(p.name)}</b> ${ovrChip(overall(p))} <small>${esc(c.name)} · <b>${money(o.amount)}</b>${o.agreed ? ' · ✔ vos conditions acceptées' : ''}${o.last ? ' · ⚠ dernière offre' : ''}</small>
+        ${!o.stage || o.stage === 'offer' ? `<div class="btns" style="margin-top:6px"><button class="btn sm" data-act="decline" data-id="${p.id}">Refuser</button>${o.agreed ? '' : `<button class="btn sm" data-act="counter" data-id="${p.id}" data-v="1.1">Demander +10 %</button><button class="btn sm" data-act="counter" data-id="${p.id}" data-v="1.25">+25 %</button>`}<button class="btn sm primary" data-act="accept" data-id="${p.id}">Accepter</button></div>`
+          : `<div class="sale-stage">⏳ ${esc(SALE_STAGE[o.stage] || o.stage)}${o.due != null ? ` · ${Math.max(0, o.due - s.day) ? `réponse dans ${o.due - s.day} jour(s)` : 'réponse aujourd\'hui'}` : ''}</div>`}</div>`;
     }).join('') || '<p class="muted" style="margin:0">Aucune offre. Placez des joueurs sur la liste des transferts pour attirer les clubs.</p>'}</div>
     <div class="label">Sur la liste des transferts</div><div class="card list" style="padding:0 10px;margin-top:0">${listed.map((p) => playerRow(p)).join('') || '<p class="muted">Aucun joueur listé (fiche joueur → « Mettre sur la liste »).</p>'}</div>`;
     return html;
@@ -517,11 +518,11 @@ export const actions = {
   tind(el, app) { if (el.tagName !== 'SELECT') return; const p = app.state.players[+el.dataset.id]; if (p) { p.tFocus = el.value || null; app.save(); app.toast(el.value ? `${p.name} : programme individuel enregistré.` : `${p.name} suit le programme collectif.`); } },
   accept(el, app) {
     const o = app.state.pendingOffers.find((x) => x.pid === +el.dataset.id);
-    done(app, sellPlayer(app.state, o));
+    done(app, acceptIncoming(app.state, o, gameRng(app.state)));
   },
   counter(el, app) {
     const o = app.state.pendingOffers.find((x) => x.pid === +el.dataset.id);
-    done(app, { ...counterIncoming(app.state, o, 1.15, gameRng(app.state)), ok: true });
+    done(app, counterIncoming(app.state, o, +el.dataset.v || 1.15, gameRng(app.state)));
   },
   decline(el, app) { app.state.pendingOffers = app.state.pendingOffers.filter((x) => x.pid !== +el.dataset.id); app.save(); app.render(); },
 };

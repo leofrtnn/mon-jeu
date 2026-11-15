@@ -351,6 +351,14 @@ export class MatchView {
     if (ev.synthetic) return; // passe de liaison ajoutée par l'affichage : pas de commentaire
     if (ev.type === 'shot' && ev.outcome === 'post') this.cam.shake = 0.4;
     this.animate(ev);
+    // Gestes humains : le blessé se tient la jambe au sol, le fautif proteste auprès de
+    // l'arbitre, le tireur qui manque une grosse occasion se prend la tête dans les mains.
+    const who = ev.pid != null ? this.players.get(ev.pid) : null;
+    if (who && !ev.replay) {
+      if (ev.type === 'injury') { who.hurt = 4.5; who.fall = 0; }
+      if (ev.type === 'foul' || ev.type === 'yellow') who.appeal = 1.8;
+      if (ev.type === 'shot' && ev.outcome !== 'goal' && (ev.xg || 0) >= 0.18) who.headHands = 2.2;
+    }
     // Étiquettes de noms sur les actions importantes.
     if (['shot', 'goal', 'yellow', 'red', 'penalty', 'injury', 'dribble', 'sub'].includes(ev.type) && ev.pid) {
       this.tags.push({ id: ev.pid, text: this.nameOf(ev.pid), life: 1.6 });
@@ -564,7 +572,8 @@ export class MatchView {
   liveSpeed(dt) {
     if (!this.live || this.speed > 8) return this.speed; // avance rapide demandée (différé)
     if (!this.highlights || this.hlMode !== 'auto') return this.hlMode === 'auto' ? this.speed : +this.hlMode;
-    const target = this.inHL ? 2 : (this.ffSpeed || 4); // temps fort : x2 ; accéléré : x4, x6 ou x8 au choix
+    const ff = this.ffSpeed === 'R' ? 8 : (this.ffSpeed || 4);
+    const target = this.inHL ? 2 : ff; // temps fort : x2 ; accéléré : x4 ou x8 au choix ; résumé : coupures
     this.effSpeed += (target - this.effSpeed) * Math.min(1, dt * (target < this.effSpeed ? 6 : 1.6));
     if (Math.abs(this.effSpeed - target) < 0.02) this.effSpeed = target;
     return this.effSpeed;
@@ -579,6 +588,11 @@ export class MatchView {
       this.hlCalm = want ? 0 : this.hlCalm + game;
       const on = want || (this.inHL && this.hlCalm < 7);
       if (on !== this.inHL) { this.inHL = on; this.opts.onHighlight?.(on); }
+      // Mode résumé : dès que l'action retombe, on coupe jusqu'au prochain temps fort
+      // (le chrono défile sous le voile, comme un résumé télé).
+      if (this.ffSpeed === 'R' && this.hlMode === 'auto' && !this.inHL && !this.paused && this.m.phase === 'live' && this.hlCalm > 2.5 && !this.replayLive && !this.slowmo) {
+        this.hl = 'skip'; this.hlForce = false; this.setVeil(true, true);
+      }
       return false;
     }
     // Avance rapide forcée (jusqu'à la mi-temps, tests) : simulation au pas fixe, sans affichage.
@@ -608,10 +622,10 @@ export class MatchView {
   }
 
   /** Voile de coupure (avance rapide entre deux temps forts). */
-  setVeil(on) {
+  setVeil(on, recap = false) {
     if (!this.veil) return;
-    this.veil.style.opacity = on ? '0.9' : '0';
-    this.veil.innerHTML = on ? '<div style="position:absolute;top:14px;left:50%;transform:translateX(-50%);color:#fff;font:600 13px system-ui;opacity:.85;white-space:nowrap">⏩ Avance rapide jusqu\'au prochain temps fort</div>' : '';
+    this.veil.style.opacity = on ? (recap ? '0.72' : '0.9') : '0';
+    this.veil.innerHTML = on ? `<div style="position:absolute;top:14px;left:50%;transform:translateX(-50%);color:#fff;font:600 13px system-ui;opacity:.9;white-space:nowrap">${recap ? '🎬 Résumé · prochaine action' : '⏩ Avance rapide jusqu\'au prochain temps fort'}</div>` : '';
     if (!on && this.r3d) this.r3d.snapCam = true;
   }
 
@@ -878,15 +892,15 @@ export class MatchView {
     this.pending = null;
     if (a) this.faceTo(a, P.x / PITCH_L, P.y / PITCH_W);
     if (ev.type === 'foul') {
-      if (a) a.slide = 0.55;
-      if (v) v.fall = 1.1;
+      if (a) a.slide = 0.9;
+      if (v) v.fall = 2.0;
       this.holder = null;
       P.vx *= 0.1; P.vy *= 0.1; P.vz = Math.min(0, P.vz); P.spin = 0;
       this.foulAt = { x: P.x, y: P.y };
       return;
     }
-    if (ev.type === 'tackle' && a) a.slide = 0.55;
-    if (ev.type === 'tackle' && v) v.fall = 0.6;
+    if (ev.type === 'tackle' && a) a.slide = 0.9;
+    if (ev.type === 'tackle' && v) v.fall = 1.4;
     if (ev.type === 'interception' && a) a.touch = 0.2;
     if (a) { this.holder = ev.pid; this.inHands = false; }
   }
@@ -1217,7 +1231,7 @@ export class MatchView {
       // Les gestes durent un temps « d'affichage » (indépendant de l'accéléré).
       const gd = dt / this.TS;
       if (p.diveIn != null) { p.diveIn -= gd; if (p.diveIn <= 0) { p.diveIn = null; this.startDive(p); } }
-      for (const k of ['kick', 'slide', 'dive', 'jump', 'celeb', 'touch', 'saveFx', 'fall', 'block']) if (p[k] > 0) p[k] = Math.max(0, p[k] - gd);
+      for (const k of ['kick', 'slide', 'dive', 'jump', 'celeb', 'touch', 'saveFx', 'fall', 'block', 'hurt', 'appeal', 'headHands']) if (p[k] > 0) p[k] = Math.max(0, p[k] - gd);
     }
     // Contacts : deux joueurs ne se traversent pas (ils se repoussent à moins de 1,1 m),
     // sauf le tacleur qui va au duel.
@@ -1454,12 +1468,13 @@ export class MatchView {
   /** Vue 3D : rendu WebGL, puis bandeaux (BUT, cartons, ralenti) sur le canevas 2D transparent posé dessus. */
   draw3D() {
     // Mobile : 40 images/s au plus (le moteur, lui, continue au pas fixe) — moins de chauffe et de batterie.
-    if (this.r3d.mobile) {
+    const capped = this.r3d.mobile && this.r3d.gfx !== 'ultra';
+    if (capped) {
       const now = performance.now();
       if (now - (this._last3d || 0) < 24) return;
       this._r3dDt = (now - (this._last3d || now)) / 1000; this._last3d = now;
     }
-    this.r3d.render(this.r3d.mobile ? Math.min(0.05, this._r3dDt || 0.025) : (this.lastDt || 0.016));
+    this.r3d.render(capped ? Math.min(0.05, this._r3dDt || 0.025) : (this.lastDt || 0.016));
     const g = this.ctx, W = this.canvas.width, H = this.canvas.height;
     // Le calque 2D n'est effacé que s'il contient quelque chose (économise une image pleine par frame).
     const need = !!(this.banner || this.replaying);
@@ -1566,7 +1581,7 @@ export class MatchView {
       g.beginPath(); g.arc(0, -p.diveDir * r * (1.35 + k * 0.5), r * 0.26, 0, Math.PI * 2); g.fill();
       g.beginPath(); g.arc(0, p.diveDir * -r * (1.0 + k * 0.4) + r * 0.3, r * 0.22, 0, Math.PI * 2); g.fill();
     } else {
-      const slide = p.slide > 0 ? Math.sin((p.slide / 0.55) * Math.PI) : 0;
+      const slide = p.slide > 0 ? Math.sin(Math.min(1, p.slide / 0.9) * Math.PI) : 0;
       const kick = p.kick > 0 ? Math.sin((p.kick / 0.32) * Math.PI) : 0;
       const stride = swing * 1.5;
       // Pieds : dépassent du torse pendant la course, la frappe ou le tacle.

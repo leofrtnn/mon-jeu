@@ -4,7 +4,8 @@
  */
 import { clubById, userClub } from '../../game/state.js';
 import { money } from '../../game/economy.js';
-import { sellPlayer } from '../../game/transfers.js';
+import { acceptIncoming, counterIncoming, SALE_STAGE } from '../../game/transfers.js';
+import { gameRng } from '../../game/state.js';
 import { overall } from '../../engine/ratings.js';
 import { esc, crest , ovrChip } from '../components.js';
 
@@ -33,8 +34,9 @@ export function showDayReport(app, report) {
       <div class="row between" style="margin-top:6px"><span>Budget</span><b>${money(uc.budget)}</b></div></div>
     ${offers.length ? `<div class="card"><h3>Offres reçues</h3>${offers.map((o) => {
       const p = s.players[o.pid]; const c = clubById(s, o.clubId);
-      return `<div class="row" style="padding:6px 0"><div class="grow"><b>${esc(p.name)}</b> ${ovrChip(overall(p))}<br><small>${esc(c.name)} · ${money(o.amount)}</small></div>
-        <button class="btn sm" data-act="decline" data-id="${p.id}">Refuser</button><button class="btn sm primary" data-act="accept" data-id="${p.id}">Accepter</button></div>`;
+      const open = !o.stage || o.stage === 'offer';
+      return `<div class="row" style="padding:6px 0"><div class="grow"><b>${esc(p.name)}</b> ${ovrChip(overall(p))}<br><small>${esc(c.name)} · ${money(o.amount)}${open ? '' : ` · ⏳ ${esc(SALE_STAGE[o.stage] || '')}`}</small></div>
+        ${open ? `<button class="btn sm" data-act="decline" data-id="${p.id}">Refuser</button>${o.agreed ? '' : `<button class="btn sm" data-act="counter" data-id="${p.id}">+15 %</button>`}<button class="btn sm primary" data-act="accept" data-id="${p.id}">Accepter</button>` : ''}</div>`;
     }).join('')}</div>` : ''}
     ${report.callups.length ? `<div class="card"><h3>🌍 Vos internationaux</h3><small>${report.callups.map(esc).join(', ')}</small></div>` : ''}
     <div class="card"><h3>Résultats</h3>${results.map(res).join('')}</div>
@@ -44,8 +46,13 @@ export function showDayReport(app, report) {
     actions: {
       accept: (el) => {
         const o = s.pendingOffers.find((x) => x.pid === +el.dataset.id);
-        const r = sellPlayer(s, o);
-        app.toast(r.msg); app.save(); h.update(html()); app.render();
+        const r = acceptIncoming(s, o, gameRng(s));
+        app.toast(r.msg, 4000); app.save(); h.update(html()); app.render();
+      },
+      counter: (el) => {
+        const o = s.pendingOffers.find((x) => x.pid === +el.dataset.id);
+        const r = counterIncoming(s, o, 1.15, gameRng(s));
+        app.toast(r.msg, 4000); app.save(); h.update(html()); app.render();
       },
       decline: (el) => {
         s.pendingOffers = s.pendingOffers.filter((x) => x.pid !== +el.dataset.id);
@@ -65,10 +72,13 @@ export function showOffer(app, pid) {
   const h = app.sheet({
     html: `<h2>Offre pour ${esc(p.name)}</h2>
       <p>${esc(c.name)} propose <b>${money(o.amount)}</b>.<br><small>Valeur estimée : ${money(p.value)} · Niveau ${ovrChip(overall(p))} · ${p.age} ans</small></p>
-      <div class="btns"><button class="btn" data-act="no">Refuser</button><button class="btn" data-act="yeson">Accepter −10 % avec 15 % à la revente</button><button class="btn primary" data-act="yes">Accepter</button></div>`,
+      ${o.stage && o.stage !== 'offer' ? `<p class="sale-stage">⏳ ${esc(SALE_STAGE[o.stage] || '')}</p><div class="btns"><button class="btn" data-act="close">Fermer</button></div>` : `
+      <div class="btns"><button class="btn" data-act="no">Refuser</button>${o.agreed ? '' : '<button class="btn" data-act="cnt" data-v="1.1">Demander +10 %</button><button class="btn" data-act="cnt" data-v="1.25">+25 %</button>'}<button class="btn" data-act="yeson">Accepter −10 % avec 15 % à la revente</button><button class="btn primary" data-act="yes">Accepter</button></div>`}`,
     actions: {
-      yes: () => { const r = sellPlayer(s, o); app.toast(r.msg); app.save(); h.close(); app.render(); },
-      yeson: () => { o.amount = Math.round(o.amount * 0.9 / 25000) * 25000; o.sellOn = 0.15; const r = sellPlayer(s, o); app.toast(r.msg); app.save(); h.close(); app.render(); },
+      close: () => h.close(),
+      yes: () => { const r = acceptIncoming(s, o, gameRng(s)); app.toast(r.msg, 4000); app.save(); h.close(); app.render(); },
+      cnt: (el) => { const r = counterIncoming(s, o, +el.dataset.v, gameRng(s)); app.toast(r.msg, 4000); app.save(); h.close(); app.render(); },
+      yeson: () => { o.amount = Math.round(o.amount * 0.9 / 25000) * 25000; o.sellOn = 0.15; const r = acceptIncoming(s, o, gameRng(s)); app.toast(r.msg, 4000); app.save(); h.close(); app.render(); },
       no: () => { s.pendingOffers = s.pendingOffers.filter((x) => x !== o); app.save(); h.close(); app.render(); },
     },
   });

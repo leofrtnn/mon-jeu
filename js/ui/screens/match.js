@@ -4,7 +4,7 @@
  * tableau d'affichage, momentum, commentaires, vitesse, résumé rapide,
  * pause (changements, tactique), mi-temps (stats + causerie), fin de match.
  */
-import { userMatchCfg, completeDay, today, fixtureKey } from '../../game/season.js';
+import { userMatchCfg, completeDay, today, fixtureKey, liveTable } from '../../game/season.js';
 import { traitChip } from '../components.js';
 import { TALKS, SHOUTS, PLAYER_SHOUTS, teamShout, playerShout } from '../../engine/match.js';
 import { createMatch, stepMinute, makeSub, changeFormation, swapSlots, moveSlot, setRole, setTactic, snapshotMatch, restoreMatch, replayCfg, applyPlan, teamTalk, summarize, penaltyShootout, tieLevel, clockLabel, activePlayers } from '../../engine/match.js';
@@ -20,7 +20,7 @@ import { esc, crest, cmpBar, ratingChip, posBadge, seg, scaleColor, face } from 
 import { avatarSvg } from '../avatar.js';
 import { MatchAudio } from '../audio.js';
 import { xgChart, heatmap } from '../charts.js';
-import { userClub } from '../../game/state.js';
+import { userClub, clubById } from '../../game/state.js';
 import { staffEffects } from '../../game/career.js';
 import { managerOf } from '../../game/managers.js';
 import { pressQuestion, pressAnswer } from '../../game/media.js';
@@ -29,7 +29,7 @@ import { openInterview } from './inboxUI.js';
 import { showDayReport } from './dayReport.js';
 
 const SPEEDS = ['auto', 2, 4]; // auto : temps forts en x2, le reste en accéléré x4 (visible, panneau tactique)
-const speedLabel = (v, hl, ff = 4) => (v === 'auto' ? (hl ? '⚡ Temps fort' : `⏩ Accéléré x${ff}`) : `x${v}`);
+const speedLabel = (v, hl, ff = 4) => (v === 'auto' ? (hl ? '⚡ Temps fort' : ff === 'R' ? '🎬 Résumé' : `⏩ Accéléré x${ff}`) : `x${v}`);
 /** Événements montrés en mode "Résumé rapide". */
 const QUICK_KEEP = new Set(['goal', 'red', 'yellow', 'penalty', 'var', 'ht', 'ft', 'injury', 'kickoff', 'freekick']);
 
@@ -92,6 +92,7 @@ export function openMatch(app, opts = {}) {
   // Journal des décisions du coach (instant précis = nombre de pas du moteur) : permet de
   // rejouer ce match À L'IDENTIQUE sur un autre appareil (match entre managers, en ligne).
   const replay = opts.replay || null;
+  const canLive = official && !replay && !s.online; // classement en direct (multiplex)
   const journal = [];
   let jIdx = 0;
   const rec = (op, a) => { if (!replay) journal.push({ n: view.liveSteps || 0, op, a }); };
@@ -241,6 +242,7 @@ export function openMatch(app, opts = {}) {
     } while (view.queue.length === 0 && m.phase === 'live' && guard++ < 30);
   };
 
+  globalThis.__cdpGfx = s.settings.gfx || null;
   const view = new MatchView($('pitch'), m, { userSide, onEventStart, onIdle, live: replay ? true : s.settings.liveEngine !== false, hlMode: SPEEDS[ctrl.speedIdx],
     onHighlight: (on) => { audio.swell(on); const b = root.querySelector('[data-c="speed"]'); if (b && SPEEDS[ctrl.speedIdx] === 'auto') { b.textContent = speedLabel('auto', on, view.ffSpeed); b.classList.toggle('hl-on', on); } ffUpdate(true); },
     beforeStep: replay ? (n) => applyJournal(n) : null, labelMode: s.settings.labels || ((s.settings.matchStyle || '3d') !== 'anim' ? 'num' : 'name'), style: s.settings.matchStyle || '3d', onPlayerTap: showTapCard,
@@ -254,7 +256,7 @@ export function openMatch(app, opts = {}) {
     return bc.intro(matchDay(m, cfg, currentDate(s))).then(() => { if (view.r3d) view.r3d.camMode = 'tv'; });
   };
   window.__bc = bc; window.__view = view; window.__journal = journal; window.__cfgSnap = () => replayCfg(cfg); // débogage
-  view.ffSpeed = s.settings.ffSpeed || 4;
+  view.ffSpeed = s.settings.ffSpeed ?? 'R'; // par défaut : résumé (seules les actions sont jouées)
   const applySpeed = () => {
     const v = SPEEDS[ctrl.speedIdx];
     view.hlMode = v;
@@ -288,7 +290,7 @@ export function openMatch(app, opts = {}) {
   };
   const ffRender = () => {
     ff.innerHTML = `<div class="ff-head"><b>${esc(hc.short)} ${m.score[0]} - ${m.score[1]} ${esc(ac.short)}</b><small>${esc(view.clockText ? view.clockText() : '')} · le jeu continue en accéléré</small>
-      <span class="seg sm ff-spd">${[4, 6, 8].map((v) => `<button data-ff="spd" data-v="${v}" class="${(view.ffSpeed || 4) === v ? 'on' : ''}">x${v}</button>`).join('')}</span>
+      <span class="seg sm ff-spd">${[4, 8, 'R'].map((v) => `<button data-ff="spd" data-v="${v}" class="${(view.ffSpeed || 4) === v ? 'on' : ''}" title="${v === 'R' ? 'Résumé : seules les actions sont jouées, le reste défile' : `Accéléré x${v}`}">${v === 'R' ? '🎬 Résumé' : `x${v}`}</button>`).join('')}</span>
       <button class="btn sm" data-ff="nexthl">⏩ Prochain temps fort</button><button class="ff-x" data-ff="hide" title="Masquer">×</button></div>
       <div class="ff-body"><div class="ff-stats">${ffStats()}</div><div class="ff-tac">${ffTac()}</div></div>`;
   };
@@ -310,7 +312,7 @@ export function openMatch(app, opts = {}) {
     if (k === 'qplan') { const q = QUICK_PLANS.find((x) => x.id === b.dataset.v); for (const [kk, v] of Object.entries(q.tac)) { setTactic(m, userSide, kk, v); rec('ti', { side: userSide, k: kk, v }); } app.toast(`${q.icon} ${q.label}`); }
     if (k === 'full') { if (m.phase === 'live') { view.pause(); pauseSheet(); } return; }
     if (k === 'shout') { const r = teamShout(m, userSide, b.dataset.v); rec('shout', { side: userSide, kind: b.dataset.v }); app.toast(`${SHOUTS[b.dataset.v].icon} ${r.text}`); return; }
-    if (k === 'spd') { view.ffSpeed = +b.dataset.v; s.settings.ffSpeed = view.ffSpeed; app.save(); }
+    if (k === 'spd') { view.ffSpeed = b.dataset.v === 'R' ? 'R' : +b.dataset.v; s.settings.ffSpeed = view.ffSpeed; app.save(); }
     if (k === 'nexthl') { view.hl = 'skip'; view.hlForce = false; view.setVeil(true); view.hlGrace = 0; return; }
     ffRender();
   });
@@ -598,12 +600,13 @@ export function openMatch(app, opts = {}) {
     const html = () => {
       const T = t();
       return `<div class="row between"><h2>${isHT ? 'Vestiaire' : 'Banc de touche'} · ${clockLabel(m.minute, m.extra)}</h2><b class="num" style="font-size:20px">${m.score[0]} - ${m.score[1]}</b></div>
-        <div style="margin:8px 0">${seg('ptab', ['compo', 'tac', 'stats', 'players'], tab, { compo: `Compo & changements (${(m.maxSubs ?? MAX_SUBS) - T.subsUsed})`, tac: 'Tactique', stats: 'Stats', players: 'Joueurs' })}</div>
+        <div style="margin:8px 0">${seg('ptab', ['compo', 'tac', 'stats', 'players', ...(canLive ? ['table'] : [])], tab, { compo: `Compo & changements (${(m.maxSubs ?? MAX_SUBS) - T.subsUsed})`, tac: 'Tactique', stats: 'Stats', players: 'Joueurs', table: 'Classement live' })}</div>
         ${tab === 'compo' ? `
           <div class="form-groups">${FORMATION_GROUPS.map(([g, fs]) => `<div class="fg"><small>${g}</small><div class="chips wrap">${fs.map((f) => `<button class="chip sm ${T.tactics.formation === f && !T.tactics.custom ? 'on' : ''}" data-act="form" data-v="${f}">${f}</button>`).join('')}</div></div>`).join('')}${T.tactics.custom ? '<span class="tag ok">Système personnalisé</span>' : ''}</div>
           <div class="mlay"><div>${pitchHtml()}</div><div>${selPanel()}${benchHtml()}</div></div>`
         : tab === 'tac' ? tacHtml()
         : tab === 'players' ? playersStatsHtml()
+        : tab === 'table' ? liveTableHtml()
         : `${edgeHtml()}${statsHtml()}${adviceHtml()}`}
         <button class="btn primary lg block" style="margin-top:14px" data-act="close">${isHT ? 'Retour au vestiaire' : '▶ Reprendre le match'}</button>`;
     };
@@ -718,6 +721,21 @@ export function openMatch(app, opts = {}) {
   }
 
   /** Statistiques détaillées de chaque joueur pendant le match (les deux équipes). */
+  /** Classement en direct (multiplex) : scores des autres matchs et table qui bouge à chaque but. */
+  function liveTableHtml() {
+    let lt = null;
+    try { lt = liveTable(s, m.score.slice(), m.minute + (m.extra || 0) / 100, m.phase === 'ft'); } catch (e) { console.warn(e); }
+    if (!lt) return '<p class="muted">Pas de classement pour cette compétition.</p>';
+    const name = (id) => esc(clubById(s, id)?.short || clubById(s, id)?.name || '?');
+    const myIds = new Set([m.teams[0].club?.id, m.teams[1].club?.id]);
+    return `<div class="label">Multiplex · ${clockLabel(m.minute, m.extra)}</div>
+      <div class="lt-games">${lt.games.map((g) => `<span class="lt-g"><b>${name(g.h)}</b> ${g.s[0]}-${g.s[1]} <b>${name(g.a)}</b></span>`).join('')}</div>
+      <table class="tbl lt-tbl"><thead><tr><th class="l">#</th><th class="l">Club</th><th>J</th><th>Diff</th><th>Pts</th></tr></thead><tbody>
+      ${lt.rows.map((r, i) => `<tr class="${myIds.has(r.id) ? 'me' : ''}"><td class="l">${i + 1}${r.move > 0 ? ' <span class="lt-up">▲</span>' : r.move < 0 ? ' <span class="lt-dn">▼</span>' : ''}</td>
+        <td class="l">${esc(r.club?.name || '')}${r.live ? ' <span class="lt-live">●</span>' : ''}</td><td>${r.p}</td><td>${r.gf - r.ga > 0 ? '+' : ''}${r.gf - r.ga}</td><td><b>${r.pts}</b></td></tr>`).join('')}
+      </tbody></table>`;
+  }
+
   function playersStatsHtml() {
     const col = (T) => {
       const rows = [...T.onPitch.filter(Boolean), ...T.bench.filter((x) => x.minIn != null)].sort((a, b) => b.rating - a.rating);
