@@ -6,6 +6,7 @@ import { dealFor, STAGE_LABEL } from '../../game/deals.js';
 import { traitChip } from '../components.js';
 import { SKILL_MOVES, movesFor, starsText } from '../../game/stars.js';
 import { heightOf, weightOf } from '../../game/physique.js';
+import { PL27_DET } from '../../game/pl27.js';
 import { playerLinks } from '../../game/cohesion.js';
 import { nationFlag, flagImg } from '../../data/nations.js';
 import { ATTRS, ATTR_LABELS, POSITION_LABELS } from '../../data/constants.js';
@@ -154,6 +155,7 @@ export function showPlayer(app, pid, onChange) {
         ${mine && p.relapse ? `<div class="row between"><span>Risque de rechute</span><b class="bad">${Math.round(p.relapse.risk * 100)} % · ${p.relapse.matches} match(s)</b></div>` : ''}
         ${mine && p.promise ? `<div class="row between"><span>Statut promis</span><b>${PROMISE_ROLES[p.promise.role].label}${p.promise.strikes ? ' ⚠' : ''}</b></div>` : ''}
       </div>
+      ${detHtml(p)}
       ${mine && !youth ? linksHtml(s, p, club) : ''}
       ${careerHtml(s, p, club)}
       ${capRow}${actions}`;
@@ -202,4 +204,18 @@ export function showPlayer(app, pid, onChange) {
     },
   });
   return h;
+}
+
+/** Attributs détaillés sur 20 (joueurs de Premier League importés du fichier de l'utilisateur). */
+function detHtml(p) {
+  if (!p.det) return '';
+  const v = (i) => parseInt(p.det[i], 21) || 0;
+  const groups = p.pos === 'GB'
+    ? [['Gardien', 36, 47], ['Mental', 14, 28], ['Physique', 28, 36], ['Technique', 0, 14]]
+    : [['Technique', 0, 14], ['Mental', 14, 28], ['Physique', 28, 36]];
+  return `<details class="card det20"><summary><b>Attributs détaillés</b> <small class="muted">sur 20 · fiche de départ 2026-27</small></summary>
+    <div class="det20-grid">${groups.map(([t, a, b]) => `<div><h4>${t}</h4>${PL27_DET.slice(a, b).map((n, k) => {
+      const x = v(a + k);
+      return `<div class="row between"><span>${esc(n)}</span><b style="color:${x >= 16 ? '#4ade80' : x >= 13 ? '#a3e635' : x >= 10 ? '#facc15' : x >= 7 ? '#fb923c' : '#f87171'}">${x || '–'}</b></div>`;
+    }).join('')}</div>`).join('')}</div></details>`;
 }

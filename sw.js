@@ -6,7 +6,7 @@
  * VERSION est incrémentée par scripts/update-sw.js à chaque livraison.
  */
 const IMG_CACHE = 'cdp-img';
-const VERSION = 'cdp-v92';
+const VERSION = 'cdp-v93';
 const ASSETS = [
   './',
   './css/style.css',
@@ -22,6 +22,7 @@ const ASSETS = [
   './js/data/logos.js',
   './js/data/names.js',
   './js/data/nations.js',
+  './js/data/pl27.js',
   './js/data/pressTexts.js',
   './js/data/realWorld.js',
   './js/data/stadiums.js',
@@ -62,6 +63,7 @@ const ASSETS = [
   './js/game/owners.js',
   './js/game/people.js',
   './js/game/physique.js',
+  './js/game/pl27.js',
   './js/game/preseason.js',
   './js/game/press.js',
   './js/game/progression.js',

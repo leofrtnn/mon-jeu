@@ -14,6 +14,7 @@ import { esc, clubAccent, refreshStarRef, crest } from './components.js';
 import { DIVISIONS } from '../data/world.js';
 import { scrollTop } from './viewport.js';
 import { applyTop100, TOP100_V } from '../game/ratingsImport.js';
+import { applyPL27, PL27_V } from '../game/pl27.js';
 import { today, ensureContis } from '../game/season.js';
 import { currentDate, longDate } from '../game/dates.js';
 import { avatarSvg } from './avatar.js';
@@ -224,6 +225,8 @@ export const app = {
       }
       // Top 100 intégré : appliqué une fois aux parties « monde réel » déjà commencées.
       if (this.state.world === 'real' && this.state.top100V !== TOP100_V) { applyTop100(this.state); this.save(); }
+      // Notes de Premier League 2026-27 : partie en cours, première saison seulement (pas de transferts imposés).
+      if (this.state.world === 'real' && this.state.pl27V !== PL27_V) { if (this.state.season === 2026) applyPL27(this.state); else this.state.pl27V = PL27_V; this.save(); }
       if (this.state.traitsV !== 1) { assignAllTraits(this.state); this.save(); } // traits pour les anciennes sauvegardes
       if (this.state.starsV !== 1) { assignAllStars(this.state); this.save(); } // étoiles (gestes, mauvais pied)
       if (this.state.valueV !== 2) { for (const p of Object.values(this.state.players)) p.value = playerValue(p); this.state.valueV = 2; this.save(); } // valeurs recalculées (âge, notoriété)

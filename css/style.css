@@ -1426,3 +1426,7 @@ ul.notes { margin: 4px 0 0; padding-left: 18px; font-size: 13px; line-height: 1.
 .continue-last { box-shadow: 0 10px 30px rgba(124, 58, 237, .35); }
 .slot-grid .slot-card b { white-space: nowrap; }
 .slot-grid .slot-card .grow { min-width: 0; }
+.det20 summary { cursor: pointer; list-style: none; }
+.det20-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 4px 16px; margin-top: 8px; }
+.det20-grid h4 { margin: 6px 0 2px; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: #a78bfa; }
+.det20-grid .row { font-size: 12.5px; padding: 1px 0; border-bottom: 1px solid rgba(255,255,255,.05); }

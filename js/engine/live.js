@@ -34,6 +34,11 @@ const TK = { soft: -1, normal: 0, hard: 1 };
 const sig = (x) => 1 / (1 + Math.exp(-x));
 const piOf = (t, mp, key, def) => (mp && t.pi?.[mp.slot]?.[key]) || def;
 
+/** Attribut détaillé sur 20 (joueurs importés : 0 = Corners, 5 = Coups francs, 11 = Tir de pen.), sinon 0. */
+const det20 = (mp, i) => (mp.p?.det ? parseInt(mp.p.det[i], 21) || 0 : 0);
+/** Spécialiste de CPA : son attribut détaillé (sur 20) compte en plus du profil. */
+const spec = (mp, i, base) => base + (det20(mp, i) ? (det20(mp, i) * 5 - 50) * 0.8 : 0);
+
 /** Réglages d'équilibre (calibrés avec tests/live.test.js : buts, tirs, fautes, corners). */
 export /** Le joueur (de la simulation) a-t-il ce trait ? (Magicien, Maestro… : voir game/traits.js) */
 const TR = (pl, k) => !!pl?.mp?.p?.traits?.includes(k);
@@ -938,6 +943,9 @@ export class LiveSim {
     else if (kind === 'freekick') tb *= TR(h, 'coupsfrancs') ? 1.6 : 1;
     else if (kind === 'header') tb *= TR(h, 'tete') || TR(h, 'tour') ? 1.18 : 1;
     else { if (dShot > 18 && TR(h, 'sniper')) tb *= 1.3; if (dShot <= 16 && TR(h, 'renard')) tb *= 1.15; if (xg > 0.25 && TR(h, 'tueur')) tb *= 1.1; }
+    // Joueurs importés : penalty / coup franc selon leur note détaillée (12/20 = neutre).
+    if (kind === 'penalty' && det20(h.mp, 11)) tb *= clamp(1 + (det20(h.mp, 11) - 12) * 0.012, 0.9, 1.1);
+    if (kind === 'freekick' && det20(h.mp, 5)) tb *= clamp(1 + (det20(h.mp, 5) - 12) * 0.05, 0.7, 1.4);
     if (TR(h, 'clutch') && m.minute >= 75) tb *= 1.08;
     if (gk && TR(gk, 'mur')) tb *= 0.88;
     // Mauvais pied : environ une frappe sur trois part du pied faible ; 1 étoile = gros handicap, 5 = aucun.
@@ -1468,11 +1476,11 @@ export class LiveSim {
     const mates = this.list(side);
     if (kind === 'goalkick') taker = mates.find((p) => p.gk);
     else if (kind === 'corner') {
-      taker = this.players.get(setPieceTaker(T, 'corner', (mp) => eff(mp, 'pas')).id);
+      taker = this.players.get(setPieceTaker(T, 'corner', (mp) => spec(mp, 0, eff(mp, 'pas'))).id);
       // Spécialiste trop loin : le meilleur centreur parmi les joueurs proches du corner s'en charge.
       if (!taker || this.dist(taker, x, y) > 30) taker = mates.filter((p) => !p.gk && this.dist(p, x, y) < 32).sort((a, b) => eff(b.mp, 'pas') - eff(a.mp, 'pas'))[0] || taker;
     }
-    else if (kind === 'penalty') taker = this.players.get(setPieceTaker(T, 'pen', (mp) => eff(mp, 'tir') * 0.5 + eff(mp, 'sf') * 0.5).id);
+    else if (kind === 'penalty') taker = this.players.get(setPieceTaker(T, 'pen', (mp) => spec(mp, 11, eff(mp, 'tir') * 0.5 + eff(mp, 'sf') * 0.5)).id);
     else taker = mates.filter((p) => !p.gk).sort((a, b) => this.dist(a, x, y) - this.dist(b, x, y))[0];
     // Coup franc direct : le spécialiste est désigné dès la faute et vient poser le ballon.
     let direct = false;
@@ -1480,7 +1488,7 @@ export class LiveSim {
       const dG = Math.hypot(this.goalX(side) - x, W / 2 - y);
       if (dG < 30 && Math.abs(y - W / 2) < 18 && this.rand() < 0.4) {
         direct = true;
-        const fk = this.players.get(setPieceTaker(T, 'fk', (mp) => eff(mp, 'tir') + eff(mp, 'sf')).id);
+        const fk = this.players.get(setPieceTaker(T, 'fk', (mp) => spec(mp, 5, eff(mp, 'tir') + eff(mp, 'sf'))).id);
         if (fk) taker = fk;
       }
     }
