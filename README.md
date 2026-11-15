@@ -270,3 +270,8 @@ tests/                      tests Node + test d'interface Playwright
 - **Ligue en ligne** : avec un petit backend, permettre des matchs simultanés et un anti-triche.
 - **Saisons historiques** : statistiques de carrière détaillées par saison.
 - **Plus de pays** : un générateur de championnats paramétrable.
+
+## Adresse du jeu
+
+Le jeu est publié sur **https://coachdepoche.eu** (GitHub Pages, domaine personnalisé déclaré dans le fichier `CNAME`).
+L'ancienne adresse `leofrtnn.github.io/mon-jeu` redirige automatiquement vers le nouveau domaine.
