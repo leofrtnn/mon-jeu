@@ -832,6 +832,61 @@ function estHeight(p) {
 
 /* ---------------- Scène ---------------- */
 
+/* ---------------- Maillots réalistes ---------------- */
+
+/** Motif du maillot domicile des clubs connus (rayures, cerceaux, demi, écharpe, bande…). */
+const KIT_PATTERNS = [
+  [/juventus|newcastle|atl[eé]tico|athletic|inter\b|internazionale|\bmilan|barcelona|brentford|sunderland|stoke|sheffield united|west brom|crystal palace|bournemouth|brighton|atalanta|bologna|udinese|club brugge|olympiacos|partizan|estudiantes|botafogo|gr[eê]mio|racing club|real sociedad|betis|espanyol|vitesse|feyenoord|lens|nice|stade rennais/i, 'stripes'],
+  [/celtic|sporting|queens park|flamengo|shamrock/i, 'hoops'],
+  [/river plate|vasco|rayo vallecano/i, 'sash'],
+  [/boca juniors|bordeaux/i, 'band'],
+  [/ajax|paris saint|psg/i, 'centre'],
+  [/blackburn|genoa|basel|monaco/i, 'halves'],
+];
+export function kitPattern(club) {
+  const n = club?.name || '';
+  for (const [re, k] of KIT_PATTERNS) if (re.test(n)) return k;
+  return 'plain';
+}
+const KIT_TEX = new Map();
+/**
+ * Texture du maillot (enroulée autour du buste) : couleur et motif, col et bas de maillot
+ * contrastés, coutures, plis du tissu, écusson sur le cœur.
+ */
+export function kitTexture(c1, c2, pattern) {
+  const key = `${c1}|${c2}|${pattern}`;
+  if (KIT_TEX.has(key)) return KIT_TEX.get(key);
+  const tex = canvasTex(512, 256, (g, w, h) => {
+    g.fillStyle = c1; g.fillRect(0, 0, w, h);
+    g.fillStyle = c2;
+    if (pattern === 'stripes') for (let i = 0; i < 12; i++) if (i % 2) g.fillRect((i / 12) * w, 0, w / 12, h);
+    if (pattern === 'hoops') for (let i = 0; i < 8; i++) if (i % 2) g.fillRect(0, (i / 8) * h, w, h / 8);
+    if (pattern === 'halves') g.fillRect(0.25 * w, 0, 0.5 * w, h);
+    if (pattern === 'centre') g.fillRect(0.2 * w, 0, 0.1 * w, h);                           // bande verticale au centre
+    if (pattern === 'band') g.fillRect(0, 0.42 * h, w, 0.18 * h);                            // bande horizontale
+    if (pattern === 'sash') { g.save(); g.translate(0.25 * w, 0.5 * h); g.rotate(-0.5); g.fillRect(-0.12 * w, -h, 0.07 * w, 2 * h); g.restore(); }
+    // Col et bas du maillot (liserés contrastés), coutures latérales.
+    g.fillStyle = c2; g.fillRect(0, 0, w, 0.06 * h); g.fillRect(0, 0.97 * h, w, 0.03 * h);
+    g.fillStyle = 'rgba(0,0,0,0.18)'; for (const u of [0, 0.5]) g.fillRect(u * w - 1, 0, 2, h);
+    // Plis du tissu : légères ombres verticales et reflets.
+    for (let i = 0; i < 26; i++) {
+      const x = ((i * 97) % 512), a = 0.025 + ((i * 37) % 7) / 220;
+      const gr = g.createLinearGradient(x - 9, 0, x + 9, 0);
+      gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(0.5, i % 3 ? `rgba(0,0,0,${a})` : `rgba(255,255,255,${a})`); gr.addColorStop(1, 'rgba(0,0,0,0)');
+      g.fillStyle = gr; g.fillRect(x - 9, 0.06 * h, 18, 0.9 * h);
+    }
+    // Écusson sur le cœur (côté gauche du joueur, à l'avant).
+    const bx = 0.3 * w, by = 0.26 * h;
+    g.fillStyle = c2; g.beginPath(); g.moveTo(bx - 9, by - 10); g.lineTo(bx + 9, by - 10); g.lineTo(bx + 9, by + 3); g.quadraticCurveTo(bx, by + 13, bx - 9, by + 3); g.closePath(); g.fill();
+    g.fillStyle = c1; g.beginPath(); g.arc(bx, by - 2, 4.5, 0, Math.PI * 2); g.fill();
+    // Petit logo d'équipementier (générique) à l'opposé.
+    g.strokeStyle = c2; g.lineWidth = 2.5; g.beginPath(); g.moveTo(0.2 * w - 7, by - 2); g.quadraticCurveTo(0.2 * w, by + 6, 0.2 * w + 8, by - 6); g.stroke();
+  });
+  tex.wrapS = THREE.RepeatWrapping;
+  KIT_TEX.set(key, tex);
+  return tex;
+}
+
 /* ---------------- Coach en 3D (éditeur et bord du terrain) ---------------- */
 
 /** Apparence complète d'un coach (valeurs par défaut pour les anciens profils). */
@@ -1029,7 +1084,14 @@ export class Match3D {
     const v = this.v;
     return {
       // Tissus techniques : légèrement satinés (les projecteurs accrochent les plis).
-      shirt: new THREE.MeshStandardMaterial({ color: v.colors[side], roughness: 0.78, metalness: 0.02 }),
+      shirt: (() => {
+        // Maillot du club : motif réel (rayures, cerceaux…) quand l'équipe joue en couleurs domicile.
+        const club = v.m.teams[side]?.club;
+        const home = club?.colors && String(club.colors[0]).toLowerCase() === String(v.colors[side]).toLowerCase();
+        const pat = home ? kitPattern(club) : 'plain';
+        const c2 = home && club.colors[1] ? club.colors[1] : v.textColors[side];
+        return new THREE.MeshStandardMaterial({ color: '#ffffff', map: kitTexture(v.colors[side], c2, pat), roughness: 0.74, metalness: 0.02 });
+      })(),
       gk: new THREE.MeshStandardMaterial({ color: v.gkColors[side], roughness: 0.78 }),
       shorts: new THREE.MeshStandardMaterial({ color: v.shorts[side], roughness: 0.72 }),
       socks: new THREE.MeshStandardMaterial({ color: v.colors[side], roughness: 0.9 }),

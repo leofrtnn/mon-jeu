@@ -28,7 +28,7 @@ import { openDecisions } from '../../game/inbox.js';
 import { openInterview } from './inboxUI.js';
 import { showDayReport } from './dayReport.js';
 
-const SPEEDS = ['auto', 2, 4]; // auto : temps forts en x2, le reste en accéléré x4 (visible, panneau tactique)
+const SPEEDS = ['auto', 2, 4]; // auto : temps forts en x1,5, le reste en accéléré x4 (visible, panneau tactique)
 const speedLabel = (v, hl, ff = 4) => (v === 'auto' ? (hl ? '⚡ Temps fort' : ff === 'R' ? '🎬 Résumé' : `⏩ Accéléré x${ff}`) : `x${v}`);
 /** Événements montrés en mode "Résumé rapide". */
 const QUICK_KEEP = new Set(['goal', 'red', 'yellow', 'penalty', 'var', 'ht', 'ft', 'injury', 'kickoff', 'freekick']);
@@ -75,7 +75,7 @@ export function openMatch(app, opts = {}) {
     <div class="feed" id="feed"></div>
     <div class="controls">
       <button class="btn primary" data-c="pause" title="Compo, changements, tactique">📋 Compo &amp; tactique</button>
-      <button class="btn" data-c="speed" title="Auto : temps forts en x2, le reste en accéléré x4">${speedLabel(s.settings.hlMode === 1 ? 2 : s.settings.hlMode || 'auto')}</button>
+      <button class="btn" data-c="speed" title="Auto : temps forts en x1,5, le reste en accéléré x4">${speedLabel(s.settings.hlMode === 1 ? 2 : s.settings.hlMode || 'auto')}</button>
       <button class="btn" data-c="nexthl" title="Avance rapide jusqu'à la prochaine action dangereuse">⏩ Temps fort</button>
       <button class="btn" data-c="skip">⏭ Fin</button>
       <button class="btn" data-c="style" style="flex:.6" title="Vue">${{ fm: '2D', '3d': '3D', anim: '🎥' }[s.settings.matchStyle || '3d']}</button>
@@ -350,7 +350,7 @@ export function openMatch(app, opts = {}) {
       ctrl.speedIdx = (ctrl.speedIdx + 1) % SPEEDS.length;
       applySpeed();
       s.settings.hlMode = SPEEDS[ctrl.speedIdx]; app.save();
-      app.toast(SPEEDS[ctrl.speedIdx] === 'auto' ? 'Auto : temps forts en x2, le reste en accéléré x4' : `Vitesse fixe x${SPEEDS[ctrl.speedIdx]}`);
+      app.toast(SPEEDS[ctrl.speedIdx] === 'auto' ? 'Auto : temps forts en x1,5, le reste en accéléré x4' : `Vitesse fixe x${SPEEDS[ctrl.speedIdx]}`);
     }
     if (c === 'nexthl') {
       if (!view.live || m.phase !== 'live' || replay) { app.toast('Disponible pendant le jeu.'); return; }

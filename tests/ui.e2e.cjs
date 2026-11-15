@@ -152,7 +152,7 @@ function serve() {
     await page.click('[data-act=go]');
     await page.click('[data-c=speed]'); await page.click('[data-c=speed]');
     // Test : avance rapide permanente (aucun temps fort affiché) jusqu'à la mi-temps.
-    await page.evaluate(() => { const v = window.__view; v.ffBudget = 400; v.hlWant = () => false; v.hlGrace = 0; v.hl = 'skip'; });
+    await page.evaluate(() => { const v = window.__view; v.ffBudget = 400; v.hlWant = () => false; v.hlPre = () => false; v.hlGrace = 0; v.hl = 'skip'; });
     await page.waitForSelector('[data-act=talk]', { timeout: 120000 });
     await page.click('[data-act=talk] >> nth=1');
     await page.click('[data-act=resume]');

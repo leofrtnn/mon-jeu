@@ -40,15 +40,16 @@ const TR = (pl, k) => !!pl?.mp?.p?.traits?.includes(k);
 const TUNE = {   // calibré en TEMPS RÉEL (horloge 1) : ~2,8 buts, ~28 tirs, ~22 fautes par match
   clock: 1,        // secondes de match par seconde de jeu simulé (1 = temps réel)
   shotW: 0.4,         // attrait de la frappe face aux autres options
-  shotCost: 2.6,     // coût de la perte de balle dans le choix de tirer
+  shotCost: 3.6,     // coût de la perte de balle dans le choix de tirer
   carryW: 0.5,        // attrait de la conduite de balle
   keepW: 0.25,        // valeur de garder le ballon (passe sûre à un partenaire libre)
-  crossW: 0.6,
+  holdU: -0.025,       // temporiser balle au pied (négatif : seulement quand les autres options sont mauvaises)
+  crossW: 0.4,
   passRisk: 2,      // sévérité des interceptions
   lossW: 6,         // coût de la perte de balle dans le choix des passes
   tackleRate: 0.65,    // fréquence des tentatives de tacle
   foulP: 0.1,         // part des tentatives de tacle qui finissent en faute
-  xg: 0.52,          // échelle du modèle d'xG géométrique
+  xg: 0.47,          // échelle du modèle d'xG géométrique
   takeonW: 0.3,       // attrait du crochet / débordement
   hold: 1.6,            // temps de réflexion avant de jouer le ballon (×)
   recv: 3.2,            // temps de contrôle à la réception (×)
@@ -525,12 +526,12 @@ export class LiveSim {
       if (dGoal > 20) w *= { low: 0.55, mid: 1, high: 1.6 }[A.tactics.longShots] || 1;
       // Comme un vrai attaquant : on frappe dès que la fenêtre s'ouvre (entre le point de penalty
       // et l'entrée de la surface), on ne cherche pas à entrer dans le but avec le ballon.
-      w *= dGoal < 6 ? 0.7 : dGoal < 11 ? 0.95 : dGoal < 16.5 ? 1.25 : dGoal < 25 ? 1.3 : 0.6;
+      w *= dGoal < 6 ? 0.7 : dGoal < 11 ? 0.95 : dGoal < 16.5 ? 1.15 : dGoal < 25 ? 1.0 : 0.5;
       if (dGoal >= 16 && dGoal < 25 && press < 2.2) w *= 1 + eff(h.mp, 'tir') / 160; // espace pour armer
       if (m.minute > 75 && m.score[A.side] < m.score[D.side]) w *= 1.25;
       // Tirer, c'est (presque toujours) rendre le ballon : on compare l'occasion à la possession.
       // Une frappe de loin ne « rend » pas vraiment le ballon : corner, sortie de but, second ballon.
-      const costK = dGoal > 16.5 ? 0.8 : 1;
+      const costK = dGoal > 16.5 ? 0.9 : 1;
       opts.push({ k: 'shot', u: xg * w - (1 - xg) * this.threat(A.side, hx, hy) * TUNE.shotCost * costK, xg });
     }
     // Passes.
@@ -583,6 +584,13 @@ export class LiveSim {
     // Dégagement : dans sa surface, sous pression.
     const ownGx = this.goalX(D.side);
     if (Math.hypot(ownGx - hx, W / 2 - hy) < 22 && press < 3) opts.push({ k: 'clear', u: 0.02 });
+    // Temporiser : sans adversaire au contact, garder le ballon (se protéger, lever la tête,
+    // attendre l'appel d'un partenaire) vaut mieux qu'une passe ou une frappe sans intérêt.
+    if (!h.gk) {
+      const room = clamp((press - 1.6) / 4, 0, 1);
+      const waited = h.waitN || 0;                               // on ne temporise pas indéfiniment
+      opts.push({ k: 'hold', u: (TUNE.holdU + 0.02 * room) * (1 + waited * 0.6) - (press < 1.4 ? 0.1 : 0) });
+    }
     if (!opts.length) { h.next = this.now + 0.3; return; }
     // Choix : le meilleur, avec une part de hasard d'autant plus faible que le joueur voit le jeu.
     const vis = eff(h.mp, 'vis');
@@ -609,6 +617,12 @@ export class LiveSim {
 
   /** Exécute le choix du porteur (après l'armé pour les frappes). */
   execute(h, pick, out) {
+    if (pick.k === 'hold') {
+      h.waitN = (h.waitN || 0) + 1;
+      h.next = this.now + 0.5 + this.rand() * 0.6;
+      return;
+    }
+    h.waitN = 0;
     if (pick.k === 'shot') this.doShot(h, 'open', out);
     else if (pick.k === 'pass') this.doPass(h, pick, out);
     else if (pick.k === 'carry') { h.carry = { x: pick.x, y: pick.y, t0: this.now, until: this.now + 1.2 + this.rand() * 1.4 }; h.next = h.carry.until; }
@@ -670,6 +684,13 @@ export class LiveSim {
     tx = clamp(tx, 1.5, L - 1.5); ty = clamp(ty, 1.5, W - 1.5);
     const len = Math.hypot(tx - sx, ty - sy);
     if (len < 4 || len > 60) return null;
+    // Passe en retrait : courte pour faire tourner, oui ; 30 à 50 m vers l'arrière, presque jamais
+    // (seulement pour sortir d'un pressing étouffant). Devant le but adverse, on ne recule pas.
+    const back = Math.max(0, (sx - tx) * dir);
+    const toGoal = Math.abs(this.goalX(A.side) - sx);
+    const nearGoal = toGoal < 32, ownHalf = toGoal > L / 2;
+    const pressed = this.pressure(h) < 2.5;  // adversaire au contact
+    if (back > (nearGoal ? 24 : ownHalf ? 36 : pressed ? 34 : 28)) return null;
     // Passe à ras de terre par défaut ; aérienne seulement pour un long ballon ou une profondeur lointaine.
     const lofted = len > 42 || (through && len > 30);
     const vb = lofted ? 19 : 15;
@@ -718,7 +739,9 @@ export class LiveSim {
     const lane = { left: rel < 0.36 ? 1.18 : rel > 0.64 ? 0.9 : 1, right: rel > 0.64 ? 1.18 : rel < 0.36 ? 0.9 : 1, center: rel > 0.3 && rel < 0.7 ? 1.14 : 0.94 }[A.tactics.focus] || 1;
     // Contre-attaque : on cherche la profondeur tout de suite.
     const fwd = ((tx - sx) * dir) > 6 ? (mood.counter ? 1.18 : 1) : 1;
-    const val = (this.threat(A.side, tx, ty) * (1 + ment * 0.05) * fwd + keep) * lenW * dirW * lane;
+    // Plus la passe recule, moins elle vaut (et encore moins dans le dernier tiers).
+    const backK = back <= 18 || ownHalf ? 1 : Math.exp(-(back - 18) / (pressed ? 14 : 8));
+    const val = (this.threat(A.side, tx, ty) * (1 + ment * 0.05) * fwd + keep * backK) * lenW * dirW * lane;
     // Perdre le ballon coûte la valeur de la possession actuelle + le danger d'une contre-attaque.
     const danger = this.threat(1 - A.side, worst ? worst.x : tx, worst ? worst.y : ty) + this.threat(A.side, sx, sy) * 1.4 + 0.012;
     // Les équipes jouent surtout à ras de terre : le long ballon reste un choix (consigne « direct »).
@@ -1691,6 +1714,12 @@ export class LiveSim {
         // Loin de l'action : on marche ou on trottine pour garder sa place (on ne sprinte pas sans raison).
         const dd = Math.hypot((p.tx - p.x) * L, (p.ty - p.y) * W);
         cap = dd > 15 ? 5.4 : dd > 6 ? 3.8 : 2.2;
+      } else if (p === this.holder && !this.inHands && !p.carry?.takeon) {
+        // Porteur libre de tout marquage : il ne fonce pas, il marche ou trottine balle au pied en
+        // levant la tête (il n'accélère que pressé, en contre-attaque ou dans un espace à attaquer).
+        const free = this.pressure(p);
+        const A = p.team, counter = this.tacticalMood?.(A)?.counter;
+        if (!counter) cap = free > 12 ? (p.waitN ? 1.5 : 3.2) : free > 7 ? 4.6 : Infinity;
       }
       step(p, Math.min(cap, (6.6 + vit * 0.033) * (TR(p, 'fusee') ? 1.03 : 1) * (this.m.wx?.speed || 1) * (en > 70 ? 1 - (100 - en) * 0.002 : 0.94 - (70 - en) * 0.006) * withBall * (p.celeb > 0 ? 0.8 : 1)));
       // Effort réel : ce qu'il court (les sprints coûtent bien plus que le trot).

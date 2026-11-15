@@ -555,12 +555,34 @@ export class MatchView {
     if (L.shot || L.celebrate) return true;
     const side = L.holder ? L.holder.side : L.poss;
     const d = Math.hypot(L.goalX(side) - P.x, PITCH_W / 2 - P.y);
-    if (d < 32) return true;
-    // Contre-attaque : porteur lancé vers le but adverse dans la moitié offensive.
-    if (L.holder && d < 50) {
+    // Vrai temps fort : ballon aux abords de la surface (plus strict qu'avant : une simple
+    // circulation à 30 m du but n'en est plus un).
+    if (d < 24) return true;
+    // Contre-attaque franche : porteur lancé à pleine vitesse vers le but, à moins de 40 m.
+    if (L.holder && d < 40) {
       const pl = this.players.get(L.holder.mp.id);
       const toward = pl ? (L.goalX(side) - P.x) * (pl.vx || 0) > 0 : false;
-      if (toward && (pl.speed || 0) > 5.5) return true;
+      if (toward && (pl.speed || 0) > 6.2) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Amorce d'un temps fort (mode résumé) : l'action commence à se construire (ballon dans les
+   * 40 derniers mètres, ou porteur qui accélère vers le but). On arrête l'avance rapide un peu
+   * AVANT le temps fort pour voir comment on en arrive là.
+   */
+  hlPre() {
+    if (this.hlWant()) return true;
+    const L = this.live, P = this.phys;
+    if (!L || L.restart) return false;
+    const side = L.holder ? L.holder.side : L.poss;
+    const d = Math.hypot(L.goalX(side) - P.x, PITCH_W / 2 - P.y);
+    if (d < 40) return true;
+    if (L.holder && d < 62) {
+      const pl = this.players.get(L.holder.mp.id);
+      const toward = pl ? (L.goalX(side) - P.x) * (pl.vx || 0) > 0 : false;
+      if (toward && (pl.speed || 0) > 5.2) return true;
     }
     return false;
   }
@@ -574,8 +596,10 @@ export class MatchView {
     if (!this.live || this.speed > 8) return this.speed; // avance rapide demandée (différé)
     if (!this.highlights || this.hlMode !== 'auto') return this.hlMode === 'auto' ? this.speed : +this.hlMode;
     const ff = this.ffSpeed === 'R' ? 8 : (this.ffSpeed || 4);
-    const target = this.inHL ? 2 : ff; // temps fort : x2 ; accéléré : x4 ou x8 au choix ; résumé : coupures
-    this.effSpeed += (target - this.effSpeed) * Math.min(1, dt * (target < this.effSpeed ? 6 : 1.6));
+    // Temps fort : x1,5 (on a le temps d'apprécier) ; amorce en mode résumé : x2,5 ; sinon x4/x8.
+    const target = this.inHL ? 1.5 : this.ffSpeed === 'R' && this.hlPre() ? 2.5 : ff;
+    // Transitions douces dans les deux sens (plus de ralenti brutal suivi d'une reprise sèche).
+    this.effSpeed += (target - this.effSpeed) * Math.min(1, dt * (target < this.effSpeed ? 2.6 : 0.7));
     if (Math.abs(this.effSpeed - target) < 0.02) this.effSpeed = target;
     return this.effSpeed;
   }
@@ -587,11 +611,11 @@ export class MatchView {
       if (this.hlGrace > 0) { this.hlGrace -= game; return false; }
       const want = this.hlWant();
       this.hlCalm = want ? 0 : this.hlCalm + game;
-      const on = want || (this.inHL && this.hlCalm < 7);
+      const on = want || (this.inHL && this.hlCalm < 8);
       if (on !== this.inHL) { this.inHL = on; this.opts.onHighlight?.(on); }
       // Mode résumé : dès que l'action retombe, on coupe jusqu'au prochain temps fort
       // (le chrono défile sous le voile, comme un résumé télé).
-      if (this.ffSpeed === 'R' && this.hlMode === 'auto' && !this.inHL && !this.paused && this.m.phase === 'live' && this.hlCalm > 2.5 && !this.replayLive && !this.slowmo) {
+      if (this.ffSpeed === 'R' && this.hlMode === 'auto' && !this.inHL && !this.paused && this.m.phase === 'live' && this.hlCalm > 2.5 && !this.hlPre() && !this.replayLive && !this.slowmo) {
         this.hl = 'skip'; this.hlForce = false; this.setVeil(true, true);
       }
       return false;
@@ -604,13 +628,13 @@ export class MatchView {
         this.liveSteps = (this.liveSteps || 0) + 1;
         for (const ev of this.live.step(LIVE_STEP)) this.liveEvent(ev);
       }
-      if (this.hlWant() && !this.hlForce) break;
+      if (!this.hlForce && (this.ffSpeed === 'R' && this.hlMode === 'auto' ? this.hlPre() : this.hlWant())) break;
     }
     this.holder = this.live.holder ? this.live.holder.mp.id : null;
     this.inHands = this.live.inHands;
     const b = this.ball, P = this.phys;
     b.x = P.x / PITCH_L; b.y = P.y / PITCH_W; b.h = Math.max(0, P.z - BALL_R) / 26;
-    if (this.paused || (!this.hlForce && this.hlWant())) { this.hl = 'show'; this.hlCalm = 0; this.liveAcc = 0; this.slowmo = null; this.setVeil(false); }
+    if (this.paused || (!this.hlForce && (this.ffSpeed === 'R' && this.hlMode === 'auto' ? this.hlPre() : this.hlWant()))) { this.hl = 'show'; this.hlCalm = 0; this.liveAcc = 0; this.slowmo = null; this.setVeil(false); }
     this.updateFx(realDt);
     return true;
   }
