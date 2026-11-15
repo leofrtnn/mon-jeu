@@ -40,7 +40,7 @@ create table if not exists public.games (
   code text not null unique,
   name text not null,
   host uuid not null references auth.users (id) on delete cascade,
-  max_players int not null default 4 check (max_players between 2 and 8),
+  max_players int not null default 4 check (max_players between 2 and 24),
   status text not null default 'lobby' check (status in ('lobby', 'running', 'ended')),
   version int not null default 0,
   created_at timestamptz not null default now()
@@ -119,3 +119,8 @@ create policy "parties : écriture de l'hôte" on storage.objects for insert to 
 drop policy if exists "parties : mise à jour de l'hôte" on storage.objects;
 create policy "parties : mise à jour de l'hôte" on storage.objects for update to authenticated
   using (bucket_id = 'games' and public.is_host((storage.foldername(name))[1]::uuid));
+
+-- Mise à jour (serveur déjà installé) : carrière en ligne jusqu'à 24 managers.
+-- À exécuter une fois dans l'éditeur SQL de Supabase :
+-- alter table public.games drop constraint if exists games_max_players_check;
+-- alter table public.games add constraint games_max_players_check check (max_players between 2 and 24);

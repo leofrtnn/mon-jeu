@@ -24,7 +24,7 @@ export function onlineSection(app) {
   const available = app.backend?.kind === 'supabase' || app.allowLocalOnline; // (allowLocalOnline : tests automatiques)
   const games = ui.games || [];
   return `<div class="card online-card">
-    <div class="row between"><h3 style="margin:0">🌐 Carrière en ligne</h3><small class="muted">2 à 8 managers · comme FM</small></div>
+    <div class="row between"><h3 style="margin:0">🌐 Carrière en ligne</h3><small class="muted">2 à 24 managers · comme FM</small></div>
     ${!available ? '<p class="muted" style="font-size:12px;margin:8px 0 0">Indisponible : le serveur en ligne n\'est pas encore configuré.</p>' : `
     ${games.length ? games.map((g) => `<div class="prow"><span class="tag">${esc(g.code)}</span><div class="pname" data-act="ogame" data-id="${g.id}" style="cursor:pointer"><b>${esc(g.name)}</b><small>${g.status === 'lobby' ? 'Salon d\'attente' : `En cours · version ${g.version}`}${g.host === app.user?.id ? ' · 👑 vous êtes l\'hôte' : ''}</small></div>
       <button class="btn sm primary" data-act="ogame" data-id="${g.id}">${g.status === 'lobby' ? 'Salon' : 'Reprendre'}</button>
@@ -262,7 +262,7 @@ export const onlineActions = {
     const h = app.sheet({
       html: `<h2>Nouvelle partie en ligne</h2>
         <label class="field"><span>Nom de la partie</span><input id="ogname" maxlength="40" value="Carrière de ${esc(app.user.username)}"></label>
-        <label class="field"><span>Managers maximum</span><select id="ogmax">${[2, 3, 4, 5, 6, 7, 8].map((n) => `<option ${n === 4 ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
+        <label class="field"><span>Managers maximum</span><select id="ogmax">${[2, 3, 4, 5, 6, 8, 10, 12, 16, 20, 24].map((n) => `<option ${n === 4 ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
         <p class="muted" style="font-size:12px">Vous serez l'hôte 👑 : c'est votre téléphone qui calculera les journées, gardez le jeu ouvert pendant la partie.</p>
         <button class="btn primary lg block" data-act="go">Créer</button>`,
       actions: {

@@ -63,8 +63,9 @@ export function imgTag(file, w, kind = 'logo') {
 
 /** Visage d'un joueur : photo si disponible, sinon initiales aux couleurs du club. */
 export function face(p, club, sz = '') {
-  // Joueur généré (jeune du centre, nouveau talent) : portrait réaliste généré, stable pour ce joueur.
-  if (!p.photo && !p.real && p.id != null && p.pos) {
+  // Pas de photo (jeune du centre, nouveau talent, joueur réel sans photo libre) : portrait généré,
+  // stable pour ce joueur (couleur de peau, cheveux… d'après sa nationalité et son âge).
+  if (!p.photo && p.id != null && p.pos) {
     const px = { lg: 76, md: 44, sm: 26 }[sz] || 34;
     return `<span class="face ${sz} gen">${portraitSvg(personLook(p.id, p.nat || '', p.age || 20), px, club?.color || '#203a6b')}</span>`;
   }

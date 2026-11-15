@@ -174,7 +174,7 @@ Chaque championnat a son propre profil : style plus technique en Ibérie, plus p
 
 - **Compte obligatoire** (e-mail, mot de passe, pseudo) : serveur Supabase (`js/online/config.js`, `supabase/schema.sql`). Sans serveur configuré, comptes locaux à l'appareil.
 - **Sauvegardes** : sur l'appareil (IndexedDB) et copie dans le cloud du compte, récupérable sur un autre téléphone.
-- **Carrière en ligne, 2 à 8 managers**, un club chacun, comme dans FM :
+- **Carrière en ligne, 2 à 24 managers**, un club chacun, comme dans FM :
   - l'hôte crée la partie et donne un code de 6 caractères, chacun choisit son club dans le salon ;
   - chacun règle son équipe (tactique, mercato, décisions), puis clique « Prêt » ;
   - quand tout le monde est prêt, le téléphone de l'hôte calcule la journée et l'envoie à tous (temps réel Supabase) ;

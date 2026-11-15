@@ -6,7 +6,7 @@
  * VERSION est incrémentée par scripts/update-sw.js à chaque livraison.
  */
 const IMG_CACHE = 'cdp-img';
-const VERSION = 'cdp-v94';
+const VERSION = 'cdp-v95';
 const ASSETS = [
   './',
   './css/style.css',
@@ -18,8 +18,14 @@ const ASSETS = [
   './js/core/rng.js',
   './js/data/balance.js',
   './js/data/constants.js',
+  './js/data/fm27_bel.js',
   './js/data/fm27_eng.js',
+  './js/data/fm27_eng2.js',
+  './js/data/fm27_esp.js',
   './js/data/fm27_fra.js',
+  './js/data/fm27_ita.js',
+  './js/data/fm27_ned.js',
+  './js/data/fm27_por.js',
   './js/data/generator.js',
   './js/data/logos.js',
   './js/data/names.js',

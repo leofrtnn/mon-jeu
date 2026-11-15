@@ -1,5 +1,5 @@
 /**
- * CARRIÈRE EN LIGNE (2 à 8 managers, un club chacun, l'hôte calcule les journées — comme FM).
+ * CARRIÈRE EN LIGNE (2 à 24 managers, un club chacun, l'hôte calcule les journées — comme FM).
  *
  * Déroulement d'une journée :
  *  1. Chaque manager joue sur SA copie de l'état (tactique, mercato, décisions…).

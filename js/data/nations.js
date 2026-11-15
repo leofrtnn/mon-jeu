@@ -35,7 +35,7 @@ const ISO = {
   Ouganda: 'UG', Tanzanie: 'TZ', Madagascar: 'MG', Comores: 'KM', 'Guinée équatoriale': 'GQ', Centrafrique: 'CF', Soudan: 'SD', Japon: 'JP',
   'Corée du Sud': 'KR', Chine: 'CN', Australie: 'AU', 'Arabie saoudite': 'SA', Qatar: 'QA', 'Émirats arabes unis': 'AE', Iran: 'IR', Irak: 'IQ',
   Jordanie: 'JO', Syrie: 'SY', Liban: 'LB', Palestine: 'PS', Ouzbékistan: 'UZ', Indonésie: 'ID', Thaïlande: 'TH', 'Nouvelle-Zélande': 'NZ',
-  Yémen: 'YE', 'Hong Kong': 'HK', Bahreïn: 'BH', Philippines: 'PH', Malaisie: 'MY',
+  Yémen: 'YE', 'Hong Kong': 'HK', Burundi: 'BI', Tchad: 'TD', Grenade: 'GD', Inde: 'IN', Bahreïn: 'BH', Philippines: 'PH', Malaisie: 'MY',
 };
 const SUB = { Angleterre: 'gbeng', Écosse: 'gbsct', 'Pays de Galles': 'gbwls' };
 const SUB_ISO = { Angleterre: 'gb-eng', Écosse: 'gb-sct', 'Pays de Galles': 'gb-wls', 'Irlande du Nord': 'gb-nir' };

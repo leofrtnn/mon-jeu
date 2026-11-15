@@ -149,6 +149,11 @@ REP_KEY = [
   ('cr belouizdad', 59, 'CRB'), ('mc alger', 60, 'MCA'), ('js kabylie', 58, 'JSK'), ('es setif', 58, 'ESS2'), ('usm alger', 59, 'USMA'),
   ('esperance', 62, 'EST2'), ('etoile sportive du sahel', 60, 'ESS'), ('club africain', 59, 'CA2'), ('cs sfaxien', 58, 'CSS'), ('monastir', 56, 'USM'),
   ('olimpia', 62, 'OLI'), ('cerro porteno', 62, 'CCP'), ('libertad', 61, 'LIB2'), ('guarani', 57, 'GUA2'),
+  ('persepolis', 62, 'PER2'), ('esteghlal', 61, 'EST3'), ('sepahan', 59, 'SEP'), ('tractor', 59, 'TRA'), ('foolad', 56, 'FOO'),
+  ('buriram', 60, 'BUR'), ('bg pathum', 57, 'BGP'), ('bangkok united', 56, 'BKU'), ('port f', 55, 'POR2'),
+  ('mohun bagan', 58, 'MBSG'), ('mumbai city', 56, 'MCFC'), ('bengaluru', 55, 'BFC'), ('fc goa', 55, 'GOA'), ('kerala blasters', 55, 'KBFC'), ('east bengal', 55, 'EBFC'),
+  ('shamrock rovers', 53, 'SHA'), ('shelbourne', 52, 'SHE'), ('derry city', 52, 'DER'), ('bohemian f', 51, 'BOH'), ('st patrick', 51, 'STP'),
+  ('helsingin', 55, 'HJK'), ('kuopion', 53, 'KUPS'), ('ilves', 51, 'ILV'), ('seinajoen', 51, 'SJK'),
   ('amazulu', 56, 'AMZ'), ('cape town city', 56, 'CTC'), ('ts galaxy', 56, 'TSG'), ('sekhukhune', 56, 'SEK'), ('polokwane', 55, 'POL3'),
 ]
 DEFAULT_REP = {'POR1': 57, 'NED1': 58, 'BEL1': 57, 'TUR1': 59, 'CZE1': 55, 'GRE1': 55, 'NOR1': 55, 'POL1': 56, 'DEN1': 56, 'AUT1': 55,
@@ -157,7 +162,8 @@ DEFAULT_REP = {'POR1': 57, 'NED1': 58, 'BEL1': 57, 'TUR1': 59, 'CZE1': 55, 'GRE1
                'ENG2': 62, 'ESP2': 59, 'ITA2': 59, 'GER2': 60, 'FRA2': 57,
                'KOR1': 57, 'CHN1': 56, 'AUS1': 55, 'UAE1': 56, 'QAT1': 56, 'MAR1': 54, 'PER1': 53, 'CHI1': 54, 'COL1': 56, 'URU1': 54,
                'USA1': 56, 'ARG1': 58, 'EGY1': 54, 'ECU1': 54, 'RSA1': 53,
-               'SVK1': 53, 'BUL1': 53, 'ALG1': 53, 'TUN1': 53, 'PAR1': 54}
+               'SVK1': 53, 'BUL1': 53, 'ALG1': 53, 'TUN1': 53, 'PAR1': 54,
+               'IRL1': 50, 'FIN1': 50, 'IND1': 51, 'IRN1': 54, 'THA1': 52}
 PREFIX = {'fc', 'sc', 'sk', 'fk', 'ac', 'kv', 'k', 'r', 'rsc', 'sl', 'cd', 'cf', 'gd', 'ud', 'kaa', 'krc', 'kvc', 'rc', 'sv', 'afc', 'f', 'c', 's', 'a',
           'royal', 'royale', 'club', 'cs', 'pec', 'ado', 'sfk', '1', 'raal', 'fsv', 'ksv', 'vv', 'sint', 'oud'}
 

@@ -114,7 +114,7 @@ export function showPlayer(app, pid, onChange) {
     }
     const ovrHtml = `<div style="text-align:right;font-size:11px;color:var(--muted)">Note /100<br><b class="ovr-n" style="--oc:${ovrColor((e.ovr[0] + e.ovr[1]) / 2)};display:inline-block;margin:2px 0 4px">${rangeLabel(e.ovr)}</b><br>Potentiel<br><b class="ovr-n sm" style="--oc:${ovrColor((e.pot[0] + e.pot[1]) / 2)}">${rangeLabel(e.pot)}</b>${e.exact ? '' : '<br><small>estimation</small>'}</div>`;
     return `<div class="row" style="gap:12px;margin-bottom:10px">
-        ${p.photo || p.real ? face(p, club, 'lg') : ''}<div style="font-size:30px;font-weight:900;color:var(--muted);min-width:34px;text-align:center">${p.number || ''}</div>
+        ${face(p, club, 'lg')}<div style="font-size:30px;font-weight:900;color:var(--muted);min-width:34px;text-align:center">${p.number || ''}</div>
         <div class="grow"><h2>${esc(p.first)} ${esc(p.last)}</h2>
           <div class="row" style="gap:6px;flex-wrap:wrap">${posBadge(p.pos)}${(p.pos2 || []).map((x) => `<span class="pos2" title="Poste secondaire : ${POSITION_LABELS[x]}">${posBadge(x)}</span>`).join('')}<small>${POSITION_LABELS[p.pos]} · ${p.age} ans · ${esc(p.nat || '')}</small>${statusTags(p)}</div>
           <small>${club ? `<a data-act="club" style="text-decoration:underline;cursor:pointer">${esc(club.name)}</a>` : 'Libre'}${p.onLoanFrom ? ` (prêt de ${esc(clubById(s, p.onLoanFrom).short)})` : ''}</small></div>

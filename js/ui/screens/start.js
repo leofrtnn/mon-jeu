@@ -49,10 +49,10 @@ export function render(app) {
       ${logoFull(120)}
       <p class="tagline">Le manager de foot qui tient dans une main.</p>
       <div class="feat-grid">
-        <span class="feat"><b>⚽</b>55 championnats<small>vrais clubs et joueurs</small></span>
+        <span class="feat"><b>⚽</b>60 championnats<small>vrais clubs et joueurs</small></span>
         <span class="feat"><b>🏆</b>Coupes d'Europe<small>nouveau format</small></span>
         <span class="feat"><b>🎮</b>Matchs en 3D<small>22 joueurs qui décident</small></span>
-        <span class="feat"><b>🌐</b>En ligne<small>jusqu'à 8 amis</small></span>
+        <span class="feat"><b>🌐</b>En ligne<small>jusqu'à 24 amis</small></span>
       </div>
       <div class="lang-pick"><span>🌐</span>${Object.entries(LANGS).map(([k, l]) => `<button class="chip ${lang === k ? 'on' : ''}" data-act="lang" data-v="${k}">${l.flag} ${l.label}</button>`).join('')}</div>
       <p class="account-line">👤 <b>${esc(app.user?.username || '')}</b> <button class="btn sm ghost" data-act="logout">Se déconnecter</button></p>
@@ -85,7 +85,7 @@ export function render(app) {
 /* ---------------- Choix du club ---------------- */
 
 const AMERICAS = ['BRA', 'ARG', 'USA', 'MEX', 'COL', 'CHI', 'URU', 'ECU', 'PER', 'PAR'];
-const OUTSIDE = [...AMERICAS, 'KSA', 'JPN', 'KOR', 'CHN', 'AUS', 'UAE', 'QAT', 'MAR', 'EGY', 'RSA', 'ALG', 'TUN'];
+const OUTSIDE = [...AMERICAS, 'KSA', 'JPN', 'KOR', 'CHN', 'AUS', 'UAE', 'QAT', 'MAR', 'EGY', 'RSA', 'ALG', 'TUN', 'IND', 'IRN', 'THA'];
 /** Groupes de championnats affichés dans la colonne de gauche. */
 const GROUPS = [
   ['Les 5 grands championnats', (d) => d <= 5],
@@ -274,7 +274,7 @@ export const actions = {
     if (!s) { app.toast('Sauvegarde illisible ou d\'une version incompatible.'); return; }
     enter(app, n, s);
   },
-  /** Nouvelle partie : toujours le monde réel (55 championnats). */
+  /** Nouvelle partie : toujours le monde réel (60 championnats). */
   async new(el, app) {
     const slot = +el.dataset.v;
     busy(true, 'Chargement des championnats…');

@@ -72,6 +72,16 @@ LEAGUES = [
         'Mamelodi Sundowns F.C.', 'Orlando Pirates F.C.', 'Kaizer Chiefs F.C.', 'Stellenbosch F.C.', 'Sekhukhune United F.C.', 'Polokwane City F.C.',
         'TS Galaxy F.C.', 'AmaZulu F.C.', 'Lamontville Golden Arrows F.C.', 'Chippa United F.C.', 'Richards Bay F.C.', 'Magesi F.C.',
         'Marumo Gallants F.C.', 'Durban City F.C. (2024)', 'Orbit College F.C.', 'Siwelele F.C.']},
+    # Championnats 56 à 60 : Irlande, Finlande, Inde, Iran, Thaïlande.
+    {'id': 'IRL1', 'size': 10, 'name': 'Premier Division (IRL)', 'country': 'Irlande', 'templates': [], 'clubs': [
+        'Bohemian F.C.', 'Derry City F.C.', 'Drogheda United F.C.', 'Dundalk F.C.', 'Galway United F.C.', 'Shamrock Rovers F.C.',
+        'Shelbourne F.C.', 'Sligo Rovers F.C.', "St Patrick's Athletic F.C.", 'Waterford F.C.']},
+    {'id': 'FIN1', 'size': 12, 'name': 'Veikkausliiga', 'country': 'Finlande', 'templates': [], 'article': '2026 Veikkausliiga'},
+    {'id': 'IND1', 'size': 14, 'name': 'Indian Super League', 'country': 'Inde', 'templates': [], 'clubs': [
+        'Bengaluru FC', 'Chennaiyin FC', 'East Bengal FC', 'FC Goa', 'Jamshedpur FC', 'Kerala Blasters FC', 'Mohammedan SC (Kolkata)',
+        'Mohun Bagan Super Giant', 'Mumbai City FC', 'NorthEast United FC', 'Odisha FC', 'Punjab FC', 'Inter Kashi FC', 'SC Delhi']},
+    {'id': 'IRN1', 'size': 16, 'name': 'Persian Gulf Pro League', 'country': 'Iran', 'templates': [], 'article': '2025–26 Persian Gulf Pro League'},
+    {'id': 'THA1', 'size': 16, 'name': 'Thai League 1', 'country': 'Thaïlande', 'templates': [], 'article': '2025–26 Thai League 1'},
 ]
 CLUB_BOX = re.compile(r'\{\{\s*Infobox football club', re.I)
 

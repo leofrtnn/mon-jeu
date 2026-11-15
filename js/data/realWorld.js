@@ -153,7 +153,12 @@ export function createRealWorld(rng, data) {
     }
     if (c.playerIds.length < 18) c.shortSquad = true;
   }
-  for (const c of clubs) assignNumbers(c.playerIds.map((id) => players[id]));
+  for (const c of clubs) {
+    // Numéros en double dans les sources : le second joueur en reçoit un libre.
+    const list = c.playerIds.map((id) => players[id]), seen = new Set();
+    for (const p of list) { if (p.number && seen.has(p.number)) p.number = 0; if (p.number) seen.add(p.number); }
+    assignNumbers(list);
+  }
   const coaches = (data.coaches || []).filter((c) => byKey[c.club]).map((c) => ({ clubId: byKey[c.club].id, name: c.name, nat: fixNat(c.nat), age: c.age, ph: c.ph || null }));
   return { clubs, players, freeAgents, coaches, nextId: getNextId() };
 }

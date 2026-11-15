@@ -74,6 +74,11 @@ const REAL = {
     ALG: { name: 'Algérie', flag: '🇩🇿', cup: 'Coupe d\'Algérie' },
     TUN: { name: 'Tunisie', flag: '🇹🇳', cup: 'Coupe de Tunisie' },
     PAR: { name: 'Paraguay', flag: '🇵🇾', cup: 'Copa Paraguay' },
+    IRL: { name: 'Irlande', flag: '🇮🇪', cup: 'FAI Cup' },
+    FIN: { name: 'Finlande', flag: '🇫🇮', cup: 'Coupe de Finlande' },
+    IND: { name: 'Inde', flag: '🇮🇳', cup: 'Super Cup (IND)' },
+    IRN: { name: 'Iran', flag: '🇮🇷', cup: 'Hazfi Cup' },
+    THA: { name: 'Thaïlande', flag: '🇹🇭', cup: 'FA Cup (THA)' },
   },
   divisions: {
     1: { name: 'Premier League', short: 'PL', country: 'ENG', level: 1, source: 'ENG1', profile: { goals: 1.0, fouls: 0.85, cards: 0.8 }, down: 3, lower: 31 },
@@ -135,6 +140,12 @@ const REAL = {
     53: { name: 'Ligue 1 (ALG)', short: 'ALG', country: 'ALG', level: 1, source: 'ALG1', profile: { goals: 0.82, fouls: 1.1, cards: 1.15 } },
     54: { name: 'Ligue 1 (TUN)', short: 'TUN', country: 'TUN', level: 1, source: 'TUN1', profile: { goals: 0.85, fouls: 1.08, cards: 1.12 } },
     55: { name: 'Primera División (PAR)', short: 'PY', country: 'PAR', level: 1, source: 'PAR1', profile: { goals: 0.98, fouls: 1.12, cards: 1.25 } },
+    // Championnats 56 à 60.
+    56: { name: 'Premier Division (IRL)', short: 'LOI', country: 'IRL', level: 1, source: 'IRL1', profile: { goals: 0.95, fouls: 1, cards: 0.95 } },
+    57: { name: 'Veikkausliiga', short: 'VL', country: 'FIN', level: 1, source: 'FIN1', profile: { goals: 1.02, fouls: 0.95, cards: 0.9 } },
+    58: { name: 'Indian Super League', short: 'ISL', country: 'IND', level: 1, source: 'IND1', profile: { goals: 1.08, fouls: 1, cards: 1 } },
+    59: { name: 'Persian Gulf Pro League', short: 'PGPL', country: 'IRN', level: 1, source: 'IRN1', profile: { goals: 0.82, fouls: 1.1, cards: 1.15 } },
+    60: { name: 'Thai League 1', short: 'T1', country: 'THA', level: 1, source: 'THA1', profile: { goals: 1.08, fouls: 1, cards: 1.05 } },
   },
   conti: { 1: 3, 2: 2, 3: 2, 4: 2, 5: 2, 6: 1, 7: 1, 8: 1, 9: 1, 10: 1 },
 };
@@ -160,13 +171,13 @@ export const CONTI_DEFS = [
     size: 36, slots: { ENG: 2, ESP: 2, ITA: 2, GER: 2, FRA: 2, POR: 2, NED: 2, BEL: 2, TUR: 2, CZE: 2, GRE: 2, SCO: 2, SUI: 2, AUT: 1, SWE: 1, CRO: 1, SRB: 1, HUN: 1, ROU: 1, ISR: 1, POL: 1, NOR: 1, DEN: 1 },
     prize: { part: 4_310_000, win: 450_000, draw: 150_000, po: 300_000, r16: 1_750_000, qf: 2_500_000, sf: 2_800_000, final: 4_000_000, champ: 6_000_000 } },
   { id: 'uecl', name: 'Ligue Europa Conférence', short: 'C4', org: 'UEFA', icon: '🟢', tier: 3, trophy: 'cup', color: '#1fbf72', nick: '',
-    size: 36, slots: { ENG: 1, ESP: 1, ITA: 1, GER: 1, FRA: 1, POR: 1, NED: 1, BEL: 1, TUR: 1, CZE: 2, GRE: 2, SCO: 2, AUT: 2, SUI: 1, POL: 2, NOR: 1, DEN: 1, SWE: 2, CRO: 1, SRB: 1, HUN: 1, ROU: 2, ISR: 1, CYP: 2, UKR: 2, SVK: 1, BUL: 1 },
+    size: 36, slots: { ENG: 1, ESP: 1, ITA: 1, GER: 1, FRA: 1, POR: 1, NED: 1, BEL: 1, TUR: 1, CZE: 2, GRE: 2, SCO: 2, AUT: 2, SUI: 1, POL: 2, NOR: 1, DEN: 1, SWE: 2, CRO: 1, SRB: 1, HUN: 1, ROU: 2, ISR: 1, CYP: 2, UKR: 2, SVK: 1, BUL: 1, IRL: 1, FIN: 1 },
     prize: { part: 3_170_000, win: 400_000, draw: 133_000, po: 200_000, r16: 800_000, qf: 1_300_000, sf: 2_000_000, final: 3_000_000, champ: 2_000_000 } },
   { id: 'lib', name: 'Copa Libertadores', short: 'LIB', org: 'CONMEBOL', icon: '🏆', tier: 1, trophy: 'lib', color: '#c9a227', nick: 'la Gloria Eterna',
     slots: { BRA: 4, ARG: 4, COL: 2, CHI: 1, ECU: 2, URU: 1, PER: 1, PAR: 1 },
     prize: { part: 2_800_000, win: 300_000, draw: 0, qf: 2_700_000, sf: 2_100_000, final: 6_500_000, champ: 16_000_000 } },
   { id: 'acl', name: 'Ligue des champions de l\'AFC', short: 'ACL', org: 'AFC', icon: '🌏', tier: 1, trophy: 'cup', color: '#0d7c66', nick: '',
-    slots: { KSA: 3, JPN: 3, KOR: 2, CHN: 2, UAE: 2, QAT: 2, AUS: 2 },
+    slots: { KSA: 3, JPN: 3, KOR: 2, CHN: 2, UAE: 2, QAT: 2, AUS: 2, IRN: 2, THA: 1, IND: 1 },
     prize: { part: 800_000, win: 100_000, draw: 50_000, qf: 1_300_000, sf: 1_800_000, final: 3_700_000, champ: 5_500_000 } },
   { id: 'ccc', name: 'Coupe des champions de la CONCACAF', short: 'CCC', org: 'CONCACAF', icon: '🌎', tier: 1, trophy: 'cup', color: '#2b6cb0', nick: '',
     slots: { MEX: 8, USA: 8 },
@@ -214,6 +225,7 @@ export const LEAGUE_WEALTH = {
   CZE: 0.38, POL: 0.42, NOR: 0.4, SWE: 0.4, CRO: 0.35, SRB: 0.33, UKR: 0.4, ROU: 0.35, HUN: 0.38, CYP: 0.38, ISR: 0.38,
   KOR: 0.45, CHN: 0.55, AUS: 0.4, UAE: 0.6, QAT: 0.65, MAR: 0.3, PER: 0.25, CHI: 0.3, COL: 0.3, URU: 0.25,
   ARG: 0.42, EGY: 0.3, ECU: 0.25, RSA: 0.3, SVK: 0.32, BUL: 0.3, ALG: 0.28, TUN: 0.27, PAR: 0.26,
+  IRL: 0.22, FIN: 0.22, IND: 0.3, IRN: 0.3, THA: 0.3,
 };
 
 export const COUNTRIES = {};

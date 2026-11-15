@@ -1430,3 +1430,6 @@ ul.notes { margin: 4px 0 0; padding-left: 18px; font-size: 13px; line-height: 1.
 .det20-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 4px 16px; margin-top: 8px; }
 .det20-grid h4 { margin: 6px 0 2px; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: #a78bfa; }
 .det20-grid .row { font-size: 12.5px; padding: 1px 0; border-bottom: 1px solid rgba(255,255,255,.05); }
+.tuto-list { margin: -4px 0 10px; padding-left: 18px; font-size: 13.5px; line-height: 1.45; }
+.tuto-list li { margin: 2px 0; }
+.tuto-card { max-height: calc(100vh - 36px); overflow-y: auto; }

@@ -64,6 +64,9 @@ export const sessionStore = {
   removeItem(k) { try { globalThis.localStorage?.removeItem(k); } catch { /* ignore */ } writeCookie(k, null); },
 };
 
+/** Nombre maximum de managers dans une carrière en ligne. */
+export const MAX_PLAYERS = 24;
+
 export class LocalBackend {
   /** db : stockage partagé ; session : stockage de la session (différent par « appareil » en test). */
   constructor(db = globalThis.localStorage, session = db, bus = null) {
@@ -108,7 +111,7 @@ export class LocalBackend {
     const me = await this.user();
     const games = this._get('games', {});
     let code; do code = randCode(); while (Object.values(games).some((g) => g.code === code));
-    const g = { id: uuid(), code, name: String(name || 'Partie').slice(0, 40), host: me.id, max_players: Math.max(2, Math.min(8, maxPlayers | 0)), status: 'lobby', version: 0, created_at: now() };
+    const g = { id: uuid(), code, name: String(name || 'Partie').slice(0, 40), host: me.id, max_players: Math.max(2, Math.min(MAX_PLAYERS, maxPlayers | 0)), status: 'lobby', version: 0, created_at: now() };
     games[g.id] = g; this._set('games', games);
     this._set(`players-${g.id}`, [{ game_id: g.id, user_id: me.id, username: me.username, club_id: null, ready: false, version: 0, slice: null }]);
     return g;
@@ -242,9 +245,12 @@ export class SupabaseBackend {
 
   async createGame(name, maxPlayers) {
     const me = await this.user();
-    for (let k = 0; k < 5; k++) {
-      const { data, error } = await this.sb.from('games').insert({ code: randCode(), name: String(name || 'Partie').slice(0, 40), host: me.id, max_players: Math.max(2, Math.min(8, maxPlayers | 0)) }).select().single();
+    let max = Math.max(2, Math.min(MAX_PLAYERS, maxPlayers | 0));
+    for (let k = 0; k < 6; k++) {
+      const { data, error } = await this.sb.from('games').insert({ code: randCode(), name: String(name || 'Partie').slice(0, 40), host: me.id, max_players: max }).select().single();
       if (error && /duplicate/i.test(error.message)) continue;
+      // Serveur pas encore mis à jour (ancienne limite à 8 dans supabase/schema.sql) : on reste à 8.
+      if (error && max > 8 && (error.code === '23514' || /check constraint/i.test(error.message))) { max = 8; continue; }
       if (error) throw new Error(frErr(error));
       check(await this.sb.from('game_players').insert({ game_id: data.id, user_id: me.id, username: me.username }));
       return data;
