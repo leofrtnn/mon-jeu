@@ -27,6 +27,8 @@ def sparql(q):
     path = os.path.join(CACHE, key + '.json')
     if os.path.exists(path):
         return json.load(open(path))
+    if os.environ.get('CACHE_ONLY'):   # service saturé : on se contente de ce qui est déjà en cache
+        return {'results': {'bindings': []}}
     url = 'https://query.wikidata.org/sparql?format=json&query=' + urllib.parse.quote(q)
     for attempt in range(5):
         try:

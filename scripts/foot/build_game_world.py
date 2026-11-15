@@ -247,12 +247,18 @@ def split(name):
 NAME_FIX = {'JSK , JS Kabylie': 'JS Kabylie', 'MCO': 'MC Oran', 'OA': 'Olympique Akbou', 'ESS': 'Étoile du Sahel', 'Club Sportif Constantinois': 'CS Constantine',
             'Jeunesse Sportive Kairouanaise': 'JS Kairouan', 'Guarani': 'Guaraní'}
 d = json.load(open(SRC, encoding='utf-8'))
+NEW_LEAGUES = {'IRL1', 'FIN1', 'IND1', 'IRN1', 'THA1'}
 clubs = []
 used = set(SHORT.values())
 for lg in d['leagues']:
     for cid in lg['clubs']:
         c = next(x for x in d['clubs'] if x['id'] == cid)
         name = c.get('shortName') if c.get('shortName') and len(c['name']) > 22 else c['name']
+        if lg['id'] in NEW_LEAGUES:
+            # Infobox au nom bilingue (« Buriram United, บุรีรัมย์ … ») ou en sigle (« BRU ») : nom latin propre.
+            base = re.split(r'\s*,\s*(?=[^\x00-\x7F])', c['name'])[0].strip()
+            base = re.sub(r'\s+(Football Club|F\.C\.|S\.C\.)$', '', base).strip()
+            name = base if len(base) <= 24 or not c.get('shortName') or re.fullmatch(r'[A-Z]{2,5}', c['shortName'] or '') else c['shortName']
         name = NAME_FIX.get(name, name)
         if cid in REP and lg['id'] in ('ENG1', 'ESP1', 'ITA1', 'GER1', 'FRA1'):
             rep, short = REP[cid], SHORT.get(cid)
@@ -468,7 +474,7 @@ NAT_FIX = {'SER': 'Serbie', 'SLO': 'Slovénie', 'SPA': 'Espagne', 'KVX': 'Kosovo
   'MRT': 'Mauritanie', 'NIGERIA': 'Nigeria', 'ESW': 'Eswatini', 'PHL': 'Philippines', 'TPE': 'Taïwan', 'SGP': 'Singapour', 'BAN': 'Bangladesh'}
 players = []
 for p in d['players']:
-    first, last = split(p['name'])
+    first, last = split(re.sub(r'\s+U-?\d{2}$', '', p['name']).strip())
     intl = p.get('international') or {}
     prim, sec = POSITIONS.get(p['id'], (p['position']['game'], []))
     players.append({'club': p['club'], 'f': first, 'l': last, 'pos': prim, 'p2': sec, 'h': p.get('heightCm'), 'gr': (round(goal_ratio(p), 3) if goal_ratio(p) is not None else None), 'age': p.get('age') or 0,
