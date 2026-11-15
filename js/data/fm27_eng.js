@@ -1,14 +1,14 @@
 /**
  * PREMIER LEAGUE 2026-27 fournie par l'utilisateur (fichier « PremierLeague_notes_FM27.csv » :
- * estimations personnelles, non officielles). Effectifs des 20 clubs, numéros, nationalité,
+ * estimations personnelles, non officielles). Effectifs des clubs, numéros, nationalité,
  * âge, postes (secondaires avec aptitude ≥ 12/20), pied fort, étoiles mauvais pied / gestes,
  * taille, poids, CA / PA (sur 200), profil du jeu (sur 100, converti des attributs sur 20),
  * régularité, leadership et les 47 attributs détaillés sur 20 (une lettre par attribut, 0-k).
  * Format : [club, nom, n°, nation, âge, poste, postes2, pied, mauvais pied, gestes, taille,
  *           poids, CA, PA, profil, régularité, leadership, détail]
  */
-export const PL27_DET = ["Corners", "Centres", "Dribble", "Finition", "Première touche", "Coups francs", "Jeu de tête", "Tirs de loin", "Longues touches", "Marquage", "Passes", "Tir de pen.", "Tacles", "Technique", "Agressivité", "Anticipation", "Bravoure", "Sang-froid", "Concentration", "Décisions", "Détermination", "Spontanéité", "Leadership", "Appels de balle", "Placement", "Collectif", "Vision", "Volume de jeu", "Accélération", "Agilité", "Équilibre", "Détente", "Cond. naturelle", "Vitesse", "Endurance", "Force", "Jeu aérien", "Commandement surface", "Communication", "Excentricité", "Prise de balle", "Dégagements", "Face-à-face", "Réflexes", "Sorties", "Boxe", "Relances main"];
-export const PL27 = [
+export const DET = ["Corners", "Centres", "Dribble", "Finition", "Première touche", "Coups francs", "Jeu de tête", "Tirs de loin", "Longues touches", "Marquage", "Passes", "Tir de pen.", "Tacles", "Technique", "Agressivité", "Anticipation", "Bravoure", "Sang-froid", "Concentration", "Décisions", "Détermination", "Spontanéité", "Leadership", "Appels de balle", "Placement", "Collectif", "Vision", "Volume de jeu", "Accélération", "Agilité", "Équilibre", "Détente", "Cond. naturelle", "Vitesse", "Endurance", "Force", "Jeu aérien", "Commandement surface", "Communication", "Excentricité", "Prise de balle", "Dégagements", "Face-à-face", "Réflexes", "Sorties", "Boxe", "Relances main"];
+export const FM27_ENG = [
 ["arsenal","David Raya",1,"Espagne",31,"GB",[],"D",2,1,183,80,160,160,{"vit":40,"tir":13,"pas":40,"dri":40,"def":31,"phy":56,"vis":63,"sf":73,"arr":76},16,11,"3332834352c5275ffgffe3b3gd989ecde88beef6geghd9e"],
 ["arsenal","Kepa Arrizabalaga",13,"Espagne",32,"GB",[],"D",2,1,189,87,140,140,{"vit":36,"tir":13,"pas":36,"dri":33,"def":28,"phy":56,"vis":55,"sf":66,"arr":66},16,10,"3232734352b5265ddeedd3a3eb888bace78cecd8efeeb8d"],
 ["arsenal","Illan Meslier",30,"France",26,"GB",[],"D",2,1,196,85,125,130,{"vit":33,"tir":13,"pas":33,"dri":30,"def":26,"phy":59,"vis":50,"sf":61,"arr":63},12,9,"3232634352a5265cdddcc393da788aade68dfcd8deceb9c"],

@@ -6,7 +6,7 @@
  * VERSION est incrémentée par scripts/update-sw.js à chaque livraison.
  */
 const IMG_CACHE = 'cdp-img';
-const VERSION = 'cdp-v93';
+const VERSION = 'cdp-v94';
 const ASSETS = [
   './',
   './css/style.css',
@@ -18,11 +18,12 @@ const ASSETS = [
   './js/core/rng.js',
   './js/data/balance.js',
   './js/data/constants.js',
+  './js/data/fm27_eng.js',
+  './js/data/fm27_fra.js',
   './js/data/generator.js',
   './js/data/logos.js',
   './js/data/names.js',
   './js/data/nations.js',
-  './js/data/pl27.js',
   './js/data/pressTexts.js',
   './js/data/realWorld.js',
   './js/data/stadiums.js',
@@ -50,6 +51,7 @@ const ASSETS = [
   './js/game/deals.js',
   './js/game/economy.js',
   './js/game/fans.js',
+  './js/game/fm27.js',
   './js/game/friends.js',
   './js/game/humans.js',
   './js/game/inbox.js',
@@ -63,7 +65,6 @@ const ASSETS = [
   './js/game/owners.js',
   './js/game/people.js',
   './js/game/physique.js',
-  './js/game/pl27.js',
   './js/game/preseason.js',
   './js/game/press.js',
   './js/game/progression.js',
@@ -78,6 +79,7 @@ const ASSETS = [
   './js/game/store.js',
   './js/game/traits.js',
   './js/game/transfers.js',
+  './js/game/upgrade.js',
   './js/game/weather.js',
   './js/game/worker.js',
   './js/i18n.js',

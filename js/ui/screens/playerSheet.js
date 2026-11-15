@@ -6,7 +6,7 @@ import { dealFor, STAGE_LABEL } from '../../game/deals.js';
 import { traitChip } from '../components.js';
 import { SKILL_MOVES, movesFor, starsText } from '../../game/stars.js';
 import { heightOf, weightOf } from '../../game/physique.js';
-import { PL27_DET } from '../../game/pl27.js';
+import { PL27_DET } from '../../game/fm27.js';
 import { playerLinks } from '../../game/cohesion.js';
 import { nationFlag, flagImg } from '../../data/nations.js';
 import { ATTRS, ATTR_LABELS, POSITION_LABELS } from '../../data/constants.js';

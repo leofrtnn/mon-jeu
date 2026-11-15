@@ -7,7 +7,7 @@ import { createRng, hashSeed, clamp } from '../core/rng.js';
 import { createWorld, createYouth, getNextId, setNextId, assignNumbers } from '../data/generator.js';
 import { createRealWorld } from '../data/realWorld.js';
 import { applyTop100 } from './ratingsImport.js';
-import { applyPL27 } from './pl27.js';
+import { applyFM27 } from './fm27.js';
 import { DIVISIONS, DIV_IDS, COUNTRIES, CONTI_SLOTS, CONTI_NAME, DIV_NAMES, applyWorld, CONTI_COMPS, superCupName, cupPrizes, LEAGUE_WEALTH } from '../data/world.js';
 import { NATION_COLORS } from '../data/names.js';
 import { autoLineup, isAvailable, overall, squadStrength, ratingAt } from '../engine/ratings.js';
@@ -139,7 +139,7 @@ export function newGame(seed = (Date.now() >>> 0), { real = null } = {}) {
     if (co.ph) m.photo = co.ph;
   }
   applyTop100(state);   // notes du top 100 intégré (monde réel)
-  applyPL27(state, { rosters: true }); // Premier League 2026-27 (fichier de l'utilisateur)
+  applyFM27(state, { rosters: true }); // Premier League et Ligue 1 2026-27 (fichier de l'utilisateur)
   assignAllTraits(state); // traits (Magicien, Maestro…) d'après les vraies qualités
   assignAllStars(state);  // étoiles de gestes techniques et de mauvais pied
   return state;

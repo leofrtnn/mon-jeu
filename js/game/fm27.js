@@ -1,21 +1,25 @@
 /**
- * PREMIER LEAGUE 2026-27 (fichier de l'utilisateur, voir js/data/pl27.js).
+ * NOTES 2026-27 FOURNIES PAR L'UTILISATEUR, par championnat (js/data/fm27_*.js) :
+ * Premier League et Ligue 1.
  *
- * Nouvelle partie « monde réel » : les 20 effectifs de Premier League deviennent exactement
+ * Nouvelle partie « monde réel » : les effectifs de ces championnats deviennent exactement
  * ceux du fichier (joueurs déplacés depuis leur ancien club, joueurs absents des sources
  * créés, joueurs en trop libérés sur le marché des joueurs libres), avec leurs notes,
  * attributs, numéros, taille, poids, pied fort, étoiles et postes secondaires.
- * Partie déjà commencée (première saison) : seules les notes et les détails sont mis à jour,
- * aucun joueur ne change de club.
+ * Partie déjà commencée : rien n'est modifié (les notes et transferts de la partie sont conservés).
  */
-import { PL27, PL27_DET } from '../data/pl27.js';
+import { DET as PL27_DET, FM27_ENG } from '../data/fm27_eng.js';
+import { FM27_FRA } from '../data/fm27_fra.js';
 import { createPlayer, fitToLevel, assignNumbers, getNextId } from '../data/generator.js';
 import { overall } from '../engine/ratings.js';
 import { playerValue, playerWage } from './economy.js';
 import { abilityTo100 } from './ratingsImport.js';
 import { createRng, hashSeed } from '../core/rng.js';
 
-export const PL27_V = 1;
+/** Championnats importés et version de chaque fichier (une nouvelle version réapplique). */
+export const FM27_LEAGUES = { ENG1: { v: 1, rows: FM27_ENG }, FRA1: { v: 1, rows: FM27_FRA } };
+/** Toutes les versions appliquées ? (sinon applyFM27 a du travail). */
+export const fm27Pending = (state) => state.world === 'real' && Object.entries(FM27_LEAGUES).some(([k, l]) => (state.fm27?.[k] || 0) < l.v);
 export { PL27_DET };
 const fold = (t) => String(t ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
 
@@ -55,10 +59,26 @@ function setData(p, row) {
  * Applique le fichier. `rosters` : true pour une nouvelle partie (effectifs remplacés).
  * Retourne { matched, created, moved, released } ou null.
  */
-export function applyPL27(state, { rosters = false } = {}) {
-  if (state.world !== 'real' || state.pl27V === PL27_V) return null;
+export function applyFM27(state, { rosters = false } = {}) {
+  if (state.world !== 'real') return null;
+  // Anciennes sauvegardes : la Premier League avait déjà été appliquée (version 1).
+  if (state.pl27V && !state.fm27) { state.fm27 = { ENG1: state.pl27V }; delete state.pl27V; }
+  state.fm27 ||= {};
+  const total = { matched: 0, created: 0, moved: 0, released: 0 };
+  for (const [lg, l] of Object.entries(FM27_LEAGUES)) {
+    if ((state.fm27[lg] || 0) >= l.v) continue;
+    const r = applyLeague(state, l.rows, rosters);
+    for (const k in total) total[k] += r[k];
+    state.fm27[lg] = l.v;
+  }
+  return total;
+}
+
+/** Partie en cours : on ne touche ni aux notes ni aux effectifs, on note seulement que c'est à jour. */
+export function markFM27(state) { state.fm27 = Object.fromEntries(Object.entries(FM27_LEAGUES).map(([k, l]) => [k, l.v])); delete state.pl27V; }
+
+function applyLeague(state, ROWS, rosters) {
   const byKey = new Map(state.clubs.filter((c) => c.key).map((c) => [c.key, c]));
-  if (!byKey.has('arsenal')) return null;
   const clubOf = new Map(state.clubs.map((c) => [c.id, c]));
   const full = new Map();
   for (const p of Object.values(state.players)) {
@@ -69,7 +89,7 @@ export function applyPL27(state, { rosters = false } = {}) {
   const used = new Set();
   const kept = new Map(); // club → Set(ids) (effectifs du fichier)
   const res = { matched: 0, created: 0, moved: 0, released: 0 };
-  for (const row of PL27) {
+  for (const row of ROWS) {
     const club = byKey.get(row[0]);
     if (!club) continue;
     const nf = fold(row[1]);
@@ -87,7 +107,7 @@ export function applyPL27(state, { rosters = false } = {}) {
     }
     if (!p && !rosters) continue;
     if (!p) {
-      const rng = createRng(hashSeed(`pl27-${row[1]}-${row[0]}`));
+      const rng = createRng(hashSeed(`fm27-${row[1]}-${row[0]}`));
       p = createPlayer(rng, { pos: row[5], level: abilityTo100(row[12]), age: row[4], clubId: club.id, country: 'ENG', noise: 3 });
       p.first = ''; p.last = '';
       state.players[p.id] = p;
@@ -135,7 +155,6 @@ export function applyPL27(state, { rosters = false } = {}) {
     for (const c of state.clubs) if (!kept.has(c) && c.lineup?.some?.((id) => id && state.players[id]?.clubId !== c.id)) { c.lineup = null; c.bench = null; }
     state.nextId = Math.max(state.nextId || 0, getNextId());
   }
-  state.pl27V = PL27_V;
   return res;
 }
 
