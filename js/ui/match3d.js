@@ -1456,6 +1456,30 @@ export function proKitTexture({ c1, c2, ink, pattern = 'plain', sponsor = '', nu
   return tex;
 }
 
+/** Short détaillé (joueurs réalistes) : liserés latéraux, ceinture, petit numéro sur la cuisse gauche (~10 cm). */
+export function proShortsTexture(c, trim, num = '', hi = true) {
+  const key = `${c}|${trim}|${num}|${hi}`;
+  if (PRO_KIT.has(key)) return PRO_KIT.get(key);
+  const W2 = hi ? 512 : 256, H2 = W2 / 2, k = W2 / 512;
+  const tex = canvasTex(W2, H2, (g, w, h) => {
+    g.fillStyle = c; g.fillRect(0, 0, w, h);
+    g.globalAlpha = 0.05; g.fillStyle = '#000';
+    for (let y = 0; y < h; y += 3 * k) for (let x = (y / (3 * k)) % 2 ? 0 : 1.5 * k; x < w; x += 3 * k) g.fillRect(x, y, 1.2 * k, 1.2 * k);
+    g.globalAlpha = 1;
+    g.fillStyle = trim; for (const u of [0, 0.5, 1]) g.fillRect(u * w - 9 * k, 0, 18 * k, h);    // bandes latérales
+    g.fillStyle = 'rgba(0,0,0,.25)'; g.fillRect(0, 0, w, 10 * k);                                   // ceinture (haut du tube)
+    g.fillStyle = 'rgba(0,0,0,.18)'; g.fillRect(0, h - 6 * k, w, 6 * k);                            // ourlet
+    if (num !== '' && num != null) {
+      g.fillStyle = trim; g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.font = `800 ${46 * k}px "Barlow Condensed", system-ui, sans-serif`;
+      g.fillText(String(num), 0.37 * w, (1 - 0.4) * h);   // devant de la cuisse gauche
+    }
+  });
+  tex.wrapS = THREE.RepeatWrapping; tex.anisotropy = 4;
+  PRO_KIT.set(key, tex);
+  return tex;
+}
+
 /* ---------------- Coach en 3D (éditeur et bord du terrain) ---------------- */
 
 /** Apparence complète d'un coach (valeurs par défaut pour les anciens profils). */
@@ -2224,9 +2248,11 @@ export class Match3D {
         const hi = this.gfx === 'ultra';
         const kitBase = { ...kit, sponsor: sponsorOf(club), crest: club?.short || '', hi };
         const shirtM = new THREE.MeshStandardMaterial({ color: '#ffffff', map: proKitTexture({ ...kitBase, num: p.num ?? '', name: p.mp?.p?.last || p.short || '' }), roughness: 0.76, metalness: 0.02 });
+        const shC = p.gk ? '#20242c' : v.shorts[side];
+        const shortsM = new THREE.MeshStandardMaterial({ color: '#ffffff', map: proShortsTexture(shC, shC.toLowerCase() === String(v.textColors[side]).toLowerCase() ? v.colors[side] : v.textColors[side], p.num ?? '', hi), roughness: 0.72 });
         const sleeveM = (this._sleeveM ||= new Map()).get(JSON.stringify(kit)) || new THREE.MeshStandardMaterial({ color: '#ffffff', map: proKitTexture({ ...kitBase, sleeve: true }), roughness: 0.76 });
         this._sleeveM.set(JSON.stringify(kit), sleeveM);
-        e.mhOpts = { skin: lk.skin, hair: lk.hairColor, hairStyle: lk.hairStyle, beard: lk.beard, eyeTex, nat: p.mp?.p?.nat || '', mats: { ...mats, boot, shirt: shirtM, sleeve: sleeveM }, gk: !!p.gk, heavy, slim, printed: true };
+        e.mhOpts = { skin: lk.skin, hair: lk.hairColor, hairStyle: lk.hairStyle, beard: lk.beard, eyeTex, nat: p.mp?.p?.nat || '', mats: { ...mats, boot, shirt: shirtM, sleeve: sleeveM, shorts: shortsM }, gk: !!p.gk, heavy, slim, printed: true };
         if (this.mh) e.p3.attachMH(this.mh, e.mhOpts);
         this.players.set(id, e);
       }
