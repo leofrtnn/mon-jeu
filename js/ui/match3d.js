@@ -1481,6 +1481,8 @@ export class Match3D {
       if (!mh || this.destroyed) return;
       this.mh = mh;
       for (const e of this.players.values()) if (e.mhOpts) e.p3.attachMH(mh, e.mhOpts);
+      // Arbitre : corps réaliste, tenue noire.
+      if (this.ref3d && this.refMats) this.ref3d.attachMH(mh, { skin: '#c68642', hair: '#1a120c', hairStyle: 'buzz', eyeTex: 'brown', nat: 'ITA', mats: this.refMats });
     });
     this.buildCoaches();
     // Arbitre : tenue noire.
@@ -1488,6 +1490,7 @@ export class Match3D {
     const refMats = { shirt: black, shorts: black, socks: black, boot: new THREE.MeshLambertMaterial({ color: '#0a0a0a' }),
       shadow: contactShadowMat(0.5), ring: black };
     this.ref3d = new Player3D(refMats, '#c68642', '#1a120c', '', '#15171c', '#15171c');
+    this.refMats = refMats;
     this.scene.add(this.ref3d.root);
     this.mats = view.colors.map((c, side) => this.teamMats(side));
     try { this.buildBenchSubs(); } catch (e) { console.warn('banc 3D', e); }
@@ -2008,7 +2011,7 @@ export class Match3D {
         e = { p3, label };
         // Corps réaliste (gros plans) : mêmes os que le modèle simplifié.
         const eyeC = new THREE.Color(lk.eyes || '#2a1a10'), eyeTex = eyeC.b > eyeC.r * 1.15 ? 'blue' : eyeC.g > eyeC.r * 1.1 ? 'green' : (eyeC.r + eyeC.g + eyeC.b) > 1.2 ? 'grey' : 'brown';
-        e.mhOpts = { skin: lk.skin, hair: lk.hairColor, hairStyle: lk.hairStyle, eyeTex, nat: p.mp?.p?.nat || '', mats: { ...mats, boot } };
+        e.mhOpts = { skin: lk.skin, hair: lk.hairColor, hairStyle: lk.hairStyle, eyeTex, nat: p.mp?.p?.nat || '', mats: { ...mats, boot }, gk: !!p.gk };
         if (this.mh) e.p3.attachMH(this.mh, e.mhOpts);
         this.players.set(id, e);
       }

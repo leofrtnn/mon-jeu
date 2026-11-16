@@ -313,6 +313,25 @@ def shirt_uv(P, vs, uvi):
 
 
 PARTS.insert(1, ('shirt', build_part('shirt', shirt, lambda v: 0.011 + 0.013 * np.clip((HEM + 0.16 - G0[v, 1]) / 0.16, 0, 1), shirt_uv, faces=[f for f in BODY_F if all(shirt[v] for v in f[0]) and not any(armW[v] >= 0.5 for v in f[0])])))
+# Gardien : manche longue (jusqu'au poignet) et gants.
+handDrop = shY - (JR['handL'][1] + JR['handR'][1]) / 2
+longSleeve = isBody & (armW >= 0.5) & (armDrop < handDrop - 0.025) & (ys < COLLAR + 0.05)
+gloves = isBody & (foreW > 0.5) & (armDrop >= handDrop - 0.045)
+
+
+def sleeve_long_uv(P, vs, uvi):
+    out = []
+    for p in P:
+        sid = 'L' if p[2] < 0 else 'R'
+        c = JR['sh' + sid]
+        u = (np.arctan2(p[0] - c[0], p[2] - c[2]) / (2 * np.pi)) % 1.0
+        out.append([u, 0.02 + 0.84 * np.clip(1 - (c[1] - p[1]) / handDrop, 0, 1)])
+    return np.array(out)
+
+
+SL_ALL = shirt | longSleeve
+PARTS.append(('sleeveLong', build_part('sleeveLong', SL_ALL, lambda v: 0.012, sleeve_long_uv, faces=[f for f in BODY_F if all(SL_ALL[v] for v in f[0]) and any(armW[v] >= 0.5 for v in f[0])])))
+PARTS.append(('gloves', build_part('gloves', gloves, lambda v: 0.007, lambda P, vs, uvi: np.zeros((len(P), 2)))))
 PARTS.append(('shorts', build_part('shorts', shorts, lambda v: 0.016 + 0.02 * np.clip((WAIST - G0[v, 1]) / (WAIST - SHORT_END), 0, 1), lambda P, vs, uvi: cyl_uv(P, ctr, SHORT_END, WAIST))))
 PARTS.append(('socks', build_part('socks', socks, lambda v: 0.0055, lambda P, vs, uvi: cyl_uv(P, P.mean(0), BOOT_TOP, SOCK_TOP))))
 PARTS.append(('boots', build_part('boots', boots, lambda v: 0.008, lambda P, vs, uvi: np.zeros((len(P), 2)))))

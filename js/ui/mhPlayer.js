@@ -113,10 +113,11 @@ export function buildMHPlayer(mh, p3, opts) {
   const M = opts.mats;
   const parts = [
     ['body', skinMat(mh, eth, opts.skin)],
-    ['shirt', M.shirt], ['sleeve', M.sleeve || M.shirt], ['shorts', M.shorts], ['socks', M.socks], ['boots', M.boot],
+    ['shirt', M.shirt], [opts.gk ? 'sleeveLong' : 'sleeve', M.sleeve || M.shirt], ['shorts', M.shorts], ['socks', M.socks], ['boots', M.boot],
     ['eyes', (() => { const m = new THREE.MeshStandardMaterial({ map: mh.getTex(`eye_${opts.eyeTex || 'brown'}.jpg`), roughness: 0.25 }); return m; })()],
     ['brows', hairMat(mh, 'brows', opts.hair)],
   ];
+  if (opts.gk) parts.push(['gloves', new THREE.MeshStandardMaterial({ color: opts.gloves || '#c6f432', roughness: 0.55 })]);   // gants du gardien
   const hp = HAIR_OF[opts.hairStyle] ?? 'hair_short';
   if (hp) parts.push([hp, hairMat(mh, hp, opts.hair)]);
   const group = new THREE.Group();
