@@ -57,6 +57,12 @@ function geometry(mh, part, eth) {
   g.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(Array.from(A[`${part}.si`]), 4));
   g.setAttribute('skinWeight', new THREE.BufferAttribute(new Float32Array(Array.from(A[`${part}.sw`], (x) => x / 255)), 4));
   g.setIndex(new THREE.BufferAttribute(A[`${part}.idx`], 1));
+  // Gabarits (costaud, sec) : cibles de morphose relatives, dosées par joueur.
+  const mt = ['heavy', 'slim'].map((t) => A[`${part}.${t}`]).filter(Boolean);
+  if (mt.length === 2) {
+    g.morphAttributes.position = mt.map((d) => { const f = new Float32Array(d.length); for (let i = 0; i < d.length; i++) f[i] = d[i] / 10000; return new THREE.BufferAttribute(f, 3); });
+    g.morphTargetsRelative = true;
+  }
   g.computeBoundingSphere();
   mh.geos.set(key, g);
   return g;
@@ -120,6 +126,13 @@ export function buildMHPlayer(mh, p3, opts) {
   if (opts.gk) parts.push(['gloves', new THREE.MeshStandardMaterial({ color: opts.gloves || '#c6f432', roughness: 0.55 })]);   // gants du gardien
   const hp = HAIR_OF[opts.hairStyle] ?? 'hair_short';
   if (hp) parts.push([hp, hairMat(mh, hp, opts.hair)]);
+  // Barbe / moustache (selon l'apparence du joueur) ; « barbe de trois jours » plus légère.
+  const bd = { full: 'beard_full', long: 'beard_full', chinstrap: 'beard_full', mutton: 'beard_full', stubble: 'beard_full', moustache: 'beard_moustache' }[opts.beard];
+  if (bd) {
+    let bm = hairMat(mh, bd, opts.hair);
+    if (opts.beard === 'stubble') { bm = bm.clone(); bm.transparent = true; bm.opacity = 0.45; bm.alphaTest = 0.2; }
+    parts.push([bd, bm]);
+  }
   const group = new THREE.Group();
   group.userData.skeleton = skeleton; group.userData.eth = eth;
   p3.body.add(group);   // géométrie exprimée dans le repère du corps (taille et carrure du joueur incluses)
@@ -132,6 +145,7 @@ export function buildMHPlayer(mh, p3, opts) {
     m.bind(skeleton, m.matrixWorld.clone());
     m.frustumCulled = false; m.castShadow = true; m.receiveShadow = false;
     m.userData.mhPart = name;
+    if (m.morphTargetInfluences) { m.morphTargetInfluences[0] = opts.heavy || 0; m.morphTargetInfluences[1] = opts.slim || 0; }
   }
   // On remet la pose courante.
   bones.forEach((b, i) => { b.quaternion.copy(saved[i][0]); b.position.copy(saved[i][1]); });

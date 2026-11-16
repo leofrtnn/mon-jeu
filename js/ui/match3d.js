@@ -12,6 +12,7 @@ export { THREE as THREE_NS };
 import { toLocal, localRect } from './viewport.js';
 import { personLook, portraitSvg } from './avatar.js';
 import { loadMH, buildMHPlayer, addMHPart, setMHSkin } from './mhPlayer.js';
+import { GAITS, GAIT_KEYS } from './mocapData.js';
 
 const L = 105, W = 68;
 // Échelle RÉELLE face aux cages (7,32 × 2,44 m) : joueurs à leur taille, ballon de 22 cm.
@@ -281,6 +282,34 @@ function drawnFace(look) {
  * Le modèle simplifié (joueurs éloignés) et le modèle réaliste partagent ces os.
  */
 const RIG = { hip: [-0.005, 0.959, 0.113], thigh: 0.44, shin: 0.451, sh: [0.021, 1.439, 0.194], upperArm: 0.262, kneel: 0.5 };
+/**
+ * Foulée issue de vraies captures de mouvement (base CMU) : marche, footing, course, mélangés
+ * selon la vitesse ; au-delà de la course enregistrée, l'amplitude augmente (sprint).
+ * ph : phase de la foulée (2π = deux pas). Retourne les angles (voir mocapData.js).
+ */
+const GI = Object.fromEntries(GAIT_KEYS.map((k, i) => [k, i]));
+const GL = ['walk', 'jog', 'run'].map((n) => GAITS[n]).filter(Boolean);
+const _gA = new Float32Array(GAIT_KEYS.length), _gB = new Float32Array(GAIT_KEYS.length);
+function sampleCycle(c, u, out) {
+  const n = c.length, x = u * n, i0 = Math.floor(x) % n, i1 = (i0 + 1) % n, f = x - Math.floor(x);
+  for (let k = 0; k < out.length; k++) out[k] = c[i0][k] + (c[i1][k] - c[i0][k]) * f;
+  return out;
+}
+function gaitAt(sp, ph) {
+  const u = ((((ph - Math.PI / 2) / (2 * Math.PI)) % 1) + 1) % 1;
+  if (!GL.length) return null;
+  let a = GL[0], b = GL[0], t = 0;
+  for (let i = 0; i < GL.length - 1; i++) if (sp > GL[i].v) { a = GL[i]; b = GL[i + 1]; t = Math.min(1, (sp - GL[i].v) / (GL[i + 1].v - GL[i].v)); }
+  sampleCycle(a.cycle, u, _gA); sampleCycle(b.cycle, u, _gB);
+  for (let k = 0; k < _gA.length; k++) _gA[k] += (_gB[k] - _gA[k]) * t;
+  const top = GL[GL.length - 1].v;
+  if (sp > top) {   // sprint : foulée plus ample, buste plus penché
+    const amp = 1 + Math.min(0.4, (sp - top) * 0.11);
+    for (const key of ['hzL', 'hzR', 'kzL', 'kzR', 'szL', 'szR', 'twist']) _gA[GI[key]] *= amp;
+    _gA[GI.lean] += Math.min(0.12, (sp - top) * 0.03);
+  }
+  return _gA;
+}
 const GEO = {};
 function geo() {
   if (GEO.torso) return GEO;
@@ -863,6 +892,22 @@ export class Player3D {
     if (ctx.ballAng != null) { let r = ctx.ballAng - (p.face || 0); r = Math.atan2(Math.sin(r), Math.cos(r)); this.headPivot.rotation.set(0, -Math.max(-1.1, Math.min(1.1, r)), 0); }
     else this.headPivot.rotation.set(0, 0, 0);
     this.body.position.set(0, Math.abs(Math.sin(ph)) * (0.03 + 0.06 * run) * jog, 0);
+    // Foulée réelle (capture de mouvement) dès que le joueur se déplace vers l'avant.
+    const G2 = sp >= 0.8 && !p.back ? gaitAt(sp, ph) : null;
+    if (G2) {
+      const g = (k) => G2[GI[k]];
+      lL.hip.rotation.set(g('hxL'), 0, g('hzL')); lR.hip.rotation.set(-g('hxR'), 0, g('hzR'));
+      lL.knee.rotation.z = g('kzL'); lR.knee.rotation.z = g('kzR');
+      lL.ankle.rotation.set(0, 0, g('azL')); lR.ankle.rotation.set(0, 0, g('azR'));
+      const [aL, aR] = this.arms;
+      aL.sh.rotation.set(-aL.sgn * g('sxL'), 0, g('szL')); aR.sh.rotation.set(-aR.sgn * g('sxR'), 0, g('szR'));
+      aL.el.rotation.z = g('ezL'); aR.el.rotation.z = g('ezR');
+      this.upper.rotation.set(0, g('twist'), -Math.max(0, g('lean')) * 0.6);
+      this.body.rotation.set(bank, 0, -Math.max(0, g('lean')) * 0.4);
+      // Pied d'appui au sol (la jambe fléchie abaisse le bassin), petite phase de vol en course.
+      this.body.position.y = 0; this.groundContact();
+      this.body.position.y += Math.max(0, g('bob')) * K * 0.5;
+    }
     // À l'arrêt : genoux souples ; le gardien se met en position d'attente quand le jeu approche.
     if (sp < 0.8) {
       const ready = p.gk && ctx.ballNear ? 1 : 0.25;
@@ -2052,7 +2097,9 @@ export class Match3D {
         e = { p3, label };
         // Corps réaliste (gros plans) : mêmes os que le modèle simplifié.
         const eyeC = new THREE.Color(lk.eyes || '#2a1a10'), eyeTex = eyeC.b > eyeC.r * 1.15 ? 'blue' : eyeC.g > eyeC.r * 1.1 ? 'green' : (eyeC.r + eyeC.g + eyeC.b) > 1.2 ? 'grey' : 'brown';
-        e.mhOpts = { skin: lk.skin, hair: lk.hairColor, hairStyle: lk.hairStyle, eyeTex, nat: p.mp?.p?.nat || '', mats: { ...mats, boot }, gk: !!p.gk };
+        // Gabarit propre à chaque joueur (poids/taille réels) : plus costaud ou plus sec.
+        const heavy = Math.max(0, Math.min(1, (girth - 1) / 0.16)), slim = Math.max(0, Math.min(1, (1 - girth) / 0.12));
+        e.mhOpts = { skin: lk.skin, hair: lk.hairColor, hairStyle: lk.hairStyle, beard: lk.beard, eyeTex, nat: p.mp?.p?.nat || '', mats: { ...mats, boot }, gk: !!p.gk, heavy, slim };
         if (this.mh) e.p3.attachMH(this.mh, e.mhOpts);
         this.players.set(id, e);
       }

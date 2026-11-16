@@ -283,3 +283,6 @@ L'ancienne adresse `leofrtnn.github.io/mon-jeu` redirige automatiquement vers le
 
 - Joueurs vus de près : corps, peaux, cheveux, yeux et sourcils issus des données de
   [MakeHuman](http://www.makehuman.org) (ressources CC0), adaptés par `scripts/mhbake/`.
+- Foulées (marche, footing, course) : captures de mouvement de la base
+  [CMU Graphics Lab Motion Capture Database](http://mocap.cs.cmu.edu) (libre d'usage, y compris
+  commercial ; conversion BVH de B. Hahne), converties par `scripts/mocap/bvh2gait.py`.

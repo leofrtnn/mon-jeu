@@ -354,7 +354,7 @@ PARTS.append(('boots', build_part('boots', boots, lambda v: 0.008, lambda P, vs,
 
 # ---------- Proxies : cheveux, yeux, sourcils ----------
 PROX = {'hair_short': 'hair/short02', 'hair_buzz': 'hair/short04', 'hair_afro': 'hair/afro01', 'hair_mohawk': 'hair/Harvey_Hawk1',
-        'hair_long': 'hair/long01', 'hair_bun': 'hair/ponytail01', 'hair_curly': 'hair/short01', 'eyes': 'eyes/Low-Poly', 'brows': 'eyebrows/eyebrow001'}
+        'hair_long': 'hair/long01', 'hair_bun': 'hair/ponytail01', 'hair_curly': 'hair/short01', 'eyes': 'eyes/Low-Poly', 'brows': 'eyebrows/eyebrow001', 'beard_full': 'hair/Full_beard', 'beard_moustache': 'hair/Moustache'}
 
 
 def parse_faces(F):
@@ -434,14 +434,37 @@ def proxy_part(name, X, first):
 
 
 # ---------- Positions par variante ----------
-for ei, eth in enumerate(ETH):
-    X = morph(eth)
+def smooth_region(P_full, region, iters, alpha):
+    """Lissage (tissu) d'une région du corps : bords fixes, voisins pris dans la région."""
+    idx = np.nonzero(region)[0]
+    loc = {v: i for i, v in enumerate(idx)}
+    nb = [[loc[u] for u in NB[v] if u in loc] for v in idx]
+    fixed = np.array([any(not region[u] for u in NB[v]) for v in idx])
+    Q = P_full[idx].copy()
+    for _ in range(iters):
+        M = np.array([Q[n].mean(0) if n else Q[i] for i, n in enumerate(nb)])
+        Q = np.where(fixed[:, None], Q, (1 - alpha) * Q + alpha * M)
+    out = P_full.copy(); out[idx] = Q
+    return out
+
+
+SHIRT_ALL = shirt | longSleeve
+
+
+def part_positions(X):
+    """Positions de toutes les pièces pour une morphologie donnée (même topologie)."""
     G = repose(to_game(X), WB, J0)
     NR = vnormals(G, BODY_F)
+    # Maillot ample : décollé du corps (plus à la taille), puis lissé (pas de pectoraux ni
+    # d'abdominaux dessinés) ; le même champ sert au buste et aux manches (coutures jointives).
+    off = np.where(armW >= 0.5, 0.017, 0.019 + 0.02 * np.clip((HEM + 0.2 - G[:, 1]) / 0.2, 0, 1))
+    SH = smooth_region(G + NR * off[:, None], SHIRT_ALL, 10, 0.5)
+    out = {}
     for pname, (src, offset) in PARTS:
         P = G[src] + (NR[src] * np.array([offset(v) for v in src])[:, None] if offset else 0)
+        if pname in ('shirt', 'sleeve', 'sleeveLong'):
+            P = SH[src]
         if pname == 'boots':
-            # Chaussure : on lisse le pied (plus d'orteils) puis on l'épaissit légèrement.
             loc = {v: i for i, v in enumerate(src)}
             nb = [[loc[u] for u in NB[v] if u in loc] for v in src]
             fixed = np.array([any(not boots[u] for u in NB[v]) for v in src])
@@ -453,24 +476,23 @@ for ei, eth in enumerate(ETH):
             Q[:, 1] = np.maximum(Q[:, 1], 0.004)
             P = Q
         if pname == 'shorts':
+            # Short de foot ample : jambes larges et droites, bassin décollé.
             crotch = hipY - 0.07
             for i, v in enumerate(src):
                 p = G[v]
                 t = np.clip((WAIST - p[1]) / (WAIST - SHORT_END), 0, 1)
-                if p[1] < crotch + 0.03:
+                if p[1] < crotch + 0.04:
                     s_ = 'L' if p[2] < 0 else 'R'
                     ax = np.array([JR['hip' + s_][0] + 0.01, JR['hip' + s_][2]])
                     d = np.array([p[0], p[2]]) - ax; r = np.linalg.norm(d) or 1e-6
-                    k = np.clip((crotch + 0.03 - p[1]) / 0.06, 0, 1)
-                    nr = max(r + 0.016, 0.098 + 0.024 * t)
-                    nr = r + 0.016 + (nr - r - 0.016) * k
+                    k = np.clip((crotch + 0.04 - p[1]) / 0.06, 0, 1)
+                    nr = max(r + 0.02, 0.112 + 0.01 * t)
+                    nr = r + 0.022 + (nr - r - 0.022) * k
                     P[i, 0], P[i, 2] = ax[0] + d[0] / r * nr, ax[1] + d[1] / r * nr
                     P[i, 1] = p[1]
                 else:
-                    k2 = np.clip((crotch + 0.13 - p[1]) / 0.1, 0, 1)
-                    P[i] += NR[v] * 0.014 * k2
-            # Tissu : on lisse la coque (plus de relief anatomique à l'entrejambe ni aux fessiers),
-            # ceinture et ourlets fixes, puis on la regonfle légèrement.
+                    k2 = np.clip((crotch + 0.15 - p[1]) / 0.11, 0, 1)
+                    P[i] += NR[v] * (0.006 + 0.022 * k2)
             loc = {v: i for i, v in enumerate(src)}
             nb = [[loc[u] for u in NB[v] if u in loc] for v in src]
             fixed = np.array([any(not shorts[u] for u in NB[v]) for v in src])
@@ -478,13 +500,36 @@ for ei, eth in enumerate(ETH):
                 M = np.array([P[n].mean(0) if n else P[i] for i, n in enumerate(nb)])
                 P = np.where(fixed[:, None], P, 0.5 * P + 0.5 * M)
             P = P + NR[src] * 0.004
-
-        add(f'{pname}.pos{ei}', q_pos(P), np.int16)
-        add(f'{pname}.nrm{ei}', q_nrm(NR[src]), np.int8)
+        out[pname] = (P, NR[src])
     for name in PROXY_DATA:
-        Gp, Np = proxy_part(name, X, ei == 0)
-        add(f'{name}.pos{ei}', q_pos(Gp), np.int16)
-        add(f'{name}.nrm{ei}', q_nrm(Np), np.int8)
+        out[name] = proxy_part(name, X, False)
+    return out
+
+
+def morph_w(eth, weight):
+    """Même homme, autre gabarit : 'heavy' (plus lourd), 'slim' (sec), sinon athlétique."""
+    w = {e: 0.1 for e in ETH}; w[eth] = 0.8
+    X = V.copy()
+    for e, k in w.items(): X += k * target(f'macrodetails/{e}-male-young', N)
+    combo = {'base': [('averagemuscle-averageweight', 0.3), ('maxmuscle-averageweight', 0.7)],
+             'heavy': [('averagemuscle-maxweight', 0.5), ('maxmuscle-maxweight', 0.5)],
+             'slim': [('averagemuscle-minweight', 0.6), ('maxmuscle-minweight', 0.4)]}[weight]
+    for t_, k in combo: X += k * target(f'macrodetails/universal-male-young-{t_}', N)
+    return X
+
+
+for name in PROXY_DATA: proxy_part(name, morph('caucasian'), True)   # topologie des proxies
+for ei, eth in enumerate(ETH):
+    base = part_positions(morph(eth))
+    for pname, (P, NRp) in base.items():
+        add(f'{pname}.pos{ei}', q_pos(P), np.int16)
+        add(f'{pname}.nrm{ei}', q_nrm(NRp), np.int8)
+    if ei == 0:
+        # Gabarits (cibles de morphose) : écart costaud / sec par rapport à l'athlète de base.
+        for tag in ('heavy', 'slim'):
+            alt = part_positions(morph_w(eth, tag))
+            for pname, (P, _) in alt.items():
+                add(f'{pname}.{tag}', q_pos(P - base[pname][0]), np.int16)
     print('variante', eth, 'ok')
 
 # Repères utiles : surface du dos et de la poitrine (numéros), hauteur du col.
@@ -524,7 +569,7 @@ for name, data in PROXY_DATA.items():
     tex = data[6]
     if not tex: continue
     im = Image.open(tex).convert('RGBA')
-    if name.startswith('hair') or name == 'brows':
+    if name.startswith('hair') or name.startswith('beard') or name == 'brows':
         # Niveaux de gris (teinte appliquée en jeu selon la couleur de cheveux du joueur).
         r, g, b, a = im.split()
         l = Image.merge('RGB', (r, g, b)).convert('L')

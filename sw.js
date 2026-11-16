@@ -6,7 +6,7 @@
  * VERSION est incrémentée par scripts/update-sw.js à chaque livraison.
  */
 const IMG_CACHE = 'cdp-img';
-const VERSION = 'cdp-v119';
+const VERSION = 'cdp-v120';
 const ASSETS = [
   './',
   './css/style.css',
@@ -108,6 +108,7 @@ const ASSETS = [
   './js/ui/match3d.js',
   './js/ui/matchView.js',
   './js/ui/mhPlayer.js',
+  './js/ui/mocapData.js',
   './js/ui/newspaper.js',
   './js/ui/screens/auth.js',
   './js/ui/screens/club.js',
