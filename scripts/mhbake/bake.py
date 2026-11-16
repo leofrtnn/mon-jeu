@@ -604,6 +604,27 @@ def part_positions(X):
                 P = np.where(fixed[:, None], P, 0.5 * P + 0.5 * M)
             P = P + NR[src] * 0.004
         out[pname] = (P, NR[src])
+    # Le bas du maillot recouvre toujours le haut du short (plus de marche sur les hanches) :
+    # là où les deux se chevauchent, le maillot passe au moins 7 mm au-dessus du short, et
+    # l'écart se raccorde en douceur jusqu'à 10 cm au-dessus de l'ourlet.
+    srcS = dict(PARTS)['shorts'][0]; PS = out['shorts'][0]
+    posS = {v: i for i, v in enumerate(srcS)}
+    push = np.zeros(N)
+    for v in np.nonzero(SHIRT_ALL)[0]:
+        if v in posS:
+            need = ((PS[posS[v]] - G[v]) * NR[v]).sum() + 0.007 - ((SH[v] - G[v]) * NR[v]).sum()
+            push[v] = max(0.0, need)
+    sv = np.nonzero(shirt & (armW < 0.5))[0]
+    over = np.nonzero(push > 0)[0]
+    if len(over):
+        for v in sv:
+            if push[v] == 0:
+                d = np.abs(G[over, 1] - G[v, 1]) + 3 * np.hypot(*(G[over][:, [0, 2]] - G[v, [0, 2]]).T)
+                j = over[np.argmin(d)]
+                push[v] = push[j] * max(0.0, 1 - (G[v, 1] - G[j, 1]) / 0.1) if G[v, 1] > G[j, 1] else 0
+        SH = SH + NR * push[:, None]
+        for pname, (src, _) in PARTS:
+            if pname in ('shirt', 'sleeve', 'sleeveLong'): out[pname] = (SH[src], out[pname][1])
     # Normales des vêtements recalculées sur leur propre surface : l'éclairage suit le tissu
     # (plis, tombé) et non plus les muscles du corps dessous.
     FP = SH.copy()
