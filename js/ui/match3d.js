@@ -1423,7 +1423,7 @@ export class Match3D {
     // (Captures de test : météo imposée.)
     this.applyConditions(globalThis.__cdpWx ? { ...(view.m.weather || {}), ...globalThis.__cdpWx } : view.m.weather);
     // Match de nuit en Ultra (ordinateur) : halo des projecteurs (post-traitement « bloom »).
-    if (view.m.weather?.night && this.gfx === 'ultra' && !this.mobile) this.initBloom();
+    if (this.gfx === 'ultra' && !this.mobile) this.initBloom(!!(globalThis.__cdpWx || view.m.weather)?.night);
     this.buildBall();
     this.players = new Map(); // id -> { p3, label, side }
     this.buildCoaches();
@@ -1735,7 +1735,7 @@ export class Match3D {
         const away = inAway(x, sl[3]);
         const r = rnd();
         const col = away ? (r < 0.8 ? cA : r < 0.93 ? cA2 : others[(rnd() * others.length) | 0])
-          : r < (opts.ultras ? 0.8 : 0.55) ? cH : r < (opts.ultras ? 0.92 : 0.7) ? cH2 : others[(rnd() * others.length) | 0];
+          : r < (opts.ultras ? 0.8 : 0.42) ? cH : r < (opts.ultras ? 0.92 : 0.58) ? cH2 : others[(rnd() * others.length) | 0];
         bodies.setColorAt(i, col); heads.setColorAt(i, skins[(rnd() * skins.length) | 0]);
       });
       for (const im of [seats, bodies, heads]) { im.instanceMatrix.needsUpdate = true; if (im.instanceColor) im.instanceColor.needsUpdate = true; }
@@ -2037,21 +2037,39 @@ export class Match3D {
    * légèrement dans l'image, comme à la télé. Chargé seulement quand il sert ; abandonné si
    * l'appareil ne suit pas (voir adaptQuality).
    */
-  async initBloom() {
+  /**
+   * Post-traitement (Ultra, ordinateur) : étalonnage « diffusion télé » (un peu plus chaud,
+   * saturé et contrasté, léger vignettage) et, la nuit, halo des projecteurs (bloom).
+   */
+  async initBloom(night = true) {
     try {
-      const [{ EffectComposer }, { RenderPass }, { UnrealBloomPass }, { OutputPass }] = await Promise.all([
+      const [{ EffectComposer }, { RenderPass }, { UnrealBloomPass }, { OutputPass }, { ShaderPass }] = await Promise.all([
         import('../vendor/three-post/EffectComposer.js'), import('../vendor/three-post/RenderPass.js'),
-        import('../vendor/three-post/UnrealBloomPass.js'), import('../vendor/three-post/OutputPass.js')]);
+        import('../vendor/three-post/UnrealBloomPass.js'), import('../vendor/three-post/OutputPass.js'), import('../vendor/three-post/ShaderPass.js')]);
       if (this.destroyed) return;
       const v = this.v;
       const c = new EffectComposer(this.renderer);
       c.addPass(new RenderPass(this.scene, this.camera));
-      c.addPass(new UnrealBloomPass(new THREE.Vector2(v.cssW, v.cssH), 0.6, 0.55, 0.8));
+      if (night) c.addPass(new UnrealBloomPass(new THREE.Vector2(v.cssW, v.cssH), 0.6, 0.55, 0.8));
       c.addPass(new OutputPass());
+      c.addPass(new ShaderPass({
+        uniforms: { tDiffuse: { value: null }, uSat: { value: night ? 1.05 : 1.1 }, uCon: { value: 1.06 }, uWarm: { value: new THREE.Vector3(...(night ? [0.99, 1, 1.03] : [1.04, 1.01, 0.95])) }, uVig: { value: 0.22 } },
+        vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+        fragmentShader: `uniform sampler2D tDiffuse; uniform float uSat, uCon, uVig; uniform vec3 uWarm; varying vec2 vUv;
+          void main() {
+            vec4 c = texture2D(tDiffuse, vUv);
+            vec3 col = c.rgb * uWarm;
+            float l = dot(col, vec3(0.2126, 0.7152, 0.0722));
+            col = mix(vec3(l), col, uSat);
+            col = (col - 0.5) * uCon + 0.5;
+            col *= 1.0 - uVig * smoothstep(0.38, 0.9, distance(vUv, vec2(0.5)));
+            gl_FragColor = vec4(clamp(col, 0.0, 1.0), c.a);
+          }`,
+      }));
       c.setPixelRatio(this.renderer.getPixelRatio());
       c.setSize(v.cssW, v.cssH);
       this.composer = c;
-    } catch (e) { console.warn('bloom indisponible', e); this.composer = null; }
+    } catch (e) { console.warn('post-traitement indisponible', e); this.composer = null; }
   }
   /** Pose la caméra (position, cible, focale) : douce, ou en coupe franche pour un changement de plan. */
   placeCam(pos, look, fov, dt, cut) {
