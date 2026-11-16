@@ -359,7 +359,15 @@ export class MatchView {
       if (ev.type === 'injury') { who.hurt = 4.5; who.fall = 0; }
       if (ev.type === 'foul' || ev.type === 'yellow') who.appeal = 1.8;
       if (ev.type === 'shot' && ev.outcome !== 'goal' && (ev.xg || 0) >= 0.18) who.headHands = 2.2;
+      // Carton : deux coéquipiers proches viennent aussi protester auprès de l'arbitre.
+      if (ev.type === 'yellow' || ev.type === 'red') {
+        const mates = [...this.players.values()].filter((q) => q !== who && q.side === who.side && !q.gk)
+          .map((q) => [q, Math.hypot((q.x - who.x) * PITCH_L, (q.y - who.y) * PITCH_W)]).filter(([, d]) => d < 16).sort((x, y) => x[1] - y[1]).slice(0, 2);
+        for (const [q] of mates) q.appeal = Math.max(q.appeal || 0, 1.6);
+      }
     }
+    // But encaissé : le gardien battu, tête dans les mains.
+    if (ev.type === 'goal' && !ev.replay) for (const q of this.players.values()) if (q.gk && q.side !== ev.side && !(q.dive > 0)) q.headHands = 2.0;
     // Étiquettes de noms sur les actions importantes.
     if (['shot', 'goal', 'yellow', 'red', 'penalty', 'injury', 'dribble', 'sub'].includes(ev.type) && ev.pid) {
       this.tags.push({ id: ev.pid, text: this.nameOf(ev.pid), life: 1.6 });

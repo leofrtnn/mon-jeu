@@ -1257,6 +1257,24 @@ export class Match3D {
       const back = new THREE.Mesh(new THREE.BoxGeometry(7, 2.2, 0.1), glass); back.position.set(0, 1.1, 1.1); g2.add(back);
       const seat = new THREE.Mesh(new THREE.BoxGeometry(6.6, 0.5, 0.8), seatM); seat.position.set(0, 0.45, 0.6); g2.add(seat);
       g2.position.set(sx, 0, W / 2 + 4.6); s.add(g2);
+      // Zone technique : rectangle peint devant le banc (l'entraîneur ne doit pas en sortir).
+      const lineM = new THREE.MeshBasicMaterial({ color: '#e9eef2' });
+      for (const [w2, d2, x2, z2] of [[9, 0.08, 0, 1.0], [9, 0.08, 0, 3.6], [0.08, 2.6, -4.5, 2.3], [0.08, 2.6, 4.5, 2.3]]) {
+        const ln = new THREE.Mesh(new THREE.PlaneGeometry(w2, d2), lineM);
+        ln.rotation.x = -Math.PI / 2; ln.position.set(sx + x2, 0.012, W / 2 + z2); s.add(ln);
+      }
+    }
+    // Tunnel des joueurs entre les deux bancs : couloir couvert (aux couleurs du club qui reçoit)
+    // qui sort de la tribune, bouche sombre côté terrain.
+    {
+      const tg = new THREE.Group();
+      const shell = new THREE.Mesh(new THREE.CylinderGeometry(1.45, 1.45, 4.2, 18, 1, true, -Math.PI / 2, Math.PI), new THREE.MeshStandardMaterial({ color: h.color || '#20263a', roughness: 0.55, side: THREE.DoubleSide }));
+      shell.rotation.x = -Math.PI / 2; tg.add(shell);   // demi-cylindre couché, ouvert vers le bas
+      const ribM = new THREE.MeshStandardMaterial({ color: h.color2 || '#ffffff', roughness: 0.5 });
+      for (const z of [-2.05, 0, 2.05]) { const rib = new THREE.Mesh(new THREE.TorusGeometry(1.47, 0.06, 6, 18, Math.PI), ribM); rib.position.z = z; tg.add(rib); }
+      const mouth = new THREE.Mesh(new THREE.CircleGeometry(1.44, 18, 0, Math.PI), new THREE.MeshBasicMaterial({ color: '#07080c' }));
+      mouth.position.z = -1.9; mouth.rotation.y = Math.PI; tg.add(mouth);   // bouche tournée vers le terrain
+      tg.position.set(0, 0, W / 2 + 8.6); s.add(tg);
     }
     // Projecteurs.
     const glowTex = canvasTex(64, 64, (g, w, hh) => { const rg = g.createRadialGradient(w / 2, hh / 2, 0, w / 2, hh / 2, w / 2); rg.addColorStop(0, 'rgba(255,255,255,1)'); rg.addColorStop(0.25, 'rgba(255,240,200,.6)'); rg.addColorStop(1, 'rgba(255,240,200,0)'); g.fillStyle = rg; g.fillRect(0, 0, w, hh); });
