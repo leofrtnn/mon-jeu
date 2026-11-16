@@ -457,47 +457,86 @@ _es = set(EDGE_V)
 EDGE_NB = {v: [u for u in NB[v] if u in _es] for v in EDGE_V}
 
 
+def hull2d(P):
+    """Enveloppe convexe 2D (chaîne monotone), sommets dans l'ordre."""
+    P = sorted(map(tuple, P))
+    cr = lambda o, a, b: (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+    lo, up = [], []
+    for p in P:
+        while len(lo) >= 2 and cr(lo[-2], lo[-1], p) <= 0: lo.pop()
+        lo.append(p)
+    for p in reversed(P):
+        while len(up) >= 2 and cr(up[-2], up[-1], p) <= 0: up.pop()
+        up.append(p)
+    return np.array(lo[:-1] + up[:-1])
+
+
+def ray_poly(a, H):
+    """Distance de l'origine au bord du polygone H dans la direction a."""
+    d = np.array([np.cos(a), np.sin(a)]); best = 0.0
+    for i in range(len(H)):
+        p, q = H[i], H[(i + 1) % len(H)]; e = q - p
+        den = d[0] * (-e[1]) - d[1] * (-e[0])
+        if abs(den) < 1e-12: continue
+        t = (p[0] * (-e[1]) - p[1] * (-e[0])) / den
+        u = (d[0] * p[1] - d[1] * p[0]) / den
+        if t > 0 and -1e-9 <= u <= 1 + 1e-9: best = max(best, t)
+    return best
+
+
 def part_positions(X):
     """Positions de toutes les pièces pour une morphologie donnée (même topologie)."""
     G = repose(to_game(X), WB, J0)
     NR = vnormals(G, BODY_F)
     # Maillot ample : décollé du corps (plus à la taille), puis lissé (pas de pectoraux ni
     # d'abdominaux dessinés) ; le même champ sert au buste et aux manches (coutures jointives).
-    # Coupe ample : buste +3 cm, ventre jusqu'à +5 cm, épaules et haut des manches +2,5 cm.
-    shoulderK = np.clip((G[:, 1] - (shY - 0.16)) / 0.16, 0, 1)
-    off = np.where(armW >= 0.5, 0.024 + 0.008 * shoulderK, 0.03 + 0.022 * np.clip((HEM + 0.22 - G[:, 1]) / 0.22, 0, 1) + 0.006 * shoulderK)
+    # Coupe près du corps (comme un vrai maillot) : ~1,6 cm au buste, un peu plus à la taille.
+    off = np.where(armW >= 0.5, 0.016, 0.016 + 0.022 * np.clip((HEM + 0.2 - G[:, 1]) / 0.2, 0, 1))
     SH = G + NR * off[:, None]
+    # Le corps ne marque pas le tissu : dans chaque tranche horizontale du buste, le maillot
+    # passe en pont par-dessus les creux (enveloppe convexe : entre les pectoraux, sillon des
+    # abdos, colonne), puis le rayon est lissé largement (les pointes — tétons, omoplates —
+    # s'arrondissent). La peau dessous est cachée, le tissu peut donc la frôler.
+    TS = np.array([v for v in np.nonzero(shirt)[0] if armW[v] < 0.5 and HEM - 0.02 < G[v, 1] < shY - 0.02])
+    if len(TS):
+        Q = SH[TS].copy()
+        cx = np.full(len(Q), JR['pelvis'][0])
+        ang = np.arctan2(Q[:, 2], Q[:, 0] - cx); rad = np.hypot(Q[:, 0] - cx, Q[:, 2])
+        hr = rad.copy()
+        for y0 in np.unique(np.round(Q[:, 1] / 0.012)):
+            m = np.nonzero(np.abs(Q[:, 1] / 0.012 - y0) <= 1.0)[0]
+            if len(m) < 4: continue
+            H = hull2d(np.stack([Q[m, 0] - cx[m], Q[m, 2]], 1))
+            mine = m[np.round(Q[m, 1] / 0.012) == y0]
+            for i in mine: hr[i] = max(rad[i], ray_poly(ang[i], H))
+        da = np.angle(np.exp(1j * (ang[:, None] - ang[None, :])))
+        d2 = (Q[:, None, 1] - Q[None, :, 1]) ** 2 + (da * 0.15) ** 2
+        Wt = np.exp(-d2 / (2 * 0.035 ** 2))
+        rs = (Wt @ hr) / Wt.sum(1) + 0.003
+        k = rs / np.maximum(rad, 1e-6)
+        SH[TS, 0] = cx + (Q[:, 0] - cx) * k; SH[TS, 2] = Q[:, 2] * k
     # Tombé du tissu : sous la poitrine et les omoplates, le maillot pend presque droit (il ne
     # suit plus le creux de la taille ni les abdominaux) — rayon « tenu » par le point le plus
     # saillant au-dessus, qui ne rentre que lentement vers le bas.
     torso = np.array([v for v in np.nonzero(shirt)[0] if armW[v] < 0.5 and G[v, 1] < shY - 0.05])
     if len(torso):
         P = SH[torso]
-        cx = np.array([SH[torso[np.abs(P[:, 1] - y) < 0.03], 0].mean() for y in P[:, 1]])
-        ang = np.arctan2(P[:, 2], P[:, 0] - cx)
-        rad = np.hypot(P[:, 0] - cx, P[:, 2])
-        NB_ = 36; bins = ((ang + np.pi) / (2 * np.pi) * NB_).astype(int) % NB_
-        newr = rad.copy()
-        for b in range(NB_):
-            idx = np.nonzero(bins == b)[0]
-            idx = idx[np.argsort(-P[idx, 1])]
-            hold, yh = 0.0, None
-            for i in idx:
-                if yh is not None: hold -= 0.1 * (yh - P[i, 1])
-                hold = max(hold, rad[i]); yh = P[i, 1]
-                newr[i] = rad[i] + (hold - rad[i]) * 0.85
-        k = newr / np.maximum(rad, 1e-6)
-        SH[torso, 0] = cx + (P[:, 0] - cx) * k
-        SH[torso, 2] = P[:, 2] * k
-    # Poitrine : le tissu passe à plat (moyenne large, ~4 cm) — aucun relief de pectoraux ni
-    # de tétons sous le maillot. La peau dessous est cachée, le tissu peut donc la frôler.
-    CH = np.array([v for v in np.nonzero(shirt)[0] if armW[v] < 0.5 and shY - 0.34 < G[v, 1] < shY - 0.02 and G[v, 0] > JR['pelvis'][0]])
-    if len(CH):
-        Q = SH[CH]
-        d2 = (Q[:, None, 1] - Q[None, :, 1]) ** 2 + (Q[:, None, 2] - Q[None, :, 2]) ** 2
-        Wt = np.exp(-d2 / (2 * 0.04 ** 2))
-        xs = (Wt @ Q[:, 0]) / Wt.sum(1)
-        SH[CH, 0] = xs + 0.012
+        cx = np.full(len(P), JR['pelvis'][0])   # axe fixe du buste
+        # Devant et dos : par bande verticale de 2 cm (position latérale z), la profondeur du
+        # tissu est « tenue » depuis le point le plus saillant au-dessus (pectoraux, omoplates).
+        dep = P[:, 0] - cx; front = dep > 0
+        newd = dep.copy()
+        for fr in (True, False):
+            sg = 1 if fr else -1
+            for zb in np.unique(np.round(P[:, 2] / 0.02)):
+                idx = np.nonzero((front == fr) & (np.round(P[:, 2] / 0.02) == zb))[0]
+                idx = idx[np.argsort(-P[idx, 1])]
+                hold, yh = 0.0, None
+                for i in idx:
+                    if yh is not None: hold -= 0.08 * (yh - P[i, 1])
+                    hold = max(hold, sg * dep[i]); yh = P[i, 1]
+                    newd[i] = sg * hold
+        SH[torso, 0] = cx + newd
     SH = smooth_region(SH, SHIRT_ALL, 22, 0.5)
     # Bords (col, ourlets) : lissés le long de leur contour (plus de dents de scie).
     for _ in range(12):
@@ -508,8 +547,8 @@ def part_positions(X):
         SH = nxt
     # Le lissage rétrécit les cylindres (bras) : le tissu reste toujours au-dessus de la peau.
     d = ((SH - G) * NR).sum(1)
-    lo = np.where(armW >= 0.5, 0.02, 0.014)
-    if len(CH): lo[CH] = -0.03
+    lo = np.where(armW >= 0.5, 0.012, 0.004)
+    if len(TS): lo[TS] = -0.03
     SH += NR * np.maximum(0, lo - d)[:, None]
     # Bout des manches : coupe nette, perpendiculaire au bras (plus d'escalier de facettes).
     for sd in 'LR':
