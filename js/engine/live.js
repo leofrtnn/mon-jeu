@@ -55,7 +55,7 @@ const TUNE = {   // calibré en TEMPS RÉEL (horloge 1) : ~2,8 buts, ~28 tirs, ~
   lossW: 6,         // coût de la perte de balle dans le choix des passes
   tackleRate: 0.65,    // fréquence des tentatives de tacle
   foulP: 0.088,        // part des tentatives de tacle qui finissent en faute
-  xg: 0.62,          // échelle du modèle d'xG géométrique
+  xg: 0.65,          // échelle du modèle d'xG géométrique
   takeonW: 0.3,       // attrait du crochet / débordement
   hold: 1.6,            // temps de réflexion avant de jouer le ballon (×)
   recv: 3.2,            // temps de contrôle à la réception (×)
