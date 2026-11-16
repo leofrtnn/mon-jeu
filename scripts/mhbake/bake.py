@@ -221,7 +221,7 @@ rrN = np.sqrt((G0[:, 0] - NX) ** 2 + G0[:, 2] ** 2)
 shirt = isBody & (ys > HEM) & ((ys < COLLAR) | ((rrN > 0.088) & (ys < neckY + 0.03))) & (headW < 0.5) & (foreW < 0.35) & ((armW < 0.5) | (armDrop < SLEEVE)) & (legW < 0.6)
 sleeveV = shirt & (armW >= 0.5)
 shorts = isBody & (ys < WAIST) & (ys > SHORT_END) & (armW < 0.05) & ~shirt | (isBody & (ys < WAIST) & (ys > SHORT_END) & (armW < 0.05) & (ys < HEM + 0.04))
-socks = isBody & (ys < SOCK_TOP) & (ys > BOOT_TOP - 0.01) & (legW > 0.5)
+socks = isBody & (ys < SOCK_TOP) & (ys > BOOT_TOP - 0.035) & (legW > 0.5)   # la chaussette descend dans la chaussure (pas de jour au col)
 boots = isBody & (ys < BOOT_TOP) & (legW > 0.5)
 print('régions : maillot', shirt.sum(), 'manches', sleeveV.sum(), 'short', shorts.sum(), 'chaussettes', socks.sum(), 'crampons', boots.sum())
 
@@ -568,10 +568,26 @@ def part_positions(X):
             nb = [[loc[u] for u in NB[v] if u in loc] for v in src]
             fixed = np.array([any(not boots[u] for u in NB[v]) for v in src])
             Q = G[src].copy()
+            # Forme de chaussure : dans chaque tranche horizontale, le cuir passe en pont
+            # par-dessus les creux entre les orteils (enveloppe convexe), puis lissage.
+            for neg in (True, False):
+                side = np.nonzero(((Q[:, 2] < 0) == neg) & (Q[:, 1] < 0.05))[0]   # avant du pied seulement
+                if not len(side): continue
+                for y0 in np.unique(np.round(Q[side, 1] / 0.008)):
+                    m = side[np.abs(Q[side, 1] / 0.008 - y0) <= 1.0]
+                    if len(m) < 4: continue
+                    c = Q[m][:, [0, 2]].mean(0)
+                    H = hull2d(Q[m][:, [0, 2]] - c)
+                    mine = m[np.round(Q[m, 1] / 0.008) == y0]
+                    for i in mine:
+                        d = Q[i, [0, 2]] - c; r = np.linalg.norm(d)
+                        if r < 1e-6: continue
+                        R = ray_poly(np.arctan2(d[1], d[0]), H)
+                        if R > r: Q[i, [0, 2]] = c + d / r * R
             for _ in range(30):
                 M = np.array([Q[n].mean(0) if n else Q[i] for i, n in enumerate(nb)])
                 Q = np.where(fixed[:, None], Q, 0.45 * Q + 0.55 * M)
-            Q += NR[src] * 0.016
+            Q += NR[src] * 0.01
             Q[:, 1] = np.maximum(Q[:, 1], 0.004)
             P = Q
         if pname == 'shorts':

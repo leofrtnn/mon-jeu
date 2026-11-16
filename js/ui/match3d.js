@@ -934,6 +934,25 @@ export class Player3D {
       this.body.rotation.z = -0.18 * ready;
       this.body.position.y = -0.06 * ready;
       if (p.gk && ctx.ballNear) for (const a of this.arms) { a.sh.rotation.x = -a.sgn * 0.75; a.sh.rotation.z = -0.3; a.el.rotation.z = 0.5; }
+      // Vie à l'arrêt : respiration (plus ample quand il est fatigué), transfert d'appui d'une
+      // jambe sur l'autre, tête qui balaie le jeu ; près du ballon, en alerte sur la pointe des pieds.
+      if (!(p.kick > 0) && !(p.celeb > 0) && !(p.fall > 0) && !(p.slide > 0) && !(p.hurt > 0)) {
+        const t = performance.now() / 1000 + (p.id ?? 0) * 1.37;
+        const tired = Math.max(0, Math.min(1, (70 - (p.mp?.energy ?? p.energy ?? 90)) / 40));
+        const br = Math.sin(t * (1.5 + tired * 1.6));
+        this.upper.rotation.z += br * (0.014 + tired * 0.03);
+        for (const a of this.arms) a.sh.rotation.z += br * 0.025;
+        const ws = Math.sin(t * 0.42);
+        this.body.rotation.x += ws * 0.035;
+        (ws > 0 ? lL : lR).knee.rotation.z -= Math.abs(ws) * 0.12;
+        if (ctx.ballAng == null) this.headPivot.rotation.y = Math.sin(t * 0.33) * 0.5;
+        if (ctx.alert && !p.gk) {
+          lL.knee.rotation.z = lR.knee.rotation.z = -0.32; lL.hip.rotation.z = lR.hip.rotation.z = 0.2;
+          this.body.rotation.z = -0.14;
+          this.body.position.y = -0.05 + Math.abs(Math.sin(t * 6.5)) * 0.018;
+          for (const a of this.arms) { a.sh.rotation.x = -a.sgn * 0.22; a.el.rotation.z = 0.55; }
+        }
+      }
     }
     // Conduite de balle : la jambe qui est devant dans la foulée va chercher le ballon (intérieur,
     // extérieur ou cou-de-pied), pointe du pied vers le bas, puis repart dans la course.
@@ -2661,7 +2680,7 @@ export class Match3D {
         if (dx * dx + dy * dy < 1.69) { const rel = Math.atan2(dy, dx) - (p.face || 0); jostle = Math.sin(rel) > 0 ? 1 : -1; grab = Math.cos(rel) < 0.35 && (isCar || dB < 2) ? jostle : 0; break; }
       }
       const ballAng = dB < 45 ? Math.atan2((v.ball.y - p.y) * W, (v.ball.x - p.x) * L) : null;
-      e.p3.pose(p, flip, { dt: dt || 0.016, ballAng, jostle, ballNear: p.gk && dB < 30, restFar: dB > 28 && !isCar, shield: isCar && !v.inHands && (p.shieldK || 0) > 0, holding: isCar && v.inHands && p.gk });
+      e.p3.pose(p, flip, { dt: dt || 0.016, ballAng, jostle, ballNear: p.gk && dB < 30, alert: dB < 14 && !isCar && !v.restart, restFar: dB > 28 && !isCar, shield: isCar && !v.inHands && (p.shieldK || 0) > 0, holding: isCar && v.inHands && p.gk });
       e.p3.smoothPose(dt || 0.016);
       if (e.cloth) this.updateCloth(e.cloth, p, grab, dt || 0.016);
       // Gestes au sol : après le lissage, le point le plus bas du corps est reposé sur la pelouse.
