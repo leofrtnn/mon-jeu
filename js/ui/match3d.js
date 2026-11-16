@@ -46,13 +46,25 @@ function mergeBoxes(list) {
 
 /** Texture du terrain : bandes de tonte et lignes réglementaires. */
 function pitchTexture(maxAniso) {
-  const PAD = 5, S = 18; // pixels par mètre
+  const PAD = 5, S = 20; // pixels par mètre
   const tex = canvasTex((L + PAD * 2) * S, (W + PAD * 2) * S, (g, cw, ch) => {
-    g.fillStyle = '#2e7d45'; g.fillRect(0, 0, cw, ch);
-    const n = 18;
-    for (let i = 0; i < n; i++) { g.fillStyle = i % 2 ? '#338a4c' : '#2c7a43'; g.fillRect(PAD * S + (i * L * S) / n, 0, (L * S) / n + 1, ch); }
+    // Pelouse hybride d'un grand stade : vert vif et jaune au soleil, tondue en bandes fines.
+    g.fillStyle = '#5f8f33'; g.fillRect(0, 0, cw, ch);
+    let seed0 = 11;
+    const r0 = () => ((seed0 = (seed0 * 16807) % 2147483647) / 2147483647);
+    // Grandes nuances (l'herbe n'est jamais d'un vert uniforme).
+    for (let i = 0; i < 160; i++) {
+      const x = r0() * cw, y = r0() * ch, rad = (6 + r0() * 16) * S;
+      const rg = g.createRadialGradient(x, y, 0, x, y, rad);
+      const c = r0() < 0.5 ? '128,150,58' : '52,92,36';
+      rg.addColorStop(0, `rgba(${c},.16)`); rg.addColorStop(1, `rgba(${c},0)`);
+      g.fillStyle = rg; g.fillRect(x - rad, y - rad, rad * 2, rad * 2);
+    }
+    // Bandes de tonte (12 de chaque côté du rond central, comme sur les pelouses de Ligue 1).
+    const n = 24;
+    for (let i = 0; i < n; i++) { g.fillStyle = i % 2 ? 'rgba(255,250,200,.038)' : 'rgba(0,30,0,.038)'; g.fillRect(PAD * S + (i * L * S) / n, PAD * S, (L * S) / n + 1, W * S); }
     const X = (m) => (PAD + m) * S, Y = (m) => (PAD + m) * S;
-    g.strokeStyle = 'rgba(255,255,255,.92)'; g.lineWidth = 0.14 * S; g.fillStyle = 'rgba(255,255,255,.92)';
+    g.strokeStyle = 'rgba(250,252,246,.9)'; g.lineWidth = 0.12 * S; g.fillStyle = 'rgba(250,252,246,.9)';
     g.strokeRect(X(0), Y(0), L * S, W * S);
     g.beginPath(); g.moveTo(X(L / 2), Y(0)); g.lineTo(X(L / 2), Y(W)); g.stroke();
     g.beginPath(); g.arc(X(L / 2), Y(W / 2), 9.15 * S, 0, Math.PI * 2); g.stroke();
@@ -76,19 +88,42 @@ function pitchTexture(maxAniso) {
     let seed = 7;
     const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
     g.lineWidth = 1;
-    for (let i = 0; i < 26000; i++) {
+    for (let i = 0; i < 30000; i++) {
       const x = rnd() * cw, y = rnd() * ch;
-      g.strokeStyle = rnd() < 0.5 ? 'rgba(255,255,255,.045)' : 'rgba(0,0,0,.06)';
+      g.strokeStyle = rnd() < 0.5 ? 'rgba(220,255,160,.05)' : 'rgba(0,20,0,.07)';
       g.beginPath(); g.moveTo(x, y); g.lineTo(x + (rnd() - 0.5) * 3, y - 2 - rnd() * 3); g.stroke();
     }
-    for (const gx of [X(5), X(L - 5)]) {
-      const rg = g.createRadialGradient(gx, Y(W / 2), 0, gx, Y(W / 2), 9 * S);
-      rg.addColorStop(0, 'rgba(120,96,50,.22)'); rg.addColorStop(1, 'rgba(120,96,50,0)');
-      g.fillStyle = rg; g.fillRect(gx - 9 * S, Y(W / 2) - 9 * S, 18 * S, 18 * S);
-    }
+    // Usure : surface de but (gardiens), point de penalty et rond central plus fatigués.
+    const wear = (x, y, rad, a) => {
+      const rg = g.createRadialGradient(X(x), Y(y), 0, X(x), Y(y), rad * S);
+      rg.addColorStop(0, `rgba(150,130,70,${a})`); rg.addColorStop(1, 'rgba(150,130,70,0)');
+      g.fillStyle = rg; g.fillRect(X(x) - rad * S, Y(y) - rad * S, rad * 2 * S, rad * 2 * S);
+    };
+    for (const gx of [3, L - 3]) { wear(gx, W / 2, 6, 0.2); wear(gx, W / 2 - 2.5, 2.5, 0.12); wear(gx, W / 2 + 2.5, 2.5, 0.12); }
+    wear(11, W / 2, 1.6, 0.18); wear(L - 11, W / 2, 1.6, 0.18); wear(L / 2, W / 2, 3, 0.08);
   });
   tex.anisotropy = maxAniso;
   return { tex, w: L + PAD * 2, h: W + PAD * 2 };
+}
+
+/**
+ * Grain de l'herbe vu de près (texture répétée tous les ~1,5 m) : multiplié à la texture du
+ * terrain dans le shader, il évite l'aspect « moquette lisse » quand la caméra s'approche.
+ */
+function grassDetailTexture() {
+  const t = canvasTex(256, 256, (g, w, h) => {
+    g.fillStyle = '#808080'; g.fillRect(0, 0, w, h);
+    let seed = 3;
+    const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    for (let i = 0; i < 9000; i++) {
+      const x = rnd() * w, y = rnd() * h, v = 90 + rnd() * 80 | 0;
+      g.strokeStyle = `rgb(${v},${v},${v})`; g.lineWidth = 1;
+      g.beginPath(); g.moveTo(x, y); g.lineTo(x + (rnd() - 0.5) * 2, y - 2 - rnd() * 4); g.stroke();
+    }
+  });
+  t.colorSpace = THREE.NoColorSpace;
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  return t;
 }
 
 /** Foule : points colorés (couleurs des deux clubs dominantes). */
@@ -120,19 +155,42 @@ function crowdTexture(c1, c2) {
   });
 }
 
-function boardsTexture(names) {
-  return canvasTex(2048, 64, (g, w, h) => {
-    const cols = ['#0b3d91', '#c1121f', '#111', '#f4a261', '#2a9d8f', '#6a4c93'];
-    const words = ['COACH DE POCHE', ...names, 'FAIR PLAY', 'RESPECT'];
-    let x = 0, i = 0;
-    while (x < w) {
-      const t = words[i % words.length];
-      g.fillStyle = cols[i % cols.length]; g.fillRect(x, 0, 340, h);
-      g.fillStyle = '#fff'; g.font = '800 34px system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
-      g.fillText(t.toUpperCase().slice(0, 18), x + 170, h / 2 + 2);
-      x += 340; i++;
+/**
+ * Panneaux LED (marques fictives) : fond sombre ou dégradé, pastille-logo et texte lumineux,
+ * comme les bandeaux d'un stade moderne. Pas d'effet de tonalité : ils restent éclatants.
+ */
+function boardsTexture(names, clubCols = []) {
+  const brands = ['COACH DE POCHE', ...SPONSORS.slice(0, 9), ...names, 'FAIR PLAY'];
+  const styles = [
+    { bg: ['#0b1e4d', '#123a8a'], fg: '#ffffff', ac: '#ffcc33' },
+    { bg: ['#1a0b33', '#3b1670'], fg: '#ffffff', ac: '#ff4fa8' },
+    { bg: ['#06232a', '#0b5160'], fg: '#e9fffb', ac: '#2ee6c5' },
+    { bg: ['#2a0707', '#8a1414'], fg: '#ffffff', ac: '#ffd166' },
+    { bg: ['#101418', '#20262e'], fg: '#ffffff', ac: '#9be15d' },
+    { bg: ['#f5f7fa', '#dfe5ec'], fg: '#0b1e4d', ac: '#e63946' },
+  ];
+  if (clubCols[0]) styles.push({ bg: [clubCols[0], clubCols[0]], fg: clubCols[1] || '#fff', ac: clubCols[1] || '#fff' });
+  const t = canvasTex(4096, 96, (g, w, h) => {
+    const seg = 300;
+    for (let x = 0, i = 0; x < w; x += seg, i++) {
+      const st = styles[(i * 5) % styles.length], word = brands[(i * 7) % brands.length].toUpperCase().slice(0, 16);
+      const gr = g.createLinearGradient(x, 0, x + seg, h); gr.addColorStop(0, st.bg[0]); gr.addColorStop(1, st.bg[1]);
+      g.fillStyle = gr; g.fillRect(x, 0, seg, h);
+      // Pastille-logo (forme géométrique simple) puis le nom.
+      g.fillStyle = st.ac;
+      const lx = x + 34, ly = h / 2;
+      if (i % 3 === 0) { g.beginPath(); g.arc(lx, ly, 17, 0, Math.PI * 2); g.fill(); }
+      else if (i % 3 === 1) { g.beginPath(); g.moveTo(lx - 18, ly + 15); g.lineTo(lx, ly - 18); g.lineTo(lx + 18, ly + 15); g.closePath(); g.fill(); }
+      else g.fillRect(lx - 16, ly - 16, 32, 32);
+      g.fillStyle = st.fg; g.font = `900 ${word.length > 12 ? 28 : 36}px system-ui, "Arial Black", sans-serif`; g.textAlign = 'left'; g.textBaseline = 'middle';
+      g.fillText(word, x + 62, h / 2 + 2, seg - 74);
+      // Lignes de pixels LED (très légères) et liseré.
+      g.fillStyle = 'rgba(0,0,0,.10)'; for (let y = 0; y < h; y += 3) g.fillRect(x, y, seg, 1);
+      g.fillStyle = 'rgba(255,255,255,.18)'; g.fillRect(x, 0, seg, 2);
     }
   });
+  t.wrapS = THREE.RepeatWrapping;
+  return t;
 }
 
 function netTexture() {
@@ -1362,7 +1420,8 @@ export class Match3D {
     this.rim.position.set(35, 30, -70);
     this.scene.add(this.rim);
     this.buildStadium();
-    this.applyConditions(view.m.weather);
+    // (Captures de test : météo imposée.)
+    this.applyConditions(globalThis.__cdpWx ? { ...(view.m.weather || {}), ...globalThis.__cdpWx } : view.m.weather);
     // Match de nuit en Ultra (ordinateur) : halo des projecteurs (post-traitement « bloom »).
     if (view.m.weather?.night && this.gfx === 'ultra' && !this.mobile) this.initBloom();
     this.buildBall();
@@ -1413,16 +1472,26 @@ export class Match3D {
     const s = this.scene;
     const pt = pitchTexture(this.renderer.capabilities.getMaxAnisotropy());
     this.pitchMat = new THREE.MeshLambertMaterial({ map: pt.tex });
+    {
+      const det = grassDetailTexture(), rep = new THREE.Vector2(pt.w / 1.6, pt.h / 1.6);
+      this.pitchMat.onBeforeCompile = (sh) => {
+        sh.uniforms.uDetail = { value: det }; sh.uniforms.uRep = { value: rep };
+        sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform sampler2D uDetail; uniform vec2 uRep;')
+          .replace('#include <map_fragment>', '#include <map_fragment>\n#ifdef USE_MAP\n  diffuseColor.rgb *= 0.72 + 0.56 * texture2D(uDetail, vMapUv * uRep).r;\n#endif');
+      };
+    }
     const pitch = new THREE.Mesh(new THREE.PlaneGeometry(pt.w, pt.h), this.pitchMat);
     pitch.rotation.x = -Math.PI / 2;
     pitch.receiveShadow = true;
     s.add(pitch);
-    const apron = new THREE.Mesh(new THREE.PlaneGeometry(170, 130), new THREE.MeshLambertMaterial({ color: '#24603a' }));
+    const apron = new THREE.Mesh(new THREE.PlaneGeometry(170, 130), new THREE.MeshLambertMaterial({ color: '#4f7c2c' }));
+    apron.receiveShadow = true;
     apron.rotation.x = -Math.PI / 2; apron.position.y = -0.02;
     s.add(apron);
     // Panneaux publicitaires.
     const [h, a] = this.v.m.teams.map((t) => t.club);
-    const boards = new THREE.MeshBasicMaterial({ map: boardsTexture([h.name, a.name]) });
+    const boards = new THREE.MeshBasicMaterial({ map: boardsTexture([h.short || h.name, a.short || a.name], [h.color, h.color2]), toneMapped: false });
+    this.boardsMat = boards;
     for (const z of [-W / 2 - 4, W / 2 + 4]) {
       const b = new THREE.Mesh(new THREE.BoxGeometry(L + 6, 1, 0.2), boards);
       b.position.set(0, 0.5, z); s.add(b);
@@ -1432,7 +1501,7 @@ export class Match3D {
       b.position.set(x, 0.5, 0); s.add(b);
     }
     // Tribunes : vraie enceinte à deux étages (gradins en marches, sièges, spectateurs 3D).
-    const ledMat = new THREE.MeshBasicMaterial({ map: boardsTexture([h.name, a.name]), color: '#ffffff' });
+    const ledMat = new THREE.MeshBasicMaterial({ map: boardsTexture([h.short || h.name, a.short || a.name], [h.color, h.color2]), color: '#ffffff', toneMapped: false });
     this.buildBowl(h, a, ledMat);
     // Bancs de touche (abris transparents) côté caméra, et zone technique.
     const glass = new THREE.MeshLambertMaterial({ color: '#9fc3e6', transparent: true, opacity: 0.35 });
@@ -1515,7 +1584,7 @@ export class Match3D {
   buildBowl(h, a, ledMat) {
     const s = this.scene;
     const coarse = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
-    const SP = coarse ? 1.05 : 0.8;                  // espacement des sièges (m)
+    const SP = coarse ? 0.95 : 0.66;                 // espacement des sièges (m)
     const ST = this.stadium = (typeof window !== 'undefined' && window.__stadiumIdx != null && STADIUMS[window.__stadiumIdx]) || stadiumFor(h);
     const concrete = new THREE.MeshLambertMaterial({ color: ST.conc || '#8b9099' });
     const concreteD = new THREE.MeshLambertMaterial({ color: ST.facade || '#4a505b' });
@@ -1529,7 +1598,7 @@ export class Match3D {
     const seatCol = ST.seat ? new THREE.Color(ST.seat) : darken(h.color, 0.55), seatCol2 = new THREE.Color('#3c4350');
     const tarp = new THREE.Color('#14171c'); // bâches de la zone tampon du parcage
     const skins = ['#f1c9a5', '#e0b28a', '#c68f63', '#a0673f', '#6e4429', '#f3d2b5'].map((c) => new THREE.Color(c));
-    const others = ['#e8e8e8', '#20242c', '#5d6b85', '#8b2d2d', '#2f5d3a', '#c9b38a'].map((c) => new THREE.Color(c));
+    const others = ['#e8e8e8', '#20242c', '#5d6b85', '#8b2d2d', '#2f5d3a', '#c9b38a', '#3b5998', '#b0b7c3', '#f2e8d5', '#7a5c3e', '#4a4f57', '#d9822b', '#6d8fb3', '#9a3b55'].map((c) => new THREE.Color(c));
     const cH = new THREE.Color(h.color), cH2 = new THREE.Color(h.color2 || '#ffffff');
     let cA = new THREE.Color(a.color), cA2 = new THREE.Color(a.color2 || '#ffffff');
     const cdist = (x, y) => Math.abs(x.r - y.r) + Math.abs(x.g - y.g) + Math.abs(x.b - y.b);
@@ -1564,6 +1633,8 @@ export class Match3D {
       return m;
     };
     const crowdBodyMat = crowdMat(false), crowdHeadMat = crowdMat(true);
+    // Bandeau du premier rang : même LED, séquence décalée (pas de doublon avec les panneaux).
+    const ribbonMat = ledMat.clone(); ribbonMat.map = ledMat.map.clone(); ribbonMat.map.offset.x = 0.41; ribbonMat.map.needsUpdate = true;
     this.crowdGroups = [];
     this.flags = [];
     /** Tiers : [rangs, profondeur, montée] ; le 2e étage commence après la coursive. */
@@ -1624,6 +1695,8 @@ export class Match3D {
       }
       // Muret devant le premier rang + escaliers d'accès (bandes claires).
       const wall = new THREE.Mesh(new THREE.BoxGeometry(len, 1.3, 0.3), concreteD); wall.position.set(0, 0.65, dist - 0.45); g.add(wall);
+      // Bandeau LED sur le muret du premier rang (face au terrain).
+      const ribbon = new THREE.Mesh(new THREE.PlaneGeometry(len, 0.95), ribbonMat); ribbon.position.set(0, 0.72, dist - 0.62); ribbon.rotation.y = Math.PI; g.add(ribbon);
       // Sièges et spectateurs.
       const nPer = Math.floor(len / SP);
       const slots = [];
@@ -1656,7 +1729,9 @@ export class Match3D {
       fans.forEach((sl, i) => {
         const [x, yy, zz] = sl;
         const stand = rnd() < (inAway(x, sl[3]) ? 0.7 : 0.18) ? 0.12 : 0; // quelques supporters debout (tout le parcage)
-        M.makeTranslation(x, yy + stand, zz - 0.02); bodies.setMatrixAt(i, M); heads.setMatrixAt(i, M);
+        // Silhouettes variées (gabarit, léger décalage) : la foule ne fait pas « grille ».
+        const sc = 0.88 + rnd() * 0.26, jx = (rnd() - 0.5) * 0.12, jz = (rnd() - 0.5) * 0.1;
+        M.makeScale(0.9 + rnd() * 0.2, sc, 1).setPosition(x + jx, yy + stand, zz - 0.02 + jz); bodies.setMatrixAt(i, M); heads.setMatrixAt(i, M);
         const away = inAway(x, sl[3]);
         const r = rnd();
         const col = away ? (r < 0.8 ? cA : r < 0.93 ? cA2 : others[(rnd() * others.length) | 0])
@@ -1708,6 +1783,9 @@ export class Match3D {
           g.add(pole); this.flags.push({ pole, ph: k * 0.9 });
         }
       }
+      // Ombres : le toit et la façade ombragent les gradins (et les spectateurs) au soleil.
+      g.traverse((o) => { if (o.isMesh) o.receiveShadow = true; });
+      for (const o of g.children) if (o.isMesh && (o.material === roofUnder || o.material === concreteD || o.material === steel)) o.castShadow = true;
       s.add(g);
       return g;
     };
@@ -1748,7 +1826,22 @@ export class Match3D {
     const fogC = night ? '#141d33' : grey ? '#9aa2ad' : '#b9d3ee';
     this.scene.fog = new THREE.Fog(fogC, w.kind === 'fog' ? 45 : w.kind === 'storm' ? 90 : 150, w.kind === 'fog' ? 140 : w.kind === 'storm' ? 200 : 280);
     if (this.rim) { this.rim.intensity = night ? 0.95 : grey ? 0.35 : 0.55; this.rim.color.set(night ? '#cfe0ff' : '#d6e4ff'); } // projecteurs : contre-jour plus franc la nuit
-    if (!night) { this.sun.intensity = grey ? 0.9 : 1.9; this.sun.color.set(grey ? '#e6ebf2' : '#fff4dc'); this.hemi.intensity = grey ? 1.0 : 1.25; for (const g of this.glows || []) g.visible = false; }
+    if (!night) { this.sun.intensity = grey ? 0.9 : 2.3; this.sun.color.set(grey ? '#e6ebf2' : '#fff1d6'); this.hemi.intensity = grey ? 1.0 : 0.95; for (const g of this.glows || []) g.visible = false; }
+    // Plein soleil : la tribune derrière la caméra (retirée de l'image, comme à la télé) projette
+    // sa grande ombre sur la moitié du terrain ; le soleil vient de derrière elle, un peu de côté.
+    if (!night && !grey && this.renderer.shadowMap.enabled) {
+      this.sun.position.set(-62, 50, 66);
+      Object.assign(this.sun.shadow.camera, { left: -110, right: 110, top: 95, bottom: -95, near: 10, far: 300 });
+      this.sun.shadow.camera.updateProjectionMatrix();
+      this.sun.shadow.bias = -0.0004;
+      const ghostM = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false });
+      const ghost = new THREE.Group();
+      const body = new THREE.Mesh(new THREE.BoxGeometry(L + 40, 24, 18), ghostM); body.position.set(0, 12, W / 2 + 22);
+      const roof = new THREE.Mesh(new THREE.BoxGeometry(L + 40, 1.2, 16), ghostM); roof.position.set(0, 29, W / 2 + 15);
+      for (const m of [body, roof]) { m.castShadow = true; ghost.add(m); }
+      ghost.rotation.y = 0.1; ghost.position.x = 6; // tribune légèrement en biais : ombre en diagonale
+      this.scene.add(ghost);
+    }
     else { this.sun.intensity = 1.1; this.hemi.intensity = 1.05; }
     if (['rain', 'storm', 'snow'].includes(w.kind) && this.pitchMat) this.pitchMat.color.set(w.kind === 'snow' ? '#f2f6f8' : '#c4cec6'); // pelouse détrempée / poudrée
     if (['rain', 'storm', 'snow'].includes(w.kind)) {
@@ -1915,7 +2008,7 @@ export class Match3D {
       if (want2 !== this._dirMode && nowT - (this._dirAt || 0) > (want2 === 'goal' ? 600 : 2600)) { this._dirMode = want2; this._dirAt = nowT; }
       mode = this._dirMode || 'tv';
     }
-    if (mode === 'tv') { want.set(Math.max(-36, Math.min(36, bx * 0.9)), 20, 54); look.set(bx * 0.97, 0, bz * 0.35 - 1); this.camera.fov = 27; }
+    if (mode === 'tv') { want.set(Math.max(-36, Math.min(36, bx * 0.9)), 25, 53); look.set(bx * 0.97, 0, bz * 0.35 - 3); this.camera.fov = 29; }
     else if (mode === 'pitchside') { want.set(Math.max(-48, Math.min(48, bx * 0.85)), 1.7, W / 2 + 3.2); look.set(bx, 1.1, bz); this.camera.fov = 42; }     // caméra à hauteur d'homme, au bord de la ligne
     else if (mode === 'tribune') { want.set(Math.max(-30, Math.min(30, bx * 0.6)), 34, 74); look.set(bx * 0.8, 0, bz * 0.25); this.camera.fov = 34; }  // tout en haut de la tribune principale
     else if (mode === 'player') {
