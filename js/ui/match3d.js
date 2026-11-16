@@ -941,6 +941,22 @@ const KIT_TEX = new Map();
  * Texture du maillot (enroulée autour du buste) : couleur et motif, col et bas de maillot
  * contrastés, coutures, plis du tissu, écusson sur le cœur.
  */
+/** Short : bande latérale (couleur du liseré) et ourlet ; u = 0 et u = 0,5 = côtés de la jambe. */
+const SHORTS_TEX = new Map();
+export function shortsTexture(c, trim) {
+  const key = `${c}|${trim}`;
+  if (SHORTS_TEX.has(key)) return SHORTS_TEX.get(key);
+  const tex = canvasTex(128, 64, (g, w, h) => {
+    g.fillStyle = c; g.fillRect(0, 0, w, h);
+    g.fillStyle = trim;
+    for (const u of [0, 0.5, 1]) g.fillRect(u * w - 4, 0, 8, h);
+    g.fillStyle = 'rgba(0,0,0,0.18)'; g.fillRect(0, 0, w, 5);               // ourlet du bas (tube : v = 0 en bas)
+    for (const u of [0.25, 0.75]) { const gr = g.createLinearGradient(u * w - 14, 0, u * w + 14, 0); gr.addColorStop(0, 'rgba(255,255,255,0)'); gr.addColorStop(0.5, 'rgba(255,255,255,0.06)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(u * w - 14, 0, 28, h); }
+  });
+  tex.wrapS = THREE.RepeatWrapping;
+  SHORTS_TEX.set(key, tex);
+  return tex;
+}
 /** Sponsors maillot (marques imaginaires) : un par club, stable. */
 const SPONSORS = ['NOVAMAX', 'ATLAS AIR', 'VELTA', 'ORIONBANK', 'KAIRO', 'LUMEN', 'TERRA', 'HELIX', 'ZENKO', 'MERIDIA', 'AURORA', 'POLARIS', 'VEXA', 'SOLARA', 'KESTREL', 'NORDIX', 'QUANTA', 'ALTIS', 'BRAVA', 'CIRRUS'];
 export const sponsorOf = (club) => SPONSORS[Math.abs(((club?.id ?? 7) * 2654435761) | 0) % SPONSORS.length];
@@ -1213,7 +1229,7 @@ export class Match3D {
       gkSleeve: new THREE.MeshStandardMaterial({ color: v.gkColors[side], roughness: 0.78 }),
       // Gardien : maillot uni à sa couleur, avec sponsor et écusson.
       gk: new THREE.MeshStandardMaterial({ color: '#ffffff', map: kitTexture(v.gkColors[side], '#111111', 'plain', sponsorOf(v.m.teams[side]?.club)), roughness: 0.78 }),
-      shorts: new THREE.MeshStandardMaterial({ color: v.shorts[side], roughness: 0.72 }),
+      shorts: new THREE.MeshStandardMaterial({ color: '#ffffff', map: shortsTexture(v.shorts[side], v.shorts[side].toLowerCase() === String(v.textColors[side]).toLowerCase() ? v.colors[side] : v.textColors[side]), roughness: 0.72 }),
       socks: new THREE.MeshStandardMaterial({ color: v.colors[side], roughness: 0.9 }),
       trim: new THREE.MeshStandardMaterial({ color: v.textColors[side], roughness: 0.7 }),
       sole: new THREE.MeshStandardMaterial({ color: '#e9e9e9', roughness: 0.5 }),
