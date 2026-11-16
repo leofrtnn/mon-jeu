@@ -911,7 +911,15 @@ export class Player3D {
     else this.headPivot.rotation.set(0, 0, 0);
     this.body.position.set(0, Math.abs(Math.sin(ph)) * (0.03 + 0.06 * run) * jog, 0);
     // Foulée réelle (capture de mouvement) dès que le joueur se déplace vers l'avant.
-    const G2 = sp >= 0.8 && !p.back ? gaitAt(sp, ph) : null;
+    // Pivot sur place : de petits pas (au lieu de tourner comme sur une plaque) ; marche lente :
+    // vraie foulée de marche à amplitude réduite (au lieu de glisser jambes immobiles).
+    const turning = sp < 0.8 && Math.abs(this._turn || 0) > 1.2 && !(p.kick > 0) && !(p.celeb > 0) && !(p.fall > 0) && !(p.slide > 0) && !(p.dive > 0);
+    if (turning) this._tph = (this._tph || 0) + dtp * Math.min(9, Math.abs(this._turn) * 2.4);
+    const G2 = (sp >= 0.35 || turning) && !p.back ? gaitAt(Math.max(sp, turning ? 1 : 0), turning ? this._tph : ph) : null;
+    if (G2 && (turning || sp < 0.8)) {
+      const amp = turning ? 0.55 : Math.max(0.35, sp / 0.8);
+      for (const key of ['hzL', 'hzR', 'kzL', 'kzR', 'szL', 'szR', 'twist', 'azL', 'azR', 'bob']) G2[GI[key]] *= amp;
+    }
     if (G2) {
       const g = (k) => G2[GI[k]];
       lL.hip.rotation.set(g('hxL'), 0, g('hzL')); lR.hip.rotation.set(-g('hxR'), 0, g('hzR'));
@@ -927,7 +935,7 @@ export class Player3D {
       this.body.position.y += Math.max(0, g('bob')) * K * 0.5;
     }
     // À l'arrêt : genoux souples ; le gardien se met en position d'attente quand le jeu approche.
-    if (sp < 0.8) {
+    if (sp < 0.8 && !G2) {
       const ready = p.gk && ctx.ballNear ? 1 : 0.25;
       lL.knee.rotation.z = lR.knee.rotation.z = -0.25 * ready - 0.08;
       lL.hip.rotation.z = lR.hip.rotation.z = 0.15 * ready;
