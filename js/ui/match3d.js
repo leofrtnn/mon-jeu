@@ -281,14 +281,14 @@ function geo() {
   // Profils anatomiques (tour de révolution) : rayon selon la hauteur.
   const lathe = (pts, seg = 16) => new THREE.LatheGeometry(pts.map(([r, y]) => new THREE.Vector2(r, y)), seg);
   // Maillot : bas qui flotte un peu par-dessus le short, taille, poitrine, épaules arrondies.
-  GEO.torsoA = lathe([[0.155, -0.07], [0.15, -0.03], [0.14, 0.04], [0.142, 0.1], [0.15, 0.18], [0.172, 0.3], [0.188, 0.42], [0.19, 0.5], [0.165, 0.57], [0.11, 0.615], [0.05, 0.63], [0.001, 0.632]], 24);
+  GEO.torsoA = lathe([[0.155, -0.07], [0.15, -0.03], [0.14, 0.04], [0.142, 0.1], [0.15, 0.18], [0.172, 0.3], [0.186, 0.4], [0.184, 0.46], [0.168, 0.52], [0.138, 0.57], [0.098, 0.605], [0.05, 0.625], [0.001, 0.63]], 24);
   // Coordonnées de texture selon la HAUTEUR (le motif et le sponsor ne sont pas déformés).
   { const pos = GEO.torsoA.attributes.position, uv = GEO.torsoA.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setY(i, (pos.getY(i) + 0.07) / 0.702); }
   // Jambe de short : tube évasé qui suit la cuisse (attaché à la hanche).
   // (tubes ouverts : points du bas vers le haut, pour que l'extérieur soit la face visible)
   GEO.shortLegA = lathe([[0.113, -0.222], [0.118, -0.215], [0.116, -0.17], [0.112, -0.08], [0.108, 0.0], [0.104, 0.05], [0.001, 0.06]], 16);
   // Manche courte : large à l'épaule, ourlet à mi-bras.
-  GEO.sleeveA = lathe([[0.064, -0.165], [0.068, -0.16], [0.07, -0.12], [0.074, -0.04], [0.072, 0.02], [0.05, 0.055], [0.001, 0.06]], 14);
+  GEO.sleeveA = lathe([[0.058, -0.165], [0.061, -0.16], [0.062, -0.12], [0.065, -0.05], [0.064, -0.01], [0.05, 0.022], [0.025, 0.032], [0.001, 0.034]], 14);
   // Visage : coque qui épouse l'avant du crâne (la photo ou le visage dessiné s'y enroule).
   GEO.faceShell = new THREE.SphereGeometry(0.1215, 28, 18, Math.PI - 1.05, 2.1, 0.5, 1.62);
   // Coiffures : arrière long, chignon, crête, tresses.
@@ -484,7 +484,7 @@ export class Player3D {
     // Buste en V (poitrine, dos, taille), épaules (deltoïdes), col ; fessiers sous le short.
     const torso = limb(this.body, G.torsoA, mats.shirt, 0.92);
     torso.scale.set(0.74, 1, 1.18);
-    for (const z of [-0.2, 0.2]) { const dl = limb(this.body, G.delt, mats.sleeve || mats.shirt, 1.445); dl.position.z = z; dl.scale.set(0.86, 0.78, 0.82); }
+    for (const z of [-0.2, 0.2]) { const dl = limb(this.body, G.delt, mats.sleeve || mats.shirt, 1.425); dl.position.z = z; dl.scale.set(0.78, 0.66, 0.74); }
     const collar = limb(this.body, G.collar, mats.trim || mats.shorts, 1.535); collar.rotation.x = Math.PI / 2; collar.scale.set(1.15, 1.25, 1);
     const shorts = limb(this.body, G.shortsA, mats.shorts, 0.97); shorts.scale.set(0.74, 1, 1.22);
     limb(this.body, G.neck, skinM, 1.56);
@@ -540,7 +540,7 @@ export class Player3D {
     this.arms = [-1, 1].map((sgn) => {
       const sh = new THREE.Group(); sh.position.set(0, 1.44, sgn * 0.25); this.body.add(sh);
       limb(sh, G.sleeveA, mats.sleeve || mats.shirt, 0);
-      const cuff = limb(sh, G.cuff, mats.trim || mats.shorts, -0.158); cuff.rotation.x = Math.PI / 2; cuff.scale.set(1.25, 1.25, 1);
+      const cuff = limb(sh, G.cuff, mats.trim || mats.shorts, -0.158); cuff.rotation.x = Math.PI / 2; cuff.scale.set(1.13, 1.13, 1);
       limb(sh, G.upperA, skinM, -0.01);
       const el = new THREE.Group(); el.position.y = -0.27; sh.add(el);
       limb(el, G.foreA, skinM, 0);
@@ -1826,7 +1826,7 @@ export class Match3D {
     const fogC = night ? '#141d33' : grey ? '#9aa2ad' : '#b9d3ee';
     this.scene.fog = new THREE.Fog(fogC, w.kind === 'fog' ? 45 : w.kind === 'storm' ? 90 : 150, w.kind === 'fog' ? 140 : w.kind === 'storm' ? 200 : 280);
     if (this.rim) { this.rim.intensity = night ? 0.95 : grey ? 0.35 : 0.55; this.rim.color.set(night ? '#cfe0ff' : '#d6e4ff'); } // projecteurs : contre-jour plus franc la nuit
-    if (!night) { this.sun.intensity = grey ? 0.9 : 2.3; this.sun.color.set(grey ? '#e6ebf2' : '#fff1d6'); this.hemi.intensity = grey ? 1.0 : 0.95; for (const g of this.glows || []) g.visible = false; }
+    if (!night) { this.sun.intensity = grey ? 0.9 : 2.6; this.sun.color.set(grey ? '#e6ebf2' : '#fff1d6'); this.hemi.intensity = grey ? 1.0 : 0.62; if (!grey) this.renderer.toneMappingExposure = 1.0; for (const g of this.glows || []) g.visible = false; }
     // Plein soleil : la tribune derrière la caméra (retirée de l'image, comme à la télé) projette
     // sa grande ombre sur la moitié du terrain ; le soleil vient de derrière elle, un peu de côté.
     if (!night && !grey && this.renderer.shadowMap.enabled) {
