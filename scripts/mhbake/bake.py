@@ -449,6 +449,9 @@ def smooth_region(P_full, region, iters, alpha):
 
 
 SHIRT_ALL = shirt | longSleeve
+EDGE_V = [v for v in np.nonzero(SHIRT_ALL)[0] if any(not SHIRT_ALL[u] for u in NB[v])]
+_es = set(EDGE_V)
+EDGE_NB = {v: [u for u in NB[v] if u in _es] for v in EDGE_V}
 
 
 def part_positions(X):
@@ -459,6 +462,13 @@ def part_positions(X):
     # d'abdominaux dessinés) ; le même champ sert au buste et aux manches (coutures jointives).
     off = np.where(armW >= 0.5, 0.017, 0.019 + 0.02 * np.clip((HEM + 0.2 - G[:, 1]) / 0.2, 0, 1))
     SH = smooth_region(G + NR * off[:, None], SHIRT_ALL, 10, 0.5)
+    # Bords (col, ourlets) : lissés le long de leur contour (plus de dents de scie).
+    for _ in range(12):
+        nxt = SH.copy()
+        for v in EDGE_V:
+            n = EDGE_NB[v]
+            if n: nxt[v] = 0.4 * SH[v] + 0.6 * SH[n].mean(0)
+        SH = nxt
     out = {}
     for pname, (src, offset) in PARTS:
         P = G[src] + (NR[src] * np.array([offset(v) for v in src])[:, None] if offset else 0)
