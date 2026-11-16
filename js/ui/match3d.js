@@ -1501,6 +1501,21 @@ export function proShortsTexture(c, trim, num = '', hi = true) {
   return tex;
 }
 
+/** Chaussettes : côtes du tricot, revers (bande) aux couleurs du club en haut. */
+export function proSocksTexture(c, band) {
+  const key = `socks|${c}|${band}`;
+  if (PRO_KIT.has(key)) return PRO_KIT.get(key);
+  const tex = canvasTex(128, 128, (g, w, h) => {
+    g.fillStyle = c; g.fillRect(0, 0, w, h);
+    g.fillStyle = 'rgba(0,0,0,.07)'; for (let x = 0; x < w; x += 4) g.fillRect(x, 0, 2, h);     // côtes
+    g.fillStyle = band; g.fillRect(0, 8, w, 9); g.fillRect(0, 22, w, 4);                       // revers
+    g.fillStyle = 'rgba(0,0,0,.18)'; g.fillRect(0, 0, w, 5);                                    // bord roulé
+  });
+  tex.wrapS = THREE.RepeatWrapping;
+  PRO_KIT.set(key, tex);
+  return tex;
+}
+
 /* ---------------- Coach en 3D (éditeur et bord du terrain) ---------------- */
 
 /** Apparence complète d'un coach (valeurs par défaut pour les anciens profils). */
@@ -2271,9 +2286,11 @@ export class Match3D {
         const shirtM = new THREE.MeshStandardMaterial({ color: '#ffffff', map: proKitTexture({ ...kitBase, num: p.num ?? '', name: p.mp?.p?.last || p.short || '' }), roughness: 0.76, metalness: 0.02 });
         const shC = p.gk ? '#20242c' : v.shorts[side];
         const shortsM = new THREE.MeshStandardMaterial({ color: '#ffffff', map: proShortsTexture(shC, shC.toLowerCase() === String(v.textColors[side]).toLowerCase() ? v.colors[side] : v.textColors[side], p.num ?? '', hi), roughness: 0.72 });
+        const sockC = p.gk ? v.gkColors[side] : v.colors[side];
+        const socksM = new THREE.MeshStandardMaterial({ color: '#ffffff', map: proSocksTexture(sockC, p.gk ? '#111111' : kit.c2), roughness: 0.85 });
         const sleeveM = (this._sleeveM ||= new Map()).get(JSON.stringify(kit)) || new THREE.MeshStandardMaterial({ color: '#ffffff', map: proKitTexture({ ...kitBase, sleeve: true }), roughness: 0.76 });
         this._sleeveM.set(JSON.stringify(kit), sleeveM);
-        e.mhOpts = { skin: lk.skin, hair: lk.hairColor, hairStyle: lk.hairStyle, beard: lk.beard, eyeTex, nat: p.mp?.p?.nat || '', mats: { ...mats, boot, shirt: shirtM, sleeve: sleeveM, shorts: shortsM }, gk: !!p.gk, heavy, slim, printed: true };
+        e.mhOpts = { skin: lk.skin, hair: lk.hairColor, hairStyle: lk.hairStyle, beard: lk.beard, eyeTex, nat: p.mp?.p?.nat || '', mats: { ...mats, boot, shirt: shirtM, sleeve: sleeveM, shorts: shortsM, socks: socksM }, gk: !!p.gk, heavy, slim, printed: true };
         if (this.mh) e.p3.attachMH(this.mh, e.mhOpts);
         this.players.set(id, e);
       }
