@@ -166,13 +166,59 @@ export const MAX_SUBS = 5;
 export const BENCH_SIZE = 9;
 
 /** Rôles individuels (consignes par poste) et leurs effets dans le moteur. */
+/**
+ * Rôles des joueurs (façon FM). fx : comportement dans les deux moteurs —
+ *  dIn / dOut : décalage de profondeur avec / sans ballon (fraction du terrain) ;
+ *  narrow : rentre dans l'axe avec ballon (0 = non, 1 = plein axe ; négatif = écarte) ;
+ *  shot, dribble, cross, long, pass : penchants avec le ballon ;
+ *  recv : attractivité comme receveur par zone [défense, construction, création, finition] ;
+ *  run : appels en profondeur (moteur en direct) ; air : cible des centres.
+ */
 export const ROLES = {
   std: { label: 'Standard', pos: null, desc: 'Comportement classique du poste.' },
-  meneur: { label: 'Meneur', pos: ['MC', 'MO', 'MDC'], desc: 'Aimante le ballon et cherche la passe vers l\'avant.' },
-  pivot: { label: 'Pivot', pos: ['MDC', 'MC'], desc: 'Reste devant la défense, sécurise la relance.' },
-  piston: { label: 'Piston', pos: ['DG', 'DD'], desc: 'Monte très haut et multiplie les centres.' },
-  renard: { label: 'Renard', pos: ['BU'], desc: 'Vit dans la surface, tire dès qu\'il peut.' },
-  pointe: { label: 'Pivot de pointe', pos: ['BU'], desc: 'Cible des centres et des longs ballons.' },
-  interieur: { label: 'Ailier intérieur', pos: ['AG', 'AD', 'MO'], desc: 'Repique dans l\'axe pour dribbler et frapper.' },
+  // Gardien
+  gk_libero: { label: 'Gardien libéro', pos: ['GB'], desc: 'Joue haut, couvre la profondeur et relance au pied.', fx: { dIn: 0.05, dOut: 0.03, long: 0.8, pass: 1.3 } },
+  // Défenseurs centraux
+  relanceur: { label: 'Défenseur relanceur', pos: ['DC'], desc: 'Casse les lignes par la passe dès la relance.', fx: { long: 1.35, pass: 1.25, recv: [1.4, 1, 1, 1] } },
+  stoppeur: { label: 'Stoppeur', pos: ['DC'], desc: 'Sort de sa ligne pour agresser l\'attaquant.', fx: { dOut: 0.035 } },
+  couvreur: { label: 'Couvreur', pos: ['DC'], desc: 'Reste en retrait pour couvrir l\'espace dans le dos.', fx: { dOut: -0.035, dIn: -0.02 } },
+  libero: { label: 'Libéro', pos: ['DC'], desc: 'Sort balle au pied et monte d\'un cran avec le ballon.', fx: { dIn: 0.08, dribble: 1.4, pass: 1.15 } },
+  // Latéraux
+  lat_def: { label: 'Latéral défensif', pos: ['DG', 'DD'], desc: 'Reste bas et sécurise son couloir.', fx: { dIn: -0.06, cross: 0.7 } },
+  piston: { label: 'Piston', pos: ['DG', 'DD'], desc: 'Monte très haut et multiplie les centres.', fx: { dIn: 0.1, cross: 1.5, narrow: -0.05 } },
+  lat_complet: { label: 'Latéral complet', pos: ['DG', 'DD'], desc: 'Couloir entier : déborde, centre, repique parfois.', fx: { dIn: 0.13, cross: 1.3, dribble: 1.25, narrow: -0.08 } },
+  lat_inv: { label: 'Latéral inversé', pos: ['DG', 'DD'], desc: 'Rentre dans l\'axe pour construire au milieu.', fx: { dIn: 0.03, narrow: 0.55, cross: 0.5, pass: 1.25, recv: [1, 1.4, 1, 1] } },
+  // Milieux défensifs
+  pivot: { label: 'Sentinelle', pos: ['MDC', 'MC'], desc: 'Reste devant la défense, sécurise la relance.', fx: { dIn: -0.04, dOut: -0.04, dribble: 0.6, shot: 0.5, recv: [1.5, 1.5, 0.6, 0.6] } },
+  demi_def: { label: 'Demi-défenseur', pos: ['MDC'], desc: 'Décroche entre les centraux pour lancer le jeu à trois.', fx: { dIn: -0.09, dOut: -0.03, pass: 1.2, shot: 0.4, recv: [1.8, 1.2, 0.5, 0.4] } },
+  recup: { label: 'Récupérateur', pos: ['MDC', 'MC'], desc: 'Harcèle le porteur et coupe les lignes de passe.', fx: { dOut: 0.04, dribble: 0.8, shot: 0.6 } },
+  regista: { label: 'Regista', pos: ['MDC', 'MC'], desc: 'Dicte le jeu de loin : longues passes et renversements.', fx: { dIn: -0.03, long: 1.5, pass: 1.3, recv: [1.4, 1.7, 0.8, 0.6] } },
+  volante: { label: 'Volante', pos: ['MDC'], desc: 'Part de loin et surgit à l\'entrée de la surface.', fx: { dIn: 0.1, shot: 1.35, run: 0.6 } },
+  // Milieux centraux
+  meneur: { label: 'Meneur reculé', pos: ['MC', 'MO', 'MDC'], desc: 'Décroche pour aimanter le ballon et jouer vers l\'avant.', fx: { dIn: -0.04, long: 1.2, pass: 1.25, recv: [1, 1.6, 1.6, 1] } },
+  b2b: { label: 'Box-to-box', pos: ['MC'], desc: 'Infatigable : défend dans sa surface, attaque l\'autre.', fx: { dIn: 0.06, dOut: -0.02, shot: 1.15, run: 0.5 } },
+  mezzala: { label: 'Mezzala', pos: ['MC'], desc: 'S\'écarte dans le demi-espace et attaque la surface.', fx: { dIn: 0.07, narrow: -0.35, dribble: 1.2, shot: 1.15, run: 0.6, recv: [1, 1, 1.4, 1.1] } },
+  carrilero: { label: 'Carrilero', pos: ['MC'], desc: 'Couvre le couloir et sécurise le côté du latéral.', fx: { dIn: -0.02, narrow: -0.25, dribble: 0.8, shot: 0.7, pass: 1.1 } },
+  // Milieux excentrés
+  mil_large: { label: 'Milieu travailleur', pos: ['MG', 'MD'], desc: 'Fait les efforts défensifs dans son couloir.', fx: { dOut: -0.04, dIn: -0.02, cross: 1.1 } },
+  mil_int: { label: 'Milieu intérieur', pos: ['MG', 'MD'], desc: 'Part du côté et rentre jouer entre les lignes.', fx: { narrow: 0.45, pass: 1.2, recv: [1, 1.2, 1.3, 1] } },
+  // Meneurs offensifs
+  trequartista: { label: 'Trequartista', pos: ['MO', 'BU'], desc: 'Libre, peu de défense : dribble et dernier geste.', fx: { dOut: 0.06, dribble: 1.3, shot: 1.1, pass: 1.15, recv: [0.8, 1, 1.6, 1.2] } },
+  enganche: { label: 'Enganche', pos: ['MO'], desc: 'Meneur à l\'ancienne : le jeu passe par lui.', fx: { dIn: -0.03, pass: 1.35, dribble: 0.9, recv: [1, 1.3, 1.7, 1] } },
+  ombre: { label: 'Attaquant de l\'ombre', pos: ['MO'], desc: 'Surgit dans la surface au départ du milieu.', fx: { dIn: 0.09, shot: 1.35, run: 0.8, recv: [0.8, 0.9, 1.2, 1.5] } },
+  // Ailiers
+  ailier: { label: 'Ailier débordeur', pos: ['AG', 'AD', 'MG', 'MD'], desc: 'Colle à la ligne, élimine et centre.', fx: { narrow: -0.12, cross: 1.45, dribble: 1.25, shot: 0.8 } },
+  interieur: { label: 'Ailier intérieur', pos: ['AG', 'AD', 'MO'], desc: 'Repique dans l\'axe pour dribbler et frapper.', fx: { narrow: 0.4, dribble: 1.3, shot: 1.3, cross: 0.5 } },
+  ailier_inv: { label: 'Ailier inversé', pos: ['AG', 'AD', 'MG', 'MD'], desc: 'Rentre sur son bon pied pour combiner et servir.', fx: { narrow: 0.3, dribble: 1.2, pass: 1.25, cross: 0.8 } },
+  raumdeuter: { label: 'Chercheur d\'espaces', pos: ['AG', 'AD'], desc: 'Attaque les espaces vides, peu de participation au jeu.', fx: { dIn: 0.06, narrow: 0.3, shot: 1.35, dribble: 0.7, run: 1, recv: [0.6, 0.7, 1, 1.6] } },
+  // Attaquants
+  renard: { label: 'Renard', pos: ['BU'], desc: 'Vit dans la surface, tire dès qu\'il peut.', fx: { dIn: 0.04, shot: 1.25, recv: [1, 1, 1, 1.7] } },
+  pointe: { label: 'Pivot de pointe', pos: ['BU'], desc: 'Cible des centres et des longs ballons, remise pour les autres.', fx: { air: 2, recvLong: 1.5, pass: 1.1 } },
+  faux9: { label: 'Faux 9', pos: ['BU'], desc: 'Décroche au milieu pour libérer l\'espace aux ailiers.', fx: { dIn: -0.1, pass: 1.3, shot: 0.8, dribble: 1.15, recv: [1, 1.2, 1.7, 0.8] } },
+  profondeur: { label: 'Attaquant de profondeur', pos: ['BU'], desc: 'Joue sur l\'épaule du dernier défenseur, appels dans le dos.', fx: { dIn: 0.07, shot: 1.15, run: 1, recv: [0.8, 0.8, 1, 1.5] } },
+  presseur: { label: 'Attaquant pressant', pos: ['BU', 'AG', 'AD'], desc: 'Premier défenseur : presse les centraux sans relâche.', fx: { dOut: 0.07 } },
+  complet: { label: 'Attaquant complet', pos: ['BU'], desc: 'Tout faire : décrocher, dribbler, frapper, peser.', fx: { shot: 1.1, dribble: 1.1, pass: 1.1, air: 1.3 } },
 };
+/** Effets du rôle (objet vide pour « standard » ou un rôle inconnu). */
+export const roleFx = (r) => (ROLES[r] && ROLES[r].fx) || {};
 export const rolesFor = (pos) => Object.keys(ROLES).filter((r) => !ROLES[r].pos || ROLES[r].pos.includes(pos));

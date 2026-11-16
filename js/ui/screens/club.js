@@ -20,7 +20,7 @@ import { createRng, hashSeed } from '../../core/rng.js';
 import { estimate, rangeLabel, mid, REGIONS, MISSION_DAYS, startMission } from '../../game/scouting.js';
 import { gameRng } from '../../game/state.js';
 import { overall } from '../../engine/ratings.js';
-import { POSITIONS, ATTR_LABELS, POSITION_GROUP } from '../../data/constants.js';
+import { POSITIONS, ATTR_LABELS, POSITION_GROUP, ROLES } from '../../data/constants.js';
 import { posBadge } from '../components.js';
 import { esc, seg, playerRow, gauge, stars, scaleColor, ovrChip, noteChip, face } from '../components.js';
 import { showPlayer } from './playerSheet.js';
@@ -219,36 +219,54 @@ const POS_CHIPS = ['GB', 'DC', 'DG', 'DD', 'MDC', 'MC', 'MG', 'MD', 'MO', 'AG', 
 const SORTS = { ovr: 'Note', pot: 'Potentiel', value: 'Valeur ↓', cheap: 'Valeur ↑', age: 'Âge', wage: 'Salaire' };
 const M = (v) => (v >= 1e6 ? `${Math.round(v / 1e5) / 10} M€` : `${Math.round(v / 1e3)} k€`);
 
-/** Panneau de recherche (filtres façon mode carrière) + résultats. */
+/** Panneau de recherche : filtres toujours visibles (profils, postes, rôle, tranches) + tableau triable. */
+const VAL_STEPS = [[0, 'Tous'], [1e6, '1 M'], [5e6, '5 M'], [10e6, '10 M'], [20e6, '20 M'], [40e6, '40 M'], [80e6, '80 M']];
+const WAGE_STEPS = [[0, 'Tous'], [10000, '10 k'], [25000, '25 k'], [50000, '50 k'], [100000, '100 k'], [200000, '200 k']];
+const OVR_STEPS = [0, 60, 65, 70, 75, 80, 85];
+/** Mini-terrain horizontal des postes (cliquables). */
+const POS_MAP = { GB: [6, 50], DG: [24, 14], DC: [22, 50], DD: [24, 86], MDC: [40, 50], MG: [55, 14], MC: [55, 50], MD: [55, 86], MO: [70, 50], AG: [80, 18], BU: [88, 50], AD: [80, 82] };
+const PROFILES = {
+  young: { l: '🌱 Jeunes talents', f: { ageMax: 21, potMin: 72, sort: 'pot' } },
+  ready: { l: '⭐ Titulaires', f: (avg) => ({ ovrMin: Math.round(avg), sort: 'ovr' }) },
+  bargain: { l: '💰 Bonnes affaires', f: (avg, bud) => ({ ovrMin: Math.max(0, Math.round(avg - 4)), valueMax: Math.max(1e6, Math.round(bud / 3 / 1e6) * 1e6), sort: 'cheap' }) },
+  contract: { l: '⏳ Fin de contrat', f: { contract: true, sort: 'ovr' } },
+  free: { l: '🆓 Libres', f: { status: 'free', sort: 'ovr' } },
+  loan: { l: '🔄 Prêtables (≤ 24 ans)', f: { loanable: true, sort: 'pot' } },
+};
+
 function searchPanel(app, mode) {
   const s = app.state;
   const f = (app.ui.mktF ||= FILTERS());
   if (mode === 'loan' && f.status === 'all') f.status = 'loan';
   const opts = (app._fopts ||= filterOptions(s));
-  const nOn = ['ageMin', 'ageMax', 'ovrMin', 'potMin', 'valueMax', 'wageMax', 'nat', 'div', 'contract', 'foot', 'budget'].filter((k) => f[k] !== DEFAULT_FILTERS[k]).length + (f.pos.length ? 1 : 0) + (f.status !== DEFAULT_FILTERS.status && mode !== 'loan' ? 1 : 0);
   const sel = (k, list, cur) => `<select data-act="fset" data-k="${k}">${list.map(([v, l]) => `<option value="${esc(v)}" ${String(cur) === String(v) ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>`;
-  const range = (k, min, max, st, lbl) => `<label class="fr"><span>${lbl} <b id="fv-${k}">${f[k] ? (k.includes('value') || k.includes('wage') ? M(f[k]) : f[k]) : 'tous'}</b></span><input type="range" data-act="fset" data-k="${k}" min="${min}" max="${max}" step="${st}" value="${f[k]}"></label>`;
-  return `<div class="search-box">
-    <div class="mkt-tools"><label class="pk-search">🔎<input id="mkt-q" type="search" placeholder="Nom du joueur…" value="${esc(f.q)}" autocomplete="off"></label>
-      <select data-act="fset" data-k="sort" title="Trier">${Object.entries(SORTS).map(([k, l]) => `<option value="${k}" ${f.sort === k ? 'selected' : ''}>Tri : ${l}</option>`).join('')}</select></div>
-    <div class="chips pos-chips">${['DEF', 'MIL', 'ATT'].map((g) => `<button class="chip ${f.pos.includes(g) ? 'on' : ''}" data-act="fpos" data-v="${g}">${{ DEF: 'Défense', MIL: 'Milieu', ATT: 'Attaque' }[g]}</button>`).join('')}<span class="sep"></span>${POS_CHIPS.map((p) => `<button class="chip ${f.pos.includes(p) ? 'on' : ''}" data-act="fpos" data-v="${p}">${p}</button>`).join('')}</div>
-    <details class="card filters" ${app.ui.fOpen ? 'open' : ''}><summary data-act="fopen"><b>⚙ Filtres</b> ${nOn ? `<span class="tag ok">${nOn} actif(s)</span>` : ''}</summary>
-      <div class="fgrid">
-        <label class="fr"><span>Âge</span><span class="row" style="gap:6px">${sel('ageMin', Array.from({ length: 26 }, (_, i) => [15 + i, `${15 + i} ans`]), f.ageMin)}<small>à</small>${sel('ageMax', Array.from({ length: 26 }, (_, i) => [15 + i, `${15 + i} ans`]), f.ageMax)}</span></label>
-        ${range('ovrMin', 0, 90, 1, 'Note min.')}
-        ${range('potMin', 0, 95, 1, 'Potentiel min.')}
-        ${range('valueMax', 0, 150000000, 250000, 'Prix max.')}
-        ${range('wageMax', 0, 400000, 5000, 'Salaire max. /sem')}
+  const chips = (k, list, cur) => `<div class="fchips">${list.map(([v, l]) => `<button class="chip sm ${String(cur) === String(v) ? 'on' : ''}" data-act="fchip" data-k="${k}" data-v="${v}">${l}</button>`).join('')}</div>`;
+  const roleOpts = [['', 'Tous les rôles'], ...Object.entries(ROLES).filter(([k]) => k !== 'std').map(([k, r]) => [k, `${r.label} (${(r.pos || []).join('/')})`])];
+  const pitch = `<div class="fpitch">${Object.entries(POS_MAP).map(([p, [x, y]]) => `<button class="fp ${f.pos.includes(p) ? 'on' : ''}" data-act="fpos" data-v="${p}" style="left:${x}%;top:${y}%">${p}</button>`).join('')}</div>
+    <div class="fchips">${['DEF', 'MIL', 'ATT'].map((g) => `<button class="chip sm ${f.pos.includes(g) ? 'on' : ''}" data-act="fpos" data-v="${g}">${{ DEF: 'Défense', MIL: 'Milieu', ATT: 'Attaque' }[g]}</button>`).join('')}</div>`;
+  return `<div class="srch">
+    <aside class="srch-f card">
+      <label class="pk-search">🔎<input id="mkt-q" type="search" placeholder="Nom du joueur…" value="${esc(f.q)}" autocomplete="off"></label>
+      <div class="flabel">Profils rapides</div>
+      <div class="fchips">${Object.entries(PROFILES).map(([k, p]) => `<button class="chip sm ${app.ui.mktProf === k ? 'on' : ''}" data-act="fprof" data-v="${k}">${p.l}</button>`).join('')}</div>
+      <div class="flabel">Postes</div>${pitch}
+      <div class="flabel">Rôle recherché</div>${sel('role', roleOpts, f.role)}
+      <div class="flabel">Âge</div><div class="row" style="gap:6px">${sel('ageMin', Array.from({ length: 26 }, (_, i) => [15 + i, `${15 + i} ans`]), f.ageMin)}<small>à</small>${sel('ageMax', Array.from({ length: 26 }, (_, i) => [15 + i, `${15 + i} ans`]), f.ageMax)}</div>
+      <div class="flabel">Note minimale</div>${chips('ovrMin', OVR_STEPS.map((v) => [v, v || 'Toutes']), f.ovrMin)}
+      <div class="flabel">Potentiel minimal</div>${chips('potMin', OVR_STEPS.map((v) => [v, v || 'Tous']), f.potMin)}
+      <div class="flabel">Prix maximum</div>${chips('valueMax', VAL_STEPS, f.valueMax)}
+      <label class="fr chk"><input type="checkbox" data-act="fset" data-k="budget" ${f.budget ? 'checked' : ''}> Dans mon budget (${M(ensureBoard(s).transferBudget)})</label>
+      <div class="flabel">Salaire max. / semaine</div>${chips('wageMax', WAGE_STEPS, f.wageMax)}
+      <details class="fmore" ${app.ui.fOpen ? 'open' : ''}><summary data-act="fopen">Plus de critères</summary>
+        <label class="fr"><span>Statut</span>${sel('status', [['all', 'Tous'], ['listed', 'Sur la liste / veut partir'], ['free', 'Libres'], ['loan', 'Sous contrat (prêt)']], f.status)}</label>
         <label class="fr"><span>Nationalité</span>${sel('nat', [['', 'Toutes'], ...opts.nats.map((n) => [n, n])], f.nat)}</label>
         <label class="fr"><span>Championnat</span>${sel('div', [['', 'Tous'], ...opts.divs.map((d) => [d.id, `${COUNTRIES[d.country]?.flag || ''} ${d.name}`])], f.div)}</label>
         <label class="fr"><span>Pied fort</span>${sel('foot', [['', 'Indifférent'], ['D', 'Droit'], ['G', 'Gauche']], f.foot)}</label>
-        <label class="fr"><span>Statut</span>${sel('status', [['all', 'Tous'], ['listed', 'Sur la liste / veut partir'], ['free', 'Libres'], ['loan', 'Sous contrat (prêt)']], f.status)}</label>
         <label class="fr chk"><input type="checkbox" data-act="fset" data-k="contract" ${f.contract ? 'checked' : ''}> Contrat expirant (≤ 1 an)</label>
-        <label class="fr chk"><input type="checkbox" data-act="fset" data-k="budget" ${f.budget ? 'checked' : ''}> Dans mon budget</label>
-      </div>
-      <button class="btn sm" data-act="freset">Réinitialiser les filtres</button>
-    </details>
-    <div id="mkt-list">${marketListHtml(app)}</div></div>`;
+      </details>
+      <button class="btn sm block" data-act="freset">↺ Réinitialiser</button>
+    </aside>
+    <div class="srch-r"><div id="mkt-list">${marketListHtml(app)}</div></div></div>`;
 }
 
 function marketListHtml(app) {
@@ -256,8 +274,23 @@ function marketListHtml(app) {
   const mode = app.ui.mktMode || 'buy';
   const f = app.ui.mktF || FILTERS();
   const { total, rows } = searchPlayers(s, f, app.ui.mktMore ? 150 : 50);
-  return `<div class="row between" style="margin:6px 4px"><small class="muted">${total} joueur(s) trouvé(s)${total > rows.length ? ` · ${rows.length} affichés` : ''}</small><small class="muted">${mode === 'loan' ? 'Prix : indemnité de prêt indicative' : 'Prix : demande du club'}</small></div>
-    <div class="card list" style="padding:0 10px;margin-top:0">${rows.map(({ p, price }) => marketRow(s, p, mode === 'loan' ? Math.round((p.value || 0) * 0.08 / 25000) * 25000 : price)).join('') || '<p class="muted">Aucun joueur ne correspond à ces critères.</p>'}</div>
+  const bud = ensureBoard(s).transferBudget;
+  const cols = [['name', 'Joueur'], ['pos', 'Poste'], ['age', 'Âge'], ['ovr', 'Note'], ['pot', 'Pot.'], ...(f.role ? [['role', 'Rôle']] : []), ['value', mode === 'loan' ? 'Prêt' : 'Prix'], ['wage', 'Salaire']];
+  const sortable = { age: 'age', ovr: 'ovr', pot: 'pot', role: 'role', value: 'value', wage: 'wage' };
+  const head = cols.map(([k, l]) => sortable[k] ? `<th data-act="fsort" data-v="${sortable[k]}" class="${f.sort === sortable[k] || (k === 'value' && f.sort === 'cheap') ? 'on' : ''}">${l}${f.sort === sortable[k] ? ' ▾' : k === 'value' && f.sort === 'cheap' ? ' ▴' : ''}</th>` : `<th>${l}</th>`).join('');
+  const body = rows.map(({ p, price, rf }) => {
+    const c = p.clubId ? clubById(s, p.clubId) : null;
+    const e = estimate(s, p);
+    const pr = mode === 'loan' ? Math.round((p.value || 0) * 0.08 / 25000) * 25000 : price;
+    return `<tr data-act="player" data-id="${p.id}">
+      <td class="pl">${face(p, c, 'sm')}<div><b>${esc(p.name)}</b><small>${c ? esc(c.short) : 'Libre'} · ${esc(p.nat || '')}</small></div></td>
+      <td>${posBadge(p.pos)}</td><td>${p.age}</td>
+      <td>${ovrChip(mid(e.ovr), rangeLabel(e.ovr))}</td><td><small>${rangeLabel(e.pot)}</small></td>
+      ${f.role ? `<td><b style="color:${scaleColor(rf || 0)}">${rf ?? '—'}</b></td>` : ''}
+      <td style="color:${(pr ?? 0) <= bud ? 'inherit' : 'var(--bad)'}">${pr ? money(pr) : c ? '—' : 'Libre'}</td><td><small>${money(p.wage)}</small></td></tr>`;
+  }).join('');
+  return `<div class="row between" style="margin:2px 4px 6px"><small class="muted"><b style="color:var(--text)">${total}</b> joueur(s)${total > rows.length ? ` · ${rows.length} affichés` : ''}${f.role ? ` · rôle : ${esc(ROLES[f.role]?.label || '')}` : ''}</small><small class="muted">Touchez un en-tête pour trier</small></div>
+    ${rows.length ? `<div class="card stable-wrap"><table class="stable"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>` : '<div class="card"><p class="muted">Aucun joueur ne correspond à ces critères. Élargissez la note, le prix ou les postes.</p></div>'}
     ${total > rows.length && !app.ui.mktMore ? '<button class="btn block" data-act="fmore">Afficher plus de résultats</button>' : ''}`;
 }
 
@@ -491,7 +524,8 @@ export const actions = {
   fset(el, app) {
     if (el.tagName !== 'SELECT' && el.tagName !== 'INPUT') return;
     const f = (app.ui.mktF ||= FILTERS()), k = el.dataset.k;
-    f[k] = el.type === 'checkbox' ? el.checked : ['nat', 'div', 'foot', 'status', 'sort'].includes(k) ? el.value : +el.value;
+    f[k] = el.type === 'checkbox' ? el.checked : ['nat', 'div', 'foot', 'status', 'sort', 'role'].includes(k) ? el.value : +el.value;
+    if (k === 'role') f.sort = el.value ? 'role' : 'ovr';
     app.ui.mktMore = false;
     // Curseurs : on met à jour la liste sans redessiner le panneau (le geste continue).
     if (el.type === 'range') {
@@ -502,8 +536,21 @@ export const actions = {
     }
     app.render();
   },
+  fchip(el, app) { const f = (app.ui.mktF ||= FILTERS()); f[el.dataset.k] = +el.dataset.v; app.ui.mktMore = false; app.ui.mktProf = null; app.render(); },
+  fsort(el, app) { const f = (app.ui.mktF ||= FILTERS()); const v = el.dataset.v; f.sort = v === 'value' && f.sort === 'value' ? 'cheap' : v; app.render(); },
+  fprof(el, app) {
+    const k = el.dataset.v;
+    if (app.ui.mktProf === k) { app.ui.mktProf = null; app.ui.mktF = FILTERS(); app.render(); return; }
+    const s = app.state, uc = userClub(s);
+    const xi = (uc.lineup || []).map((id) => s.players[id]).filter(Boolean);
+    const avg = xi.reduce((a, p) => a + overall(p), 0) / Math.max(1, xi.length);
+    const P = PROFILES[k].f;
+    const keep = (app.ui.mktF || FILTERS()).pos;
+    app.ui.mktF = { ...FILTERS(), pos: keep, ...(typeof P === 'function' ? P(avg, ensureBoard(s).transferBudget) : P) };
+    app.ui.mktProf = k; app.ui.mktMore = false; app.render();
+  },
   fpos(el, app) { const f = (app.ui.mktF ||= FILTERS()); const v = el.dataset.v; f.pos = f.pos.includes(v) ? f.pos.filter((x) => x !== v) : [...f.pos, v]; app.render(); },
-  freset(el, app) { app.ui.mktF = FILTERS(); app.render(); },
+  freset(el, app) { app.ui.mktF = FILTERS(); app.ui.mktProf = null; app.render(); },
   fopen(el, app) { app.ui.fOpen = !el.closest('details').open; },
   fmore(el, app) { app.ui.mktMore = true; const box = document.getElementById('mkt-list'); if (box) box.innerHTML = marketListHtml(app); },
 

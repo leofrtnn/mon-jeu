@@ -25,7 +25,7 @@
  *  summarize(m)     -> résumé (score, stats, notes, homme du match)
  */
 import { createRng, clamp } from '../core/rng.js';
-import { FORMATIONS, MAX_SUBS, positionFit, playerFit, DEFAULT_TACTICS, slotsOf, posFromXY } from '../data/constants.js';
+import { roleFx, FORMATIONS, MAX_SUBS, positionFit, playerFit, DEFAULT_TACTICS, slotsOf, posFromXY } from '../data/constants.js';
 import { conditionFactor, ratingAt } from './ratings.js';
 import { aiManage } from './ai.js';
 import { tacticalEdge } from './tacticalEdge.js';
@@ -235,11 +235,9 @@ function pickReceiver(m, A, nz, exclude, long) {
       const du = piOf(A, mp, 'duty', 'sup'), ru = piOf(A, mp, 'runs', 'normal');
       v *= (du === 'att' ? 1.3 : du === 'def' ? 0.7 : 1) * (ru === 'join' ? 1.35 : ru === 'stay' ? 0.65 : 1);
     }
-    const r = roleOf(A, mp);
-    if (r === 'meneur' && (nz === 1 || nz === 2)) v *= 1.6;
-    if (r === 'pivot') v *= nz <= 1 ? 1.5 : 0.6;
-    if (r === 'renard' && nz === 3) v *= 1.7;
-    if (r === 'pointe' && long) v *= 1.5;
+    const fx = roleFx(roleOf(A, mp));
+    if (fx.recv) v *= fx.recv[Math.max(0, Math.min(3, nz))];
+    if (long && fx.recvLong) v *= fx.recvLong;
     return v;
   });
   const i = m.rng.weightedIndex(w);
@@ -369,12 +367,9 @@ function chooseAction(m, A, c) {
     default: w = { short: 2.2, long: 0, dribble: 1.4 * driK, cross: wide ? 0.6 : 0.15, shot: (1.45 + mv * 0.25) * shotK };
   }
   // Rôle individuel du porteur.
-  const role = roleOf(A, c);
-  if (role === 'renard') w.shot *= 1.25;
-  if (role === 'interieur') { w.dribble *= 1.3; w.shot *= 1.3; w.cross *= 0.5; }
-  if (role === 'piston') w.cross *= 1.5;
-  if (role === 'pivot') { w.dribble *= 0.6; w.shot *= 0.5; }
-  if (role === 'meneur') w.long *= 1.2;
+  const rf = roleFx(roleOf(A, c));
+  for (const k of ['shot', 'dribble', 'cross', 'long']) if (rf[k]) w[k] *= rf[k];
+  if (rf.pass) w.short *= rf.pass;
   // Consignes d'équipe.
   const T = A.tactics;
   if (T.passing === 'short') { w.short *= 1.3; w.long *= 0.55; }
@@ -534,7 +529,7 @@ function cross(m, out, A, D, c, z, corner, fk = false) {
     }
   }
   const target = threats.length && m.rng.chance(0.65) ? threats[m.rng.int(0, threats.length - 1)]
-    : pickNear(m, A, 0.86, c, (mp, s) => (s.pos === 'BU' ? 2.2 : 1) * (roleOf(A, mp) === 'pointe' ? 2 : 1) * (0.5 + eff(mp, 'phy') / 120));
+    : pickNear(m, A, 0.86, c, (mp, s) => (s.pos === 'BU' ? 2.2 : 1) * (roleFx(roleOf(A, mp)).air || 1) * (0.5 + eff(mp, 'phy') / 120));
   const marker = pickNear(m, D, 0.14, null, (mp, s) => (s.pos === 'DC' ? 2 : 1));
   const delivery = eff(c, 'pas') * 0.7 + eff(c, 'vis') * 0.3;
   const aerial = eff(target, 'phy') * 0.5 + eff(target, 'tir') * 0.3 + eff(target, 'sf') * 0.2;

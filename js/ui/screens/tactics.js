@@ -2,7 +2,7 @@
  * Tactique : formation, consignes, compo en glisser-déposer (ou tap-tap), compo auto.
  */
 import { userClub, clubPlayers } from '../../game/state.js';
-import { FORMATIONS, FORMATION_NAMES, FORMATION_GROUPS, MENTALITIES, MENTALITY_LABELS, LEVELS, PRESSING_LABELS, TEMPO_LABELS, WIDTH_LABELS, positionFit, playerFit, BENCH_SIZE, ROLES, rolesFor, DEFAULT_TACTICS, TEAM_INSTRUCTIONS, PLAYER_INSTRUCTIONS, slotsOf, posFromXY } from '../../data/constants.js';
+import { FORMATIONS, FORMATION_NAMES, FORMATION_GROUPS, MENTALITIES, MENTALITY_LABELS, LEVELS, PRESSING_LABELS, TEMPO_LABELS, WIDTH_LABELS, positionFit, playerFit, BENCH_SIZE, ROLES, roleFx, rolesFor, DEFAULT_TACTICS, TEAM_INSTRUCTIONS, PLAYER_INSTRUCTIONS, slotsOf, posFromXY } from '../../data/constants.js';
 import { autoLineup, ratingAt, isAvailable, overall, lineupStrength } from '../../engine/ratings.js';
 import { esc, playerRow, seg, posBadge } from '../components.js';
 import { face } from '../images.js';
@@ -16,6 +16,8 @@ import { crest, gauge, scaleColor } from '../components.js';
 import { CORNER_AIMS, FK_AIMS, FK_DIRECT, MARKING, setPlanOf, setPieceEdge, counterRisk } from '../../engine/setPlays.js';
 import { bestStaff } from '../../game/career.js';
 const stars = (r) => `${Math.round(r)}`;
+/** Abréviation du rôle sous le joueur (terrain de la compo). */
+const roleShort = (r) => (r && ROLES[r] && r !== 'std' ? ROLES[r].label.replace(/^(Défenseur|Attaquant|Milieu|Latéral|Ailier|Gardien) /, '').replace(/^de l'/, '').replace(/^./, (c) => c.toUpperCase()) : 'Standard');
 
 const TABS = [['team', 'Équipe'], ['analysis', 'Analyse'], ['players', 'Joueurs'], ['squad', 'Compo'], ['sp', 'CPA']];
 
@@ -41,8 +43,25 @@ export function render(app) {
       <div class="tok">${edit ? `<span class="shirt"><small>${sl.pos}</small></span>` : p ? `${face(p, uc)}<em class="num">${p.number}</em><span class="fit" style="background:${fc}"></span>${p.id === capId ? '<span class="armband" title="Capitaine">C</span>' : ''}` : '<span class="shirt">+</span>'}</div>
       <div class="nm">${p ? esc(p.last) : '—'}${p && (!isAvailable(p)) ? ' ✚' : ''}</div>
       <div class="ps">${sl.pos}${p ? ' · ' + stars(ratingAt(p, sl.pos)) : ''}</div>
+      ${sl.pos !== 'GB' ? `<div class="rl">${esc(roleShort((uc.roles || [])[i]))}</div>` : ''}
     </div>`;
   }).join('');
+  // Terrain entier à l'horizontale (façon FM) : tracés + flèches de mouvement des rôles.
+  const PX = (x) => 105 * (0.03 + x * 0.86), PY = (y) => 68 * (0.07 + y * 0.86);
+  const arrows = slots.map((sl, i) => {
+    const fx = roleFx((uc.roles || [])[i]);
+    const dx = (fx.dIn || 0) * 120 + (fx.run ? 5 * fx.run : 0), dy = (0.5 - sl.y) * 68 * (fx.narrow || 0) * 0.9;
+    if (Math.hypot(dx, dy) < 3) return '';
+    const x0 = PX(sl.x), y0 = PY(sl.y);
+    return `<line x1="${x0.toFixed(1)}" y1="${y0.toFixed(1)}" x2="${(x0 + dx).toFixed(1)}" y2="${(y0 + dy).toFixed(1)}" class="${fx.run ? 'run' : ''}" marker-end="url(#tarr)"/>`;
+  }).join('');
+  const lines = `<svg class="tp-lines" viewBox="0 0 105 68" preserveAspectRatio="none" aria-hidden="true">
+    <defs><marker id="tarr" viewBox="0 0 6 6" refX="5" refY="3" markerWidth="4" markerHeight="4" orient="auto"><path d="M0,0 L6,3 L0,6 z" fill="#ffe66b"/></marker></defs>
+    <g class="mk"><rect x="1.5" y="1.5" width="102" height="65"/><line x1="52.5" y1="1.5" x2="52.5" y2="66.5"/><circle cx="52.5" cy="34" r="9.15"/><circle cx="52.5" cy="34" r=".6" class="dot"/>
+      <rect x="1.5" y="13.85" width="16.5" height="40.3"/><rect x="1.5" y="24.85" width="5.5" height="18.3"/><rect x="87" y="13.85" width="16.5" height="40.3"/><rect x="98" y="24.85" width="5.5" height="18.3"/>
+      <circle cx="12.5" cy="34" r=".6" class="dot"/><circle cx="92.5" cy="34" r=".6" class="dot"/>
+      <path d="M18 26.7 A9.15 9.15 0 0 1 18 41.3"/><path d="M87 26.7 A9.15 9.15 0 0 0 87 41.3"/></g>
+    <g class="arr">${arrows}</g></svg>`;
   const benchIds = (uc.bench || []).slice(0, BENCH_SIZE);
   const benchStrip = Array.from({ length: BENCH_SIZE }, (_, i) => {
     const p = byId.get(benchIds[i]);
@@ -67,7 +86,7 @@ export function render(app) {
       <button class="btn sm ${edit ? 'primary' : ''}" data-act="editpos" title="Déplacer les postes">✥ ${edit ? 'Terminer' : 'Postes'}</button>
       <button class="btn sm primary" data-act="auto">⚡ Auto</button>
     </div>
-    <div class="tpitch ${edit ? 'editing' : ''}" id="tpitch">${pitch}</div>
+    <div class="tpitch ${edit ? 'editing' : ''}" id="tpitch">${lines}${pitch}</div>
     ${edit ? '' : `<div class="bench-strip"><span class="bs-l">Banc</span>${benchStrip}</div>`}
     <p class="muted tac-help">${edit ? 'Mode postes : glissez un joueur pour déplacer son poste (le poste s\'adapte à la zone).' + (t.custom ? ' <a href="#" data-act="resetpos">Revenir à la formation de base</a>' : '') : 'Glissez un joueur sur un autre pour les échanger (terrain, banc, réserve). Touchez un joueur pour voir sa fiche.'}</p>
     </div><div class="tac-side">
@@ -249,7 +268,7 @@ export function mount(app, root) {
     const r = localRect(root.querySelector('#tpitch'));
     ({ x: cx, y: cy } = toLocal(cx, cy));
     const px = ((cx - r.left) / r.width) * 100, py = ((cy - r.top) / r.height) * 100;
-    if (landscape()) return { x: (px - 5) / 104, y: (py - 6) / 88 };
+    if (landscape()) return { x: (px - 3) / 86, y: (py - 7) / 86 };
     return { x: (94 - py) / 105, y: (px - 8) / 84 };
   };
   const dropAt = (x, y) => {

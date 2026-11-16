@@ -721,7 +721,7 @@ export function teamCfg(state, club, opponent, isHome, isUser) {
   const rng = createRng(hashSeed(`${state.seed}-${state.season}-${state.day}-${club.id}`));
   const style = managerStyle(state, club);
   const prep = aiPrepare(players, opponent ? clubPlayers(state, opponent) : players, isHome, rng, style);
-  return { club, players, lineup: prep.lineup, bench: prep.bench, tactics: prep.tactics, isAI: true,
+  return { club, players, lineup: prep.lineup, bench: prep.bench, tactics: prep.tactics, roles: prep.roles, isAI: true,
     talk: opponent && opponent.id === state.userClubId ? (matchMods(state)?.opp || 0) : 0,
     cpaCoach: staffEffects(club).setpiece,
     coachMods: { perf: (style ? style.perf : 1) * cohMult(clubCoh(club)), talk: 1, cards: 1, fatigue: 1 }, ...captainCfg(state, club) };
@@ -731,7 +731,7 @@ function nationCfg(state, nation, oppSquad, isHome) {
   const players = nationSquad(state, nation);
   const rng = createRng(hashSeed(`${state.seed}-${state.season}-${state.day}-${nation}`));
   const prep = aiPrepare(players, oppSquad, isHome, rng);
-  return { club: nationClub(nation), players, lineup: prep.lineup, bench: prep.bench, tactics: prep.tactics, isAI: true };
+  return { club: nationClub(nation), players, lineup: prep.lineup, bench: prep.bench, tactics: prep.tactics, roles: prep.roles, isAI: true };
 }
 
 /** Configuration moteur d'une rencontre (championnat, coupe, continentale, sélection). */

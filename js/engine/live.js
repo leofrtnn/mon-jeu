@@ -23,6 +23,7 @@ import { SKILL_MOVES, movesFor } from '../game/stars.js';
 import { refereeProfile } from '../game/referee.js';
 import { createBall, stepBall, solveKick, R as BR, GOAL_HALF, PITCH_L as L, PITCH_W as W } from '../ui/ballPhysics.js';
 import { formationPos } from './positions.js';
+import { roleFx } from '../data/constants.js';
 import { setPlanOf, cornerRoutine, setPieceEdge, directFkChance } from './setPlays.js';
 import { clamp } from '../core/rng.js';
 import { activePlayers, eff, addRating, emit, changePossession, momentum, setPieceTaker, sendOff, injure, kickoff as engineKickoff, minuteStart, minuteEnd, stepMinute, captainCalm } from './match.js';
@@ -383,7 +384,9 @@ export class LiveSim {
     if (h && !this.inHands) this.findSpace(A, h, busy);
     // Deux solutions courtes autour du porteur, un appel en profondeur.
     if (h && !this.inHands) {
-      const mates = attackers.filter((p) => !p.goRun).map((p) => ({ p, d: this.dist(p, rx, ry) })).sort((a, b) => a.d - b.d);
+      // Les joueurs qui « viennent au ballon » (meneur reculé, faux 9, enganche…) se proposent en premier.
+      const comes = (p) => (['meneur', 'faux9', 'enganche', 'regista', 'trequartista', 'mil_int', 'lat_inv'].includes(this.rkey(p)) ? 12 : 0);
+      const mates = attackers.filter((p) => !p.goRun && !(this.rfx(p).run >= 0.8)).map((p) => ({ p, d: this.dist(p, rx, ry) - comes(p) })).sort((a, b) => a.d - b.d);
       mates.slice(0, 2).forEach(({ p }, i) => {
         const side = (i === 0 ? 1 : -1) * (ry < W / 2 ? 1 : -1);
         p.tx = clamp(rx + dirA * (4 + i * 5), 2, L - 2) / L;
@@ -391,7 +394,19 @@ export class LiveSim {
         p.role = 'support';
       });
       const lastDef = this.list(D.side).filter((p) => !p.gk).map((p) => this.X(p) * dirA).sort((a, b) => b - a)[1];
-      const fwd = attackers.filter((p) => ['BU', 'AG', 'AD', 'MO'].includes(A.slots[p.mp.slot].pos)).sort((a, b) => (this.X(b) - this.X(a)) * dirA)[0];
+      // Appel en profondeur : d'abord les rôles qui attaquent l'espace (attaquant de profondeur,
+      // chercheur d'espaces, attaquant de l'ombre…), sinon le joueur offensif le plus avancé.
+      // Un faux 9 ne fait pas l'appel : il décroche.
+      const runScore = (p) => this.X(p) * dirA + (this.rfx(p).run || 0) * 22 - (this.rkey(p) === 'faux9' ? 40 : 0);
+      const cands = attackers.filter((p) => ['BU', 'AG', 'AD', 'MO'].includes(A.slots[p.mp.slot].pos) || (this.rfx(p).run || 0) > 0).sort((a, b) => runScore(b) - runScore(a));
+      const fwd = cands[0];
+      // Second appel en diagonale dans le couloir (rôle « appels » marqué), décalé dans le temps.
+      const fwd2 = cands.slice(1).find((p) => (this.rfx(p).run || 0) >= 0.6);
+      if (fwd2 && lastDef != null && (this.now + fwd2.mp.id * 3) % 9 > 4) {
+        fwd2.tx = clamp((lastDef + 5) * dirA, 2, L - 2) / L;
+        fwd2.ty = clamp(W / 2 + Math.sign(this.Y(fwd2) - W / 2 || 1) * 9, 3, W - 3) / W;
+        fwd2.role = 'run';
+      }
       if (fwd && lastDef != null && rx * dirA > (dirA > 0 ? L * 0.3 : -L * 0.7)) {
         const runT = (this.now + fwd.mp.id) % 7;
         // Appel : il attend à la limite du hors-jeu puis part dans le dos (cycle de quelques secondes).
@@ -421,9 +436,11 @@ export class LiveSim {
       && (this.now + h.mp.id) % 10 < (A.tactics.overlap === 'join' ? 8 : 5)) {
       const fb = attackers.filter((p) => ['DG', 'DD'].includes(A.slots[p.mp.slot].pos) && (this.Y(p) - W / 2) * (ry - W / 2) > 0)
         .sort((a, b) => this.dist(a, rx, ry) - this.dist(b, rx, ry))[0];
-      if (fb && this.dist(fb, rx, ry) < 30) {
+      const fk = fb ? this.rkey(fb) : null;
+      if (fb && fk !== 'lat_def' && this.dist(fb, rx, ry) < 30) {
         fb.tx = clamp(capX(rx + dirA * 9), 2, L - 2) / L;
-        fb.ty = (ry < W / 2 ? 3.5 : W - 3.5) / W;
+        // Latéral inversé : il passe à l'intérieur (demi-espace) au lieu de longer la ligne.
+        fb.ty = (fk === 'lat_inv' ? W / 2 + (ry < W / 2 ? -12 : 12) : ry < W / 2 ? 3.5 : W - 3.5) / W;
         fb.role = 'overlap';
       }
     }
@@ -454,17 +471,26 @@ export class LiveSim {
    * Relance depuis l'arrière : les centraux s'écartent, les latéraux montent, le milieu
    * défensif décroche entre les centraux (l'équipe s'étire pour faire circuler le ballon).
    */
+  /** Rôle tactique d'un joueur (effets) — voir ROLES. */
+  rfx(p) { return roleFx(p.team?.roles?.[p.mp.slot]); }
+  rkey(p) { return p.team?.roles?.[p.mp.slot] || 'std'; }
+
   buildUpShape(A, busy) {
     const dir = this.dir(A.side), own = this.goalX(1 - A.side);
     const depth = (this.P.x - own) * dir;
     if (depth > L * 0.4) return;
+    const hasHalf = this.list(A.side).some((q) => this.rkey(q) === 'demi_def');
     for (const p of this.list(A.side)) {
       if (busy.has(p) || p.gk) continue;
       const pos = A.slots[p.mp.slot].pos;
       const y = p.ty * W;
-      if (pos === 'DC') { p.ty = clamp(W / 2 + Math.sign(y - W / 2 || 1) * 13, 3, W - 3) / W; p.tx = (own + dir * (8 + depth * 0.25)) / L; }
-      else if (pos === 'DG' || pos === 'DD') { p.ty = (pos === 'DG' ? (A.side === 0 ? 4 : W - 4) : (A.side === 0 ? W - 4 : 4)) / W; p.tx = clamp(p.tx * L + dir * 10, 2, L - 2) / L; }
-      else if (pos === 'MDC') { p.tx = (own + dir * (14 + depth * 0.3)) / L; p.ty = 0.5; }
+      const rk = this.rkey(p);
+      if (pos === 'DC') { p.ty = clamp(W / 2 + Math.sign(y - W / 2 || 1) * (hasHalf ? 17 : 13), 3, W - 3) / W; p.tx = (own + dir * (8 + depth * 0.25)) / L; }
+      else if ((pos === 'DG' || pos === 'DD') && rk === 'lat_inv') { p.ty = (W / 2 + Math.sign(y - W / 2 || 1) * 9) / W; p.tx = (own + dir * (22 + depth * 0.3)) / L; }   // rentre au milieu
+      else if (pos === 'DG' || pos === 'DD') { p.ty = (pos === 'DG' ? (A.side === 0 ? 4 : W - 4) : (A.side === 0 ? W - 4 : 4)) / W; p.tx = clamp(p.tx * L + dir * (rk === 'lat_def' ? 3 : 10), 2, L - 2) / L; }
+      else if (rk === 'demi_def') { p.tx = (own + dir * (7 + depth * 0.2)) / L; p.ty = 0.5; }       // entre les deux centraux
+      else if (pos === 'MDC' && !hasHalf) { p.tx = (own + dir * (14 + depth * 0.3)) / L; p.ty = 0.5; }
+      else if (rk === 'meneur' || rk === 'regista') { p.tx = (own + dir * (17 + depth * 0.35)) / L; p.ty = clamp(p.ty * W + (W / 2 - p.ty * W) * 0.4, 3, W - 3) / W; }   // décroche pour construire
     }
   }
 
@@ -681,7 +707,10 @@ export class LiveSim {
     // Choix : le meilleur, avec une part de hasard d'autant plus faible que le joueur voit le jeu.
     const vis = eff(h.mp, 'vis');
     const temp = 0.012 * (1.5 - vis / 100);
-    const ws = opts.map((o) => Math.exp((o.u - Math.max(...opts.map((x) => x.u))) / temp));
+    // Rôle du porteur : ses penchants (frapper, dribbler, centrer, jouer simple) pèsent sur le choix.
+    const hf = this.rfx(h);
+    const lean = (o) => (o.k === 'shot' ? hf.shot : o.k === 'carry' || o.k === 'takeon' ? hf.dribble : o.k === 'cross' ? hf.cross : o.k === 'pass' ? (o.lofted ? hf.long || hf.pass : hf.pass) : 1) || 1;
+    const ws = opts.map((o) => Math.exp((o.u - Math.max(...opts.map((x) => x.u))) / temp) * lean(o));
     const pick = opts[this.rng.weightedIndex(ws)];
     const tempo = LVL[A.tactics.tempo] || 0;
     h.next = this.now + (0.45 + this.rand() * 0.5) * TUNE.hold * (1 - tempo * 0.18) * (press < 3 ? 0.6 : 1) * (1.3 - vis / 250) * (mood.counter ? 0.82 : 1) * (mood.wasting && press > 4 ? 1.7 : 1);

@@ -2,7 +2,7 @@
  * IA des entraîneurs : choix de formation/mentalité avant-match,
  * remplacements et ajustements selon le score pendant le match.
  */
-import { FORMATION_NAMES, COMMON_FORMATIONS, MAX_SUBS } from '../data/constants.js';
+import { FORMATION_NAMES, COMMON_FORMATIONS, MAX_SUBS, FORMATIONS } from '../data/constants.js';
 import { autoLineup, lineupStrength, squadStrength } from './ratings.js';
 
 /**
@@ -36,7 +36,29 @@ export function aiPrepare(players, opponentPlayers, isHome, rng, pref = null) {
     // La philosophie de l'entraîneur prime sur le style par défaut (la mentalité reste adaptée à l'adversaire).
     tactics: { formation: best.f, mentality, pressing, tempo: 'mid', width: 'mid', ...style, ...(pref ? pick(pref.tactics, ['passing', 'width', 'crossing', 'counter', 'line']) : {}) },
     lineup: best.lu.lineup, bench: best.lu.bench,
+    roles: aiRoles(players, best.lu.lineup, FORMATIONS[best.f] || []),
   };
+}
+
+/** Rôles choisis par l'entraîneur IA selon les qualités de chaque titulaire (variété réaliste). */
+export function aiRoles(players, lineup, slots) {
+  const byId = new Map(players.map((p) => [p.id, p]));
+  return lineup.map((id, i) => {
+    const p = byId.get(id), pos = slots[i]?.pos;
+    if (!p || !pos) return 'std';
+    const a = p.attrs || {};
+    switch (pos) {
+      case 'DC': return a.pas >= 72 ? 'relanceur' : a.vit >= 74 ? 'couvreur' : a.phy >= 80 ? 'stoppeur' : 'std';
+      case 'DG': case 'DD': return a.vit >= 80 && a.pas >= 68 ? 'lat_complet' : a.vit >= 76 ? 'piston' : a.def >= 74 && a.vit < 70 ? 'lat_def' : a.vis >= 74 ? 'lat_inv' : 'std';
+      case 'MDC': return a.pas >= 78 && a.vis >= 76 ? 'regista' : a.def >= 76 ? 'recup' : 'pivot';
+      case 'MC': return a.vis >= 80 ? 'meneur' : a.phy >= 76 && a.tir >= 66 ? 'b2b' : a.dri >= 76 ? 'mezzala' : 'std';
+      case 'MG': case 'MD': return a.dri >= 76 ? 'ailier' : a.vis >= 74 ? 'mil_int' : 'mil_large';
+      case 'MO': return a.tir >= 78 ? 'ombre' : a.dri >= 80 ? 'trequartista' : a.vis >= 80 ? 'enganche' : 'std';
+      case 'AG': case 'AD': return a.tir >= 78 && a.dri >= 76 ? 'interieur' : a.vit >= 84 && a.dri < 74 ? 'raumdeuter' : a.dri >= 76 ? 'ailier' : 'std';
+      case 'BU': return a.phy >= 80 && a.vit < 72 ? 'pointe' : a.vis >= 78 && a.dri >= 78 ? 'faux9' : a.vit >= 82 ? 'profondeur' : a.tir >= 80 ? 'renard' : 'complet';
+      default: return 'std';
+    }
+  });
 }
 
 /**
