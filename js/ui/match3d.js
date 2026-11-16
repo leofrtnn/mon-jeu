@@ -1243,9 +1243,11 @@ export class Player3D {
       lL.hip.rotation.set(g('hxL'), 0, g('hzL')); lR.hip.rotation.set(-g('hxR'), 0, g('hzR'));
       lL.knee.rotation.z = g('kzL'); lR.knee.rotation.z = g('kzR');
       lL.ankle.rotation.set(0, 0, g('azL')); lR.ankle.rotation.set(0, 0, g('azR'));
-      // Bras du joueur de tête : levés vers l'avant pour l'équilibre (et protéger l'espace).
-      const kA = Math.sin(Math.max(0, Math.min(1, 1 - p.jump / 0.45)) * Math.PI);
-      for (const a of this.arms) { a.sh.rotation.set(-a.sgn * 0.45 * kA, 0, 1.25 * kA); a.el.rotation.z = 0.5 + 0.5 * kA; }
+      // Joueur de tête : bras écartés et levés, coudes pliés (équilibre, protéger son espace),
+      // tête qui part en arrière à l'impulsion puis vient frapper le ballon au sommet du saut.
+      const tj = Math.max(0, Math.min(1, 1 - p.jump / 0.45)), kA = Math.sin(tj * Math.PI);
+      for (const a of this.arms) { a.sh.rotation.set(-a.sgn * 1.15 * kA, 0, 0.45 * kA); a.el.rotation.z = 0.4 + 1.0 * kA; }
+      this.headPivot.rotation.z = tj < 0.45 ? 0.35 * Math.sin((tj / 0.45) * Math.PI / 2) : 0.35 - 0.8 * Math.sin(Math.min(1, (tj - 0.45) / 0.2) * Math.PI / 2) * (tj < 0.8 ? 1 : 1 - (tj - 0.8) / 0.2);
       this.upper.rotation.set(0, g('twist') * 0.5, 0);
       this.body.rotation.z = -g('lean') * 0.8;
       this.body.position.y = Math.max(0, g('bob')) * K * 1.15;

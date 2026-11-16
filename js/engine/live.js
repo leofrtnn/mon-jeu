@@ -285,7 +285,7 @@ export class LiveSim {
    */
   steadyTargets() {
     if (globalThis.__X?.nosteady) return;
-    const urgent = new Set(['press', 'press2', 'run', 'overlap', 'box', 'recover', 'hold']);
+    const urgent = new Set(['press', 'press2', 'run', 'overlap', 'box', 'recover', 'hold', 'mark']);
     for (const p of this.players.values()) {
       if (p === this.holder || p === this.pending?.to || this.restart || p.gk || urgent.has(p.role)) { p._ax = p.tx; p._ay = p.ty; continue; }
       if (p._ax == null) { p._ax = p.tx; p._ay = p.ty; continue; }
@@ -401,27 +401,55 @@ export class LiveSim {
       c.p.role = 'recover';
     }
     const defs = cand.filter((c) => !c.p.role).map((c) => ({ p: c.p, d: c.d }));
-    // Marquage : dans sa moitié, chaque défenseur suit l'attaquant le plus proche de sa zone.
+    // Marquage : on part des attaquants les plus dangereux (les plus proches de son but) et on
+    // leur attribue le défenseur le mieux placé (proche de sa zone ET de l'attaquant). Un
+    // attaquant qui s'approche du but n'est jamais laissé seul ; les autres sont pris en zone.
     const attackers = this.list(A.side).filter((p) => !p.gk && p !== h);
-    const taken = new Set();
-    for (const { p } of defs) {
-      const zx = p.tx * L, zy = p.ty * W;
-      let best = null, bd = 9;
-      const reachM = D.tactics.marking === 'man' ? 14 : 9;
-      bd = reachM;
-      for (const a of attackers) {
-        if (taken.has(a)) continue;
-        const d = Math.hypot(this.X(a) - zx, this.Y(a) - zy);
-        if (d < bd) { bd = d; best = a; }
-      }
+    {
       const man = D.tactics.marking === 'man';
-      const inOwnHalf = Math.abs(this.P.x - ownGoalX) < L * (hiPress ? 1 : man ? 0.62 : 0.4); // marquage serré près de son but
-      if (best && inOwnHalf) {
-        taken.add(best);
-        const ax = this.X(best), ay = this.Y(best);
-        const g = Math.hypot(ownGoalX - ax, W / 2 - ay) || 1;
-        const tight = man ? 0.9 : 1.6;
-        p.tx = (ax + ((ownGoalX - ax) / g) * tight) / L; p.ty = (ay + ((W / 2 - ay) / g) * tight) / W; p.role = 'mark';
+      const inOwnHalf = Math.abs(this.P.x - ownGoalX) < L * (hiPress ? 1 : man ? 0.62 : 0.45);
+      if (inOwnHalf) {
+        // Défenseurs disponibles : sans tâche, ou « dépassés » qui reviennent (ils reprennent un
+        // attaquant au lieu de foncer vers leur ligne de but).
+        const pool = new Set([...defs.map((x) => x.p), ...this.list(D.side).filter((p) => p.role === 'recover')]);
+        const danger = attackers.map((a) => ({ a, dG: Math.hypot(this.X(a) - ownGoalX, this.Y(a) - W / 2) }))
+          .filter((x) => x.dG < (man ? 62 : 42)).sort((x, y) => x.dG - y.dG);
+        const byId = new Map(attackers.map((a) => [a.mp.id, a]));
+        const assign = new Map();
+        // Marquages en cours : on garde son attaquant (pas de chassé-croisé toutes les secondes).
+        for (const p of pool) {
+          const a = byId.get(p._markOf);
+          if (a && danger.some((x) => x.a === a) && ![...assign.values()].includes(a) && Math.hypot(this.X(p) - this.X(a), this.Y(p) - this.Y(a)) < 20) assign.set(p, a);
+        }
+        for (const [p] of assign) pool.delete(p);
+        const markedSet = new Set(assign.values());
+        for (const { a, dG } of danger) {
+          if (markedSet.has(a)) continue;
+          const ax = this.X(a), ay = this.Y(a);
+          const reach = dG < 25 ? 24 : man ? 18 : 12;
+          let best = null, bc = 1e9;
+          for (const p of pool) {
+            const dz = Math.hypot(p.tx * L - ax, p.ty * W - ay), dn = Math.hypot(this.X(p) - ax, this.Y(p) - ay);
+            if (Math.min(dz, dn) > reach) continue;
+            const c = dz * (man ? 0.3 : 0.6) + dn * (man ? 0.7 : 0.4);
+            if (c < bc) { bc = c; best = p; }
+          }
+          if (!best) continue;
+          pool.delete(best); assign.set(best, a);
+        }
+        for (const p of this.list(D.side)) if (!assign.has(p)) p._markOf = null;
+        for (const [best, a] of assign) {
+          // Il anticipe la course de l'attaquant (où il sera dans ~0,6 s), sans dépasser sa ligne de but.
+          const ax = clamp(this.X(a) + (a.vx || 0) * 0.6, 0.5, L - 0.5), ay = clamp(this.Y(a) + (a.vy || 0) * 0.6, 0.5, W - 0.5), dG = Math.hypot(ax - ownGoalX, ay - W / 2);
+          best._markOf = a.mp.id;
+          // Côté but, légèrement côté ballon ; plus serré près du but et en individuel.
+          const g = Math.hypot(ownGoalX - ax, W / 2 - ay) || 1;
+          const tight = (man ? 0.9 : 1.4) * (dG < 20 ? 0.75 : 1);
+          const bx2 = this.P.x - ax, by2 = this.P.y - ay, bl = Math.hypot(bx2, by2) || 1;
+          best.tx = clamp(ax + ((ownGoalX - ax) / g) * tight + (bx2 / bl) * 0.5, 0.5, L - 0.5) / L;
+          best.ty = clamp(ay + ((W / 2 - ay) / g) * tight + (by2 / bl) * 0.5, 0.5, W - 0.5) / W;
+          best.role = 'mark';
+        }
       }
     }
     // Bloc compact : les milieux sans tâche restent à ~15 m devant la ligne défensive (pas de
@@ -2105,7 +2133,7 @@ export class LiveSim {
         const attacking = this.poss === p.side && (p.tx * L - this.P.x) * this.dir(p.side) > -2 && dBall < 40;
         const near = dBall < 15 || attacking || p.role === 'support';
         cap = dd > 18 ? (dBall > 30 && !threatened ? 5 : 6.2) : dd > 9 ? (near || threatened ? 6 : 4.8) : dd > 4 ? (near || threatened ? 5 : 3.6) : dd > 1.5 ? 2.4 : 1.4;
-        if (p.role === 'mark' && dd > 2) cap = Math.max(cap, 5.2);
+        if (p.role === 'mark' && dd > 1.2) cap = Math.abs(this.X(p) - this.goalX(1 - p.side)) < 35 ? Infinity : Math.max(cap, dd > 4 ? 6.4 : 4.6);   // on colle à son attaquant
       } else if (p === this.holder && !this.inHands && !p.carry?.takeon) {
         // Porteur libre de tout marquage : il ne fonce pas, il marche ou trottine balle au pied en
         // levant la tête (il n'accélère que pressé, en contre-attaque ou dans un espace à attaquer).
