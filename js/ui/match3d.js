@@ -1177,6 +1177,8 @@ export class Match3D {
     this.scene.add(this.rim);
     this.buildStadium();
     this.applyConditions(view.m.weather);
+    // Match de nuit en Ultra (ordinateur) : halo des projecteurs (post-traitement « bloom »).
+    if (view.m.weather?.night && this.gfx === 'ultra' && !this.mobile) this.initBloom();
     this.buildBall();
     this.players = new Map(); // id -> { p3, label, side }
     this.buildCoaches();
@@ -1335,6 +1337,29 @@ export class Match3D {
     // Siège = assise + dossier dans une seule géométrie (un seul appel de dessin).
     const seatG = mergeBoxes([[0.46, 0.1, 0.4, 0, 0.38, 0.05], [0.46, 0.42, 0.06, 0, 0.6, 0.27]]);
     const white = new THREE.MeshLambertMaterial({ color: '#ffffff' });
+    // Supporters animés UN PAR UN sur la carte graphique (aucun coût pour le processeur) :
+    // léger balancement, à moitié levés sur un temps fort, bonds décalés et bras levés sur un
+    // but de LEUR équipe (le parcage visiteur ne saute que sur les buts des visiteurs).
+    const U = this.crowdU = { uTime: { value: 0 }, uH: { value: 0 }, uA: { value: 0 }, uT: { value: 0 } };
+    const crowdMat = (head) => {
+      const m = new THREE.MeshLambertMaterial({ color: '#ffffff' });
+      m.onBeforeCompile = (sh) => {
+        Object.assign(sh.uniforms, U);
+        sh.vertexShader = sh.vertexShader.replace('#include <common>', `#include <common>
+          uniform float uTime, uH, uA, uT; attribute float aAway;`)
+          .replace('#include <begin_vertex>', `#include <begin_vertex>
+          #ifdef USE_INSTANCING
+            vec3 ip = instanceMatrix[3].xyz;
+            float ph = fract(sin(dot(ip.xz, vec2(12.9898, 78.233))) * 43758.5453) * 6.2831;
+            float joy = mix(uH, uA, aAway);
+            float jump = joy * max(0.0, sin(uTime * (7.0 + fract(ph) * 3.0) + ph)) * 0.34;
+            transformed.y += jump + uT * 0.07 * (0.6 + 0.4 * sin(ph)) + 0.025 * sin(uTime * 1.3 + ph);
+            ${head ? '' : 'if (position.y > 0.7) transformed.y += joy * (0.18 + 0.1 * sin(uTime * 9.0 + ph));'}
+          #endif`);
+      };
+      return m;
+    };
+    const crowdBodyMat = crowdMat(false), crowdHeadMat = crowdMat(true);
     this.crowdGroups = [];
     this.flags = [];
     /** Tiers : [rangs, profondeur, montée] ; le 2e étage commence après la coursive. */
@@ -1415,7 +1440,10 @@ export class Match3D {
       empty.push(...buffer);
       // Sièges : seuls les sièges vides sont dessinés (les autres sont cachés par les spectateurs).
       const seats = new THREE.InstancedMesh(seatG, white, empty.length);
-      const bodies = new THREE.InstancedMesh(bodyG, white, fans.length), heads = new THREE.InstancedMesh(headG, white, fans.length);
+      const awayAttr = new THREE.InstancedBufferAttribute(new Float32Array(fans.map((sl) => (inAway(sl[0], sl[3]) ? 1 : 0))), 1);
+      const bG = bodyG.clone(), hG = headG.clone();
+      bG.setAttribute('aAway', awayAttr); hG.setAttribute('aAway', awayAttr);
+      const bodies = new THREE.InstancedMesh(bG, crowdBodyMat, fans.length), heads = new THREE.InstancedMesh(hG, crowdHeadMat, fans.length);
       const M = new THREE.Matrix4();
       empty.forEach(([x, yy, zz], i) => {
         M.makeTranslation(x, yy, zz); seats.setMatrixAt(i, M);
@@ -1577,6 +1605,7 @@ export class Match3D {
     const dpr = Math.max(0.5, Math.min(window.devicePixelRatio || 1, ultra ? 2 : eco ? 1 : this.mobile ? 1.5 : 1.75, cap) * (this.quality ?? 1));
     this.renderer.setPixelRatio(dpr);
     this.renderer.setSize(v.cssW, v.cssH, false);
+    if (this.composer) { this.composer.setPixelRatio(dpr); this.composer.setSize(v.cssW, v.cssH); }
     this.canvas.style.width = v.cssW + 'px';
     this.canvas.style.height = v.cssH + 'px';
     this.camera.aspect = v.cssW / v.cssH;
@@ -1706,6 +1735,27 @@ export class Match3D {
     this.camera.updateProjectionMatrix();
   }
 
+  /**
+   * Halo lumineux de nuit : les projecteurs, les lignes et les maillots clairs « bavent »
+   * légèrement dans l'image, comme à la télé. Chargé seulement quand il sert ; abandonné si
+   * l'appareil ne suit pas (voir adaptQuality).
+   */
+  async initBloom() {
+    try {
+      const [{ EffectComposer }, { RenderPass }, { UnrealBloomPass }, { OutputPass }] = await Promise.all([
+        import('../vendor/three-post/EffectComposer.js'), import('../vendor/three-post/RenderPass.js'),
+        import('../vendor/three-post/UnrealBloomPass.js'), import('../vendor/three-post/OutputPass.js')]);
+      if (this.destroyed) return;
+      const v = this.v;
+      const c = new EffectComposer(this.renderer);
+      c.addPass(new RenderPass(this.scene, this.camera));
+      c.addPass(new UnrealBloomPass(new THREE.Vector2(v.cssW, v.cssH), 0.6, 0.55, 0.8));
+      c.addPass(new OutputPass());
+      c.setPixelRatio(this.renderer.getPixelRatio());
+      c.setSize(v.cssW, v.cssH);
+      this.composer = c;
+    } catch (e) { console.warn('bloom indisponible', e); this.composer = null; }
+  }
   /** Pose la caméra (position, cible, focale) : douce, ou en coupe franche pour un changement de plan. */
   placeCam(pos, look, fov, dt, cut) {
     const k = cut ? 1 : 1 - Math.exp(-dt * 3.5);
@@ -1770,7 +1820,13 @@ export class Match3D {
     // Ultra : on ne dégrade jamais l'image (sauf appareil à bout de souffle, < 15 images/s).
     if (this.gfx === 'ultra') {
       if (this._lastT) { this._acc = (this._acc || 0) + Math.min(100, now - this._lastT); this._n = (this._n || 0) + 1; }
-      if (this._acc > 2000) { const avg = this._acc / this._n; if (avg > 66 && (this.quality ?? 1) > 0.7) { this.quality = 0.7; this.resize(); } this._acc = 0; this._n = 0; }
+      if (this._acc > 2000) {
+        const avg = this._acc / this._n;
+        // Moins de ~30 images/s : on renonce d'abord au halo de nuit, puis on baisse la résolution.
+        if (avg > 34 && this.composer) { this.composer.dispose?.(); this.composer = null; }
+        else if (avg > 66 && (this.quality ?? 1) > 0.7) { this.quality = 0.7; this.resize(); }
+        this._acc = 0; this._n = 0;
+      }
       this._lastT = now;
       return;
     }
@@ -1887,8 +1943,18 @@ export class Match3D {
       const cheer = (v.banner && v.banner.text === 'BUT !') || !!this._goalSeq;
       const tense = !cheer && v.inHL; // temps fort : la foule se lève à moitié
       this._cheerT = (this._cheerT || 0) + (dt || 0.016);
+      const U = this.crowdU;
+      if (U) {
+        const sideH = this._benchSide ?? 0;
+        const k = 1 - Math.exp(-(dt || 0.016) * 4);
+        U.uTime.value = this._cheerT;
+        U.uH.value += ((cheer && sideH === 0 ? 1 : 0) - U.uH.value) * k;
+        U.uA.value += ((cheer && sideH === 1 ? 1 : 0) - U.uA.value) * k;
+        U.uT.value += ((tense ? 1 : 0) - U.uT.value) * k;
+      }
       for (const c of this.crowdGroups || []) {
-        const target = cheer ? Math.abs(Math.sin(this._cheerT * 8 + c.ph)) * 0.32 : tense ? 0.08 : c.ultras ? Math.abs(Math.sin(this._cheerT * 4 + c.ph)) * 0.05 : 0;
+        // (les virages des ultras chantent et bougent en continu)
+        const target = c.ultras && !cheer ? Math.abs(Math.sin(this._cheerT * 4 + c.ph)) * 0.05 : 0;
         c.g.position.y += (target - c.g.position.y) * 0.3;
       }
       for (const f of this.flags || []) f.pole.rotation.z = Math.sin(this._cheerT * (cheer ? 6 : 2.2) + f.ph) * (cheer ? 0.5 : 0.22);
@@ -1961,7 +2027,8 @@ export class Match3D {
     this.ballShadow.scale.setScalar(1 + hgt * 0.12);
     this.ballShadow.material.opacity = Math.max(0.08, 0.38 - hgt * 0.05);
     this.updateCamera(dt);
-    this.renderer.render(this.scene, this.camera);
+    if (this.composer) this.composer.render(dt);
+    else this.renderer.render(this.scene, this.camera);
   }
 
   /** Joueur sous le doigt : le plus proche à l'écran (tête projetée). */
@@ -1981,6 +2048,8 @@ export class Match3D {
   }
 
   dispose() {
+    this.destroyed = true;
+    this.composer?.dispose?.(); this.composer = null;
     this.renderer.dispose();
     this.canvas.remove();
   }

@@ -6,7 +6,7 @@
  * VERSION est incrémentée par scripts/update-sw.js à chaque livraison.
  */
 const IMG_CACHE = 'cdp-img';
-const VERSION = 'cdp-v103';
+const VERSION = 'cdp-v104';
 const ASSETS = [
   './',
   './css/style.css',
@@ -141,6 +141,17 @@ const ASSETS = [
   './js/vendor/supabase/591.supabase.js',
   './js/vendor/supabase/LICENSE.txt',
   './js/vendor/supabase/supabase.js',
+  './js/vendor/three-post/CopyShader.js',
+  './js/vendor/three-post/EffectComposer.js',
+  './js/vendor/three-post/LuminosityHighPassShader.js',
+  './js/vendor/three-post/MaskPass.js',
+  './js/vendor/three-post/OutputPass.js',
+  './js/vendor/three-post/OutputShader.js',
+  './js/vendor/three-post/Pass.js',
+  './js/vendor/three-post/README.txt',
+  './js/vendor/three-post/RenderPass.js',
+  './js/vendor/three-post/ShaderPass.js',
+  './js/vendor/three-post/UnrealBloomPass.js',
   './js/vendor/three.module.min.js',
   './js/version.js',
   './manifest.webmanifest',
