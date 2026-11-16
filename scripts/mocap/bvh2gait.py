@@ -12,6 +12,7 @@ Usage : python3 scripts/mocap/bvh2gait.py <dossier des .bvh>
 import sys, os, json, numpy as np
 
 D = sys.argv[1]
+RAW = False
 OUT = os.path.join(os.path.dirname(__file__), '..', '..', 'js', 'ui', 'mocapData.js')
 
 
@@ -99,6 +100,7 @@ def clip_angles(path):
         out.append(row)
     keys = list(out[0].keys())
     A = np.array([[o[k] for k in keys] for o in out])
+    if RAW: return keys, A, ft, P, idx, leg_len
     # Cycle : entre deux appuis du pied gauche (hanche gauche la plus en avant = attaque du pas).
     hz = A[:, keys.index('hzL')]
     peaks = [i for i in range(2, len(hz) - 2) if hz[i] == max(hz[i - 2:i + 3]) and hz[i] > np.percentile(hz, 70)]
@@ -126,6 +128,38 @@ for name, fs in CANDS.items():
     keys, C, v, n, f = best
     res[name] = {'v': round(v, 2), 'cycle': np.round(C, 3).tolist()}
     print(name, f, 'vitesse %.2f m/s' % v, n, 'cycles', 'hanche %.2f..%.2f' % (C[:, 0].min(), C[:, 0].max()), 'genou min %.2f' % C[:, keys.index('kzL')].min())
+# ---------- Frappes de balle (clips « kick soccer ball ») ----------
+def kick_clip(f):
+    """Fenêtre autour de l'impact (pied de frappe le plus rapide), ramenée à une frappe du pied droit."""
+    global RAW
+    RAW = True
+    keys, A, ft, P, idx, leg_len = clip_angles(os.path.join(D, f + '.bvh'))
+    RAW = False
+    sp = {s: np.linalg.norm(np.gradient(P[:, idx[s + 'Foot']], axis=0), axis=1) / ft for s in ('Left', 'Right')}
+    a0, a1 = int(0.7 / ft), len(A) - int(0.6 / ft)
+    k = np.ones(9) / 9
+    sp = {s_: np.convolve(v, k, mode='same') for s_, v in sp.items()}
+    side = 'Right' if sp['Right'][a0:a1].max() >= sp['Left'][a0:a1].max() else 'Left'
+    c = a0 + int(np.argmax(sp[side][a0:a1]))
+    T = 0.6                                    # durée du geste (s) : armé + fouetté + accompagnement, contact à 55 %
+    t = np.linspace(c - 0.55 * T / ft, c + 0.45 * T / ft, 40)
+    if t[0] < 0 or t[-1] > len(A) - 1: raise SystemExit(f'{f} : fenêtre hors du clip')
+    C = np.array([np.interp(t, np.arange(len(A)), A[:, k]) for k in range(len(keys))]).T
+    if side == 'Left':   # miroir : on échange gauche/droite, la rotation du buste change de sens
+        sw = {k: (k[:-1] + ('R' if k[-1] == 'L' else 'L')) for k in keys if k[-1] in 'LR'}
+        C = np.array([[row[keys.index(sw.get(k, k))] for k in keys] for row in C])
+        C[:, keys.index('twist')] *= -1
+    C[:, keys.index('bob')] = (C[:, keys.index('bob')] - C[0, keys.index('bob')]) / leg_len * 0.88
+    print('frappe', f, side, 'vitesse du pied %.1f m/s' % (sp[side][c] / leg_len * 0.88), 'hanche D max %.2f' % C[:, keys.index('hzR')].max())
+    return C
+
+
+kicks = []
+for f in ('10_01', '10_02', '11_01'):
+    try: kicks.append(np.round(kick_clip(f), 3).tolist())
+    except SystemExit as e: print(e)
+res['kicks'] = kicks
+
 with open(OUT, 'w') as fo:
     fo.write('/**\n * Cycles de foulée issus de captures de mouvement réelles (base CMU, Carnegie Mellon University,\n'
              ' * libre d\'usage y compris commercial ; conversion BVH de B. Hahne). Générés par\n'

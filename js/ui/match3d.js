@@ -310,6 +310,16 @@ function gaitAt(sp, ph) {
   }
   return _gA;
 }
+/** Frappe issue de capture (base CMU) à l'instant t (0 → 1, contact à 0,55) ; null si absente. */
+const KICKS = GAITS.kicks || [];
+const _kA = new Float32Array(GAIT_KEYS.length);
+function kickAt(i, t) {
+  const c = KICKS[i % Math.max(1, KICKS.length)];
+  if (!c) return null;
+  const x = Math.max(0, Math.min(1, t)) * (c.length - 1), i0 = Math.floor(x), i1 = Math.min(c.length - 1, i0 + 1), f = x - i0;
+  for (let k = 0; k < _kA.length; k++) _kA[k] = c[i0][k] + (c[i1][k] - c[i0][k]) * f;
+  return _kA;
+}
 const GEO = {};
 function geo() {
   if (GEO.torso) return GEO;
@@ -823,7 +833,7 @@ export class Player3D {
     try { this.mhGroup = buildMHPlayer(mh, this, opts); } catch (e) { console.warn('joueur réaliste', e); return; }
     // Numéro et nom dans le dos : posés sur le maillot réaliste.
     const mk = mh.meta.marks, up = this.upper;
-    for (const [src, x, y, z, ry] of [[this.numBack, mk.backX, mk.backY, 0, -Math.PI / 2]]) {
+    for (const [src, x, y, z, ry] of opts.printed ? [] : [[this.numBack, mk.backX, mk.backY, 0, -Math.PI / 2]]) {
       if (!src) continue;
       const pl = new THREE.Mesh(src.geometry, src.material);
       pl.position.set(x, y - up.position.y, z); pl.rotation.y = ry;
@@ -942,8 +952,27 @@ export class Player3D {
       const t = Math.max(0, Math.min(1, 1 - p.kick / this._kMax));
       const kl = p.kickFoot === 'L' ? lL : lR, pl = kl === lL ? lR : lL, sg = kl === lL ? 1 : -1;
       const ease3 = (x) => x * x * (3 - 2 * x);
+      // Geste réel (capture de mouvement) : la plus puissante pour les frappes, les autres pour les
+      // passes ; en miroir pour le pied gauche ; amplitude réduite pour une passe douce.
+      const KD = kickAt(pow > 0.85 ? 2 : (p.id ?? 0) % 2, t);
+      if (KD) {
+        const mir = p.kickFoot === 'L';
+        const g = (k) => KD[GI[mir ? k.slice(0, -1) + (k.endsWith('L') ? 'R' : 'L') : k]];
+        const a = 0.55 + 0.45 * Math.min(1, pow);
+        lL.hip.rotation.set(g('hxL'), 0, g('hzL') * a); lR.hip.rotation.set(-g('hxR'), 0, g('hzR') * a);
+        lL.knee.rotation.z = g('kzL') * a; lR.knee.rotation.z = g('kzR') * a;
+        lL.ankle.rotation.set(0, 0, g('azL')); lR.ankle.rotation.set(0, 0, g('azR'));
+        const [aL, aR] = this.arms;
+        aL.sh.rotation.set(-aL.sgn * g('sxL'), 0, g('szL')); aR.sh.rotation.set(-aR.sgn * g('sxR'), 0, g('szR'));
+        aL.el.rotation.z = g('ezL'); aR.el.rotation.z = g('ezR');
+        this.upper.rotation.set(0, KD[GI.twist] * (mir ? -1 : 1) * a, 0);
+        this.body.rotation.set(0, 0, -KD[GI.lean] * 0.8 + (p.kickLoft ? 0.08 : 0));
+        if (p.kickSide) { kl.hip.rotation.y = 0.8 * sg * Math.sin(Math.min(1, t * 1.6) * Math.PI / 2); kl.hip.rotation.x = 0.16 * sg * -1; }
+        if (p.kickOut > 0) { kl.hip.rotation.y = -0.6 * sg * Math.sin(Math.min(1, t * 1.6) * Math.PI / 2); kl.hip.rotation.x = 0.22 * sg; kl.ankle.rotation.y = -0.5 * sg; }
+        this.body.position.y = 0; this.groundContact();
+      }
       let hip, knee, ankle;
-      if (t < 0.38) {                       // armé : la jambe part en arrière, genou plié
+      if (KD) { /* geste capturé appliqué */ } else if (t < 0.38) {                       // armé : la jambe part en arrière, genou plié
         const u = ease3(t / 0.38);
         hip = -0.15 - 0.5 * pow * u; knee = -(0.5 + 1.15 * pow) * u; ankle = -0.2 * u;
       } else if (t < 0.55) {                // fouetté jusqu'au contact (jambe tendue au contact)
@@ -955,6 +984,7 @@ export class Player3D {
         hip = (0.75 * pow) + (top - 0.75 * pow) * Math.sin(Math.min(1, u * 1.4) * Math.PI / 2) * (1 - u * 0.6);
         knee = -0.08 - 0.35 * u; ankle = (p.kickSide ? 0 : -0.5) * (1 - u);
       }
+      if (!KD) {   // (repli : geste animé par le code)
       kl.hip.rotation.z = hip; kl.knee.rotation.z = knee; kl.ankle.rotation.z = ankle;
       // Plat du pied : pied ouvert vers l'extérieur (rotation de la hanche), geste plus court.
       if (p.kickSide) { kl.hip.rotation.y = 0.8 * sg * Math.sin(Math.min(1, t * 1.6) * Math.PI / 2); kl.hip.rotation.x = 0.16 * sg * -1; }
@@ -973,6 +1003,7 @@ export class Player3D {
       const kk = Math.sin(Math.min(1, t * 1.4) * Math.PI);
       ao.sh.rotation.x = -ao.sgn * (0.5 + 0.7 * pow) * kk; ao.sh.rotation.z = 0.35 * kk; ao.el.rotation.z = 0.5;
       as.sh.rotation.x = -as.sgn * 0.25 * kk; as.sh.rotation.z = -0.45 * pow * kk; as.el.rotation.z = 0.6;
+      }
     } else this._kMax = 0;
     // Gestes techniques (seulement les joueurs qui ont les étoiles) : posés sur la course.
     if (p.skillT > 0 && p.skill) {
@@ -1336,6 +1367,92 @@ export function kitTexture(c1, c2, pattern, sponsor = '', sleeve = false) {
   });
   tex.wrapS = THREE.RepeatWrapping;
   KIT_TEX.set(key, tex);
+  return tex;
+}
+
+/**
+ * MAILLOT DÉTAILLÉ (joueurs réalistes) : une texture par joueur, à l'échelle du corps
+ * (≈ 1 px par mm : le tour du buste fait ~1 m, la hauteur du maillot ~0,45 m).
+ *  - devant (u = 0,25) : écusson du club (côté cœur), équipementier, sponsor ;
+ *  - dos (u = 0,75) : NOM (lettres de ~6 cm) et NUMÉRO (~25 cm) imprimés dans le tissu ;
+ *  - col et bas contrastés, panneaux latéraux, trame du tissu, plis.
+ * Manches : liseré et écusson de compétition sur l'extérieur du bras.
+ * (marques et écussons génériques : initiales du club, aucun logo réel)
+ */
+const PRO_KIT = new Map();
+export function proKitTexture({ c1, c2, ink, pattern = 'plain', sponsor = '', num = '', name = '', crest = '', sleeve = false, hi = true }) {
+  const key = JSON.stringify(arguments[0]);
+  if (PRO_KIT.has(key)) return PRO_KIT.get(key);
+  const W2 = hi ? 1024 : 512, H2 = W2 / 2, k = W2 / 1024;
+  const tex = canvasTex(W2, H2, (g, w, h) => {
+    const V = (v) => (1 - v) * h;            // v (0 en bas, 1 en haut) -> y du canvas
+    g.fillStyle = c1; g.fillRect(0, 0, w, h);
+    g.fillStyle = c2;
+    if (pattern === 'stripes') for (let i = 0; i < 16; i++) if (i % 2) g.fillRect((i / 16) * w, 0, w / 16, h);
+    if (pattern === 'hoops') for (let i = 0; i < 9; i++) if (i % 2) g.fillRect(0, (i / 9) * h, w, h / 9);
+    if (pattern === 'halves') g.fillRect(0.25 * w, 0, 0.5 * w, h);
+    if (pattern === 'centre') g.fillRect(0.22 * w, 0, 0.06 * w, h);
+    if (pattern === 'band') g.fillRect(0, V(0.62), w, 0.12 * h);
+    if (pattern === 'sash') { g.save(); g.translate(0.25 * w, 0.5 * h); g.rotate(-0.55); g.fillRect(-0.05 * w, -h, 0.06 * w, 2 * h); g.restore(); }
+    // Trame du tissu (maille fine) et légères bandes verticales tissées.
+    g.globalAlpha = 0.05; g.fillStyle = '#000';
+    for (let y = 0; y < h; y += 3 * k) for (let x = (y / (3 * k)) % 2 ? 0 : 1.5 * k; x < w; x += 3 * k) g.fillRect(x, y, 1.2 * k, 1.2 * k);
+    g.globalAlpha = 0.035; for (let x = 0; x < w; x += 18 * k) g.fillRect(x, 0, 6 * k, h);
+    g.globalAlpha = 1;
+    // Panneaux latéraux (couleur secondaire) et coutures.
+    if (pattern === 'plain' || pattern === 'centre') { g.fillStyle = c2; g.globalAlpha = 0.85; for (const u of [0, 0.5, 1]) g.fillRect(u * w - 18 * k, 0, 36 * k, h); g.globalAlpha = 1; }
+    g.fillStyle = 'rgba(0,0,0,0.22)'; for (const u of [0, 0.5]) g.fillRect(u * w - 1, 0, 2, h);
+    // Col (anneau du haut) et bas du maillot.
+    g.fillStyle = c2; g.fillRect(0, 0, w, 0.07 * h); g.fillStyle = 'rgba(255,255,255,.25)'; g.fillRect(0, 0.07 * h - 2 * k, w, 2 * k);
+    g.fillStyle = c2; g.fillRect(0, h - 0.025 * h, w, 0.025 * h);
+    // Plis : ombres verticales douces.
+    for (let i = 0; i < 30; i++) {
+      const x = ((i * 157) % 1024) * k, a = 0.02 + ((i * 37) % 7) / 260;
+      const gr = g.createLinearGradient(x - 16 * k, 0, x + 16 * k, 0);
+      gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(0.5, i % 3 ? `rgba(0,0,0,${a})` : `rgba(255,255,255,${a})`); gr.addColorStop(1, 'rgba(0,0,0,0)');
+      g.fillStyle = gr; g.fillRect(x - 16 * k, 0.08 * h, 32 * k, 0.9 * h);
+    }
+    if (sleeve) {
+      // Manche : écusson de compétition à l'extérieur (côté droit u = 0 ; côté gauche u = 0,5).
+      for (const u of [0.0, 0.5, 1.0]) {
+        const cx = u * w, cy = V(0.55), r = 34 * k;
+        g.fillStyle = '#f4f4f4'; g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2); g.fill();
+        g.strokeStyle = '#1a2a6c'; g.lineWidth = 5 * k; g.beginPath(); g.arc(cx, cy, r - 6 * k, 0, Math.PI * 2); g.stroke();
+        g.fillStyle = '#1a2a6c'; g.beginPath(); g.moveTo(cx, cy - 16 * k); g.lineTo(cx + 14 * k, cy + 10 * k); g.lineTo(cx - 14 * k, cy + 10 * k); g.closePath(); g.fill();
+      }
+      return;
+    }
+    // Écusson (côté cœur) : bouclier aux initiales du club.
+    const bx = 0.305 * w, by = V(0.78), bw = 70 * k, bh = 82 * k;
+    g.fillStyle = c2; g.beginPath(); g.moveTo(bx - bw / 2, by - bh / 2); g.lineTo(bx + bw / 2, by - bh / 2); g.lineTo(bx + bw / 2, by + bh * 0.1); g.quadraticCurveTo(bx, by + bh * 0.62, bx - bw / 2, by + bh * 0.1); g.closePath(); g.fill();
+    g.strokeStyle = c1; g.lineWidth = 4 * k; g.stroke();
+    g.fillStyle = c1; g.textAlign = 'center'; g.textBaseline = 'middle'; g.font = `900 ${26 * k}px "Barlow Condensed", system-ui, sans-serif`;
+    g.fillText(String(crest || '').slice(0, 3).toUpperCase(), bx, by - bh * 0.06, bw * 0.86);
+    // Équipementier (logo générique) à l'opposé.
+    g.strokeStyle = c2; g.lineWidth = 7 * k; g.lineCap = 'round';
+    g.beginPath(); g.moveTo(0.195 * w - 22 * k, by - 4 * k); g.quadraticCurveTo(0.195 * w, by + 16 * k, 0.195 * w + 26 * k, by - 18 * k); g.stroke();
+    // Sponsor (marque imaginaire) sur la poitrine.
+    if (sponsor) {
+      g.fillStyle = c2; g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.font = `900 ${(sponsor.length > 8 ? 54 : 64) * k}px "Barlow Condensed", system-ui, sans-serif`;
+      g.fillText(sponsor, 0.25 * w, V(0.56), 0.2 * w);
+    }
+    // Dos : nom puis numéro, encre contrastée avec un fin contour.
+    g.textAlign = 'center'; g.textBaseline = 'middle'; g.lineJoin = 'round';
+    if (name) {
+      const nm = String(name).toUpperCase().slice(0, 14);
+      g.font = `700 ${(nm.length > 9 ? 40 : 48) * k}px "Barlow Condensed", system-ui, sans-serif`;
+      g.fillStyle = ink; g.fillText(nm, 0.75 * w, V(0.76), 0.2 * w);
+    }
+    if (num !== '' && num != null) {
+      g.font = `800 ${232 * k}px "Barlow Condensed", system-ui, sans-serif`;
+      g.strokeStyle = c1 === ink ? c2 : c1; g.lineWidth = 10 * k; g.strokeText(String(num), 0.75 * w, V(0.38), 0.24 * w);
+      g.fillStyle = ink; g.fillText(String(num), 0.75 * w, V(0.38), 0.24 * w);
+    }
+  });
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.anisotropy = 4;
+  PRO_KIT.set(key, tex);
   return tex;
 }
 
@@ -2099,7 +2216,17 @@ export class Match3D {
         const eyeC = new THREE.Color(lk.eyes || '#2a1a10'), eyeTex = eyeC.b > eyeC.r * 1.15 ? 'blue' : eyeC.g > eyeC.r * 1.1 ? 'green' : (eyeC.r + eyeC.g + eyeC.b) > 1.2 ? 'grey' : 'brown';
         // Gabarit propre à chaque joueur (poids/taille réels) : plus costaud ou plus sec.
         const heavy = Math.max(0, Math.min(1, (girth - 1) / 0.16)), slim = Math.max(0, Math.min(1, (1 - girth) / 0.12));
-        e.mhOpts = { skin: lk.skin, hair: lk.hairColor, hairStyle: lk.hairStyle, beard: lk.beard, eyeTex, nat: p.mp?.p?.nat || '', mats: { ...mats, boot }, gk: !!p.gk, heavy, slim };
+        // Maillot détaillé propre au joueur (nom et numéro imprimés dans le dos, écusson, sponsor).
+        const club = v.m.teams[side]?.club;
+        const home = club?.colors && String(club.colors[0]).toLowerCase() === String(v.colors[side]).toLowerCase();
+        const kit = p.gk ? { c1: v.gkColors[side], c2: '#111111', ink: '#111111', pattern: 'plain' }
+          : { c1: v.colors[side], c2: home && club.colors[1] ? club.colors[1] : v.textColors[side], ink: v.textColors[side], pattern: home ? kitPattern(club) : 'plain' };
+        const hi = this.gfx === 'ultra';
+        const kitBase = { ...kit, sponsor: sponsorOf(club), crest: club?.short || '', hi };
+        const shirtM = new THREE.MeshStandardMaterial({ color: '#ffffff', map: proKitTexture({ ...kitBase, num: p.num ?? '', name: p.mp?.p?.last || p.short || '' }), roughness: 0.76, metalness: 0.02 });
+        const sleeveM = (this._sleeveM ||= new Map()).get(JSON.stringify(kit)) || new THREE.MeshStandardMaterial({ color: '#ffffff', map: proKitTexture({ ...kitBase, sleeve: true }), roughness: 0.76 });
+        this._sleeveM.set(JSON.stringify(kit), sleeveM);
+        e.mhOpts = { skin: lk.skin, hair: lk.hairColor, hairStyle: lk.hairStyle, beard: lk.beard, eyeTex, nat: p.mp?.p?.nat || '', mats: { ...mats, boot, shirt: shirtM, sleeve: sleeveM }, gk: !!p.gk, heavy, slim, printed: true };
         if (this.mh) e.p3.attachMH(this.mh, e.mhOpts);
         this.players.set(id, e);
       }
