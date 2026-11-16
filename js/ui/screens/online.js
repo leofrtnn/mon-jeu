@@ -3,6 +3,7 @@
  * (choix des clubs), puis en jeu : bouton « Prêt », attente des autres managers,
  * calcul de la journée par l'hôte et réception des nouvelles versions.
  */
+import { duelFixture, onDuelMessage } from './duelUI.js';
 import { GAME_OPTIONS, defaultOptions } from '../../game/options.js';
 import { onlineMustPlay } from '../../game/season.js';
 import { esc, crest } from '../components.js';
@@ -107,6 +108,7 @@ export async function enterOnline(app, game) {
     app.tab = 'home';
     app.ui.start = { step: 'menu', div: 1 };
     app.online.unsub = app.backend.subscribe(game.id, () => onRemoteChange(app));
+    openRoom(app);
     app.save(true);
     app.render();
     if (!state.coach?.created) import('./coachEditor.js').then((m) => m.openCoachEditor(app, { mode: 'create' }));
@@ -117,7 +119,19 @@ export async function enterOnline(app, game) {
 
 export function leaveOnline(app) {
   app.online?.unsub?.();
+  app.online?.room?.close();
   app.online = null;
+}
+
+/** Salon temps réel de la partie : matchs à deux, offres entre managers, discussion. */
+function openRoom(app) {
+  const o = app.online;
+  if (!app.backend.room) return;
+  o.room = app.backend.room(o.game.id, o.uid, (msg) => {
+    if (!app.online || app.online !== o || (msg.to && msg.to !== o.uid)) return;
+    if (msg.t?.startsWith('duel')) onDuelMessage(app, msg); // (appel direct : l'ordre des messages est conservé)
+    else if (msg.t === 'deal' || msg.t === 'chat') import('./mgrDeals.js').then((m) => m.onRoomMessage(app, msg));
+  });
 }
 
 async function onRemoteChange(app) {
@@ -192,15 +206,18 @@ export function onlineCard(app) {
   const ready = me?.ready && me.version === v;
   const n = ps.filter((p) => p.ready && p.version === v).length;
   const name = (p) => app.state.online.names[p.user_id] || p.username;
+  const df = duelFixture(app.state);
   const clubOf = (p) => clubById(app.state, p.club_id);
   return `<div class="card online-ready ${ready ? 'is-ready' : ''}">
     <div class="row between"><b>🌐 ${esc(o.game.name)} · ${esc(o.game.code)}</b><small>${n}/${ps.length} prêts</small></div>
     <div class="ready-list">${ps.map((p) => `<span class="tag ${p.ready && p.version === v ? 'good' : ''}">${p.ready && p.version === v ? '✔' : '…'} ${esc(name(p))}${clubOf(p) ? ` · ${esc(clubOf(p).short)}` : ''}${p.user_id === o.game.host ? ' 👑' : ''}</span>`).join('')}</div>
     ${ready ? `<p class="muted" style="margin:8px 0">En attente des autres managers… ${o.isHost ? 'Vous êtes l\'hôte : la journée sera calculée ici dès que tout le monde sera prêt (gardez le jeu ouvert).' : 'L\'hôte calculera la journée dès que tout le monde sera prêt.'}</p>
       <button class="btn block" data-act="ounready">Annuler « Prêt »</button>`
-    : onlineMustPlay(app.state) ? `<button class="btn primary lg block" data-act="play">▶ Jouer mon match</button>
-      <small class="muted">Jouez votre match en direct (compo, changements, tactique) : le résultat sera envoyé avec votre « Prêt ».</small>`
-    : `<button class="btn primary lg block" data-act="oready">✅ Prêt ${app.state.seasonOver ? '(fin de saison)' : app.state.preseason?.active ? '(lancer la saison)' : 'pour la journée suivante'}</button>
+    : onlineMustPlay(app.state) ? `<button class="btn primary lg block" data-act="play">${df ? `⚔ Jouer contre ${esc(df.peerName)} (en direct)` : '▶ Jouer mon match'}</button>
+      <small class="muted">${df ? `${o.peerWaiting?.key === df.key && Date.now() - o.peerWaiting.at < 120000 ? `✅ ${esc(df.peerName)} est connecté et vous attend. ` : ''}Match à deux : chacun dirige son équipe en direct.` : 'Jouez votre match en direct (compo, changements, tactique) : le résultat sera envoyé avec votre « Prêt ».'}</small>`
+    : `${df && !df.home && app.state.duelDone !== df.key ? `<button class="btn lg block" data-act="oduel" style="margin-bottom:8px">⚔ Rejoindre le match contre ${esc(df.peerName)}</button>
+      <small class="muted">${o.peerWaiting?.key === df.key && Date.now() - o.peerWaiting.at < 120000 ? `✅ ${esc(df.peerName)} vous attend ! ` : ''}Il reçoit : jouez le match en direct avec lui, ou cliquez « Prêt » (votre adjoint dirigera l'équipe).</small>` : ''}
+      <button class="btn primary lg block" data-act="oready">✅ Prêt ${app.state.seasonOver ? '(fin de saison)' : app.state.preseason?.active ? '(lancer la saison)' : 'pour la journée suivante'}</button>
       <small class="muted">Réglez votre équipe, puis cliquez « Prêt ». La journée est jouée quand tous les managers sont prêts.</small>`}
   </div>`;
 }

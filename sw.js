@@ -6,7 +6,7 @@
  * VERSION est incrémentée par scripts/update-sw.js à chaque livraison.
  */
 const IMG_CACHE = 'cdp-img';
-const VERSION = 'cdp-v98';
+const VERSION = 'cdp-v101';
 const ASSETS = [
   './',
   './css/style.css',
@@ -92,6 +92,8 @@ const ASSETS = [
   './js/main.js',
   './js/online/backend.js',
   './js/online/config.js',
+  './js/online/duel.js',
+  './js/online/mgrTrade.js',
   './js/online/multi.js',
   './js/ui/app.js',
   './js/ui/audio.js',
@@ -113,12 +115,14 @@ const ASSETS = [
   './js/ui/screens/dayReport.js',
   './js/ui/screens/deadlineUI.js',
   './js/ui/screens/deals.js',
+  './js/ui/screens/duelUI.js',
   './js/ui/screens/endSeason.js',
   './js/ui/screens/friends.js',
   './js/ui/screens/home.js',
   './js/ui/screens/inboxUI.js',
   './js/ui/screens/mailbox.js',
   './js/ui/screens/match.js',
+  './js/ui/screens/mgrDeals.js',
   './js/ui/screens/negotiation.js',
   './js/ui/screens/online.js',
   './js/ui/screens/playerSheet.js',

@@ -8,6 +8,7 @@ import { userMatchCfg, completeDay, today, fixtureKey, liveTable } from '../../g
 import { refereeProfile } from '../../game/referee.js';
 import { traitChip } from '../components.js';
 import { TALKS, SHOUTS, PLAYER_SHOUTS, teamShout, playerShout } from '../../engine/match.js';
+import { DuelSync, execOp, DEFER_OPS } from '../../online/duel.js';
 import { createMatch, stepMinute, makeSub, changeFormation, swapSlots, moveSlot, setRole, setTactic, snapshotMatch, restoreMatch, replayCfg, applyPlan, teamTalk, summarize, penaltyShootout, tieLevel, clockLabel, activePlayers } from '../../engine/match.js';
 import { describe, iconFor } from '../../engine/commentary.js';
 import { FORMATION_NAMES, FORMATION_GROUPS, ROLES, rolesFor, MENTALITIES, MENTALITY_LABELS, LEVELS, PRESSING_LABELS, TEMPO_LABELS, MAX_SUBS, POSITION_GROUP, TEAM_INSTRUCTIONS, DEFAULT_TACTICS, PLAYER_INSTRUCTIONS, WIDTH_LABELS } from '../../data/constants.js';
@@ -54,7 +55,7 @@ function clearSnap() { try { localStorage.removeItem(LIVE_KEY); } catch { /* ign
  */
 export function openMatch(app, opts = {}) {
   const s = app.state;
-  const cfg = opts.cfg || userMatchCfg(s);
+  const cfg = opts.cfg || opts.baseCfg || userMatchCfg(s); // baseCfg : match officiel à configuration figée (match à deux)
   if (!cfg) { app.toast('Pas de match aujourd\'hui.'); return; }
   const m = createMatch(cfg);
   const userSide = opts.userSide ?? (cfg.home.club.id === s.userClubId ? 0 : 1);
@@ -94,10 +95,18 @@ export function openMatch(app, opts = {}) {
   // Journal des décisions du coach (instant précis = nombre de pas du moteur) : permet de
   // rejouer ce match À L'IDENTIQUE sur un autre appareil (match entre managers, en ligne).
   const replay = opts.replay || null;
+  // Match entre deux managers en ligne : les deux appareils jouent le même match (voir online/duel.js).
+  const duelO = opts.duel || null;
+  const duel = duelO ? new DuelSync(userSide, duelO.send) : null;
+  if (duel) duelO.attach((msg) => duel.onMessage(msg));
+  const peerName = duelO?.peerName || 'l\'autre manager';
   const canLive = official && !replay && !s.online; // classement en direct (multiplex)
   const journal = [];
   let jIdx = 0;
-  const rec = (op, a) => { if (!replay) journal.push({ n: view.liveSteps || 0, op, a }); };
+  const rec = (op, a) => {
+    if (duel?.halt && !DEFER_OPS.has(op)) duel.record(op, a); // décision prise pendant une pause commune
+    if (!replay) journal.push({ n: view.liveSteps || 0, op, a });
+  };
   const resuming = official && pendingLiveMatch(s);
   const saveSnap = () => {
     if (!official || !s.liveLock || view.replayLive) return; // pas pendant un ralenti (positions rejouées)
@@ -174,6 +183,7 @@ export function openMatch(app, opts = {}) {
     if (ev.type === 'goal' && s.settings.replays && !view.live) queueReplay();
     if (ev.type === 'ht') {
       view.pause();
+      if (duel) duel.startHalt(`ht${m.period || ''}`, view.liveSteps || 0, -1);
       if (replay) { applyJournal(view.liveSteps || 0); app.toast('Mi-temps', 1500); setTimeout(() => { if (!ctrl.finished) view.play(); }, 1800); }
       else bc.fullCard('ht').then(halfTime);
     }
@@ -255,9 +265,9 @@ export function openMatch(app, opts = {}) {
     const h = Math.abs((mg?.id ?? c?.id ?? 1) * 2654435761 % 997);
     return { ...lk, outfit: outfits[h % outfits.length], outfitColor: ['#1c2333', '#111111', '#2b2f36', '#203a6b', c?.color || '#1c2333'][h % 5], height: 172 + (h % 20), build: ['slim', 'athletic', 'athletic', 'stocky', 'heavy'][h % 5], stance: ['arms', 'pockets', 'hips', 'note'][h % 4], temper: ['calm', 'normal', 'volcanic'][h % 3], celeb: ['fist', 'arms', 'clap', 'calm', 'jump'][h % 5], acc: h % 7 === 0 ? 'scarf' : 'none' };
   });
-  const view = new MatchView($('pitch'), m, { userSide, onEventStart, onIdle, live: replay ? true : s.settings.liveEngine !== false, hlMode: SPEEDS[ctrl.speedIdx],
+  const view = new MatchView($('pitch'), m, { userSide, onEventStart, onIdle, live: replay || duel ? true : s.settings.liveEngine !== false, hlMode: SPEEDS[ctrl.speedIdx],
     onHighlight: (on) => { audio.swell(on); const b = root.querySelector('[data-c="speed"]'); if (b && SPEEDS[ctrl.speedIdx] === 'auto') { b.textContent = speedLabel('auto', on, view.ffSpeed); b.classList.toggle('hl-on', on); } ffUpdate(true); },
-    beforeStep: replay ? (n) => applyJournal(n) : null, labelMode: s.settings.labels || ((s.settings.matchStyle || '3d') !== 'anim' ? 'num' : 'name'), style: s.settings.matchStyle || '3d', onPlayerTap: showTapCard,
+    beforeStep: replay ? (n) => applyJournal(n) : duel ? (n) => duelBeforeStep(n) : null, canStep: duel ? (n) => duel.canStep(n) : null, labelMode: s.settings.labels || ((s.settings.matchStyle || '3d') !== 'anim' ? 'num' : 'name'), style: s.settings.matchStyle || '3d', onPlayerTap: showTapCard,
     on3DFail: () => { app.toast('3D indisponible sur cet appareil : vue 2D.', 3500); s.settings.matchStyle = 'fm'; root.querySelector('[data-c=style]').textContent = '2D'; } });
   bc = new Broadcast($('bcast'), { m, cfg, hc, ac, colors: view.colors, nameOf, holderOf: () => (view.hl === 'skip' ? null : view.holder),
     coachOf: (side) => { const c = side === 0 ? hc : ac; if (c.id === s.userClubId && s.coach) return coachName(s.coach); const mg = managerOf(s, c); return mg ? (mg.fullName || mg.name) : ''; },
@@ -267,7 +277,7 @@ export function openMatch(app, opts = {}) {
     if (view.r3d) { view.r3d.camMode = 'intro'; view.r3d._introT = 0; }
     return bc.intro(matchDay(m, cfg, currentDate(s))).then(() => { if (view.r3d) view.r3d.camMode = 'tv'; });
   };
-  window.__bc = bc; window.__view = view; window.__journal = journal; window.__cfgSnap = () => replayCfg(cfg); // débogage
+  window.__bc = bc; window.__view = view; window.__journal = journal; window.__duel = duel; window.__ctrl = ctrl; window.__cfgSnap = () => replayCfg(cfg); // débogage
   view.ffSpeed = s.settings.ffSpeed ?? 'R'; // par défaut : résumé (seules les actions sont jouées)
   const applySpeed = () => {
     const v = SPEEDS[ctrl.speedIdx];
@@ -320,9 +330,18 @@ export function openMatch(app, opts = {}) {
     if (!b || replay) return;
     const k = b.dataset.ff;
     if (k === 'hide') { ctrl.ffHidden = true; app.toast('Panneau masqué jusqu\'au prochain temps fort.'); ffUpdate(true); return; }
+    if (duel && ['ti', 'qplan', 'shout'].includes(k)) {
+      // Contre un manager : la consigne part aux deux appareils et s'applique dans un instant.
+      const n = view.liveSteps || 0;
+      if (k === 'ti') duel.schedule('ti', { side: userSide, k: b.dataset.k, v: b.dataset.v }, n);
+      if (k === 'qplan') { const q = QUICK_PLANS.find((x) => x.id === b.dataset.v); for (const [kk, v] of Object.entries(q.tac)) duel.schedule('ti', { side: userSide, k: kk, v }, n); }
+      if (k === 'shout') duel.schedule('shout', { side: userSide, kind: b.dataset.v }, n);
+      app.toast('📣 Consigne transmise à vos joueurs…', 1500);
+      return;
+    }
     if (k === 'ti') { setTactic(m, userSide, b.dataset.k, b.dataset.v); rec('ti', { side: userSide, k: b.dataset.k, v: b.dataset.v }); }
     if (k === 'qplan') { const q = QUICK_PLANS.find((x) => x.id === b.dataset.v); for (const [kk, v] of Object.entries(q.tac)) { setTactic(m, userSide, kk, v); rec('ti', { side: userSide, k: kk, v }); } app.toast(`${q.icon} ${q.label}`); }
-    if (k === 'full') { if (m.phase === 'live') { view.pause(); pauseSheet(); } return; }
+    if (k === 'full') { if (duel) { askDuelPause(); return; } if (m.phase === 'live') { view.pause(); pauseSheet(); } return; }
     if (k === 'shout') { const r = teamShout(m, userSide, b.dataset.v); rec('shout', { side: userSide, kind: b.dataset.v }); app.toast(`${SHOUTS[b.dataset.v].icon} ${r.text}`); return; }
     if (k === 'spd') { view.ffSpeed = b.dataset.v === 'R' ? 'R' : +b.dataset.v; s.settings.ffSpeed = view.ffSpeed; app.save(); }
     if (k === 'nexthl') { view.hl = 'skip'; view.hlForce = false; view.setVeil(true); view.hlGrace = 0; return; }
@@ -333,7 +352,8 @@ export function openMatch(app, opts = {}) {
     if (!root.isConnected) { clearInterval(clockTimer); return; }
     ffUpdate();
     if (view.inHL) ctrl.ffHidden = false;
-    if (ctrl.pendingSubs.length && stoppageNow() && !view.paused) applyPendingSubs();
+    if (!duel && ctrl.pendingSubs.length && stoppageNow() && !view.paused) applyPendingSubs();
+    if (duel) duelTick();
     // Chants réguliers des tribunes (toutes les 35-70 s réelles), plus fréquents quand on gagne à domicile.
     if (audio.on && m.phase === 'live' && !view.paused && (ctrl.chantT = (ctrl.chantT || 0) + 0.2) > (ctrl.chantNext ||= 35 + Math.random() * 35)) { ctrl.chantT = 0; ctrl.chantNext = (m.score[0] > m.score[1] ? 25 : 40) + Math.random() * 30; audio.chant(8 + Math.floor(Math.random() * 8)); }
     if (!view.live || m.phase !== 'live' || view.replayLive) return;
@@ -347,7 +367,7 @@ export function openMatch(app, opts = {}) {
     const b = e.target.closest('[data-c]');
     if (!b || ctrl.finished) return;
     const c = b.dataset.c;
-    if (c === 'pause') { if (replay) { app.toast('Match en différé : pas de changement possible.'); return; } if (m.phase === 'live') { view.pause(); pauseSheet(); } }
+    if (c === 'pause') { if (replay) { app.toast('Match en différé : pas de changement possible.'); return; } if (duel) { askDuelPause(); return; } if (m.phase === 'live') { view.pause(); pauseSheet(); } }
     if (c === 'speed') {
       ctrl.speedIdx = (ctrl.speedIdx + 1) % SPEEDS.length;
       applySpeed();
@@ -358,6 +378,7 @@ export function openMatch(app, opts = {}) {
       if (!view.live || m.phase !== 'live' || replay) { app.toast('Disponible pendant le jeu.'); return; }
       view.hl = 'skip'; view.hlForce = false; view.setVeil(true); view.hlGrace = 0; return;
     }
+    if (c === 'skip' && duel) { app.toast(`Match en direct contre ${peerName} : impossible de passer à la fin.`); return; }
     if (c === 'skip') { if (replay) { view.setSpeed(12); app.toast('Avance rapide'); } else { rec('skip', {}); skipToEnd(); } }
     if (c === 'style') {
       const st = { '3d': 'fm', fm: 'anim', anim: '3d' }[view.style] || '3d';
@@ -422,8 +443,9 @@ export function openMatch(app, opts = {}) {
 
   /* ---------- Pré-match ---------- */
   const T = m.teams[userSide], O = m.teams[1 - userSide];
+  if (duel) duel.startHalt('pre', 0, -1); // coup d'envoi quand les deux coachs sont prêts
   if (replay) { app.toast('Match en différé', 2000); setTimeout(() => { if (s.settings.audio) audio.start(); view.play(); }, 300); }
-  else if (resuming) resumeMatch();
+  else if (resuming && !duel) resumeMatch();
   else app.sheet({
     root,
     dismissable: false,
@@ -438,7 +460,8 @@ export function openMatch(app, opts = {}) {
       ${scoutReport()}
       <div class="card adj-card"><b>🤝 Pas le temps de tout régler ?</b><br><small class="muted">Votre adjoint adapte la tactique à l'adversaire, à l'arbitre et à la météo, et vous explique ses choix.</small>
         <div id="adjout"></div><button class="btn sm" data-act="adjoint" style="margin-top:6px">Laisser l'adjoint préparer le match</button></div>
-      <div class="btns"><button class="btn" data-act="back">Retour</button>${!opts.cfg ? '<button class="btn" data-act="press" id="pressbtn">🎤 Conférence de presse</button>' : ''}<button class="btn primary lg" data-act="go">Coup d'envoi</button></div>`,
+      ${duel ? `<p class="muted" style="font-size:13px">⚔ Match en direct contre <b>${esc(peerName)}</b> : chacun dirige son équipe. Le coup d'envoi est donné quand vous êtes prêts tous les deux.</p>` : ''}
+      <div class="btns">${duel ? '' : '<button class="btn" data-act="back">Retour</button>'}${!opts.cfg && !duel ? '<button class="btn" data-act="press" id="pressbtn">🎤 Conférence de presse</button>' : ''}<button class="btn primary lg" data-act="go">${duel ? 'Prêt pour le coup d\'envoi' : 'Coup d\'envoi'}</button></div>`,
     actions: {
       adjoint: (el, a, h) => {
         // Rapport de force (notes des titulaires), arbitre, météo → réglages simples et expliqués.
@@ -458,7 +481,11 @@ export function openMatch(app, opts = {}) {
         if (box) box.innerHTML = `<ul class="adj-why">${why.map((w) => `<li>${esc(w)}</li>`).join('')}</ul>`;
         el.disabled = true; el.textContent = '✔ Tactique réglée par l\'adjoint';
       },
-      go: (el, a, h) => { h.close(); lockMatch(); kickoffShow().then(() => { if (s.settings.audio) audio.start(); view.play(); }); },
+      go: (el, a, h) => {
+        h.close(); lockMatch();
+        const kick = () => kickoffShow().then(() => { if (s.settings.audio) audio.start(); view.play(); });
+        if (duel) duelFinish(kick); else kick();
+      },
       press: (el) => {
         if (ctrl.pressDone) return;
         const conf = openDecisions(s, 'interview')[0];
@@ -566,7 +593,96 @@ export function openMatch(app, opts = {}) {
   ];
   const syncPitch = () => { if (view.live) view.live.sync(); else view.syncPlayers(false); };
 
-  function pauseSheet(resumeAfter = true, isHT = false) {
+  /* ---------- Match en direct contre un autre manager ---------- */
+  /** Applique une décision (la mienne ou celle de l'autre) au match, avec son effet à l'écran. */
+  function duelApply(x) {
+    const { evs, r } = execOp(m, view.live, x.op, x.a);
+    for (const ev of evs) view.liveEvent?.(ev);
+    if (['form', 'swap', 'plan'].includes(x.op)) syncPitch();
+    if (!replay) journal.push({ n: view.liveSteps || 0, op: x.op, a: x.a });
+    if (x.a.side === userSide) { if (r?.text) app.toast(r.text, 2500); }
+    else if (x.op === 'shout') app.toast(`📣 ${peerName} crie depuis le banc : ${SHOUTS[x.a.kind]?.label || ''}`, 2500);
+    else if (x.op === 'talk') app.toast(`🗣 Causerie de ${peerName} dans son vestiaire`, 2000);
+    return evs;
+  }
+  /** Avant chaque pas : décisions programmées pour ce pas (dont les pauses communes). */
+  function duelBeforeStep(n) {
+    let e;
+    while (!duel.halt && (e = duel.next(n))) {
+      if (e.op === 'pause') duelPauseStart(e);
+      else duelApply(e);
+    }
+    if (!duel.halt) duel.progress(n);
+  }
+  function askDuelPause() {
+    if (m.phase !== 'live' || duel.halt || ctrl.pauseAsked) return;
+    ctrl.pauseAsked = true;
+    duel.requestPause(view.liveSteps || 0);
+    app.toast('⏸ Pause demandée : le match s\'arrête dans un instant chez vous deux.', 2500);
+  }
+  /** La pause commune commence (au même instant sur les deux appareils). */
+  function duelPauseStart(e) {
+    duel.startHalt(`p${e.n}-${e.side}-${e.seq}`, view.liveSteps || 0, e.side);
+    view.pause();
+    ctrl.pauseAsked = false;
+    if (e.side === userSide) { pauseSheet(false, false, () => duelFinish(() => view.play())); return; }
+    const h = app.sheet({
+      root, dismissable: false,
+      html: `<h2>⏸ Pause</h2><p><b>${esc(peerName)}</b> a mis le match en pause pour faire des changements. Profitez-en si vous voulez !</p>
+        <div class="btns"><button class="btn" data-act="mine">📋 Faire mes changements</button><button class="btn primary" data-act="ok">▶ Je suis prêt</button></div>`,
+      actions: {
+        mine: () => { h.close(); pauseSheet(false, false, () => duelFinish(() => view.play())); },
+        ok: () => { h.close(); duelFinish(() => view.play()); },
+      },
+    });
+  }
+  /** J'ai fini mes changements : on attend l'autre, puis on applique tout et on repart. */
+  function duelFinish(then, atHT = false) {
+    for (const q of ctrl.pendingSubs) duel.record('sub', { side: userSide, out: q.out, in: q.in });
+    const nSubs = ctrl.pendingSubs.length;
+    ctrl.pendingSubs = [];
+    duel.finishHalt();
+    ctrl.duelWait = { then, atHT, nSubs, since: Date.now() };
+    duelTick();
+  }
+  const waitTag = document.createElement('div');
+  waitTag.className = 'duel-wait hidden';
+  $('pitch').parentElement.appendChild(waitTag);
+  /** Toutes les 200 ms : reprise d'une pause commune, attente, signe de vie, déconnexion. */
+  function duelTick() {
+    const w = ctrl.duelWait;
+    if (w) {
+      const r = duel.readyToResume();
+      if (r) {
+        ctrl.duelWait = null;
+        for (const x of r.peer) duelApply(x);
+        let mySubs = 0;
+        for (const x of r.deferred) { duelApply(x); if (x.op === 'sub' && x.a.side === userSide) mySubs++; }
+        if (mySubs && !w.atHT && duel.halt?.id !== 'pre') ctrl.windows++;
+        duel.endHalt();
+        w.then();
+      }
+    }
+    const waitingPeer = (w && !duel.readyToResume()) || (view.stalled && duel.waiting(view.liveSteps || 0));
+    waitTag.textContent = w ? `⏳ En attente de ${peerName}…` : `⏳ ${peerName} a un peu de retard…`;
+    waitTag.classList.toggle('hidden', !waitingPeer || ctrl.finished);
+    // Signe de vie (pendant les pauses aussi) et détection d'une déconnexion.
+    if (Date.now() - (ctrl.hbAt || 0) > 4000) { ctrl.hbAt = Date.now(); duel.send({ t: 'hb' }); }
+    if (!duel.peerGone && !ctrl.finished && !ctrl.goneAsked && Date.now() - duel.lastHeard > 25000) {
+      ctrl.goneAsked = true;
+      const h = app.sheet({
+        root, dismissable: false,
+        html: `<h2>📡 ${esc(peerName)} ne répond plus</h2><p>Sa connexion semble coupée. Vous pouvez attendre encore, ou continuer : son adjoint dirigera son équipe${userSide === 1 ? ' (le résultat officiel reste celui de l\'hôte du match)' : ''}.</p>
+          <div class="btns"><button class="btn" data-act="wait">Attendre</button><button class="btn primary" data-act="solo">Continuer sans lui</button></div>`,
+        actions: {
+          wait: () => { h.close(); ctrl.goneAsked = false; duel.lastHeard = Date.now(); },
+          solo: () => { h.close(); duel.peerGone = true; m.teams[1 - userSide].isAI = true; },
+        },
+      });
+    }
+  }
+
+  function pauseSheet(resumeAfter = true, isHT = false, onClosed = null) {
     let sel = null;            // joueur choisi sur le terrain
     let tab = 'compo';
     const t = () => m.teams[userSide];
@@ -644,7 +760,7 @@ export function openMatch(app, opts = {}) {
     };
     const h = app.sheet({
       root, html: html(), full: true,
-      onClose: () => { if (resumeAfter && !ctrl.finished) view.play(); },
+      onClose: () => { if (onClosed) onClosed(); else if (resumeAfter && !ctrl.finished) view.play(); },
       actions: {
         ptab: (el) => { tab = el.dataset.v; h.update(html()); },
         pick: (el) => {
@@ -669,7 +785,10 @@ export function openMatch(app, opts = {}) {
           else app.toast('Changement prêt : il sera effectué au prochain arrêt de jeu.', 3000);
           sel = null; h.update(html());
         },
-        pshout: (el) => { if (!sel) return; const r = playerShout(m, userSide, sel, el.dataset.v); rec('pshout', { side: userSide, pid: sel, kind: el.dataset.v }); app.toast(r.text, 2500); h.update(html()); },
+        pshout: (el) => {
+          if (!sel) return;
+          if (duel) { duel.record('pshout', { side: userSide, pid: sel, kind: el.dataset.v }); app.toast('Consigne notée : elle sera donnée à la reprise.', 2500); return; }
+          const r = playerShout(m, userSide, sel, el.dataset.v); rec('pshout', { side: userSide, pid: sel, kind: el.dataset.v }); app.toast(r.text, 2500); h.update(html()); },
         unsub: (el) => { ctrl.pendingSubs = ctrl.pendingSubs.filter((q) => q.in !== +el.dataset.v); h.update(html()); },
         pi: (el) => {
           const T = t(), mp = T.onPitch.find((x) => x && x.id === sel);
@@ -802,16 +921,23 @@ export function openMatch(app, opts = {}) {
       ${edgeHtml()}${statsHtml()}
       ${adviceHtml()}
       <div class="label">Causerie</div>
-      ${talked ? `<div class="card" style="margin-top:0">${esc(talked.text)} <small>(moral ${talked.delta >= 0 ? '+' : ''}${talked.delta})</small></div>` : `
+      ${talked ? `<div class="card" style="margin-top:0">${esc(talked.text)} ${talked.later ? '' : `<small>(moral ${talked.delta >= 0 ? '+' : ''}${talked.delta})</small>`}</div>` : `
         <div class="talk-grid">${Object.entries(TALKS).map(([k, t]) => `<button class="btn" data-act="talk" data-v="${k}">${t.icon} ${t.label}</button>`).join('')}</div>`}
       <div class="btns" style="margin-top:12px"><button class="btn" data-act="subs">Changements</button>
         <button class="btn primary" data-act="resume" ${talked ? '' : 'disabled'}>▶ 2e mi-temps</button></div>`;
     const h = app.sheet({
       root, dismissable: false, html,
       actions: {
-        talk: (el) => { talked = teamTalk(m, userSide, el.dataset.v); rec('talk', { side: userSide, kind: el.dataset.v }); h.update(html()); },
+        talk: (el) => {
+          if (duel) { duel.record('talk', { side: userSide, kind: el.dataset.v }); talked = { text: `${TALKS[el.dataset.v].icon} Causerie prévue : « ${TALKS[el.dataset.v].label} ».`, delta: 0, later: true }; h.update(html()); return; }
+          talked = teamTalk(m, userSide, el.dataset.v); rec('talk', { side: userSide, kind: el.dataset.v }); h.update(html());
+        },
         subs: () => pauseSheet(false, true),
-        resume: () => { ctrl.htDone = true; h.close(); view.play(); },
+        resume: () => {
+          h.close();
+          if (duel) { duelFinish(() => { ctrl.htDone = true; view.play(); }, true); return; }
+          ctrl.htDone = true; view.play();
+        },
       },
     });
     ctrl.htDone = false;
@@ -870,6 +996,7 @@ export function openMatch(app, opts = {}) {
 
   function closeScreen() {
     clearInterval(ctrl.snapT);
+    if (duel) { duel.send({ t: 'bye' }); duelO.detach?.(); }
     window.removeEventListener('pagehide', saveSnap);
     document.removeEventListener('visibilitychange', onHide);
     audio.stop();

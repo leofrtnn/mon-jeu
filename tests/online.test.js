@@ -153,3 +153,37 @@ test('un invité qui reçoit la partie retrouve les 60 championnats', async () =
   assert.equal(DIV_IDS.length, 60);
   assert.equal(DIVISIONS[clubById(b, b.userClubId).div].name, 'Ligue 1');
 });
+
+test('transfert entre deux managers : offre, contre-offre, accord, officialisé par l\'hôte', async () => {
+  const { makeOffer, respond, mergeDeals, chatSay } = await import('../js/online/mgrTrade.js');
+  const host = createOnlineCareer(data, 17, [{ user_id: 'A', username: 'Alice', club_id: 1 }, { user_id: 'B', username: 'Bob', club_id: 21 }], 'gT');
+  const snap = JSON.stringify(host);
+  const b = adoptOnline(JSON.parse(snap), 'B'), baseB = adoptOnline(JSON.parse(snap), 'B');
+  // A (l'hôte) veut un joueur de B.
+  const target = clubPlayers(host, clubById(host, 21)).sort((x, y) => y.value - x.value)[3];
+  const budgetA = clubById(host, 1).budget, budgetB = clubById(host, 21).budget;
+  const o = makeOffer(host, target.id, { fee: 1_000_000, note: 'Il jouera chez nous' });
+  assert.ok(o.ok, o.msg);
+  assert.equal(o.deal.turn, 'B');
+  // Le message arrive chez B (salon temps réel), qui contre-propose.
+  mergeDeals(b, { [o.deal.id]: o.deal });
+  const c = respond(b, o.deal.id, 'counter', { fee: 2_500_000 });
+  assert.ok(c.ok, c.msg);
+  assert.equal(c.deal.turn, 'A');
+  mergeDeals(host, { [o.deal.id]: c.deal });
+  assert.equal(respond(b, o.deal.id, 'accept').ok, false, 'B ne peut pas accepter sa propre contre-offre');
+  const acc = respond(host, o.deal.id, 'accept');
+  assert.ok(acc.ok, acc.msg);
+  chatSay(b, 'Marché conclu !');
+  // Journée suivante : B envoie sa tranche (elle contient l'ancienne version de la négociation).
+  const slice = makeSlice(b, baseB);
+  hostAdvance(host, [slice]);
+  const d = host.online.deals[o.deal.id];
+  assert.equal(d.status, 'done', 'la version la plus récente (acceptée) l\'emporte, puis le transfert est fait');
+  assert.equal(host.players[target.id].clubId, 1);
+  assert.ok(clubById(host, 1).playerIds.includes(target.id) && !clubById(host, 21).playerIds.includes(target.id));
+  assert.ok(clubById(host, 1).budget <= budgetA - 2_500_000 + 1e7 && clubById(host, 21).budget >= budgetB + 2_500_000 - 1e7);
+  assert.ok(host.online.chat.some((m) => m.text === 'Marché conclu !'), 'la discussion voyage avec la tranche');
+  const afterB = adoptOnline(JSON.parse(JSON.stringify(host)), 'B');
+  assert.ok(afterB.messages.some((m) => /est parti/.test(m.title)), 'B est prévenu de la vente');
+});

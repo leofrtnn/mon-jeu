@@ -114,7 +114,7 @@ export function recentlyJoined(state, p) {
 }
 export const joinedLeft = (state, p) => Math.max(0, Math.max(20, Math.round((state.calendar?.length || 64) / 2)) - (absDay(state) - (p.joinedAt ?? -999)));
 
-function addToClub(state, p, club) {
+export function addToClub(state, p, club) {
   p.joinedAt = absDay(state);
   p.clubId = club.id;
   club.playerIds.push(p.id);

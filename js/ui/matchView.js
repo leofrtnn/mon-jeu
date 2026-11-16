@@ -515,6 +515,9 @@ export class MatchView {
     this.liveAcc = Math.min(1, (this.liveAcc || 0) + adv);
     while (this.liveAcc >= LIVE_STEP) {
       this.opts.beforeStep?.(this.liveSteps || 0);
+      // Match entre deux managers : on attend l'autre appareil (ou la fin d'une pause commune).
+      if (this.opts.canStep && !this.opts.canStep(this.liveSteps || 0)) { this.liveAcc = Math.min(this.liveAcc, LIVE_STEP); this.stalled = true; break; }
+      this.stalled = false;
       this.liveAcc -= LIVE_STEP;
       this.liveSteps = (this.liveSteps || 0) + 1;
       for (const ev of this.live.step(LIVE_STEP)) this.liveEvent(ev);
@@ -623,11 +626,15 @@ export class MatchView {
     // Avance rapide forcée (jusqu'à la mi-temps, tests) : simulation au pas fixe, sans affichage.
     const t0 = performance.now();
     while (!this.paused && performance.now() - t0 < (this.ffBudget || 14)) {
+      let stall = false;
       for (let i = 0; i < 24 && !this.paused; i++) {
         this.opts.beforeStep?.(this.liveSteps || 0);
+        if (this.opts.canStep && !this.opts.canStep(this.liveSteps || 0)) { stall = true; break; }
         this.liveSteps = (this.liveSteps || 0) + 1;
         for (const ev of this.live.step(LIVE_STEP)) this.liveEvent(ev);
       }
+      this.stalled = stall;
+      if (stall) break;
       if (!this.hlForce && (this.ffSpeed === 'R' && this.hlMode === 'auto' ? this.hlPre() : this.hlWant())) break;
     }
     this.holder = this.live.holder ? this.live.holder.mp.id : null;

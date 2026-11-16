@@ -1433,3 +1433,9 @@ ul.notes { margin: 4px 0 0; padding-left: 18px; font-size: 13px; line-height: 1.
 .tuto-list { margin: -4px 0 10px; padding-left: 18px; font-size: 13.5px; line-height: 1.45; }
 .tuto-list li { margin: 2px 0; }
 .tuto-card { max-height: calc(100vh - 36px); overflow-y: auto; }
+.duel-wait { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 6; background: rgba(10,12,24,.85); border: 1px solid rgba(244,197,66,.5); color: #f4c542; padding: 6px 14px; border-radius: 999px; font-size: 13px; font-weight: 700; pointer-events: none; }
+.duel-wait.hidden { display: none; }
+.chat-list { max-height: 50vh; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding: 4px 2px; }
+.chat-msg { align-self: flex-start; max-width: 82%; background: rgba(255,255,255,.06); border-radius: 12px 12px 12px 4px; padding: 6px 10px; }
+.chat-msg.me { align-self: flex-end; background: rgba(124,58,237,.35); border-radius: 12px 12px 4px 12px; }
+.chat-msg small { color: var(--muted); font-size: 11px; }

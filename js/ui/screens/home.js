@@ -19,6 +19,7 @@ import { msgRow, openMessage } from './inboxUI.js';
 import { openDeadline } from './deadlineUI.js';
 import { windowInfo, currentDate, longDate, fmtDate } from '../../game/dates.js';
 import { onlineCard, onlineActions } from './online.js';
+import { dealsCard, dealSheet, chatSheet } from './mgrDeals.js';
 
 export function render(app) {
   const s = app.state;
@@ -34,7 +35,7 @@ export function render(app) {
         <div class="pname"><b>${esc(c.name)}</b><small>${DIV_NAMES[c.div]} · réputation ${c.rep}${c.vacantSince ? ' · poste vacant' : ''}</small></div><span class="btn sm primary">Signer</span></div>`).join('') || '<p class="muted">Aucune offre pour le moment.</p>'}
       </div>`;
   }
-  if (s.preseason?.active) return s.online ? onlineCard(app) + preseasonCard(app) : preseasonCard(app);
+  if (s.preseason?.active) return s.online ? onlineCard(app) + dealsCard(app) + preseasonCard(app) : preseasonCard(app);
 
   /* ---------- Colonne 1 : le club ---------- */
   const row = s.tables[uc.div][uc.id];
@@ -65,7 +66,7 @@ export function render(app) {
 
   /* ---------- Colonne 2 : le prochain rendez-vous ---------- */
   let col2 = '';
-  if (s.online) col2 += onlineCard(app) + replaysCard(app);
+  if (s.online) col2 += onlineCard(app) + dealsCard(app) + replaysCard(app);
   if (s.seasonOver) {
     col2 += `<div class="card nextmatch"><h3 class="ttl">${ico('trophy')}Saison ${s.season}-${s.season + 1} terminée</h3>
       <p>Classement final : <b>${pos}e</b> de ${esc(DIV_NAMES[uc.div])}</p>
@@ -205,7 +206,7 @@ export function primaryAction(app) {
     return { label: s.online ? 'Prêt' : 'Lancer la saison', run: () => preseasonActions.psstart(null, app) };
   }
   if (s.online) {
-    if (onlineMustPlay(s)) return { label: 'Jouer', run: () => openMatch(app) };
+    if (onlineMustPlay(s)) return { label: 'Jouer', run: () => playToday(app) };
     const o = app.online;
     const me = o?.players?.find((p) => p.user_id === o.uid);
     if (me?.ready && me.version === s.online.version) return null;
@@ -215,6 +216,12 @@ export function primaryAction(app) {
   const t = today(s);
   if (t?.userFixture) return { label: 'Jouer', run: () => openMatch(app) };
   return { label: 'Continuer', run: () => runSim(app, 1, false) };
+}
+
+/** Match du jour : contre un autre manager en ligne, on passe par le salon (match à deux). */
+function playToday(app) {
+  if (app.state.online) return import('./duelUI.js').then((m) => { const df = m.duelFixture(app.state); if (df?.home) m.hostDuel(app, df); else openMatch(app); });
+  openMatch(app);
 }
 
 /** En ligne : matchs de la journée joués par un manager, à revoir en différé. */
@@ -235,7 +242,10 @@ export const actions = {
   ...preseasonActions,
   oready: onlineActions.oready,
   ounready: onlineActions.ounready,
-  play(el, app) { openMatch(app); },
+  play(el, app) { playToday(app); },
+  mgrdeal(el, app) { dealSheet(app, el.dataset.v); },
+  mgrchat(el, app) { chatSheet(app); },
+  oduel(el, app) { import('./duelUI.js').then((m) => m.joinDuel(app)); },
   oreplay(el, app) {
     const s = app.state, r = s.online?.replays?.[el.dataset.k];
     if (!r) return;

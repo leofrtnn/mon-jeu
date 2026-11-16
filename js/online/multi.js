@@ -17,6 +17,7 @@ import { clubById, migrate } from '../game/state.js';
 import { applyWorld } from '../data/world.js';
 import { defaultOptions, optInfo } from '../game/options.js';
 import { ensureBoard, setBoardSeason } from '../game/board.js';
+import { mergeDeals, mergeChat, executeDeals } from './mgrTrade.js';
 
 const freshHuman = () => ({ userClubId: null, coach: null, board: { confidence: 60 }, life: null, objectives: undefined, seasonStats: undefined,
   sponsorDeals: undefined, preseason: undefined, pendingOffers: [], scout: {}, scoutQueue: [], missions: undefined, scoutReports: undefined,
@@ -90,6 +91,7 @@ export function makeSlice(state, base) {
   for (const k of HUMAN_KEYS) human[k] = state[k];
   return clone({
     uid, version: state.online.version, human, club, players, moves, budgets, rel,
+    deals: state.online.deals || {}, chat: state.online.chat || [],
     staffTaken: [...basePool].filter((id) => !curPool.has(id)),
     staffReturned: (state.staffPool || []).filter((m) => !basePool.has(m.id)),
   });
@@ -154,7 +156,10 @@ export function applySlice(state, slice) {
   for (const [k, v] of Object.entries(slice.rel || {})) state.rel[k] = v; // (la journée suivante invalide le cache des alliés)
   const taken = new Set(slice.staffTaken || []);
   state.staffPool = (state.staffPool || []).filter((m) => !taken.has(m.id)).concat(slice.staffReturned || []);
-  // 5. Les données du manager.
+  // 5. Négociations entre managers et discussion (la version la plus récente l'emporte).
+  mergeDeals(state, slice.deals);
+  mergeChat(state, slice.chat);
+  // 6. Les données du manager.
   if (slice.uid === state.online.cur) { for (const k of HUMAN_KEYS) state[k] = slice.human[k]; }
   else state.online.humans[slice.uid] = slice.human;
   return { stale: false, conflicts };
@@ -167,10 +172,12 @@ export function applySlice(state, slice) {
 export function hostAdvance(state, slices) {
   const conflicts = [];
   for (const s of slices) if (s && s.uid !== state.online.cur) conflicts.push(...applySlice(state, s).conflicts);
+  // Accords entre managers : les joueurs changent de club avant la journée.
+  const trades = executeDeals(state);
   const report = state.seasonOver ? { endSeason: endSeason(state) } : completeDay(state);
   state.online.version++;
   state.online.lastAdvance = new Date().toISOString();
-  return { report, conflicts };
+  return { report, conflicts, trades };
 }
 
 export const managers = (state) => humanIds(state).map((uid) => ({ uid, name: state.online.names[uid], clubId: state.online.humans[uid]?.userClubId ?? (uid === state.online.cur ? state.userClubId : null) }));

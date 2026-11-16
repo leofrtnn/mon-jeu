@@ -14,6 +14,7 @@
  *   publishState(id, version, blob) · loadState(id) · subscribe(id, cb) → unsubscribe()
  *   leaveGame(id)
  */
+import { kvGet, kvSet } from '../game/store.js';
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from './config.js';
 
 export const ONLINE_CONFIGURED = !!(SUPABASE_URL && SUPABASE_ANON_KEY);
@@ -73,7 +74,11 @@ export class LocalBackend {
     this.db = kv(db); this.ses = kv(session);
     this.bus = bus || LocalBackend.bus || (LocalBackend.bus = new Map()); // id de partie -> Set(callbacks)
     this.kind = 'local';
+    // États de partie (plusieurs Mo) : IndexedDB dans le navigateur (localStorage est limité à ~5 Mo).
+    this.idb = typeof indexedDB !== 'undefined' && db === globalThis.localStorage;
   }
+  async _blobSet(k, v) { if (this.idb) { await kvSet(`cdp-db-${k}`, JSON.stringify(v)); this.db.del(`cdp-db-${k}`); } else this._set(k, v); }
+  async _blobGet(k, d) { if (this.idb) { const r = await kvGet(`cdp-db-${k}`); if (r) return JSON.parse(r); } return this._get(k, d); }
   _get(k, d) { try { return JSON.parse(this.db.get(`cdp-db-${k}`)) ?? d; } catch { return d; } }
   _set(k, v) { this.db.set(`cdp-db-${k}`, JSON.stringify(v)); }
   _emit(id) { for (const cb of this.bus.get(id) || []) setTimeout(() => cb(), 0); }
@@ -158,16 +163,38 @@ export class LocalBackend {
     this._set(`players-${id}`, ps); this._emit(id);
   }
   async publishState(id, version, blob) {
-    this._set(`state-${id}`, { version, data: blob });
+    await this._blobSet(`state-${id}`, { version, data: blob });
     const games = this._get('games', {}); games[id].version = version; this._set('games', games);
     const ps = this._get(`players-${id}`, []).map((p) => ({ ...p, ready: false, slice: null }));
     this._set(`players-${id}`, ps); this._emit(id);
   }
-  async loadState(id) { return this._get(`state-${id}`, null); }
+  async loadState(id) { return this._blobGet(`state-${id}`, null); }
   subscribe(id, cb) {
     if (!this.bus.has(id)) this.bus.set(id, new Set());
     this.bus.get(id).add(cb);
     return () => this.bus.get(id)?.delete(cb);
+  }
+  /**
+   * Salon temps réel d'une partie (match entre managers, offres de transfert, discussion).
+   * Hors serveur : entre onglets du même navigateur (BroadcastChannel) + même onglet (tests).
+   * onMsg(msg) reçoit les messages des AUTRES managers ({ from, ...contenu }).
+   */
+  room(id, uid, onMsg) {
+    const name = `cdp-room-${id}`;
+    const local = (LocalBackend.rooms ||= new Map());
+    if (!local.has(name)) local.set(name, new Set());
+    const me = { uid, onMsg };
+    local.get(name).add(me);
+    let bc = null;
+    try { bc = new BroadcastChannel(name); bc.onmessage = (e) => { if (e.data?.from !== uid) onMsg(e.data); }; } catch { /* Node */ }
+    return {
+      send: (msg) => {
+        const m = { ...msg, from: uid };
+        bc?.postMessage(m);
+        for (const o of local.get(name)) if (o !== me && o.uid !== uid) setTimeout(() => o.onMsg(m), 0);
+      },
+      close: () => { bc?.close(); local.get(name)?.delete(me); },
+    };
   }
   async leaveGame(id) {
     const me = await this.user();
@@ -317,6 +344,18 @@ export class SupabaseBackend {
     const poll = setInterval(cb, 15000); // filet de sécurité si le temps réel décroche
     return () => { clearInterval(poll); this.sb.removeChannel(ch); };
   }
+  /** Salon temps réel (diffusion Supabase Realtime, sans base de données). */
+  room(id, uid, onMsg) {
+    const ch = this.sb.channel(`room-${id}`, { config: { broadcast: { self: false } } });
+    const queue = [];
+    let ok = false;
+    ch.on('broadcast', { event: 'm' }, ({ payload }) => { if (payload?.from !== uid) onMsg(payload); })
+      .subscribe((st) => { if (st === 'SUBSCRIBED') { ok = true; while (queue.length) ch.send({ type: 'broadcast', event: 'm', payload: queue.shift() }); } });
+    return {
+      send: (msg) => { const payload = { ...msg, from: uid }; if (ok) ch.send({ type: 'broadcast', event: 'm', payload }); else queue.push(payload); },
+      close: () => { this.sb.removeChannel(ch); },
+    };
+  }
   async leaveGame(id) { const me = await this.user(); check(await this.sb.from('game_players').delete().eq('game_id', id).eq('user_id', me.id)); }
   /** Suppression définitive (hôte seulement ; les joueurs et l'état suivent en cascade). */
   async deleteGame(id) { check(await this.sb.from('games').delete().eq('id', id)); }
@@ -330,7 +369,9 @@ export async function getBackend() {
   if (ONLINE_CONFIGURED && !forceLocal) {
     try { instance = await SupabaseBackend.create(); return instance; } catch (e) { console.warn('Supabase indisponible', e); }
   }
-  instance = new LocalBackend();
+  // Tests : une session par onglet (deux managers dans deux onglets du même navigateur).
+  const perTab = typeof location !== 'undefined' && /[?&]tab=1\b/.test(location.search);
+  instance = perTab ? new LocalBackend(globalThis.localStorage, globalThis.sessionStorage) : new LocalBackend();
   return instance;
 }
 export function setBackendForTests(b) { instance = b; }

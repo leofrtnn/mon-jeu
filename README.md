@@ -175,6 +175,9 @@ Chaque championnat a son propre profil : style plus technique en Ibérie, plus p
 - **Compte obligatoire** (e-mail, mot de passe, pseudo) : serveur Supabase (`js/online/config.js`, `supabase/schema.sql`). Sans serveur configuré, comptes locaux à l'appareil.
 - **Sauvegardes** : sur l'appareil (IndexedDB) et copie dans le cloud du compte, récupérable sur un autre téléphone.
 - **Carrière en ligne, 2 à 24 managers**, un club chacun, comme dans FM :
+  - **Match entre deux managers en direct** : les deux appareils jouent le même match, synchronisés pas à pas (moteur déterministe, « lockstep ») ; chacun fait ses changements, sa tactique et sa causerie ; une pause arrête le match chez les deux (`js/online/duel.js`, testé par `tests/duel.test.js` et `tests/duel.e2e.cjs`).
+  - **Transferts entre managers** : offre, contre-offre, échange de joueurs, prêt, petit mot ; en direct si les deux sont connectés, officialisé par l'hôte au passage de la journée (ou à l'ouverture du mercato) (`js/online/mgrTrade.js`).
+  - **Discussion** entre tous les managers de la partie.
   - l'hôte crée la partie et donne un code de 6 caractères, chacun choisit son club dans le salon ;
   - chacun règle son équipe (tactique, mercato, décisions), puis clique « Prêt » ;
   - quand tout le monde est prêt, le téléphone de l'hôte calcule la journée et l'envoie à tous (temps réel Supabase) ;

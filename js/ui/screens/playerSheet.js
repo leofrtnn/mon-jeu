@@ -3,6 +3,7 @@
  * extérieurs), état, stats, sélection, contrat, actions de transfert.
  */
 import { dealFor, STAGE_LABEL } from '../../game/deals.js';
+import { humanOfClub } from '../../game/humans.js';
 import { traitChip } from '../components.js';
 import { SKILL_MOVES, movesFor, starsText } from '../../game/stars.js';
 import { heightOf, weightOf } from '../../game/physique.js';
@@ -103,6 +104,11 @@ export function showPlayer(app, pid, onChange) {
         <button class="btn" data-act="loanout">Prêter</button>
         <button class="btn danger" data-act="release">Libérer</button>` : `<small class="muted">Joueur prêté : il retournera dans son club en fin de saison.</small>${p.buyOption ? `<button class="btn primary" data-act="option">Lever l'option · ${money(p.buyOption)}</button>` : ''}`}
       </div>`;
+    } else if (s.online && p.clubId != null && humanOfClub(s, p.clubId) !== undefined) {
+      // Joueur d'un autre manager humain : on négocie avec LUI (pas avec l'IA).
+      const mgr = s.online.names?.[humanOfClub(s, p.clubId)] || 'l\'autre manager';
+      actions = `<div class="btns"><button class="btn primary" data-act="mgroffer">💼 Négocier avec ${esc(mgr)}</button></div>
+        <small class="muted">${esc(mgr)} reçoit votre offre tout de suite s'il est connecté.${windowOpen(s) ? '' : ` ${esc(windowInfo(s).label)} : un accord sera officialisé à l'ouverture du mercato.`}</small>`;
     } else {
       const price = askingPrice(s, p);
       const queued = (s.scoutQueue || []).includes(p.id);
@@ -168,6 +174,7 @@ export function showPlayer(app, pid, onChange) {
   const h = app.sheet({
     html: render,
     actions: {
+      mgroffer: () => { h.close(); import('./mgrDeals.js').then((mod) => mod.offerSheet(app, pid)); },
       buy: () => { h.close(); import('./deals.js').then((mod) => mod.openDealFlow(app, pid, 'buy', onChange)); },
       opendeal: () => { h.close(); import('./deals.js').then((mod) => mod.dealSheet(app, dealFor(s, pid).id, onChange)); },
       loanin: () => { h.close(); import('./deals.js').then((mod) => mod.openDealFlow(app, pid, 'loan', onChange)); },
