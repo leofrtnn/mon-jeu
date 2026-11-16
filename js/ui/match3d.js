@@ -277,9 +277,27 @@ function geo() {
   GEO.back = new THREE.PlaneGeometry(0.24, 0.28);
   GEO.front = new THREE.PlaneGeometry(0.1, 0.1);
   GEO.shadow = new THREE.CircleGeometry(0.55, 20);
+  GEO.footShadow = new THREE.CircleGeometry(0.16, 14);
   GEO.ring = new THREE.RingGeometry(0.62, 0.78, 28);
   return GEO;
 }
+
+/**
+ * Ombre de contact : tache douce (dégradé radial) sous le corps et sous chaque pied. Elle
+ * « pose » le joueur sur la pelouse, en plus de l'ombre portée du soleil (occlusion au sol).
+ */
+let CONTACT_TEX = null;
+function contactShadowMat(opacity) {
+  if (!CONTACT_TEX) {
+    const c = document.createElement('canvas'); c.width = c.height = 64;
+    const g = c.getContext('2d'), gr = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+    gr.addColorStop(0, 'rgba(0,0,0,1)'); gr.addColorStop(0.45, 'rgba(0,0,0,0.6)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
+    CONTACT_TEX = new THREE.CanvasTexture(c);
+  }
+  return new THREE.MeshBasicMaterial({ color: '#000', map: CONTACT_TEX, transparent: true, opacity, depthWrite: false });
+}
+const _footV = new THREE.Vector3();
 
 function limb(parent, g, mat, y) {
   const m = new THREE.Mesh(g, mat);
@@ -477,6 +495,13 @@ export class Player3D {
     this.shadow = new THREE.Mesh(G.shadow, mats.shadow);
     this.shadow.rotation.x = -Math.PI / 2; this.shadow.position.y = 0.02;
     this.root.add(this.shadow);
+    // Ombres de contact sous les pieds : elles suivent les chevilles et s'effacent quand le pied se lève.
+    this.footShadows = [0, 1].map(() => {
+      const f = new THREE.Mesh(G.footShadow, mats.shadow);
+      f.rotation.x = -Math.PI / 2; f.position.y = 0.021; f.scale.set(1.6, 1, 1); f.renderOrder = 1;
+      this.root.add(f);
+      return f;
+    });
     this.ring = new THREE.Mesh(G.ring, mats.ring);
     this.ring.rotation.x = -Math.PI / 2; this.ring.position.y = 0.03; this.ring.visible = false;
     this.root.add(this.ring);
@@ -486,12 +511,15 @@ export class Player3D {
     // Haut du corps (buste, bras, tête) : il pivote en sens inverse des hanches pendant la course.
     this.upper = new THREE.Group(); this.upper.position.y = 0.95; this.body.add(this.upper);
     for (const c of this.body.children.slice()) if (c !== this.upper && c.position.y >= 1.0) { this.body.remove(c); c.position.y -= 0.95; this.upper.add(c); }
+    // Membres d'un seul tenant (peau déformée par le squelette) à la place des segments rigides.
+    try { this.buildSkin(skinM, mats); } catch (e) { console.warn('corps 3D', e); }
     // Petites pièces (col, poignets, bandes des chaussettes, semelles, oreilles, numéro avant) :
     // invisibles de loin ; on ne les dessine pas (et elles ne projettent pas d'ombre).
     const small = new Set([G.collar, G.cuff, G.sockBand, G.sole, G.ear, G.front, G.kneeA]);
     this.lodMeshes = [];
     this.root.traverse((o) => {
       if (!o.isMesh || o === this.shadow || o === this.ring) return;
+      if (this.footShadows.includes(o)) { this.lodMeshes.push(o); return; }
       if (small.has(o.geometry)) { this.lodMeshes.push(o); o.castShadow = false; } else o.castShadow = true;
     });
     this.detail = true;
@@ -566,6 +594,104 @@ export class Player3D {
     else if (style === 'dreads') { h.scale.set(1.06, 1.14, 1.02); for (let i = 0; i < 9; i++) { const a = -1.2 + i * 0.3; add(G.dread, -0.05 - Math.abs(Math.sin(a)) * 0.02, 0.0, Math.sin(a) * 0.11).rotation.x = Math.sin(a) * 0.25; } }
     else if (style === 'mohawk') { h.scale.set(0.93, 0.98, 0.88); add(G.mohawk, -0.01, 0.235, 0); }                         // crête
     else if (style === 'quiff') { h.scale.set(0.99, 1.2, 0.93); h.rotation.z = 0.28; }                                        // houppe
+  }
+  /**
+   * CORPS « SKINNÉ » : chaque jambe et chaque bras est un tube continu dont les sommets sont
+   * rattachés (avec des poids qui se fondent aux articulations) aux os existants — hanche,
+   * genou, cheville ; épaule, coude. Les animations restent les mêmes (elles tournent les os),
+   * mais le genou et le coude plient sans jointure ni « boule » : une vraie peau.
+   * Matériaux par zone : cuisse, genou, chaussette (jambe) ; bras, avant-bras (bras).
+   */
+  buildSkin(skinM, mats) {
+    const body = this.body;
+    this.root.updateMatrixWorld(true);
+    const at = (o) => body.worldToLocal(o.getWorldPosition(new THREE.Vector3()));
+    const SEG = 14;
+    // Tube le long d'une chaîne d'os (verticale au repos) : rings = [{ y, r, w: [w0, w1, w2], z }] du haut vers le bas.
+    const tube = (cx, cz, rings, flatX = 1, flatZ = 1.04) => {
+      const pos = [], nor = [], idx = [], si = [], sw = [];
+      rings.forEach((rg, j) => {
+        for (let i = 0; i <= SEG; i++) {
+          const a = (i / SEG) * Math.PI * 2, c = Math.cos(a), sn = Math.sin(a);
+          pos.push(cx + c * rg.r * flatX + (rg.dx || 0), rg.y, cz + sn * rg.r * flatZ);
+          nor.push(c, 0, sn);
+          si.push(0, 1, 2, 0); sw.push(rg.w[0], rg.w[1], rg.w[2] || 0, 0);
+        }
+      });
+      for (let j = 0; j < rings.length - 1; j++) for (let i = 0; i < SEG; i++) {
+        const a = j * (SEG + 1) + i, b = a + SEG + 1;
+        idx.push(a, a + 1, b, a + 1, b + 1, b);
+      }
+      // Bouts fermés (hanche, cheville) : éventail vers le centre.
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+      g.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(si, 4));
+      g.setAttribute('skinWeight', new THREE.Float32BufferAttribute(sw, 4));
+      g.setIndex(idx);
+      return g;
+    };
+    const blend = (y, yJ, half) => Math.max(0, Math.min(1, (yJ + half - y) / (2 * half))); // 0 au-dessus de l'articulation → 1 en dessous
+    const skinned = (geo, matsArr, bones) => {
+      const m = new THREE.SkinnedMesh(geo, matsArr);
+      body.add(m);
+      m.updateMatrixWorld(true);
+      m.bind(new THREE.Skeleton(bones), m.matrixWorld);
+      m.frustumCulled = false; m.castShadow = true;
+      return m;
+    };
+    // ---- Jambes : hanche → genou → cheville.
+    this.legSkins = this.legs.map((l) => {
+      const H = at(l.hip), Kn = at(l.knee), A = at(l.ankle);
+      const prof = [ // [hauteur relative depuis la hanche (0) vers la cheville (1), rayon]
+        [0.0, 0.088], [0.12, 0.09], [0.3, 0.084], [0.45, 0.072], [0.5, 0.064], [0.52, 0.061], [0.55, 0.06],
+        [0.62, 0.062], [0.7, 0.066], [0.78, 0.058], [0.88, 0.044], [0.96, 0.037], [1.02, 0.036]];
+      const len = H.y - A.y;
+      const rings = prof.map(([t, r]) => {
+        const y = H.y + 0.05 - t * (len + 0.05);
+        const wk = blend(y, Kn.y, 0.07), wa = blend(y, A.y + 0.02, 0.04);
+        return { y, r, w: [1 - wk, wk * (1 - wa), wk * wa] };
+      });
+      const g = tube(H.x, H.z, rings, 1.0, 1.05);
+      // Zones de matière : cuisse (peau), genou (peau), chaussette (sous le genou).
+      const kneeRing = rings.findIndex((rg) => rg.y < Kn.y - 0.075);
+      const n = SEG * 6;
+      g.addGroup(0, n * 4, 0); g.addGroup(n * 4, n * Math.max(0, kneeRing - 4), 1); g.addGroup(n * kneeRing, n * (rings.length - 1 - kneeRing), 2);
+      g.computeVertexNormals();
+      const mesh = skinned(g, [skinM, skinM, mats.socks], [l.hip, l.knee, l.ankle]);
+      // Les anciens segments rigides (cuisse, genou, tibia) ne servent plus.
+      for (const o of [...l.hip.children, ...l.knee.children]) if (o.isMesh && [GEO.thighA, GEO.kneeA, GEO.shinA].includes(o.geometry)) o.parent.remove(o);
+      l.skin = mesh;
+      return mesh;
+    });
+    // ---- Bras : épaule → coude → poignet.
+    this.armSkins = this.arms.map((a) => {
+      const S = at(a.sh), E = at(a.el);
+      const len = S.y - E.y;
+      const prof = [[-0.02, 0.05], [0.15, 0.055], [0.45, 0.047], [0.75, 0.041], [0.92, 0.037], [1.0, 0.036], [1.08, 0.04],
+        [1.25, 0.044], [1.5, 0.038], [1.75, 0.03], [1.9, 0.027]];
+      const rings = prof.map(([t, r]) => {
+        const y = S.y - t * len;
+        const we = blend(y, E.y, 0.05);
+        return { y, r, w: [1 - we, we, 0] };
+      });
+      const g = tube(S.x, S.z, rings, 0.95, 1.0);
+      const elbowRing = rings.findIndex((rg) => rg.y < E.y);
+      const n = SEG * 6;
+      g.addGroup(0, n * elbowRing, 0); g.addGroup(n * elbowRing, n * (rings.length - 1 - elbowRing), 1);
+      g.computeVertexNormals();
+      // Manche longue rigide (gardien) : remplacée par le tube lui-même, habillé de la manche.
+      const longSleeve = a.el.children.find((o) => o.isMesh && o.geometry === GEO.foreA && o.material !== skinM);
+      const mesh = skinned(g, longSleeve ? [longSleeve.material, longSleeve.material] : [skinM, skinM], [a.sh, a.el, a.el]);
+      for (const o of [...a.sh.children, ...a.el.children]) if (o.isMesh && (o.material === skinM || o === longSleeve) && [GEO.upperA, GEO.foreA, GEO.elbow].includes(o.geometry)) o.parent.remove(o);
+      a.skin = mesh;
+      return mesh;
+    });
+  }
+  /** Habillage des membres (pantalon et manches longues du coach, par exemple). */
+  setLimbMaterials({ thigh, knee, sock, upper, fore } = {}) {
+    for (const m of this.legSkins || []) { const ms = m.material; if (thigh) ms[0] = thigh; if (knee) ms[1] = knee; if (sock) ms[2] = sock; }
+    for (const m of this.armSkins || []) { const ms = m.material; if (upper) ms[0] = upper; if (fore) ms[1] = fore; }
   }
   /** Niveau de détail : plein (proche de la caméra) ou allégé (loin). */
   setDetail(on) {
@@ -909,6 +1035,24 @@ export class Player3D {
       } else { for (const a of this.arms) { a.sh.rotation.x = -a.sgn * 2.6; a.sh.rotation.z = 0.2; a.el.rotation.z = 0.2; } this.body.position.y += Math.abs(Math.sin(p.celeb * 7)) * 0.2; }
     }
     this.shadow.scale.setScalar(1 - Math.min(0.5, this.body.position.y * 0.4));
+    this.updateFootShadows();
+  }
+
+  /** Les ombres de contact suivent les chevilles (position de l'image précédente : imperceptible). */
+  updateFootShadows() {
+    if (!this.detail || !this.footShadows) return;
+    for (let i = 0; i < 2; i++) {
+      const f = this.footShadows[i];
+      this.legs[i].ankle.getWorldPosition(_footV);
+      this.root.worldToLocal(_footV);
+      const s = this.root.scale.x || 1, hgt = Math.max(0, _footV.y * s - 0.09);
+      f.visible = hgt < 0.35;
+      if (!f.visible) continue;
+      // Le joueur regarde vers +x (repère local) : la tache s'allonge dans l'axe du pied.
+      f.position.x = _footV.x + 0.05; f.position.z = _footV.z;
+      const k = 1 - hgt * 2.2;
+      f.scale.set(1.6 * k, k, 1);
+    }
   }
 }
 
@@ -1037,14 +1181,14 @@ export class Coach3D {
     const accent = M(L.accent || '#ffffff', 0.6);
     const shoe = M(L.shoes === 'sneakers' ? '#f0f0f0' : L.shoes === 'boots' ? '#3b2a1c' : '#111111', 0.35);
     const mats = { shirt: outfit, shorts: pants, socks: pants, trim: L.outfit === 'suit' || L.outfit === 'coat' ? M('#f4f4f4', 0.6) : accent, boot: shoe, sole: M('#2a2a2a'),
-      shadow: new THREE.MeshBasicMaterial({ color: '#000', transparent: true, opacity: 0.3, depthWrite: false }), ring: accent };
+      shadow: contactShadowMat(0.5), ring: accent };
     const faceLook = { ...L, glasses: L.glasses === true ? 'square' : L.glasses };
     const p3 = this.p3 = new Player3D(mats, L.skin, L.hairColor, '', L.outfitColor, L.outfitColor, null, { look: faceLook, name: '' });
     this.root = p3.root;
     p3.setHair(L.hairStyle);
     // Pantalon long : cuisses et genoux habillés. Manches longues (sauf polo).
-    for (const l of p3.legs) { l.hip.children[0].material = pants; l.knee.children[0].material = pants; }
-    if (L.outfit !== 'polo') for (const a of p3.arms) { a.sh.children[2].material = outfit; a.el.children[0].material = outfit; a.el.children[1].material = outfit; }
+    p3.setLimbMaterials({ thigh: pants, knee: pants });
+    if (L.outfit !== 'polo') p3.setLimbMaterials({ upper: outfit, fore: outfit });
     const torsoY = 0.95, body = p3.upper || p3.body;
     const add = (g, m, x, y, z, parent = body) => { const o = new THREE.Mesh(g, m); o.position.set(x, y, z); parent.add(o); o.castShadow = true; return o; };
     // Tenues.
@@ -1201,7 +1345,7 @@ export class Match3D {
     // Arbitre : tenue noire.
     const black = new THREE.MeshLambertMaterial({ color: '#15171c' });
     const refMats = { shirt: black, shorts: black, socks: black, boot: new THREE.MeshLambertMaterial({ color: '#0a0a0a' }),
-      shadow: new THREE.MeshBasicMaterial({ color: '#000', transparent: true, opacity: 0.32, depthWrite: false }), ring: black };
+      shadow: contactShadowMat(0.5), ring: black };
     this.ref3d = new Player3D(refMats, '#c68642', '#1a120c', '', '#15171c', '#15171c');
     this.scene.add(this.ref3d.root);
     this.mats = view.colors.map((c, side) => this.teamMats(side));
@@ -1234,7 +1378,7 @@ export class Match3D {
       trim: new THREE.MeshStandardMaterial({ color: v.textColors[side], roughness: 0.7 }),
       sole: new THREE.MeshStandardMaterial({ color: '#e9e9e9', roughness: 0.5 }),
       boot: new THREE.MeshStandardMaterial({ color: '#111111', roughness: 0.35, metalness: 0.1 }),
-      shadow: new THREE.MeshBasicMaterial({ color: '#000', transparent: true, opacity: 0.32, depthWrite: false }),
+      shadow: contactShadowMat(0.5),
       ring: new THREE.MeshBasicMaterial({ color: '#ffd166', transparent: true, opacity: 0.95, depthWrite: false, side: THREE.DoubleSide }),
     };
   }
@@ -1625,7 +1769,7 @@ export class Match3D {
     });
     this.ball = new THREE.Mesh(new THREE.SphereGeometry(BALL_R, 18, 14), new THREE.MeshLambertMaterial({ map: tex }));
     this.scene.add(this.ball);
-    this.ballShadow = new THREE.Mesh(new THREE.CircleGeometry(BALL_R * 1.1, 16), new THREE.MeshBasicMaterial({ color: '#000', transparent: true, opacity: 0.35, depthWrite: false }));
+    this.ballShadow = new THREE.Mesh(new THREE.CircleGeometry(BALL_R * 1.5, 16), contactShadowMat(0.55));
     this.ballShadow.rotation.x = -Math.PI / 2;
     this.scene.add(this.ballShadow);
   }

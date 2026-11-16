@@ -279,7 +279,7 @@ export class LiveSim {
     if (poss < 0) return;
     const A = m.teams[poss], D = m.teams[1 - poss];
     this.buildUpShape(A, busy);
-    this.defensiveLine(D, busy);
+    const dLine = this.defensiveLine(D, busy);
     const dirA = this.dir(poss);
     const ref = h || null;
     const rx = ref ? this.X(ref) : P.x, ry = ref ? this.Y(ref) : P.y;
@@ -317,9 +317,15 @@ export class LiveSim {
     }
     const cover = cand.find((c) => c !== presser && c.goalSide && c.d < pressRange + 10);
     const hiPress = D.tactics.pressing === 'high' && engage;
+    // Contre-pressing : juste après la perte du ballon, le deuxième joueur proche se jette
+    // aussi sur le porteur (on étouffe la relance avant de se replacer).
+    const justLost = h && D.tactics.pressing !== 'low' && this.now - (this.gainT?.[poss] ?? -99) < 3;
     if (cover) {
       const p = cover.p;
-      if (hiPress && h) {
+      if (justLost && cover.d < 16) {
+        const side = (this.Y(p) > ry ? 1 : -1) * 1.6;
+        p.tx = clamp(rx + ux * 1.2, 0, L) / L; p.ty = clamp(ry + side, 0, W) / W; p.role = 'press2';
+      } else if (hiPress && h) {
         // Pressing haut : il coupe la passe vers le partenaire le plus proche du porteur.
         const mate = this.list(A.side).filter((q) => q !== h && !q.gk).sort((a, b) => this.dist(a, rx, ry) - this.dist(b, rx, ry))[0];
         if (mate) { p.tx = (rx + (this.X(mate) - rx) * 0.6) / L; p.ty = (ry + (this.Y(mate) - ry) * 0.6) / W; p.role = 'press2'; }
@@ -357,6 +363,15 @@ export class LiveSim {
         p.tx = (ax + ((ownGoalX - ax) / g) * tight) / L; p.ty = (ay + ((W / 2 - ay) / g) * tight) / W; p.role = 'mark';
       }
     }
+    // Bloc compact : les milieux sans tâche restent à ~15 m devant la ligne défensive (pas de
+    // trou entre les lignes dans lequel l'adversaire pourrait recevoir).
+    if (dLine != null) {
+      const dirD = this.dir(D.side);
+      for (const p of this.list(D.side)) {
+        if (busy.has(p) || p.gk || p.role || !['MDC', 'MC', 'MG', 'MD'].includes(D.slots[p.mp.slot].pos)) continue;
+        if (p.tx * L * dirD > dLine + 15) p.tx = clamp((dLine + 15) * dirD, 1, L - 1) / L;
+      }
+    }
     // Attaque : chacun se rend disponible (loin des marqueurs, ligne de passe ouverte).
     if (h && !this.inHands) this.findSpace(A, h, busy);
     // Deux solutions courtes autour du porteur, un appel en profondeur.
@@ -378,6 +393,53 @@ export class LiveSim {
         fwd.tx = clamp((lastDef + (runT < 3 ? (early ? 1.2 : -0.8) : 6)) * dirA, 2, L - 2) / L;
         fwd.role = runT < 3 && !early ? 'hold' : 'run';
       }
+      this.wideRuns(A, D, h, attackers, rx, ry);
+    }
+  }
+
+  /**
+   * Mouvements collectifs offensifs sur les côtés : dédoublement du latéral quand l'ailier a le
+   * ballon, et occupation de la surface (premier poteau, point de penalty, second poteau,
+   * entrée de surface) quand le ballon arrive dans le dernier tiers, côté.
+   */
+  wideRuns(A, D, h, attackers, rx, ry) {
+    const dirA = this.dir(A.side), gA = this.goalX(A.side);
+    // Ligne du hors-jeu (sens d'attaque de A) : dernier défenseur de champ, ou le ballon s'il est plus loin.
+    const deep = Math.max(...this.list(D.side).filter((p) => !p.gk).map((p) => this.X(p) * dirA));
+    const offLine = Math.max(deep, rx * dirA);
+    const capX = (x) => (Math.min(x * dirA, offLine - 0.4) * dirA);
+    const wide = Math.abs(ry - W / 2) > 11;
+    const hp = A.slots[h.mp.slot].pos;
+    if (wide && A.tactics.overlap !== 'stay' && (rx - L / 2) * dirA > -5 && ['AG', 'AD', 'MG', 'MD', 'MC', 'MO'].includes(hp)
+      && (this.now + h.mp.id) % 10 < (A.tactics.overlap === 'join' ? 8 : 5)) {
+      const fb = attackers.filter((p) => ['DG', 'DD'].includes(A.slots[p.mp.slot].pos) && (this.Y(p) - W / 2) * (ry - W / 2) > 0)
+        .sort((a, b) => this.dist(a, rx, ry) - this.dist(b, rx, ry))[0];
+      if (fb && this.dist(fb, rx, ry) < 30) {
+        fb.tx = clamp(capX(rx + dirA * 9), 2, L - 2) / L;
+        fb.ty = (ry < W / 2 ? 3.5 : W - 3.5) / W;
+        fb.role = 'overlap';
+      }
+    }
+    if (!wide || Math.abs(rx - gA) > 26) return;
+    const near = ry < W / 2 ? -1 : 1; // côté du ballon
+    const spots = [
+      { x: gA - dirA * 5.5, y: W / 2 + near * 3.5 },  // premier poteau
+      { x: gA - dirA * 11, y: W / 2 - near * 0.5 },   // point de penalty
+      { x: gA - dirA * 7, y: W / 2 - near * 5.5 },    // second poteau
+      { x: gA - dirA * 19, y: W / 2 - near * 2 },     // entrée de surface : les ballons repoussés
+    ];
+    const used = new Set();
+    const runners = attackers.filter((p) => p.role !== 'overlap' && this.dist(p, rx, ry) > 9 && Math.abs(this.X(p) - gA) < 45
+      && ['BU', 'AG', 'AD', 'MO', 'MC', 'MG', 'MD'].includes(A.slots[p.mp.slot].pos));
+    // Pas toute l'équipe : selon le moment, deux ou trois joueurs attaquent la surface.
+    const n = A.tactics.crossing === 'high' ? 4 : (this.now + h.mp.id) % 6 < 3 ? 2 : 3;
+    for (const sp of spots.slice(0, n)) {
+      let best = null, bd = 1e9;
+      for (const p of runners) { if (used.has(p)) continue; const d = this.dist(p, sp.x, sp.y); if (d < bd) { bd = d; best = p; } }
+      if (!best) break;
+      used.add(best);
+      best.tx = clamp(capX(sp.x), 2, L - 2) / L; best.ty = clamp(sp.y, 2, W - 2) / W;
+      best.role = 'box';
     }
   }
 
@@ -409,6 +471,7 @@ export class LiveSim {
     if (D.tactics.offsideTrap === 'on') line += 2.5;          // la ligne monte d'un bloc
     line = Math.min(line, this.P.x * dir - (D.tactics.offsideTrap === 'on' ? 2.5 : 4));
     for (const p of backs) p.tx = clamp(line * dir, 1, L - 1) / L;
+    return line;
   }
 
   /**
@@ -1730,7 +1793,7 @@ export class LiveSim {
       if (this.restart?.hurry) cap = Infinity;   // l'arbitre presse : on court se replacer
       else if (this.restart && p !== this.restart.taker) { const dd = Math.hypot((p.tx - p.x) * L, (p.ty - p.y) * W); cap = dd > 25 ? 6.4 : dd > 10 ? 5 : 3.4; }
       else if (this.restart) cap = Math.hypot((p.tx - p.x) * L, (p.ty - p.y) * W) > 12 ? 6.5 : 4.2;   // le tireur file vers le ballon
-      else if (p !== this.holder && p !== this.pending?.to && p.role !== 'press' && p.role !== 'run' && !p.gk && this.dist(p, this.P.x, this.P.y) > 24) {
+      else if (p !== this.holder && p !== this.pending?.to && !['press', 'run', 'overlap', 'box'].includes(p.role) && !p.gk && this.dist(p, this.P.x, this.P.y) > 24) {
         // Loin de l'action : on marche ou on trottine pour garder sa place (on ne sprinte pas sans raison).
         const dd = Math.hypot((p.tx - p.x) * L, (p.ty - p.y) * W);
         cap = dd > 15 ? 5.4 : dd > 6 ? 3.8 : 2.2;
