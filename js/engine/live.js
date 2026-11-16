@@ -1135,7 +1135,10 @@ export class LiveSim {
     emit(m, out, { type: 'goal', side: s.side, pid: sc.id, pid2: assist ? assist.id : null, kind: s.kind, how: s.how || undefined, x: this.P.x / L, y: this.P.y / W, zone: 3 });
     // Célébration : le buteur file vers le poteau de corner, ses coéquipiers le rejoignent.
     const cx = s.side === 0 ? 0.97 : 0.03, cyy = this.P.y < W / 2 ? 0.06 : 0.94;
-    s.shooter.celebType = ['plane', 'knees', 'fist', 'point', 'jump'][Math.floor(this.rand() * 5)];
+    // Chaque buteur a sa célébration fétiche (le plus souvent), parfois une autre.
+    const CELEBS = ['plane', 'knees', 'fist', 'point', 'jump', 'slide', 'salute', 'ear', 'shush', 'heart', 'cool', 'badge', 'flex'];
+    const cr = this.rand();
+    s.shooter.celebType = CELEBS[cr < 0.6 ? (sc.id * 7 + 3) % CELEBS.length : Math.floor(cr * CELEBS.length)];
     for (const p of this.players.values()) {
       if (p.side === s.side && !p.gk) { p.celeb = p === s.shooter ? 3.2 : 2.6; p.tx = cx + (this.rand() - 0.5) * 0.05; p.ty = cyy + (this.rand() - 0.5) * 0.08; }
     }

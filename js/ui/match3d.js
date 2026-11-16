@@ -656,9 +656,10 @@ export class Player3D {
       // Zones de matière : cuisse (peau), genou (peau), chaussette (sous le genou).
       const kneeRing = rings.findIndex((rg) => rg.y < Kn.y - 0.075);
       const n = SEG * 6;
-      g.addGroup(0, n * 4, 0); g.addGroup(n * 4, n * Math.max(0, kneeRing - 4), 1); g.addGroup(n * kneeRing, n * (rings.length - 1 - kneeRing), 2);
+      // (Cuisse et genou : une seule matière, donc un seul appel de dessin.)
+      g.addGroup(0, n * kneeRing, 0); g.addGroup(n * kneeRing, n * (rings.length - 1 - kneeRing), 1);
       g.computeVertexNormals();
-      const mesh = skinned(g, [skinM, skinM, mats.socks], [l.hip, l.knee, l.ankle]);
+      const mesh = skinned(g, [skinM, mats.socks], [l.hip, l.knee, l.ankle]);
       // Les anciens segments rigides (cuisse, genou, tibia) ne servent plus.
       for (const o of [...l.hip.children, ...l.knee.children]) if (o.isMesh && [GEO.thighA, GEO.kneeA, GEO.shinA].includes(o.geometry)) o.parent.remove(o);
       l.skin = mesh;
@@ -676,13 +677,10 @@ export class Player3D {
         return { y, r, w: [1 - we, we, 0] };
       });
       const g = tube(S.x, S.z, rings, 0.95, 1.0);
-      const elbowRing = rings.findIndex((rg) => rg.y < E.y);
-      const n = SEG * 6;
-      g.addGroup(0, n * elbowRing, 0); g.addGroup(n * elbowRing, n * (rings.length - 1 - elbowRing), 1);
       g.computeVertexNormals();
       // Manche longue rigide (gardien) : remplacée par le tube lui-même, habillé de la manche.
       const longSleeve = a.el.children.find((o) => o.isMesh && o.geometry === GEO.foreA && o.material !== skinM);
-      const mesh = skinned(g, longSleeve ? [longSleeve.material, longSleeve.material] : [skinM, skinM], [a.sh, a.el, a.el]);
+      const mesh = skinned(g, longSleeve ? longSleeve.material : skinM, [a.sh, a.el, a.el]);
       for (const o of [...a.sh.children, ...a.el.children]) if (o.isMesh && (o.material === skinM || o === longSleeve) && [GEO.upperA, GEO.foreA, GEO.elbow].includes(o.geometry)) o.parent.remove(o);
       a.skin = mesh;
       return mesh;
@@ -690,8 +688,9 @@ export class Player3D {
   }
   /** Habillage des membres (pantalon et manches longues du coach, par exemple). */
   setLimbMaterials({ thigh, knee, sock, upper, fore } = {}) {
-    for (const m of this.legSkins || []) { const ms = m.material; if (thigh) ms[0] = thigh; if (knee) ms[1] = knee; if (sock) ms[2] = sock; }
-    for (const m of this.armSkins || []) { const ms = m.material; if (upper) ms[0] = upper; if (fore) ms[1] = fore; }
+    // Une matière par zone fusionnée : jambe (cuisse + genou), chaussette, bras entier.
+    for (const m of this.legSkins || []) { const ms = m.material; if (thigh || knee) ms[0] = thigh || knee; if (sock) ms[1] = sock; }
+    for (const m of this.armSkins || []) if (upper || fore) m.material = upper || fore;
   }
   /** Niveau de détail : plein (proche de la caméra) ou allégé (loin). */
   setDetail(on) {
@@ -1020,8 +1019,32 @@ export class Player3D {
     }
     // Célébration : course bras écartés (« l'avion »), puis bonds bras levés.
     if (p.celeb > 0) {
-      if (sp > 2) for (const a of this.arms) { a.sh.rotation.x = -a.sgn * 1.45; a.sh.rotation.z = 0; a.el.rotation.z = 0.05; }
-      else if (p.celebType === 'knees') {           // à genoux, bras au ciel
+      const [cL, cR] = this.arms;
+      // Bras : sz = vers l'avant, sx = sur le côté, e = coude, y = rotation interne (comme le coach).
+      const arms = (szL, sxL, eL, szR, sxR, eR, yL = 0, yR = 0) => {
+        cL.sh.rotation.set(-cL.sgn * sxL, cL.sgn * yL, szL); cL.el.rotation.set(0, 0, eL);
+        cR.sh.rotation.set(-cR.sgn * sxR, cR.sgn * yR, szR); cR.el.rotation.set(0, 0, eR);
+      };
+      const kneel = () => { this.body.position.y = -0.42; lL.hip.rotation.z = lR.hip.rotation.z = 0.1; lL.knee.rotation.z = lR.knee.rotation.z = -1.9; };
+      if (p.celebType === 'slide' && sp > 2 && p.celeb < 2.4) {   // glissade à genoux, buste en arrière
+        kneel(); this.body.rotation.z = -0.35; arms(0.3, 1.5, 0.1, 0.3, 1.5, 0.1); this.headPivot.rotation.z = 0.3;
+      } else if (sp > 2) for (const a of this.arms) { a.sh.rotation.x = -a.sgn * 1.45; a.sh.rotation.z = 0; a.el.rotation.z = 0.05; }
+      else if (p.celebType === 'slide') { kneel(); this.body.rotation.z = -0.2; arms(0.3, 2.6, 0.15, 0.3, 2.6, 0.15); }
+      else if (p.celebType === 'salute') {          // salut militaire, droit comme un i
+        arms(0.05, 0.08, 0.1, 0.8, 1.3, 2.75, 0, -0.75); this.headPivot.rotation.z = 0.08;
+      } else if (p.celebType === 'flex') {          // biceps gonflés face aux supporters
+        arms(0.3, 1.4, 2.2, 0.3, 1.4, 2.2, -1.4, -1.4); this.headPivot.rotation.z = 0.15;
+      } else if (p.celebType === 'ear') {           // main derrière l'oreille : « on ne vous entend pas ! »
+        arms(0.2, 0.25, 0.4, 0.4, 1.45, 2.7, 0, -1.0); this.body.rotation.x = 0.12; this.headPivot.rotation.x = 0.25;
+      } else if (p.celebType === 'shush') {         // index sur la bouche, face aux tribunes adverses
+        arms(0.1, 0.12, 0.2, 1.25, 0.05, 2.45, 0, 0.95); this.body.rotation.z = -0.08;
+      } else if (p.celebType === 'heart') {         // cœur avec les mains
+        arms(0.8, 0.05, 1.85, 0.8, 0.05, 1.85, 1.1, 1.1);
+      } else if (p.celebType === 'cool') {          // bras croisés, menton levé
+        arms(0.55, 0.05, 1.85, 0.45, 0.05, 1.95, 1.15, 1.05); this.headPivot.rotation.z = 0.18;
+      } else if (p.celebType === 'badge') {         // il embrasse l'écusson
+        arms(0.15, 0.2, 0.3, 0.7, 0.05, 2.2, 0, 1.3); this.headPivot.rotation.z = -0.5; this.upper.rotation.z = -0.08;
+      } else if (p.celebType === 'knees') {           // à genoux, bras au ciel
         this.body.position.y = -0.42; this.body.rotation.z = 0.25;
         lL.hip.rotation.z = lR.hip.rotation.z = 0.1; lL.knee.rotation.z = lR.knee.rotation.z = -1.9;
         for (const a of this.arms) { a.sh.rotation.x = -a.sgn * 2.7; a.sh.rotation.z = 0.3; a.el.rotation.z = 0.15; }
@@ -2161,7 +2184,7 @@ export class Match3D {
       e.p3.pose(p, flip, { dt: dt || 0.016, ballAng, jostle, ballNear: p.gk && dB < 30, restFar: dB > 28 && !isCar, shield: isCar && !v.inHands && (p.shieldK || 0) > 0, holding: isCar && v.inHands && p.gk });
       e.p3.smoothPose(dt || 0.016);
       // Gestes au sol : après le lissage, le point le plus bas du corps est reposé sur la pelouse.
-      if (p.fall > 0 || p.slide > 0 || p.hurt > 0 || p.place > 0 || p.block > 0 || (p.celeb > 0 && p.celebType === 'knees' && (p.speed || 0) <= 2) || (p.dive > 0 && p.dive < 0.3)) e.p3.groundContact();
+      if (p.fall > 0 || p.slide > 0 || p.hurt > 0 || p.place > 0 || p.block > 0 || (p.celeb > 0 && (p.celebType === 'knees' || p.celebType === 'slide') && ((p.speed || 0) <= 2 || (p.celebType === 'slide' && p.celeb < 2.4))) || (p.dive > 0 && p.dive < 0.3)) e.p3.groundContact();
       const hl = id === carrier || id === v.selected;
       e.p3.ring.visible = id === v.selected;   // pas de rond sous le porteur : seulement le joueur touché
       e.p3.ring.material = this.mats[p.side].ring;
