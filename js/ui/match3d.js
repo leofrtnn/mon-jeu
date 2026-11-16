@@ -1567,6 +1567,33 @@ export class Match3D {
       const b = new THREE.Mesh(new THREE.BoxGeometry(0.2, 1, W + 4), boards);
       b.position.set(x, 0.5, 0); s.add(b);
     }
+    // Abords du terrain : photographes accroupis derrière les buts, stadiers en chasuble face
+    // aux tribunes (silhouettes simples, dessinées en quelques appels).
+    {
+      const ph = [], st = [];
+      for (const sx of [-1, 1]) for (const z of [-26, -20, -14, 14, 19, 24]) ph.push([sx * (L / 2 + 2.6), z, sx]);
+      for (const z of [-W / 2 - 6.4]) for (let x = -L / 2 + 6; x < L / 2; x += 15) st.push([x, z, Math.PI]);
+      for (const sx of [-1, 1]) for (const z of [-22, 22]) st.push([sx * (L / 2 + 6.6), z, sx > 0 ? -Math.PI / 2 : Math.PI / 2]);
+      const n = ph.length + st.length, M4 = new THREE.Matrix4(), Q = new THREE.Quaternion(), Y = new THREE.Vector3(0, 1, 0);
+      const torso = new THREE.BoxGeometry(0.42, 0.62, 0.28), legs = new THREE.BoxGeometry(0.36, 0.8, 0.24), head = new THREE.SphereGeometry(0.12, 10, 8), cam = new THREE.CylinderGeometry(0.07, 0.09, 0.45, 10);
+      cam.rotateZ(Math.PI / 2);
+      const mk = (g, color, cnt) => { const m = new THREE.InstancedMesh(g, new THREE.MeshLambertMaterial({ color }), cnt); m.castShadow = true; s.add(m); return m; };
+      const bodyIM = mk(torso, '#ffffff', n), legIM = mk(legs, '#1d2230', n), headIM = mk(head, '#c99a74', n), camIM = mk(cam, '#111317', ph.length);
+      const vest = new THREE.Color('#f2c400'), photoC = new THREE.Color('#2c3442');
+      const place = (im, i, x, y, z, ry) => { Q.setFromAxisAngle(Y, ry); M4.compose(new THREE.Vector3(x, y, z), Q, new THREE.Vector3(1, 1, 1)); im.setMatrixAt(i, M4); };
+      ph.forEach(([x, z, sx], i) => {
+        const ry = sx > 0 ? Math.PI : 0;   // tournés vers le terrain
+        place(legIM, i, x, 0.22, z, ry); place(bodyIM, i, x, 0.72, z, ry); place(headIM, i, x, 1.14, z, ry);
+        place(camIM, i, x - sx * 0.3, 1.08, z, ry);
+        bodyIM.setColorAt(i, photoC);
+      });
+      st.forEach(([x, z, ry], j) => {
+        const i = ph.length + j;
+        place(legIM, i, x, 0.4, z, ry); place(bodyIM, i, x, 1.1, z, ry); place(headIM, i, x, 1.55, z, ry);
+        bodyIM.setColorAt(i, vest);
+      });
+      for (const im of [bodyIM, legIM, headIM, camIM]) { im.instanceMatrix.needsUpdate = true; if (im.instanceColor) im.instanceColor.needsUpdate = true; }
+    }
     // Tribunes : vraie enceinte à deux étages (gradins en marches, sièges, spectateurs 3D).
     const ledMat = new THREE.MeshBasicMaterial({ map: boardsTexture([h.short || h.name, a.short || a.name], [h.color, h.color2]), color: '#ffffff', toneMapped: false });
     this.buildBowl(h, a, ledMat);
@@ -1672,7 +1699,8 @@ export class Match3D {
     if (cdist(cA, cH) < 0.35 && cdist(cA2, cH) > 0.35) [cA, cA2] = [cA2, cA]; // parcage lisible même si les couleurs se ressemblent
     let seed = 7;
     const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
-    const bodyG = new THREE.BoxGeometry(0.46, 0.62, 0.3); bodyG.translate(0, 0.55, 0.05);
+    // Buste + deux bras (le long du corps ; ils se lèvent sur un but, pendant la ola).
+    const bodyG = mergeBoxes([[0.44, 0.62, 0.3, 0, 0.55, 0.05], [0.09, 0.44, 0.1, -0.27, 0.6, 0.05], [0.09, 0.44, 0.1, 0.27, 0.6, 0.05]]);
     const headG = new THREE.BoxGeometry(0.22, 0.24, 0.22); headG.translate(0, 1.0, 0.05);
     // Siège = assise + dossier dans une seule géométrie (un seul appel de dessin).
     const seatG = mergeBoxes([[0.46, 0.1, 0.4, 0, 0.38, 0.05], [0.46, 0.42, 0.06, 0, 0.6, 0.27]]);
@@ -1680,13 +1708,13 @@ export class Match3D {
     // Supporters animés UN PAR UN sur la carte graphique (aucun coût pour le processeur) :
     // léger balancement, à moitié levés sur un temps fort, bonds décalés et bras levés sur un
     // but de LEUR équipe (le parcage visiteur ne saute que sur les buts des visiteurs).
-    const U = this.crowdU = { uTime: { value: 0 }, uH: { value: 0 }, uA: { value: 0 }, uT: { value: 0 } };
+    const U = this.crowdU = { uTime: { value: 0 }, uH: { value: 0 }, uA: { value: 0 }, uT: { value: 0 }, uWave: { value: 0 } };
     const crowdMat = (head) => {
       const m = new THREE.MeshLambertMaterial({ color: '#ffffff' });
       m.onBeforeCompile = (sh) => {
         Object.assign(sh.uniforms, U);
         sh.vertexShader = sh.vertexShader.replace('#include <common>', `#include <common>
-          uniform float uTime, uH, uA, uT; attribute float aAway;`)
+          uniform float uTime, uH, uA, uT, uWave; attribute float aAway;`)
           .replace('#include <begin_vertex>', `#include <begin_vertex>
           #ifdef USE_INSTANCING
             vec3 ip = instanceMatrix[3].xyz;
@@ -1694,7 +1722,12 @@ export class Match3D {
             float joy = mix(uH, uA, aAway);
             float jump = joy * max(0.0, sin(uTime * (7.0 + fract(ph) * 3.0) + ph)) * 0.34;
             transformed.y += jump + uT * 0.07 * (0.6 + 0.4 * sin(ph)) + 0.025 * sin(uTime * 1.3 + ph);
-            ${head ? '' : 'if (position.y > 0.7) transformed.y += joy * (0.18 + 0.1 * sin(uTime * 9.0 + ph));'}
+            // Ola : une vague qui fait le tour du stade (angle autour du centre).
+            vec4 wp = modelMatrix * vec4(ip, 1.0);
+            float wave = uWave * smoothstep(0.82, 1.0, sin(atan(wp.z, wp.x) * 1.0 - uTime * 2.2));
+            transformed.y += wave * 0.42;
+            ${head ? '' : `if (abs(position.x) > 0.22) transformed.y += max(joy, wave) * (0.5 + 0.08 * sin(uTime * 9.0 + ph));   // bras levés
+            else if (position.y > 0.7) transformed.y += joy * (0.18 + 0.1 * sin(uTime * 9.0 + ph));`}
           #endif`);
       };
       return m;
@@ -2338,6 +2371,11 @@ export class Match3D {
         U.uH.value += ((cheer && sideH === 0 ? 1 : 0) - U.uH.value) * k;
         U.uA.value += ((cheer && sideH === 1 ? 1 : 0) - U.uA.value) * k;
         U.uT.value += ((tense ? 1 : 0) - U.uT.value) * k;
+        // Ola de temps en temps quand le jeu est calme (une vingtaine de secondes).
+        const calm = !cheer && !tense;
+        this._waveT = calm ? (this._waveT || 0) + (dt || 0.016) : 0;
+        const waving = calm && this._waveT % 95 > 70;
+        U.uWave.value += ((waving ? 1 : 0) - U.uWave.value) * k * 0.5;
       }
       for (const c of this.crowdGroups || []) {
         // (les virages des ultras chantent et bougent en continu)
