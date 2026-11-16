@@ -715,7 +715,7 @@ export function teamCfg(state, club, opponent, isHome, isUser) {
   if (isUser) {
     validateUserLineup(state);
     return { club, players, lineup: club.lineup.slice(), bench: club.bench.slice(), tactics: { ...club.tactics }, isAI: false, talk: matchMods(state)?.me || 0,
-      roles: (club.roles || []).slice(), setPieces: { ...(club.setPieces || {}) }, pi: (club.pi || []).map((x) => ({ ...x })), injuryMod: staffEffects(club).injuryMod,
+      roles: (club.roles || []).slice(), setPieces: { ...(club.setPieces || {}) }, pi: (club.pi || []).map((x) => ({ ...x })), injuryMod: staffEffects(club).injuryMod, setPlan: club.setPlan || null, cpaCoach: staffEffects(club).setpiece,
       coachMods: (() => { const cm = coachMods(state.coach); return { ...cm, perf: cm.perf * staffEffects(club).perf * familiarityMult(club) * cohMult(teamCohesion(state, club, club.lineup)) * (club.training?.oppPrep ? 1.008 : 1) * (optInfo(state, 'difficulty').perf || 1) }; })(), ...captainCfg(state, club) };
   }
   const rng = createRng(hashSeed(`${state.seed}-${state.season}-${state.day}-${club.id}`));
@@ -723,6 +723,7 @@ export function teamCfg(state, club, opponent, isHome, isUser) {
   const prep = aiPrepare(players, opponent ? clubPlayers(state, opponent) : players, isHome, rng, style);
   return { club, players, lineup: prep.lineup, bench: prep.bench, tactics: prep.tactics, isAI: true,
     talk: opponent && opponent.id === state.userClubId ? (matchMods(state)?.opp || 0) : 0,
+    cpaCoach: staffEffects(club).setpiece,
     coachMods: { perf: (style ? style.perf : 1) * cohMult(clubCoh(club)), talk: 1, cards: 1, fatigue: 1 }, ...captainCfg(state, club) };
 }
 

@@ -23,6 +23,7 @@ import { SKILL_MOVES, movesFor } from '../game/stars.js';
 import { refereeProfile } from '../game/referee.js';
 import { createBall, stepBall, solveKick, R as BR, GOAL_HALF, PITCH_L as L, PITCH_W as W } from '../ui/ballPhysics.js';
 import { formationPos } from './positions.js';
+import { setPlanOf, cornerRoutine, setPieceEdge, directFkChance } from './setPlays.js';
 import { clamp } from '../core/rng.js';
 import { activePlayers, eff, addRating, emit, changePossession, momentum, setPieceTaker, sendOff, injure, kickoff as engineKickoff, minuteStart, minuteEnd, stepMinute, captainCalm } from './match.js';
 
@@ -944,7 +945,10 @@ export class LiveSim {
     const delivery = eff(h.mp, 'pas') * 0.7 + eff(h.mp, 'vis') * 0.3;
     const att = eff(r.mp, 'phy') * 0.55 + eff(r.mp, 'tir') * 0.25 + eff(r.mp, 'sf') * 0.2;
     const dfn = def ? eff(def.mp, 'phy') * 0.5 + eff(def.mp, 'def') * 0.5 : 40;
-    let win = sig((delivery - m.level) / 18 + (att - dfn) / 14 - 0.55);
+    // Coup de pied arrêté : combinaison travaillée contre l'organisation défensive adverse.
+    const spE = this._spAim ? setPieceEdge(A.setPlan || setPlanOf(), D.setPlan || setPlanOf(), this._spAim, A.cpaCoach, D.cpaCoach) : 0;
+    this._spAim = null;
+    let win = sig((delivery - m.level) / 18 + (att - dfn) / 14 - 0.55 + spE);
     const gkClaim = gk && Math.abs(tx - gx) < 6 && this.rand() < 0.35;
     let to = r;
     if (gkClaim) to = gk; else if (this.rand() > win && def) to = def;
@@ -1593,7 +1597,7 @@ export class LiveSim {
     let direct = false;
     if (kind === 'freekick') {
       const dG = Math.hypot(this.goalX(side) - x, W / 2 - y);
-      if (dG < 30 && Math.abs(y - W / 2) < 18 && this.rand() < 0.4) {
+      if (dG < 30 && Math.abs(y - W / 2) < 18 && this.rand() < directFkChance(T.setPlan || setPlanOf(), 0.4)) {
         direct = true;
         const fk = this.players.get(setPieceTaker(T, 'fk', (mp) => spec(mp, 5, eff(mp, 'tir') + eff(mp, 'sf'))).id);
         if (fk) taker = fk;
@@ -1606,7 +1610,7 @@ export class LiveSim {
     if (kind === 'corner') {
       T.stats.corners++; momentum(m, side, 2);
       // Combinaison travaillée à l'entraînement (variée d'un corner à l'autre, sans tirage au sort).
-      this.restart.routine = ['mix', 'near', 'far', 'mix', 'short', 'near', 'far'][(T.stats.corners * 5 + Math.floor(m.minute)) % 7];
+      this.restart.routine = cornerRoutine(T.setPlan || setPlanOf(), T.stats.corners, m.minute);
       if (out) emit(m, out, { type: 'corner', side, pid: taker.mp.id, x: x / L, y: y / W, zone: 3 });
     }
     if (kind === 'penalty' && out) emit(m, out, { type: 'penalty', side, pid: taker.mp.id, x: x / L, y: y / W, zone: 3 });
@@ -1637,16 +1641,52 @@ export class LiveSim {
     const nearBox = Math.abs(rs.x - gx) < 35;
     if (rs.kind === 'corner' || rs.kind === 'penalty' || (rs.kind === 'freekick' && nearBox)) {
       // Attaquants dans la surface, défenseurs au marquage ; penalty : tout le monde hors de la surface.
-      const spots = [[6, -3], [8, 3], [11, 0], [5, 6], [13, -6], [16, 2]];
-      const att = this.list(rs.side).filter((p) => p !== t && !p.gk).sort((a, b) => eff(b.mp, 'phy') - eff(a.mp, 'phy'));
+      let spots = [[6, -3], [8, 3], [11, 0], [5, 6], [13, -6], [16, 2]];
+      const plan = A.setPlan || setPlanOf(), dPlan = D.setPlan || setPlanOf();
+      const threatIds = rs.kind === 'corner' ? plan.corner.threats || [] : [];
+      const aerial = (p) => eff(p.mp, 'phy') + (threatIds.includes(p.mp.id) ? 100 : 0);
+      let att = this.list(rs.side).filter((p) => p !== t && !p.gk).sort((a, b) => aerial(b) - aerial(a));
+      if (rs.kind === 'corner') {
+        // Plan de l'équipe : n joueurs dans la surface (les menaces aériennes d'abord), un rôdeur à
+        // l'entrée de la surface pour les seconds ballons, les autres restent derrière (couverture).
+        const nBox = Math.max(3, Math.min(6, plan.corner.box));
+        spots = [[6, -3], [8, 3], [11, 0], [5, 6], [13, -6], [9, -7]].slice(0, nBox);
+        // Zone visée : les attaquants se décalent vers le poteau ou le point de penalty choisi.
+        const sY = rs.y < W / 2 ? -1 : 1;
+        const shift = { near: [0, -3 * sY], far: [0, 3 * sY], centre: [3, 0] }[rs.routine] || [0, 0];
+        spots = spots.map(([a, b]) => [a + shift[0], b + shift[1]]);
+        const inBox = att.slice(0, nBox), rest = att.slice(nBox);
+        const lurk = plan.corner.lurker || rs.routine === 'low' ? rest.sort((a, b) => eff(b.mp, 'tir') - eff(a.mp, 'tir')).shift() : null;
+        if (lurk) { lurk.tx = (gx - dir * 19) / L; lurk.ty = (W / 2 + (rs.y < W / 2 ? 4 : -4)) / W; rs.lurker = lurk; }
+        rest.forEach((p, i) => { p.tx = (gx - dir * (44 + (i % 2) * 6)) / L; p.ty = (W / 2 + (i - (rest.length - 1) / 2) * 12) / W; });
+        att = inBox;
+      }
       // En attendant le ballon, ça bouge : appels, feintes, on se décale pour perdre son marqueur.
       const jig = (i) => (rs.kind === 'penalty' ? [0, 0] : [Math.cos(this.now * 1.3 + i * 1.7) * 0.9, Math.sin(this.now * 1.1 + i * 2.3) * 1.4]);
       att.forEach((p, i) => {
         if (rs.kind === 'penalty') { p.tx = (gx - dir * (18.5 + (i % 3))) / L; p.ty = (W / 2 + ((i % 6) - 2.5) * 5) / W; return; }
         if (i < spots.length) { const [jx, jy] = jig(i); p.tx = (gx - dir * (spots[i][0] + jx)) / L; p.ty = (W / 2 + spots[i][1] + jy) / W; }
       });
-      const defs = this.list(D.side).filter((p) => !p.gk);
-      defs.forEach((p, i) => {
+      let defs = this.list(D.side).filter((p) => !p.gk);
+      if (rs.kind === 'corner') {
+        // Organisation défensive adverse : joueurs aux poteaux, joueurs laissés devant pour le
+        // contre, puis marquage en zone, individuel ou mixte pour les autres.
+        const sY = rs.y < W / 2 ? -1 : 1;
+        const fast = defs.slice().sort((a, b) => eff(b.mp, 'vit') - eff(a.mp, 'vit'));
+        const up = fast.filter((p) => !['DC', 'DG', 'DD'].includes(p.mp.p.pos)).slice(0, dPlan.def.up);
+        up.forEach((p, i) => { p.tx = (gx - dir * (L / 2 - 2)) / L; p.ty = (W / 2 + (i ? 10 : -6)) / W; });
+        defs = defs.filter((p) => !up.includes(p));
+        const posts = defs.slice().sort((a, b) => eff(a.mp, 'phy') - eff(b.mp, 'phy')).slice(0, dPlan.def.posts);
+        posts.forEach((p, i) => { p.tx = (gx - dir * 0.6) / L; p.ty = (W / 2 + (i ? -sY : sY) * 3.4) / W; });
+        defs = defs.filter((p) => !posts.includes(p)).sort((a, b) => eff(b.mp, 'phy') + eff(b.mp, 'def') - eff(a.mp, 'phy') - eff(a.mp, 'def'));
+        const zones = [[5.5, 0], [5.5, -3.5 * sY], [5.5, 3.5 * sY], [8.5, -1.5], [8.5, 2.5], [11, 0], [13, -4], [13, 4]];
+        const nZone = dPlan.def.marking === 'zonal' ? defs.length : dPlan.def.marking === 'man' ? 0 : Math.min(3, defs.length);
+        defs.forEach((p, i) => {
+          if (i < nZone) { const [a, b] = zones[i % zones.length]; p.tx = (gx - dir * a) / L; p.ty = (W / 2 + b) / W; return; }
+          const a = att[i - nZone] || (rs.lurker && i - nZone === att.length ? rs.lurker : null);
+          if (a) { p.tx = a.tx - (dir * 0.8) / L; p.ty = a.ty + (this.rand() - 0.5) * 0.004; }
+        });
+      } else defs.forEach((p, i) => {
         if (rs.kind === 'penalty') { p.tx = (gx - dir * (18.5 + ((i + 1) % 3))) / L; p.ty = (W / 2 + ((i % 6) - 2.5) * 5 + 2) / W; return; }
         const a = att[i];
         if (a && i < spots.length) { p.tx = a.tx - (dir * 0.8) / L; p.ty = a.ty; }
@@ -1779,7 +1819,14 @@ export class LiveSim {
         const o = this.passOption(t, rs.shortP);
         if (o) { o.offside = false; o.lofted = false; this.doPass(t, o, out); return; }
       }
-      const inBox = mates.filter((p) => Math.abs(this.X(p) - this.goalX(rs.side)) < 16).sort((a, b) => eff(b.mp, 'phy') - eff(a.mp, 'phy'));
+      // Ballon en retrait au sol pour le rôdeur posté à l'entrée de la surface.
+      if (rs.routine === 'low' && rs.lurker && rs.lurker !== t && this.players.has(rs.lurker.mp.id)) {
+        const o = this.passOption(t, rs.lurker);
+        if (o) { o.offside = false; o.lofted = false; this.doPass(t, o, out); return; }
+      }
+      this._spAim = rs.routine === 'short' || rs.routine === 'low' ? 'centre' : rs.routine;
+      const plan = t.team.setPlan || setPlanOf();
+      const inBox = mates.filter((p) => Math.abs(this.X(p) - this.goalX(rs.side)) < 16).sort((a, b) => eff(b.mp, 'phy') + ((plan.corner.threats || []).includes(b.mp.id) ? 100 : 0) - eff(a.mp, 'phy') - ((plan.corner.threats || []).includes(a.mp.id) ? 100 : 0));
       const pick = this.rand();
       if (inBox.length && (rs.routine === 'near' || rs.routine === 'far')) {
         // Premier poteau (déviation) ou second poteau (le plus grand, au-dessus de tout le monde).
@@ -1793,6 +1840,8 @@ export class LiveSim {
       const dG = Math.hypot(this.goalX(rs.side) - rs.x, W / 2 - rs.y);
       if (rs.direct) { this.doShot(t, 'freekick', out); return; }
       if (dG < 40) {
+        const fa = (t.team.setPlan || setPlanOf()).fk.aim;
+        this._spAim = fa === 'auto' ? 'centre' : fa;
         const inBox = mates.filter((p) => Math.abs(this.X(p) - this.goalX(rs.side)) < 16);
         if (inBox.length) { this.doCross(t, inBox[Math.floor(this.rand() * inBox.length)], out); return; }
       }

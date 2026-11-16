@@ -6,19 +6,21 @@ import { FORMATIONS, FORMATION_NAMES, FORMATION_GROUPS, MENTALITIES, MENTALITY_L
 import { autoLineup, ratingAt, isAvailable, overall, lineupStrength } from '../../engine/ratings.js';
 import { esc, playerRow, seg, posBadge } from '../components.js';
 import { face } from '../images.js';
-import { toLocal, localRect } from '../viewport.js';
+import { toLocal, localRect, scrollTop } from '../viewport.js';
 import { captains } from '../../game/captain.js';
 import { today, matchCfgFor } from '../../game/season.js';
 import { createMatch } from '../../engine/match.js';
 import { tacticalEdge } from '../../engine/tacticalEdge.js';
 import { clubById } from '../../game/state.js';
 import { crest, gauge, scaleColor } from '../components.js';
+import { CORNER_AIMS, FK_AIMS, FK_DIRECT, MARKING, setPlanOf, setPieceEdge, counterRisk } from '../../engine/setPlays.js';
+import { bestStaff } from '../../game/career.js';
 const stars = (r) => `${Math.round(r)}`;
 
-const TABS = [['team', 'Équipe'], ['analysis', 'Analyse'], ['players', 'Joueurs'], ['squad', 'Compo'], ['sp', 'Coups francs']];
+const TABS = [['team', 'Équipe'], ['analysis', 'Analyse'], ['players', 'Joueurs'], ['squad', 'Compo'], ['sp', 'CPA']];
 
 /** Copie profonde d'un plan tactique. */
-const clonePlan = (uc) => JSON.parse(JSON.stringify({ tactics: uc.tactics, roles: uc.roles || [], pi: uc.pi || [], setPieces: uc.setPieces || {} }));
+const clonePlan = (uc) => JSON.parse(JSON.stringify({ tactics: uc.tactics, roles: uc.roles || [], pi: uc.pi || [], setPieces: uc.setPieces || {}, setPlan: uc.setPlan || null }));
 
 export function render(app) {
   const s = app.state;
@@ -126,8 +128,76 @@ function squadTab(uc, players, byId) {
     <div class="card list" style="padding:0 10px;margin-top:0">${reserve.map((p) => `<div data-drag="res" data-drop="res" data-v="${p.id}" class="dragrow">${grip}${playerRow(p, { act: '', dim: !isAvailable(p), club: uc })}</div>`).join('') || '<p class="muted">Personne en réserve.</p>'}</div>`;
 }
 
+/** Boutons segmentés d'un réglage du plan de CPA (clé « corner.box » …). */
+const sseg = (key, opts, cur) => `<div class="seg">${opts.map(([v, l]) => `<button data-act="spp" data-v="${key}:${v}" class="${String(v) === String(cur) ? 'on' : ''}">${esc(l)}</button>`).join('')}</div>`;
+const ssel = (key, dict, cur) => `<select data-act="spp" data-v="${key}">${Object.entries(dict).map(([k, v]) => `<option value="${k}" ${k === cur ? 'selected' : ''}>${esc(typeof v === 'string' ? v : v.label)}</option>`).join('')}</select>`;
+
+/** Schéma de la surface : où se placent nos joueurs sur corner, et l'organisation défensive. */
+function cpaDiagram(plan) {
+  const W = 300, H = 170, gx = W - 14, sx = 6.2, cy = H / 2, sy = 3.0; // mètres -> px (vue de dessus, but à droite)
+  const P = (a, b) => [gx - a * sx, cy + b * sy];
+  const shift = { near: [0, -3], far: [0, 3], centre: [3, 0] }[plan.corner.aim] || [0, 0];
+  const atk = [[6, -3], [8, 3], [11, 0], [5, 6], [13, -6], [9, -7]].slice(0, plan.corner.box).map(([a, b]) => P(a + shift[0], b + shift[1]));
+  const dot = ([x, y], c, t = '') => `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="6" fill="${c}" stroke="#fff" stroke-width="1.5"/>${t ? `<text x="${x.toFixed(1)}" y="${(y + 3.5).toFixed(1)}" font-size="8" text-anchor="middle" fill="#fff" font-weight="700">${t}</text>` : ''}`;
+  const zones = [[5.5, 0], [5.5, -3.5], [5.5, 3.5], [8.5, -1.5], [8.5, 2.5], [11, 0], [13, -4], [13, 4]];
+  const nZone = plan.def.marking === 'zonal' ? 6 : plan.def.marking === 'man' ? 0 : 3;
+  const defs = zones.slice(0, nZone).map(([a, b]) => P(a, b));
+  const posts = [P(0.6, -3.4), P(0.6, 3.4)].slice(0, plan.def.posts);
+  const box = (a, b) => { const [x0, y0] = P(a, -b), [x1, y1] = P(0, b); return `<rect x="${x0}" y="${y0}" width="${x1 - x0}" height="${y1 - y0}" fill="none" stroke="rgba(255,255,255,.55)"/>`; };
+  return `<div class="row" style="gap:8px;flex-wrap:wrap">
+    <svg viewBox="0 0 ${W} ${H}" style="flex:1 1 260px;max-width:420px;background:#2f6b33;border-radius:10px">
+      ${box(16.5, 20.16)}${box(5.5, 9.16)}<line x1="${gx}" y1="0" x2="${gx}" y2="${H}" stroke="rgba(255,255,255,.7)"/>
+      <rect x="${gx}" y="${cy - 3.66 * sy}" width="6" height="${7.32 * sy}" fill="rgba(255,255,255,.85)"/>
+      <circle cx="${P(11, 0)[0]}" cy="${cy}" r="1.6" fill="#fff"/>
+      ${plan.corner.aim === 'short' ? dot(P(2, -24), '#e8b100', 'C') : ''}${plan.corner.lurker || plan.corner.aim === 'low' ? dot(P(19, 4), '#e8b100', 'R') : ''}
+      ${atk.map((p) => dot(p, '#d33', '')).join('')}${dot(P(0, -26), '#e8b100', 'T')}
+      <text x="8" y="14" font-size="9" fill="#fff">● nos joueurs · T tireur · R rôdeur · C joué à deux</text>
+    </svg>
+    <svg viewBox="0 0 ${W} ${H}" style="flex:1 1 260px;max-width:420px;background:#2f6b33;border-radius:10px">
+      ${box(16.5, 20.16)}${box(5.5, 9.16)}<line x1="${gx}" y1="0" x2="${gx}" y2="${H}" stroke="rgba(255,255,255,.7)"/>
+      <rect x="${gx}" y="${cy - 3.66 * sy}" width="6" height="${7.32 * sy}" fill="rgba(255,255,255,.85)"/>
+      ${defs.map((p) => dot(p, '#2a6fd6', 'Z')).join('')}${posts.map((p) => dot(p, '#2a6fd6', 'P')).join('')}
+      ${Array.from({ length: Math.max(0, 9 - plan.def.up - plan.def.posts - nZone) }, (_, i) => dot(P(7 + (i % 3) * 3, -5 + Math.floor(i / 3) * 6 + (i % 2) * 2), '#6a9de8', 'M')).join('')}
+      <text x="8" y="14" font-size="9" fill="#fff">En défense · Z zone · M individuel · P poteau${plan.def.up ? ` · ${plan.def.up} resté(s) devant` : ''}</text>
+    </svg></div>`;
+}
+
 function setPiecesTab(uc, byId) {
   const xi = uc.lineup.map((id) => byId.get(id)).filter((p) => p && p.pos !== 'GB');
+  const plan = setPlanOf(uc.setPlan), cpa = bestStaff(uc, 'setpiece');
+  const aerial = (p) => Math.round(p.attrs.phy * 0.6 + p.attrs.tir * 0.2 + p.attrs.def * 0.2);
+  const pct = (e) => `${e >= 0 ? '+' : ''}${Math.round(e * 22)} %`;
+  const aimNow = plan.corner.aim === 'auto' ? 'centre' : plan.corner.aim;
+  const edgeVs = Object.fromEntries(Object.keys(MARKING).map((mk) => [mk, setPieceEdge(plan, setPlanOf({ def: { marking: mk } }), aimNow, cpa)]));
+  const planHtml = `<div class="card" style="margin-top:8px">
+    <h3>🚩 Entraîneur des CPA</h3>
+    <p class="muted" style="margin:0">${cpa ? `Note <b>${cpa}/20</b> : ${cpa >= 14 ? 'routines très travaillées' : cpa >= 10 ? 'routines solides' : 'routines basiques'}.` : 'Aucun : vos coups de pied arrêtés sont moins travaillés. Recrutez-en un dans Club › Staff.'}</p>
+  </div>
+  <div class="card"><h3>Corners offensifs</h3>
+    <div class="formrow"><span>Combinaison</span>${ssel('corner.aim', CORNER_AIMS, plan.corner.aim)}</div>
+    <p class="muted" style="font-size:12px;margin:2px 0 8px">${esc(CORNER_AIMS[plan.corner.aim].desc)}</p>
+    <div class="label">Joueurs dans la surface</div>${sseg('corner.box', [[3, '3'], [4, '4'], [5, '5'], [6, '6']], plan.corner.box)}
+    <div class="label">Rôdeur à l'entrée de la surface (seconds ballons)</div>${sseg('corner.lurker', [[true, 'Oui'], [false, 'Non']], plan.corner.lurker)}
+    <p class="muted" style="font-size:12px;margin:6px 0">Restent derrière pour couvrir : <b>${plan.corner.back}</b> joueur(s) · risque de contre ${Math.round(counterRisk(plan, setPlanOf()) * 100)} %.</p>
+    <div class="label">Menaces aériennes (visées en priorité, 3 max)</div>
+    <div class="chips">${xi.slice().sort((a, b) => aerial(b) - aerial(a)).map((p) => `<button class="chip ${(plan.corner.threats || []).includes(p.id) ? 'on' : ''}" data-act="spthreat" data-v="${p.id}">${esc(p.name)} · ${aerial(p)}</button>`).join('')}</div>
+    <p class="muted" style="font-size:12px;margin:8px 0 0">Efficacité de la combinaison face à un marquage ${Object.entries(edgeVs).map(([k, e]) => `${MARKING[k].label.toLowerCase()} <b style="color:${e >= 0 ? 'var(--ok, #2a9d4b)' : 'var(--bad, #d33)'}">${pct(e)}</b>`).join(' · ')}</p>
+  </div>
+  <div class="card"><h3>Coups francs</h3>
+    <div class="formrow"><span>Centre vers</span>${ssel('fk.aim', FK_AIMS, plan.fk.aim)}</div>
+    <div class="formrow"><span>Tir direct</span>${ssel('fk.direct', FK_DIRECT, plan.fk.direct)}</div>
+  </div>
+  <div class="card"><h3>Défense sur CPA</h3>
+    <div class="label">Marquage</div>${sseg('def.marking', Object.entries(MARKING).map(([k, v]) => [k, v.label]), plan.def.marking)}
+    <p class="muted" style="font-size:12px;margin:4px 0 6px">${esc(MARKING[plan.def.marking].desc)}</p>
+    <div class="label">Joueurs aux poteaux</div>${sseg('def.posts', [[0, 'Aucun'], [1, '1'], [2, '2']], plan.def.posts)}
+    <div class="label">Laissés devant pour le contre</div>${sseg('def.up', [[0, 'Aucun'], [1, '1'], [2, '2']], plan.def.up)}
+  </div>
+  <div class="card"><h3>Schéma</h3>${cpaDiagram(plan)}</div>`;
+  return planHtml + setPiecesTakers(uc, xi);
+}
+
+function setPiecesTakers(uc, xi) {
   return `<div class="card" style="margin-top:8px"><h3>Tireurs désignés</h3>${[['corner', 'Corners', (p) => p.attrs.pas], ['fk', 'Coups francs', (p) => Math.round((p.attrs.tir + p.attrs.sf) / 2)], ['pen', 'Penaltys', (p) => Math.round((p.attrs.tir + p.attrs.sf) / 2)]].map(([k, l, sc]) => {
     const cur = (uc.setPieces || {})[k];
     return `<div class="formrow"><span>${l}</span><select data-act="setpiece" data-v="${k}">
@@ -313,7 +383,7 @@ export const actions = {
   },
   editpos(el, app) { app.ui.tEdit = !app.ui.tEdit; app.render(); },
   resetpos(el, app) { delete userClub(app.state).tactics.custom; app.save(); app.render(); app.toast('Formation de base rétablie.'); },
-  ttab(el, app) { app.ui.tacTab = el.dataset.v; app.render(); },
+  ttab(el, app) { app.ui.tacTab = el.dataset.v; app.render(); scrollTop(true); },   // nouvel onglet : on repart du haut
   ti(el, app) { setT(app, el.dataset.k, el.dataset.v); },
   pi(el, app) {
     const uc = userClub(app.state);
@@ -346,6 +416,23 @@ export const actions = {
     uc.roles = uc.roles || [];
     uc.roles[+el.dataset.v] = el.value;
     app.save(); app.toast(`Rôle : ${ROLES[el.value].label}`);
+  },
+  spp(el, app) {
+    const uc = userClub(app.state);
+    let key, val;
+    if (el.tagName === 'SELECT') { key = el.dataset.v; val = el.value; } else [key, val] = el.dataset.v.split(':');
+    if (val === 'true' || val === 'false') val = val === 'true'; else if (/^\d+$/.test(val)) val = +val;
+    const [g, k] = key.split('.');
+    uc.setPlan = uc.setPlan || {}; uc.setPlan[g] = { ...(uc.setPlan[g] || {}), [k]: val };
+    app.save(); app.render();
+  },
+  spthreat(el, app) {
+    const uc = userClub(app.state), id = +el.dataset.v;
+    uc.setPlan = uc.setPlan || {}; uc.setPlan.corner = { ...(uc.setPlan.corner || {}) };
+    const t = (uc.setPlan.corner.threats || []).filter((x) => x !== id);
+    if (t.length === (uc.setPlan.corner.threats || []).length) { if (t.length >= 3) { app.toast('3 menaces aériennes maximum'); return; } t.push(id); }
+    uc.setPlan.corner.threats = t;
+    app.save(); app.render();
   },
   setpiece(el, app) {
     const uc = userClub(app.state);

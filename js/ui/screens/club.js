@@ -2,6 +2,7 @@
  * Club : finances, mercato, staff & installations, entraînement, formation,
  * objectifs & carrière, amis (multijoueur), paramètres (sauvegardes, données).
  */
+import { squadNeeds } from '../../game/needs.js';
 import { budgetSplit, setSplit } from '../../game/board.js';
 import { ALLOC, ALLOC_LEVELS, allocUnit, allocWeekly } from '../../game/career.js';
 import { COUNTRIES } from '../../data/world.js';
@@ -167,8 +168,18 @@ function market(app) {
   const open = windowOpen(s);
   let html = `<div class="card row between" style="padding:10px 14px">
       <span>${open ? (windowInfo(s).deadline ? '⏰' : '🟢') : '🔴'} ${esc(windowInfo(s).label)}</span><small>Transferts <b>${money(ensureBoard(s).transferBudget)}</b> · marge salariale <b>${money(Math.max(0, wageRoom(s)))}</b>/sem</small></div>
-    ${seg('mmode', ['buy', 'loan', 'deals', 'sell', 'scout'], mode, { buy: 'Rechercher', loan: 'Prêts', deals: `Dossiers${activeDeals(s).length ? ` (${activeDeals(s).length})` : ''}`, sell: 'Ventes', scout: 'Recrutement' })}`;
+    ${seg('mmode', ['needs', 'buy', 'loan', 'deals', 'sell', 'scout'], mode, { needs: 'Besoins', buy: 'Rechercher', loan: 'Prêts', deals: `Dossiers${activeDeals(s).length ? ` (${activeDeals(s).length})` : ''}`, sell: 'Ventes', scout: 'Recrutement' })}`;
   if (mode === 'deals') return html + dealsList(s);
+  if (mode === 'needs') {
+    const ns = squadNeeds(s, uc);
+    const lv = { 3: ['Urgent', 'bad'], 2: ['Important', 'warn'], 1: ['À prévoir', ''] };
+    html += `<div class="card"><h3 style="margin-top:0">🧭 Besoins de l'effectif</h3>
+      <p class="muted" style="margin:0 0 6px;font-size:13px">Analyse du staff selon votre système (${esc(uc.tactics?.formation || '')}) et vos consignes : postes faibles, doublures, relève, style de jeu et coups de pied arrêtés.</p>
+      ${ns.map((n, i) => `<div class="row between" style="gap:10px;padding:8px 0;border-bottom:1px solid var(--line)">
+        <div><b>${esc(n.title)}</b> <span class="tag ${lv[n.level][1]}" style="font-size:10px">${lv[n.level][0]}</span><br><small class="muted">${esc(n.why)}</small></div>
+        <button class="btn sm primary" data-act="needsearch" data-v="${i}">Chercher</button></div>`).join('') || '<p class="muted">Aucun manque : votre effectif colle à votre plan de jeu.</p>'}</div>`;
+    return html;
+  }
   if (mode === 'sell') {
     const offers = (s.pendingOffers || []).filter((o) => s.players[o.pid]?.clubId === uc.id);
     const listed = clubPlayers(s, uc).filter((p) => p.listed);
@@ -470,6 +481,12 @@ export const actions = {
   editcoach(el, app) { openCoachEditor(app, { mode: 'edit' }); },
   ticket(el, app) { userClub(app.state).ticket = el.dataset.v; app.save(); app.render(); },
   myclub(el, app) { showClub(app, app.state.userClubId); },
+  needsearch(el, app) {
+    const n = squadNeeds(app.state, userClub(app.state))[+el.dataset.v];
+    if (!n) return;
+    app.ui.mktF = { ...FILTERS(), pos: n.search.pos.slice(), ovrMin: n.search.ovrMin || 0, ageMax: n.search.ageMax || DEFAULT_FILTERS.ageMax };
+    app.ui.mktMode = 'buy'; app.render(); app.toast(`Recherche : ${n.title}`);
+  },
   mmode(el, app) { app.ui.mktMode = el.dataset.v; if (app.ui.mktF) app.ui.mktF.status = el.dataset.v === 'loan' ? 'loan' : app.ui.mktF.status === 'loan' ? 'all' : app.ui.mktF.status; app.render(); },
   fset(el, app) {
     if (el.tagName !== 'SELECT' && el.tagName !== 'INPUT') return;

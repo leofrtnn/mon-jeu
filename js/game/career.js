@@ -58,6 +58,7 @@ export const STAFF_ROLES = {
   scout: { label: 'Recruteur', icon: '🔭', max: 3, desc: 'Connaissance des joueurs, rapports par journée.' },
   youth: { label: 'Responsable formation', icon: '🌱', max: 1, desc: 'Qualité des jeunes du centre.' },
   analyst: { label: 'Analyste vidéo', icon: '🎥', max: 1, desc: "Rapport sur l'adversaire, léger bonus en match." },
+  setpiece: { label: 'Entraîneur des CPA', icon: '🚩', max: 1, desc: 'Corners et coups francs travaillés : plus de buts sur CPA, moins encaissés.' },
 };
 // Compatibilité : ancien nom utilisé par certains écrans.
 export const STAFF = STAFF_ROLES;
@@ -164,6 +165,7 @@ export function staffEffects(club) {
     analyst: r('analyst'),
     perf: 1 + (r('analyst') - 8) * 0.0006,
     assistant: r('assistant'),
+    setpiece: r('setpiece'),
   };
 }
 

@@ -31,6 +31,7 @@ import { aiManage } from './ai.js';
 import { tacticalEdge } from './tacticalEdge.js';
 import { weatherMods } from '../game/weather.js';
 import { formationPos, pitchDist } from './positions.js';
+import { setPlanOf, cornerRoutine, setPieceEdge, counterRisk, directFkChance } from './setPlays.js';
 
 const ZONE_DEPTH = [[0.1, 0.33], [0.33, 0.58], [0.58, 0.8], [0.81, 0.94]];
 const ZONE_CENTER = [0.2, 0.45, 0.68, 0.87];
@@ -72,6 +73,7 @@ function makeTeam(cfg, side) {
     side, club: cfg.club, tactics: { ...DEFAULT_TACTICS, ...cfg.tactics }, slots, onPitch, bench, out: [], pi: (cfg.pi || []).slice(),
     subsUsed: 0, isAI: !!cfg.isAI, talk: Math.max(-15, Math.min(15, cfg.talk || 0)),
     roles: (cfg.roles || []).slice(), setPieces: { ...(cfg.setPieces || {}) }, injuryMod: cfg.injuryMod ?? 1,
+    setPlan: setPlanOf(cfg.setPlan), cpaCoach: cfg.cpaCoach ?? 9,
     cm: cfg.coachMods || null, // effets des compétences du coach (équipe de l'utilisateur)
     captain: cfg.captain || null, vice: cfg.vice || null, capLead: cfg.capLead ?? 50, viceLead: cfg.viceLead ?? 50,
     stats: { poss: 0, shots: 0, onTarget: 0, xg: 0, passes: 0, passesOk: 0, fouls: 0, corners: 0,
@@ -517,14 +519,29 @@ function turnover(m, out, A, D, c, def, z, how) {
 }
 
 /** Centre (ou corner si corner=true). */
-function cross(m, out, A, D, c, z, corner) {
-  const target = pickNear(m, A, 0.86, c, (mp, s) => (s.pos === 'BU' ? 2.2 : 1) * (roleOf(A, mp) === 'pointe' ? 2 : 1) * (0.5 + eff(mp, 'phy') / 120));
+function cross(m, out, A, D, c, z, corner, fk = false) {
+  // Coup de pied arrêté travaillé : combinaison choisie, cibles désignées, organisation adverse.
+  const plan = A.setPlan || setPlanOf(), dPlan = D.setPlan || setPlanOf();
+  const aim = corner ? cornerRoutine(plan, A.stats.corners, m.minute) : fk ? (plan.fk.aim === 'auto' ? ['far', 'centre', 'far', 'low'][(m.minute | 0) % 4] : plan.fk.aim) : null;
+  const threats = corner && aim !== 'low' && aim !== 'short' ? activePlayers(A).filter((mp) => (plan.corner.threats || []).includes(mp.id) && mp !== c) : [];
+  // Ballon en retrait au sol : pour le tireur posté à l'entrée de la surface.
+  if (aim === 'low' && (corner ? plan.corner.lurker : true)) {
+    const lurk = activePlayers(A).filter((mp) => mp !== c && A.slots[mp.slot].pos !== 'GB').sort((a, b) => eff(b, 'tir') - eff(a, 'tir'))[0];
+    if (lurk && m.rng.chance(sigmoid(0.3 + setPieceEdge(plan, dPlan, 'low', A.cpaCoach, D.cpaCoach)))) {
+      emit(m, out, { type: corner ? 'cornerkick' : 'pass', side: A.side, pid: c.id, pid2: lurk.id, ...ballPos(m, A.side, 2, lurk), zone: 2, low: true });
+      m.lastPasser = c; m.carrier = lurk; m.zone = 2; c.keyPasses++;
+      return shoot(m, out, A, D, lurk, 2, { type: 'open' });
+    }
+  }
+  const target = threats.length && m.rng.chance(0.65) ? threats[m.rng.int(0, threats.length - 1)]
+    : pickNear(m, A, 0.86, c, (mp, s) => (s.pos === 'BU' ? 2.2 : 1) * (roleOf(A, mp) === 'pointe' ? 2 : 1) * (0.5 + eff(mp, 'phy') / 120));
   const marker = pickNear(m, D, 0.14, null, (mp, s) => (s.pos === 'DC' ? 2 : 1));
   const delivery = eff(c, 'pas') * 0.7 + eff(c, 'vis') * 0.3;
   const aerial = eff(target, 'phy') * 0.5 + eff(target, 'tir') * 0.3 + eff(target, 'sf') * 0.2;
   const dAerial = eff(marker, 'phy') * 0.5 + eff(marker, 'def') * 0.5;
   const base = corner ? -1.45 : -1.8;
-  const p = sigmoid(base + (delivery - (m.level - 11)) / 30 + gap(aerial - dAerial) / 14 + defContext(D, 3) * -0.5);
+  const edge = aim ? setPieceEdge(plan, dPlan, aim === 'low' ? 'centre' : aim, A.cpaCoach, D.cpaCoach) : 0;
+  const p = sigmoid(base + edge + (delivery - (m.level - 11)) / 30 + gap(aerial - dAerial) / 14 + defContext(D, 3) * -0.5);
   if (!corner) { A.stats.passes++; c.passes++; }
   const pos = ballPos(m, A.side, 3, target);
   emit(m, out, { type: corner ? 'cornerkick' : 'cross', side: A.side, pid: c.id, pid2: target.id, ...pos, zone: 3 });
@@ -537,6 +554,14 @@ function cross(m, out, A, D, c, z, corner) {
   // Dégagé.
   addRating(marker, 0.05);
   if (m.rng.chance(corner ? 0.18 : 0.26)) return awardCorner(m, out, A, marker);
+  // Corner repoussé : contre-attaque si l'attaque s'est trop découverte.
+  if (corner && m.rng.chance(counterRisk(plan, dPlan))) {
+    const rec = pickNear(m, D, ZONE_CENTER[1]);
+    changePossession(m, D.side, 1, rec);
+    emit(m, out, { type: 'clearance', side: D.side, pid: marker.id, ...ballPos(m, D.side, 1, rec), zone: 1 });
+    m.counter = 3;
+    return;
+  }
   if (m.rng.chance(0.22)) {
     // Second ballon récupéré par l'attaque.
     const rec = pickNear(m, A, 0.66, null);
@@ -590,12 +615,12 @@ function foul(m, out, A, D, victim, offender, z) {
   if (z === 3) return penalty(m, out, A, D);
   if (z === 2) {
     const fk = emit(m, out, { type: 'freekick', side: A.side, pid: m.carrier.id, ...pos, zone: 2 });
-    if (m.rng.chance(0.15)) {
+    if (m.rng.chance(directFkChance(A.setPlan || setPlanOf(), 0.15))) {
       const taker = setPieceTaker(A, 'fk', (mp) => eff(mp, 'tir') + eff(mp, 'sf'));
       fk.pid = taker.id; fk.direct = true;
       return shoot(m, out, A, D, taker, 2, { type: 'freekick' });
     }
-    return cross(m, out, A, D, m.carrier, 2, false);
+    return cross(m, out, A, D, m.carrier, 2, false, true);
   }
 }
 

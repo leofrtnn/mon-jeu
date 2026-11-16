@@ -115,6 +115,30 @@ function serve() {
     await page.click('[data-nav=board]'); await page.click('[data-act=ctab][data-v=fin]');
     step('onglets et sous-onglets');
 
+    // Coups de pied arrêtés : combinaison, joueurs dans la surface, menace aérienne, défense.
+    await page.click('[data-nav=tactics]');
+    await page.click('[data-act=ttab][data-v=sp]');
+    await page.selectOption('select[data-act=spp][data-v="corner.aim"]', 'far');
+    await page.click('[data-act=spp][data-v="corner.box:6"]');
+    await page.click('[data-act=spthreat] >> nth=0');
+    await page.click('[data-act=spp][data-v="def.marking:zonal"]');
+    await page.click('[data-act=spp][data-v="def.posts:2"]');
+    const sp = await page.evaluate(() => window.__app.state.clubs.find((c) => c.id === window.__app.state.userClubId).setPlan);
+    assert.equal(sp.corner.aim, 'far'); assert.equal(sp.corner.box, 6); assert.equal(sp.corner.threats.length, 1);
+    assert.equal(sp.def.marking, 'zonal'); assert.equal(sp.def.posts, 2);
+    if (process.env.SHOTS) await page.screenshot({ path: process.env.SHOTS + '/cpa.png' });
+    await page.click('[data-act=ttab][data-v=team]');
+    await page.click('[data-nav=home]');
+    step('coups de pied arrêtés : plan d\'attaque et défense');
+
+    // Besoins de l'effectif : analyse du staff, puis recherche ciblée.
+    await page.click('[data-nav=market]');
+    await page.click('[data-act=mmode][data-v=needs]');
+    if (await page.$('[data-act=needsearch]')) {
+      await page.click('[data-act=needsearch] >> nth=0');
+      assert.ok((await page.evaluate(() => window.__app.ui.mktF.pos.length)) > 0, 'recherche ciblée sur un poste');
+    }
+    step('besoins de l\'effectif → recherche ciblée');
     // Mission de recrutement.
     await page.click('[data-nav=market]');
     await page.click('[data-act=mmode][data-v=scout]');
@@ -132,6 +156,7 @@ function serve() {
     step('mission de recrutement + négociation de staff');
 
     await page.click('[data-nav=tactics]');
+    await page.waitForTimeout(400);   // le terrain se met à l'échelle de la fenêtre
     await page.click('[data-act=auto]');
     // Glisser-déposer : le 1er remplaçant prend la place du n° 11 (et inversement).
     const lu = () => page.evaluate(() => { const s = window.__app.state; const u = s.clubs.find((c) => c.id === s.userClubId); return [u.lineup[10], u.bench[0]]; });
