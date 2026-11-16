@@ -105,7 +105,7 @@ export class LiveSim {
       now: this.now, sec: this.sec, poss: this.poss, lastTouch: this.lastTouch, celebrate: this.celebrate, afterGoalSide: this.afterGoalSide,
       inHands: this.inHands, holder: this.holder?.mp.id ?? null, gainT: this.gainT || null, resumeHT: this.resumeHT,
       ball: { x: P.x, y: P.y, z: P.z, vx: P.vx, vy: P.vy, vz: P.vz },
-      restart: rs ? { kind: rs.kind, side: rs.side, x: rs.x, y: rs.y, taker: rs.taker?.mp.id ?? null } : null,
+      restart: rs ? { kind: rs.kind, side: rs.side, x: rs.x, y: rs.y, taker: rs.taker?.mp.id ?? null, routine: rs.routine } : null,
       players: pl,
     };
   }
@@ -489,8 +489,16 @@ export class LiveSim {
     const hx = this.X(h), hy = this.Y(h);
     const opps = this.list(1 - A.side);
     const secondLast = opps.map((p) => this.X(p) * dir).sort((a, b) => b - a)[1] ?? L;
+    // Entre les lignes : l'espace entre le milieu et la défense adverses (là où l'on reçoit
+    // dos au but sans être pris, puis on se retourne). Les joueurs offensifs le recherchent.
+    const D = this.m.teams[1 - A.side];
+    const avgX = (ps) => (ps.length ? ps.reduce((s, q) => s + this.X(q) * dir, 0) / ps.length : null);
+    const dDef = avgX(opps.filter((q) => ['DC', 'DG', 'DD'].includes(D.slots[q.mp.slot]?.pos)));
+    const dMid = avgX(opps.filter((q) => ['MDC', 'MC', 'MG', 'MD'].includes(D.slots[q.mp.slot]?.pos)));
+    const gap = dDef != null && dMid != null && dDef - dMid > 6 ? [dMid + 1.5, dDef - 1.5] : null;
     for (const p of this.list(A.side)) {
       if (busy.has(p) || p.gk || p === h || p.role) continue;
+      const lineSeeker = gap && ['MO', 'MC', 'AG', 'AD', 'BU'].includes(A.slots[p.mp.slot]?.pos);
       const bx = p.tx * L, by = p.ty * W;
       let best = null, bs = -1e9;
       for (let k = 0; k < 13; k++) {
@@ -505,7 +513,8 @@ export class LiveSim {
           const t = clamp(((ox - hx) * vx + (oy - hy) * vy) / len2, 0, 1);
           lane = Math.min(lane, Math.hypot(ox - (hx + vx * t), oy - (hy + vy * t)));
         }
-        const sc = free + lane * 0.7 - rr * 0.12;
+        let sc = free + lane * 0.7 - rr * 0.12;
+        if (lineSeeker && x * dir > gap[0] && x * dir < gap[1]) sc += 2.5;
         if (sc > bs) { bs = sc; best = { x, y }; }
       }
       if (best) { p.tx = best.x / L; p.ty = best.y / W; }
@@ -1140,7 +1149,12 @@ export class LiveSim {
     const cr = this.rand();
     s.shooter.celebType = CELEBS[cr < 0.6 ? (sc.id * 7 + 3) % CELEBS.length : Math.floor(cr * CELEBS.length)];
     for (const p of this.players.values()) {
-      if (p.side === s.side && !p.gk) { p.celeb = p === s.shooter ? 3.2 : 2.6; p.tx = cx + (this.rand() - 0.5) * 0.05; p.ty = cyy + (this.rand() - 0.5) * 0.08; }
+      if (p.side === s.side && !p.gk) {
+        p.celeb = p === s.shooter ? 3.2 : 2.6;
+        // Les coéquipiers serrent le buteur dans leurs bras (ou sautent autour de lui).
+        if (p !== s.shooter) p.celebType = p.mp.id % 3 ? 'hug' : 'jump';
+        p.tx = cx + (this.rand() - 0.5) * 0.05; p.ty = cyy + (this.rand() - 0.5) * 0.08;
+      }
     }
     this.holder = null; this.pending = null; this.shot = null; this.restart = null;
     this.celebrate = 4.5;
@@ -1591,6 +1605,8 @@ export class LiveSim {
     changePossession(m, side, m.zone, taker?.mp);
     if (kind === 'corner') {
       T.stats.corners++; momentum(m, side, 2);
+      // Combinaison travaillée à l'entraînement (variée d'un corner à l'autre, sans tirage au sort).
+      this.restart.routine = ['mix', 'near', 'far', 'mix', 'short', 'near', 'far'][(T.stats.corners * 5 + Math.floor(m.minute)) % 7];
       if (out) emit(m, out, { type: 'corner', side, pid: taker.mp.id, x: x / L, y: y / W, zone: 3 });
     }
     if (kind === 'penalty' && out) emit(m, out, { type: 'penalty', side, pid: taker.mp.id, x: x / L, y: y / W, zone: 3 });
@@ -1635,6 +1651,18 @@ export class LiveSim {
         const a = att[i];
         if (a && i < spots.length) { p.tx = a.tx - (dir * 0.8) / L; p.ty = a.ty; }
       });
+      // Corner joué à deux : un petit milieu vient se proposer à quelques mètres du tireur ;
+      // un défenseur sort pour le gêner (règle des 9,15 m respectée plus bas).
+      if (rs.kind === 'corner' && rs.routine === 'short') {
+        if (!rs.shortP || !this.players.has(rs.shortP.mp.id)) rs.shortP = att[att.length - 1] || null;
+        const sp = rs.shortP;
+        if (sp) {
+          const inward = rs.y < W / 2 ? 1 : -1;
+          sp.tx = clamp(rs.x - dir * 5, 1, L - 1) / L; sp.ty = clamp(rs.y + inward * 8, 1, W - 1) / W;
+          const d = defs[Math.min(spots.length, att.length)] || defs[defs.length - 1]; // un défenseur sans marquage
+          if (d) { d.tx = clamp(rs.x - dir * 9, 1, L - 1) / L; d.ty = clamp(rs.y + inward * 11, 1, W - 1) / W; }
+        }
+      }
     }
     // Mur : 2 à 5 joueurs alignés à 9,15 m, entre le ballon et le but.
     for (const p of this.players.values()) p.wall = false;
@@ -1746,8 +1774,20 @@ export class LiveSim {
     const mates = this.list(rs.side).filter((p) => p !== t);
     if (rs.kind === 'penalty') { this.doShot(t, 'penalty', out); return; }
     if (rs.kind === 'corner') {
+      // Corner à deux : passe courte, celui qui reçoit centre ou repique ensuite.
+      if (rs.routine === 'short' && rs.shortP && rs.shortP !== t && this.players.has(rs.shortP.mp.id)) {
+        const o = this.passOption(t, rs.shortP);
+        if (o) { o.offside = false; o.lofted = false; this.doPass(t, o, out); return; }
+      }
       const inBox = mates.filter((p) => Math.abs(this.X(p) - this.goalX(rs.side)) < 16).sort((a, b) => eff(b.mp, 'phy') - eff(a.mp, 'phy'));
-      if (inBox.length) { this.doCross(t, inBox[Math.floor(this.rand() * Math.min(3, inBox.length))], out); return; }
+      const pick = this.rand();
+      if (inBox.length && (rs.routine === 'near' || rs.routine === 'far')) {
+        // Premier poteau (déviation) ou second poteau (le plus grand, au-dessus de tout le monde).
+        const sideY = rs.y < W / 2 ? -1 : 1;
+        const byPost = inBox.slice().sort((a, b) => (this.Y(b) - this.Y(a)) * sideY * (rs.routine === 'near' ? 1 : -1));
+        this.doCross(t, byPost[pick < 0.7 ? 0 : Math.min(1, byPost.length - 1)], out); return;
+      }
+      if (inBox.length) { this.doCross(t, inBox[Math.floor(pick * Math.min(3, inBox.length))], out); return; }
     }
     if (rs.kind === 'freekick') {
       const dG = Math.hypot(this.goalX(rs.side) - rs.x, W / 2 - rs.y);

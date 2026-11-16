@@ -1042,6 +1042,9 @@ export class Player3D {
         arms(0.8, 0.05, 1.85, 0.8, 0.05, 1.85, 1.1, 1.1);
       } else if (p.celebType === 'cool') {          // bras croisés, menton levé
         arms(0.55, 0.05, 1.85, 0.45, 0.05, 1.95, 1.15, 1.05); this.headPivot.rotation.z = 0.18;
+      } else if (p.celebType === 'hug') {           // coéquipier : il serre le buteur dans ses bras
+        arms(1.45, 0.75, 0.75, 1.45, 0.75, 0.75, 0.25, 0.25); this.body.rotation.z = -0.12;
+        this.body.position.y += Math.abs(Math.sin(p.celeb * 6)) * 0.05;
       } else if (p.celebType === 'badge') {         // il embrasse l'écusson
         arms(0.15, 0.2, 0.3, 0.7, 0.05, 2.2, 0, 1.3); this.headPivot.rotation.z = -0.5; this.upper.rotation.z = -0.08;
       } else if (p.celebType === 'knees') {           // à genoux, bras au ciel
