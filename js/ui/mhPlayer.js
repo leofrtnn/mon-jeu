@@ -183,3 +183,76 @@ export function setMHSkin(mh, p3, skinHex) {
   const m = p3.mhGroup?.children.find((o) => o.userData.mhPart === 'body');
   if (m) m.material = skinMat(mh, p3.mhGroup.userData.eth, skinHex);
 }
+
+/* ---------------- Tissu : relief, reflet, mouvement, tirages ---------------- */
+
+let FABRIC_N = null;
+/** Carte de relief du tissu (maille fine + petits plis), en normales, répétée sur le vêtement. */
+function fabricNormalMap() {
+  if (FABRIC_N) return FABRIC_N;
+  const S = 256, h = new Float32Array(S * S);
+  let seed = 9; const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+    const knit = Math.sin(x * Math.PI / 2) * Math.sin(y * Math.PI / 2 + (x >> 1) % 2 * Math.PI / 2);   // maille piquée
+    h[y * S + x] = knit * 0.12;
+  }
+  for (let k = 0; k < 70; k++) {          // plis doux (surtout verticaux / obliques)
+    const x0 = rnd() * S, y0 = rnd() * S, ang = 1.2 + (rnd() - 0.5) * 1.6, len = 50 + rnd() * 110, w = 5 + rnd() * 9, a = 0.5 + rnd() * 0.7;
+    for (let t = 0; t < len; t++) {
+      const cx = x0 + Math.cos(ang) * t, cy = y0 + Math.sin(ang) * t;
+      for (let d = -w; d <= w; d++) {
+        const px = ((Math.round(cx + Math.sin(ang) * d) % S) + S) % S, py = ((Math.round(cy - Math.cos(ang) * d) % S) + S) % S;
+        h[py * S + px] += a * Math.cos((d / w) * Math.PI / 2) * Math.sin((t / len) * Math.PI);
+      }
+    }
+  }
+  const data = new Uint8Array(S * S * 4);
+  for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+    const hx = h[y * S + ((x + 1) % S)] - h[y * S + ((x - 1 + S) % S)], hy = h[((y + 1) % S) * S + x] - h[((y - 1 + S) % S) * S + x];
+    const nx = -hx * 0.9, ny = -hy * 0.9, nz = 1, l = Math.hypot(nx, ny, nz), i = (y * S + x) * 4;
+    data[i] = (nx / l * 0.5 + 0.5) * 255; data[i + 1] = (ny / l * 0.5 + 0.5) * 255; data[i + 2] = (nz / l * 0.5 + 0.5) * 255; data[i + 3] = 255;
+  }
+  FABRIC_N = new THREE.DataTexture(data, S, S, THREE.RGBAFormat);
+  FABRIC_N.wrapS = FABRIC_N.wrapT = THREE.RepeatWrapping; FABRIC_N.needsUpdate = true; FABRIC_N.generateMipmaps = true;
+  FABRIC_N.minFilter = THREE.LinearMipmapLinearFilter; FABRIC_N.magFilter = THREE.LinearFilter;
+  return FABRIC_N;
+}
+
+const CLOTH_TIME = { value: 0 };
+/** À appeler une fois par image (horloge commune du tissu). */
+export function tickCloth(t) { CLOTH_TIME.value = t; }
+
+/**
+ * Vêtement « vivant » : tissu technique (relief de maille, plis, reflet satiné) et mouvement sur
+ * la carte graphique — le bas flotte et traîne avec la vitesse, et un tirage d'adversaire étire
+ * localement le tissu dans sa direction.
+ * kind : 'shirt' ou 'shorts'. Retourne le matériau (uniformes dans material.userData.cloth).
+ */
+export function clothMaterial(src, kind, hi = true) {
+  const m = hi ? new THREE.MeshPhysicalMaterial({ color: src.color, map: src.map, roughness: 0.82, metalness: 0, sheen: 0.6, sheenRoughness: 0.55, sheenColor: new THREE.Color('#ffffff') })
+    : new THREE.MeshStandardMaterial({ color: src.color, map: src.map, roughness: 0.8 });
+  m.normalMap = fabricNormalMap().clone(); m.normalMap.needsUpdate = true;
+  m.normalMap.repeat.set(kind === 'shirt' ? 4 : 3, kind === 'shirt' ? 2 : 1.5);
+  m.normalScale = new THREE.Vector2(0.32, 0.32);
+  const hem = kind === 'shirt' ? [1.26, 0.25] : [0.79, 0.14];
+  const U = { uTime: CLOTH_TIME, uSpeed: { value: 0 }, uHem: { value: new THREE.Vector2(hem[0], hem[1]) },
+    uPullPos: { value: new THREE.Vector3(-0.08, 1.2, 0.15) }, uPullDir: { value: new THREE.Vector3(0, 0, 1) }, uPullAmt: { value: 0 } };
+  m.userData.cloth = U;
+  m.onBeforeCompile = (sh) => {
+    Object.assign(sh.uniforms, U);
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nuniform float uTime, uSpeed, uPullAmt; uniform vec2 uHem; uniform vec3 uPullPos, uPullDir;')
+      .replace('#include <skinning_vertex>', `#include <skinning_vertex>
+        {
+          // Bas du vêtement : il flotte (deux ondes) et traîne derrière le joueur selon sa vitesse.
+          float hemK = clamp((uHem.x - position.y) / uHem.y, 0.0, 1.0);
+          float fl = sin(uTime * 13.0 + position.x * 23.0 + position.z * 17.0) + 0.55 * sin(uTime * 21.0 + position.z * 31.0 - position.x * 9.0);
+          transformed += objectNormal * fl * 0.004 * hemK * (0.35 + 0.22 * uSpeed);
+          transformed.x -= 0.0055 * uSpeed * hemK * hemK;
+          // Tirage : le tissu est étiré vers la main de l'adversaire (zone de ~12 cm).
+          vec3 dp = position - uPullPos;
+          transformed += uPullDir * uPullAmt * exp(-length(dp) / 0.065);   // pincement en pointe (tissu tiré)
+        }`);
+  };
+  m.customProgramCacheKey = () => 'cloth' + (hi ? 'P' : 'S');
+  return m;
+}

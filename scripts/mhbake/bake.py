@@ -449,6 +449,9 @@ def smooth_region(P_full, region, iters, alpha):
 
 
 SHIRT_ALL = shirt | longSleeve
+DEBUG_SLV = os.environ.get('DBG') == '1'
+CLOTH_F = [f for f in BODY_F if all(SHIRT_ALL[v] for v in f[0]) or all(shorts[v] for v in f[0])]
+SLEEVE_EDGE = [v for v in np.nonzero(sleeveV)[0] if any(not shirt[u] and armW[u] >= 0.5 for u in NB[v])]
 EDGE_V = [v for v in np.nonzero(SHIRT_ALL)[0] if any(not SHIRT_ALL[u] for u in NB[v])]
 _es = set(EDGE_V)
 EDGE_NB = {v: [u for u in NB[v] if u in _es] for v in EDGE_V}
@@ -461,7 +464,30 @@ def part_positions(X):
     # Maillot ample : décollé du corps (plus à la taille), puis lissé (pas de pectoraux ni
     # d'abdominaux dessinés) ; le même champ sert au buste et aux manches (coutures jointives).
     off = np.where(armW >= 0.5, 0.017, 0.019 + 0.02 * np.clip((HEM + 0.2 - G[:, 1]) / 0.2, 0, 1))
-    SH = smooth_region(G + NR * off[:, None], SHIRT_ALL, 10, 0.5)
+    SH = G + NR * off[:, None]
+    # Tombé du tissu : sous la poitrine et les omoplates, le maillot pend presque droit (il ne
+    # suit plus le creux de la taille ni les abdominaux) — rayon « tenu » par le point le plus
+    # saillant au-dessus, qui ne rentre que lentement vers le bas.
+    torso = np.array([v for v in np.nonzero(shirt)[0] if armW[v] < 0.5 and G[v, 1] < shY - 0.05])
+    if len(torso):
+        P = SH[torso]
+        cx = np.array([SH[torso[np.abs(P[:, 1] - y) < 0.03], 0].mean() for y in P[:, 1]])
+        ang = np.arctan2(P[:, 2], P[:, 0] - cx)
+        rad = np.hypot(P[:, 0] - cx, P[:, 2])
+        NB_ = 36; bins = ((ang + np.pi) / (2 * np.pi) * NB_).astype(int) % NB_
+        newr = rad.copy()
+        for b in range(NB_):
+            idx = np.nonzero(bins == b)[0]
+            idx = idx[np.argsort(-P[idx, 1])]
+            hold, yh = 0.0, None
+            for i in idx:
+                if yh is not None: hold -= 0.22 * (yh - P[i, 1])
+                hold = max(hold, rad[i]); yh = P[i, 1]
+                newr[i] = rad[i] + (hold - rad[i]) * 0.85
+        k = newr / np.maximum(rad, 1e-6)
+        SH[torso, 0] = cx + (P[:, 0] - cx) * k
+        SH[torso, 2] = P[:, 2] * k
+    SH = smooth_region(SH, SHIRT_ALL, 22, 0.5)
     # Bords (col, ourlets) : lissés le long de leur contour (plus de dents de scie).
     for _ in range(12):
         nxt = SH.copy()
@@ -469,6 +495,18 @@ def part_positions(X):
             n = EDGE_NB[v]
             if n: nxt[v] = 0.4 * SH[v] + 0.6 * SH[n].mean(0)
         SH = nxt
+    # Le lissage rétrécit les cylindres (bras) : le tissu reste toujours au-dessus de la peau.
+    d = ((SH - G) * NR).sum(1)
+    lo = np.where(armW >= 0.5, 0.014, 0.006)
+    SH += NR * np.maximum(0, lo - d)[:, None]
+    # Bout des manches : coupe nette, perpendiculaire au bras (plus d'escalier de facettes).
+    for sd in 'LR':
+        ax = JR['el' + sd] - JR['sh' + sd]; ax = ax / np.linalg.norm(ax)
+        side = (G[:, 2] < 0) == (JR['sh' + sd][2] < 0)
+        ev = [v for v in SLEEVE_EDGE if side[v]]
+        if len(ev) > 3:
+            t = (SH[ev] - JR['sh' + sd]) @ ax
+            SH[ev] -= np.outer(t - np.percentile(t, 85), ax)
     out = {}
     for pname, (src, offset) in PARTS:
         P = G[src] + (NR[src] * np.array([offset(v) for v in src])[:, None] if offset else 0)
@@ -506,11 +544,24 @@ def part_positions(X):
             loc = {v: i for i, v in enumerate(src)}
             nb = [[loc[u] for u in NB[v] if u in loc] for v in src]
             fixed = np.array([any(not shorts[u] for u in NB[v]) for v in src])
+            # Ourlet des jambes à hauteur constante (coupe droite).
+            for neg in (True, False):
+                hm = [i for i, v in enumerate(src) if fixed[i] and G[v, 1] < crotch - 0.03 and (G[v, 2] < 0) == neg]
+                if hm: P[hm, 1] = np.median(P[hm, 1])
             for _ in range(14):
                 M = np.array([P[n].mean(0) if n else P[i] for i, n in enumerate(nb)])
                 P = np.where(fixed[:, None], P, 0.5 * P + 0.5 * M)
             P = P + NR[src] * 0.004
         out[pname] = (P, NR[src])
+    # Normales des vêtements recalculées sur leur propre surface : l'éclairage suit le tissu
+    # (plis, tombé) et non plus les muscles du corps dessous.
+    FP = SH.copy()
+    for pname, (src, _) in PARTS:
+        if pname == 'shorts': FP[src] = out[pname][0]
+    NC = vnormals(FP, CLOTH_F)
+    NC[np.linalg.norm(NC, axis=1) < 0.5] = NR[np.linalg.norm(NC, axis=1) < 0.5]
+    for pname, (src, _) in PARTS:
+        if pname in ('shirt', 'sleeve', 'sleeveLong', 'shorts'): out[pname] = (out[pname][0], NC[src])
     for name in PROXY_DATA:
         out[name] = proxy_part(name, X, False)
     return out

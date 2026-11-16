@@ -11,7 +11,7 @@ import * as THREE from '../vendor/three.module.min.js';
 export { THREE as THREE_NS };
 import { toLocal, localRect } from './viewport.js';
 import { personLook, portraitSvg } from './avatar.js';
-import { loadMH, buildMHPlayer, addMHPart, setMHSkin } from './mhPlayer.js';
+import { loadMH, buildMHPlayer, addMHPart, setMHSkin, clothMaterial, tickCloth } from './mhPlayer.js';
 import { GAITS, GAIT_KEYS } from './mocapData.js';
 
 const L = 105, W = 68;
@@ -1416,9 +1416,8 @@ export function proKitTexture({ c1, c2, ink, pattern = 'plain', sponsor = '', nu
     if (pattern === 'band') g.fillRect(0, V(0.62), w, 0.12 * h);
     if (pattern === 'sash') { g.save(); g.translate(0.25 * w, 0.5 * h); g.rotate(-0.55); g.fillRect(-0.05 * w, -h, 0.06 * w, 2 * h); g.restore(); }
     // Trame du tissu (maille fine) et légères bandes verticales tissées.
-    g.globalAlpha = 0.05; g.fillStyle = '#000';
+    g.globalAlpha = 0.03; g.fillStyle = '#000';
     for (let y = 0; y < h; y += 3 * k) for (let x = (y / (3 * k)) % 2 ? 0 : 1.5 * k; x < w; x += 3 * k) g.fillRect(x, y, 1.2 * k, 1.2 * k);
-    g.globalAlpha = 0.035; for (let x = 0; x < w; x += 18 * k) g.fillRect(x, 0, 6 * k, h);
     g.globalAlpha = 1;
     // Panneaux latéraux (couleur secondaire) et coutures.
     if (pattern === 'plain' || pattern === 'centre') { g.fillStyle = c2; g.globalAlpha = 0.85; for (const u of [0, 0.5, 1]) g.fillRect(u * w - 18 * k, 0, 36 * k, h); g.globalAlpha = 1; }
@@ -2238,6 +2237,22 @@ export class Match3D {
   }
 
   /** Synchronise les joueurs 3D avec ceux de la vue (entrées, sorties, remplacements). */
+  /** Tissu d'un joueur : vitesse (flottement, traîne) et tirage de maillot par l'adversaire collé à lui. */
+  updateCloth(c, p, grab, dt) {
+    const sp = Math.min(8, p.speed || 0) / 5;
+    c.shirt.uSpeed.value += (sp - c.shirt.uSpeed.value) * Math.min(1, dt * 4);
+    c.shorts.uSpeed.value = c.shirt.uSpeed.value;
+    if (grab) c.side = grab;
+    const t = performance.now() / 1000;
+    const want = grab ? 0.1 * (0.75 + 0.25 * Math.sin(t * 9 + (p.id ?? 0))) : 0;
+    c.pull += (want - c.pull) * Math.min(1, dt * (grab ? 6 : 3));
+    c.shirt.uPullAmt.value = c.pull;
+    if (c.pull > 0.001) {
+      c.shirt.uPullPos.value.set(-0.11, 1.13, c.side * 0.13);
+      c.shirt.uPullDir.value.set(-0.55, -0.12, c.side * 0.83).normalize();
+    }
+  }
+
   syncPlayers() {
     const v = this.v;
     const seen = new Set();
@@ -2283,9 +2298,10 @@ export class Match3D {
           : { c1: v.colors[side], c2: home && club.colors[1] ? club.colors[1] : v.textColors[side], ink: v.textColors[side], pattern: home ? kitPattern(club) : 'plain' };
         const hi = this.gfx === 'ultra';
         const kitBase = { ...kit, sponsor: sponsorOf(club), crest: club?.short || '', hi };
-        const shirtM = new THREE.MeshStandardMaterial({ color: '#ffffff', map: proKitTexture({ ...kitBase, num: p.num ?? '', name: p.mp?.p?.last || p.short || '' }), roughness: 0.76, metalness: 0.02 });
+        const shirtM = clothMaterial({ color: '#ffffff', map: proKitTexture({ ...kitBase, num: p.num ?? '', name: p.mp?.p?.last || p.short || '' }) }, 'shirt', hi);
         const shC = p.gk ? '#20242c' : v.shorts[side];
-        const shortsM = new THREE.MeshStandardMaterial({ color: '#ffffff', map: proShortsTexture(shC, shC.toLowerCase() === String(v.textColors[side]).toLowerCase() ? v.colors[side] : v.textColors[side], p.num ?? '', hi), roughness: 0.72 });
+        const shortsM = clothMaterial({ color: '#ffffff', map: proShortsTexture(shC, shC.toLowerCase() === String(v.textColors[side]).toLowerCase() ? v.colors[side] : v.textColors[side], p.num ?? '', hi) }, 'shorts', hi);
+        e.cloth = { shirt: shirtM.userData.cloth, shorts: shortsM.userData.cloth, pull: 0, side: 1 };
         const sockC = p.gk ? v.gkColors[side] : v.colors[side];
         const socksM = new THREE.MeshStandardMaterial({ color: '#ffffff', map: proSocksTexture(sockC, p.gk ? '#111111' : kit.c2), roughness: 0.85 });
         const sleeveM = (this._sleeveM ||= new Map()).get(JSON.stringify(kit)) || new THREE.MeshStandardMaterial({ color: '#ffffff', map: proKitTexture({ ...kitBase, sleeve: true }), roughness: 0.76 });
@@ -2624,6 +2640,7 @@ export class Match3D {
     }
     if (!document.hidden) this.adaptQuality();
     this.syncPlayers();
+    tickCloth(performance.now() / 1000);
     const flip = this.flip();
     const carrier = v.holder ?? (v.cur ? v.cur.carrier : null);
     const camP = this.camera.position;
@@ -2637,15 +2654,16 @@ export class Match3D {
       const dB = Math.hypot((p.x - v.ball.x) * L, (p.y - v.ball.y) * W);
       const isCar = id === carrier;
       // Adversaire au contact (duel) : de quel côté est-il ?
-      let jostle = 0;
+      let jostle = 0, grab = 0;
       if (dB < 4 && !p.gk) for (const [id2, q] of v.players) {
         if (id2 === id || q.side === p.side) continue;
         const dx = (q.x - p.x) * L, dy = (q.y - p.y) * W;
-        if (dx * dx + dy * dy < 1.69) { const rel = Math.atan2(dy, dx) - (p.face || 0); jostle = Math.sin(rel) > 0 ? 1 : -1; break; }
+        if (dx * dx + dy * dy < 1.69) { const rel = Math.atan2(dy, dx) - (p.face || 0); jostle = Math.sin(rel) > 0 ? 1 : -1; grab = Math.cos(rel) < 0.35 && (isCar || dB < 2) ? jostle : 0; break; }
       }
       const ballAng = dB < 45 ? Math.atan2((v.ball.y - p.y) * W, (v.ball.x - p.x) * L) : null;
       e.p3.pose(p, flip, { dt: dt || 0.016, ballAng, jostle, ballNear: p.gk && dB < 30, restFar: dB > 28 && !isCar, shield: isCar && !v.inHands && (p.shieldK || 0) > 0, holding: isCar && v.inHands && p.gk });
       e.p3.smoothPose(dt || 0.016);
+      if (e.cloth) this.updateCloth(e.cloth, p, grab, dt || 0.016);
       // Gestes au sol : après le lissage, le point le plus bas du corps est reposé sur la pelouse.
       if (p.fall > 0 || p.slide > 0 || p.hurt > 0 || p.place > 0 || p.block > 0 || (p.celeb > 0 && (p.celebType === 'knees' || p.celebType === 'slide') && ((p.speed || 0) <= 2 || (p.celebType === 'slide' && p.celeb < 2.4))) || (p.dive > 0 && p.dive < 0.3)) e.p3.groundContact();
       const hl = id === carrier || id === v.selected;
