@@ -1026,14 +1026,22 @@ export class LiveSim {
     // Contre-attaque : on cherche la profondeur tout de suite.
     const fwd = ((tx - sx) * dir) > 6 ? (mood.counter ? 1.18 : 1) : 1;
     // Plus la passe recule, moins elle vaut (et encore moins dans le dernier tiers).
-    const backK = back <= 18 || ownHalf ? 1 : Math.exp(-(back - 18) / (pressed ? 14 : 8));
-    const val = (this.threat(A.side, tx, ty) * (1 + ment * 0.05) * fwd + keep * backK) * lenW * dirW * lane;
+    // Centre en retrait : du bord de la surface, près de la ligne de but, vers le point de penalty
+    // (l'arme la plus dangereuse du football moderne) — ce recul-là est recherché.
+    const gxA = this.goalX(A.side);
+    const cutback = Math.abs(gxA - sx) < 16 && Math.abs(sy - W / 2) > 8 && Math.abs(gxA - tx) > 6 && Math.abs(gxA - tx) < 17 && Math.abs(ty - W / 2) < 10 && !lofted;
+    const backK = cutback || back <= 18 || ownHalf ? 1 : Math.exp(-(back - 18) / (pressed ? 14 : 8));
+    // Une-deux : le passeur qui a redoublé sa course est cherché en priorité s'il est démarqué.
+    const oneTwo = r.goRun && this.now < r.goRun.until && ((tx - sx) * dir) > 2 ? 2.4 : 1;
+    const val = (this.threat(A.side, tx, ty) * (1 + ment * 0.05) * fwd * (cutback ? 2.1 : 1) * oneTwo + keep * backK) * lenW * dirW * lane;
     // Perdre le ballon coûte la valeur de la possession actuelle + le danger d'une contre-attaque.
     const danger = this.threat(1 - A.side, worst ? worst.x : tx, worst ? worst.y : ty) + this.threat(A.side, sx, sy) * 1.4 + 0.012;
     // Les équipes jouent surtout à ras de terre : le long ballon reste un choix (consigne « direct »).
     // (seulement les longs ballons de construction : centres et appels dans le dernier tiers restent normaux)
     const loftPen = lofted && Math.abs(this.goalX(A.side) - sx) > 40 ? TUNE.loftPen * ({ direct: 0.35, short: 1.8 }[A.tactics.passing] ?? 1) : 0;
-    return { k: 'pass', u: p * val - (1 - p) * danger * TUNE.lossW + 0.003 - loftPen, r, tx, ty, p, lofted, through, worst, offside };
+    // Renversement : un vrai choix quand le côté opposé est libre, pas un réflexe à chaque ballon.
+    const switchPen = lofted && Math.abs(ty - sy) > 28 ? (free > 10 ? 0.015 : 0.03) : 0;
+    return { k: 'pass', u: p * val - (1 - p) * danger * TUNE.lossW + 0.003 - loftPen - switchPen, r, tx, ty, p, lofted, through, worst, offside, cutback };
   }
 
   /** Le receveur est-il hors-jeu (dans le camp adverse, devant le ballon et l'avant-dernier défenseur) ? */
@@ -1097,7 +1105,7 @@ export class LiveSim {
     const gx = Math.min(Math.max(hx * dir + 11, tx * dir + 5), off);
     if (gx < hx * dir + 4) return; // pas d'espace devant lui
     const gy = clamp(ty + (hy - ty) * 0.4 + (W / 2 - ty) * 0.15, 3, W - 3);
-    h.goRun = { until: this.now + 2.6, x: clamp(gx * dir, 2, L - 2), y: gy };
+    h.goRun = { until: this.now + 4.2, x: clamp(gx * dir, 2, L - 2), y: gy };   // assez long pour que le receveur contrôle et remise
   }
 
   /** Frappe le ballon vers (tx, ty) : au sol, ou en l'air. Retourne la durée du trajet. */
