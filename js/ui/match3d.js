@@ -863,7 +863,7 @@ export class Player3D {
     this.mhGroup.visible = on;
     const lod = new Set(this.lodMeshes);
     this.root.traverse((o) => {
-      if (!o.isMesh || mhSet.has(o) || o === this.shadow || o === this.ring || this.footShadows?.includes(o)) return;
+      if (!o.isMesh || mhSet.has(o) || o === this.shadow || o === this.ring || this.footShadows?.includes(o) || o.userData.keep) return;
       o.visible = !on && !lod.has(o) && o !== this.faceMesh;
     });
     for (const f of this.footShadows || []) f.visible = on;
@@ -1572,7 +1572,10 @@ export class Coach3D {
     p3.setLimbMaterials({ thigh: pants, knee: pants });
     if (L.outfit !== 'polo') p3.setLimbMaterials({ upper: outfit, fore: outfit });
     const torsoY = 0.95, body = p3.upper || p3.body;
-    const add = (g, m, x, y, z, parent = body) => { const o = new THREE.Mesh(g, m); o.position.set(x, y, z); parent.add(o); o.castShadow = true; return o; };
+    const add = (g, m, x, y, z, parent = body) => { const o = new THREE.Mesh(g, m); o.position.set(x, y, z); parent.add(o); o.castShadow = true; o.userData.keep = true; return o; };
+    // Corps réaliste (comme les joueurs) : pantalon long, manches longues sauf en polo.
+    this.mhOpts = { skin: L.skin, hair: L.hairColor, hairStyle: L.hairStyle, beard: L.beard || '', eyeTex: 'brown', nat: '', trousers: true, longSleeve: L.outfit !== 'polo',
+      heavy: L.build === 'heavy' ? 0.8 : 0.25, slim: L.build === 'slim' ? 0.6 : 0, mats: { shirt: outfit, sleeve: outfit, shorts: pants, socks: pants, boot: shoe } };
     // Tenues.
     if (L.outfit === 'suit') {
       add(new THREE.BoxGeometry(0.02, 0.36, 0.06), accent, 0.15, 1.27 - torsoY, 0).rotation.z = 0.06;             // cravate
@@ -1731,6 +1734,9 @@ export class Match3D {
       for (const e of this.players.values()) if (e.mhOpts) e.p3.attachMH(mh, e.mhOpts);
       // Arbitre : corps réaliste, tenue noire.
       if (this.ref3d && this.refMats) this.ref3d.attachMH(mh, { skin: '#c68642', hair: '#1a120c', hairStyle: 'buzz', eyeTex: 'brown', nat: 'ITA', mats: this.refMats });
+      // Entraîneurs : même modèle humain que les joueurs (en tenue de ville / de survêtement).
+      for (const c of this.coaches || []) if (c?.mhOpts) { c.p3.attachMH(mh, c.mhOpts); c.p3.detail = false; c.p3.setDetail(true); }
+      for (const b of this.benchSubs || []) if (b.mhOpts && !b.p3.mhGroup) { b.p3.attachMH(mh, b.mhOpts); b.p3.detail = false; b.p3.setDetail(true); }
     });
     this.buildCoaches();
     // Arbitre : tenue noire.
@@ -2138,6 +2144,9 @@ export class Match3D {
     stand(mainLen, Math.PI, W / 2 + 9, { fill: 0.9, tiers: mainT, away: ST.away === 'side' ? { x0: mainLen / 2 - 24, tiers: [0] } : null }); // grande tribune, en face
     stand(endLen, Math.PI / 2, L / 2 + 10, { fill: 0.93, ultras: true, tiers: endT });   // virage local
     stand(endLen, -Math.PI / 2, L / 2 + 10, { fill: 0.84, tiers: endT, away: awayEnd }); // virage avec parcage visiteur
+    // Tribune côté caméra (latérale principale, sous la passerelle des caméras télé) : la caméra
+    // peut tourner partout sans jamais montrer de vide. Un seul étage, sans toit devant les caméras.
+    stand(mainLen, 0, W / 2 + 9, { fill: 0.9, tiers: tiersOf([[14, 0.44]]), roof: 'none' });
     // Coins : angles fermés (tribunes de coin) ou ouverts (blocs d'escaliers) ; écrans géants.
     const screenMat = new THREE.MeshBasicMaterial({ color: '#0b1220' });
     for (const sx of [-1, 1]) {
@@ -2357,7 +2366,7 @@ export class Match3D {
       // Avant-match : lent travelling autour du stade, du haut des tribunes vers le terrain.
       const t = (this._introT = (this._introT || 0) + dt);
       const a = -0.9 + t * 0.2;
-      want.set(Math.sin(a) * 78, Math.max(14, 34 - t * 2.4), Math.cos(a) * 64); look.set(0, 0, 0); this.camera.fov = 36;
+      want.set(Math.sin(a) * 78, Math.max(14, 34 - t * 2.4), Math.cos(a) * 64); look.set(0, 0, 0); this.camera.fov = 36; this.clampCam(want);
       this.camPos.lerp(want, 1 - Math.exp(-dt * 1.6)); this.camLook.lerp(look, 1 - Math.exp(-dt * 2));
       this.camera.position.copy(this.camPos); this.camera.lookAt(this.camLook); this.camera.updateProjectionMatrix();
       return;
@@ -2401,8 +2410,11 @@ export class Match3D {
     else if (mode === 'high') { want.set(bx * 0.4, 95, 52); look.set(bx * 0.4, 0, 0); this.camera.fov = 38; }
     else { const side = bx >= 0 ? 1 : -1; want.set(side * (L / 2 + 22), 12, bz * 0.3); look.set(bx, 0, bz); this.camera.fov = 40; }
     const k = 1 - Math.exp(-dt * (mode === 'close' ? 3 : 2.2));
-    // Après une coupure (avance rapide), la caméra se place directement sur l'action.
+    // Changement de plan = coupe franche (comme en réalisation télé), jamais de glissement d'un
+    // plan à l'autre ; à l'intérieur d'un même plan, la caméra suit l'action en douceur.
+    if (mode !== this._shotMode) { this._shotMode = mode; this.snapCam = true; }
     const kk = this.snapCam ? 1 : k; this.snapCam = false;
+    this.clampCam(want);
     this.camPos.lerp(want, kk);
     this.camLook.lerp(look, kk);
     this.camera.position.copy(this.camPos);
@@ -2449,8 +2461,26 @@ export class Match3D {
       this.composer = c;
     } catch (e) { console.warn('post-traitement indisponible', e); this.composer = null; }
   }
+  /**
+   * La caméra ne rentre jamais dans les tribunes : devant les virages et la grande tribune, elle
+   * reste au bord du terrain ; côté caméras, elle ne passe derrière le premier rang que si elle
+   * est assez haute pour voir par-dessus les gradins (passerelle télé).
+   */
+  clampCam(p) {
+    const fx = L / 2 + 8.6, fzFar = W / 2 + 7.8, fzNear = W / 2 + 8.2;
+    if (Math.abs(p.x) > fx) p.x = Math.sign(p.x) * fx;
+    if (p.z < -fzFar) p.z = -fzFar;
+    if (p.z > fzNear) {
+      const need = 1.1 + (p.z - fzNear) * 0.56 + 3.5;
+      if (p.y < need) p.z = fzNear + Math.max(0, (p.y - 4.6) / 0.56);
+    }
+    if (p.y < 0.6) p.y = 0.6;
+    return p;
+  }
+
   /** Pose la caméra (position, cible, focale) : douce, ou en coupe franche pour un changement de plan. */
   placeCam(pos, look, fov, dt, cut) {
+    this.clampCam(pos);
     const k = cut ? 1 : 1 - Math.exp(-dt * 3.5);
     this.camPos.lerp(pos, k); this.camLook.lerp(look, k);
     this.camera.fov = fov;
@@ -2592,7 +2622,14 @@ export class Match3D {
         p3.root.position.set(x, 0, W / 2 + 4.95);
         p3.root.scale.setScalar(0.98);
         this.scene.add(p3.root);
-        this.benchSubs.push({ p3, side, ph: Math.random() * 6 });
+        // Corps réaliste : survêtement aux couleurs du club (veste à manches longues, pantalon).
+        const jacket = new THREE.MeshStandardMaterial({ color: v.colors[side], roughness: 0.7 });
+        const pants = new THREE.MeshStandardMaterial({ color: '#15181f', roughness: 0.8 });
+        const mhOpts = { skin: lk.skin, hair: lk.hairColor, hairStyle: lk.hairStyle, beard: lk.beard, eyeTex: 'brown', nat: mp.p?.nat || '', trousers: true, longSleeve: true,
+          mats: { shirt: jacket, sleeve: jacket, shorts: pants, socks: pants, boot: bootMat('#111111') } };
+        const b = { p3, side, ph: Math.random() * 6, mhOpts };
+        if (this.mh) { p3.attachMH(this.mh, mhOpts); p3.detail = false; p3.setDetail(true); }
+        this.benchSubs.push(b);
       });
     }
   }

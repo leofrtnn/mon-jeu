@@ -351,6 +351,9 @@ PARTS.append(('faceDecal', build_part('faceDecal', faceR, lambda v: 0.0015, face
 PARTS.append(('shorts', build_part('shorts', shorts, lambda v: 0.016 + 0.02 * np.clip((WAIST - G0[v, 1]) / (WAIST - SHORT_END), 0, 1), lambda P, vs, uvi: cyl_uv(P, ctr, SHORT_END, WAIST))))
 PARTS.append(('socks', build_part('socks', socks, lambda v: 0.0055, lambda P, vs, uvi: cyl_uv(P, P.mean(0), BOOT_TOP, SOCK_TOP))))
 PARTS.append(('boots', build_part('boots', boots, lambda v: 0.008, lambda P, vs, uvi: np.zeros((len(P), 2)))))
+# Pantalon long (entraîneurs, staff) : du bassin aux chevilles, un peu ample.
+trousers = shorts | (isBody & (legW > 0.5) & (ys > BOOT_TOP - 0.02) & (ys < WAIST))
+PARTS.append(('trousers', build_part('trousers', trousers, lambda v: 0.014 + 0.006 * np.clip((WAIST - G0[v, 1]) / 0.6, 0, 1), lambda P, vs, uvi: np.zeros((len(P), 2)))))
 
 # ---------- Proxies : cheveux, yeux, sourcils ----------
 PROX = {'hair_short': 'hair/short02', 'hair_buzz': 'hair/short04', 'hair_afro': 'hair/afro01', 'hair_mohawk': 'hair/Harvey_Hawk1',

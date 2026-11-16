@@ -223,10 +223,23 @@ export class LiveSim {
 
   tick(dt, out) {
     const m = this.m, P = this.P;
+    // Vérification VAR en cours : l'arbitre a la main à l'oreille, tout le monde attend.
+    if (this.varT > 0) {
+      this.varT -= dt;
+      for (const p of this.players.values()) { p.tx = p.x; p.ty = p.y; }
+      this.move(dt); stepBall(P, dt);
+      if (this.varT <= 0) this.varDecision(out);
+      return;
+    }
     if (this.celebrate > 0) {
       this.celebrate -= dt;
       this.move(dt); stepBall(P, dt);
-      if (this.celebrate <= 0) this.handle([this.kickoffEvent(this.afterGoalSide)], out);
+      if (this.celebrate <= 0) {
+        if (this.varPending) {
+          this.varT = 4.2; m.stoppages += 1;
+          emit(m, out, { type: 'var', side: this.varPending.side, pid: this.varPending.sc.id, outcome: 'check', reason: this.varPending.reason, x: 0.5, y: 0.5, zone: 3 });
+        } else this.handle([this.kickoffEvent(this.afterGoalSide)], out);
+      }
       return;
     }
     this.reshapeT += dt;
@@ -684,6 +697,27 @@ export class LiveSim {
     else this.doClear(h, out);
   }
 
+  /** Décision de la VAR : but validé (engagement) ou refusé (score corrigé, coup franc / six mètres). */
+  varDecision(out) {
+    const m = this.m, V = this.varPending;
+    this.varPending = null;
+    if (!V) return;
+    emit(m, out, { type: 'var', side: V.side, pid: V.sc.id, outcome: V.cancel ? 'cancelled' : 'confirmed', reason: V.reason, x: 0.5, y: 0.5, zone: 3 });
+    if (!V.cancel) { this.handle([this.kickoffEvent(1 - V.side)], out); return; }
+    // But refusé : on annule tout ce qu'il avait apporté.
+    m.score[V.side] = Math.max(0, m.score[V.side] - 1);
+    V.sc.goals = Math.max(0, V.sc.goals - 1); addRating(V.sc, -1.0);
+    if (V.assist) { V.assist.assists = Math.max(0, V.assist.assists - 1); addRating(V.assist, -0.6); }
+    for (let i = m.goals.length - 1; i >= 0; i--) if (m.goals[i].pid === V.sc.id && m.goals[i].side === V.side) { m.goals.splice(i, 1); break; }
+    const tl = m.xgTimeline[m.xgTimeline.length - 1]; if (tl) tl.goal = false;
+    for (const p of this.players.values()) p.celeb = 0;
+    const D = 1 - V.side;
+    if (V.reason === 'offside' || V.reason === 'foul' || V.reason === 'hand') {
+      const fx = clamp(V.x + this.dir(V.side) * -6, 8, L - 8), fy = clamp(V.y, 8, W - 8);
+      this.setRestart('freekick', D, fx, fy);
+    } else this.setRestart('goalkick', D, this.goalX(V.side) - this.dir(V.side) * 5.5, W / 2);
+  }
+
   /** Distance au plus proche adversaire. */
   pressure(h) {
     let best = 99;
@@ -830,7 +864,8 @@ export class LiveSim {
       h.kick = big ? 0.32 : 0.24; h.kickMax = h.kick; h.kickPow = pick.k === 'shot' ? (h.shotTech === 'drive' ? 1 : 0.8) : big ? 0.85 : 0.5; h.kickSide = (pick.k === 'pass' && !big) || h.shotTech === 'finesse' || h.shotTech === 'curl';
       h.kickFoot = this.footSign(h) > 0 ? 'R' : 'L';   // frappe et passe du pied fort
       h.kickLoft = pick.k === 'cross' || pick.k === 'clear' || (pick.k === 'pass' && pick.lofted);
-      h.prep = { pick, at: this.now + (h.kick - 0.16) * GS, until: this.now + (h.kick - 0.16) * GS + 0.5 };
+      // Le ballon part à l'instant exact où le pied le touche dans l'animation (55 % du geste).
+      h.prep = { pick, at: this.now + h.kick * 0.55 * GS, until: this.now + h.kick * 0.55 * GS + 0.5 };
       P.vx *= 0.3; P.vy *= 0.3;   // dernier contact pour placer le ballon avant la frappe
       h.next = h.prep.until;
       return;
@@ -1298,6 +1333,10 @@ export class LiveSim {
     this.holder = null; this.pending = null; this.shot = null; this.restart = null;
     this.celebrate = 4.5;
     this.afterGoalSide = 1 - s.side;
+    // VAR : certains buts sont vérifiés après la célébration (hors-jeu, faute, main).
+    if (m.varEnabled && s.kind !== 'penalty' && this.rand() < 0.07) {
+      this.varPending = { side: s.side, sc, assist, cancel: this.rand() < 0.4, reason: ['offside', 'foul', 'hand'][Math.floor(this.rand() * 3)], x: this.P.x, y: this.P.y };
+    }
   }
 
   /** Événement d'engagement (par le moteur classique : choix du joueur qui engage). */
@@ -1941,7 +1980,7 @@ export class LiveSim {
     if (!(atBall && rs.t >= minT && (settled || (rs.hurry && kickoffOk) || rs.t > 30) && !(t.place > 0))) return;
     // Armé de la jambe avant de jouer le ballon (le geste précède le départ du ballon).
     if (rs.kind !== 'throw') {
-      if (rs.go == null) { rs.go = this.now + 0.12 * GS; t.kick = 0.28; t.kickMax = 0.28; t.kickFoot = this.footSign(t) > 0 ? 'R' : 'L'; t.kickLoft = ['goalkick', 'corner'].includes(rs.kind); t.kickPow = ['goalkick', 'corner', 'penalty'].includes(rs.kind) ? 1 : 0.55; t.kickSide = rs.kind === 'kickoff'; t.face = Math.atan2(W / 2 - this.P.y, this.goalX(rs.side) - this.P.x); return; }
+      if (rs.go == null) { rs.go = this.now + 0.28 * 0.55 * GS; t.kick = 0.28; t.kickMax = 0.28; t.kickFoot = this.footSign(t) > 0 ? 'R' : 'L'; t.kickLoft = ['goalkick', 'corner'].includes(rs.kind); t.kickPow = ['goalkick', 'corner', 'penalty'].includes(rs.kind) ? 1 : 0.55; t.kickSide = rs.kind === 'kickoff'; t.face = Math.atan2(W / 2 - this.P.y, this.goalX(rs.side) - this.P.x); return; }
       if (this.now < rs.go) return;
     } else { t.throwIn = 0.6; t.hold = 0; }
     this._wall = [...this.players.values()].filter((p) => p.wall);

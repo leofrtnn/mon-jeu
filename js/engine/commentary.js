@@ -276,6 +276,7 @@ export function describe(ev, ctx, r = Math.random, opts = {}) {
     }
     case 'red': type = ev.kind === 'second' ? 'red_second' : 'red_direct'; break;
     case 'var':
+      if (ev.outcome === 'check') return `📺 Vérification VAR en cours sur le but de ${v.p || 'l\'attaquant'}… (${{ offside: 'possible hors-jeu', foul: 'possible faute', hand: 'possible main' }[ev.reason] || 'action litigieuse'})`;
       type = ev.reason === 'penalty' ? (ev.outcome === 'cancelled' ? 'var_pen_cancelled' : 'var_pen_confirmed')
         : (ev.outcome === 'cancelled' ? 'var_cancelled' : 'var_confirmed');
       break;

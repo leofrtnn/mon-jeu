@@ -374,7 +374,11 @@ export class MatchView {
     }
     if (ev.replay) { this.opts.onEventStart?.(ev); return; }
     if (ev.type === 'yellow' || ev.type === 'red') this.banner = { text: ev.type === 'yellow' ? '🟨' : '🟥', color: null, t: 0, dur: 1.4, small: true };
-    if (ev.type === 'var') this.banner = { text: ev.outcome === 'cancelled' ? 'VAR · REFUSÉ' : 'VAR · VALIDÉ', color: '#3a86ff', t: 0, dur: 2.2, small: true };
+    if (ev.type === 'var') {
+      const why = { offside: 'hors-jeu', foul: 'faute', hand: 'main', penalty: 'penalty' }[ev.reason] || '';
+      this.banner = ev.outcome === 'check' ? { text: `📺 VAR · VÉRIFICATION${why ? ` (${why} ?)` : ''}`, color: '#3a86ff', t: 0, dur: 4.2, small: true }
+        : { text: ev.outcome === 'cancelled' ? `VAR · BUT REFUSÉ${why ? ` (${why})` : ''}` : 'VAR · BUT VALIDÉ', color: ev.outcome === 'cancelled' ? '#e63946' : '#2a9d4b', t: 0, dur: 2.6, small: true };
+    }
     if (ev.type === 'penalty') this.banner = { text: 'PENALTY', color: '#ffb703', t: 0, dur: 1.6, small: true };
     this.opts.onEventStart?.(ev);
   }
@@ -607,8 +611,8 @@ export class MatchView {
     if (!this.live || this.speed > 8) return this.speed; // avance rapide demandée (différé)
     if (!this.highlights || this.hlMode !== 'auto') return this.hlMode === 'auto' ? this.speed : +this.hlMode;
     const ff = this.ffSpeed === 'R' ? 8 : (this.ffSpeed || 4);
-    // Temps fort : x1,5 (on a le temps d'apprécier) ; amorce en mode résumé : x2,5 ; sinon x4/x8.
-    const target = this.inHL ? 1.5 : this.ffSpeed === 'R' && this.hlPre() ? 2.5 : ff;
+    // Temps fort : x1 (vitesse réelle) ; amorce en mode résumé : x2,5 ; sinon x4/x8.
+    const target = this.inHL ? 1 : this.ffSpeed === 'R' && this.hlPre() ? 2.5 : ff;
     // Transitions douces dans les deux sens (plus de ralenti brutal suivi d'une reprise sèche).
     this.effSpeed += (target - this.effSpeed) * Math.min(1, dt * (target < this.effSpeed ? 2.6 : 0.7));
     if (Math.abs(this.effSpeed - target) < 0.02) this.effSpeed = target;
@@ -761,8 +765,14 @@ export class MatchView {
     // Temps forts plus lisibles : ralenti bref, bannière avec le nom, l'arbitre intervient.
     const nm = (id) => (this.nameOf(id) || '').split(' ').slice(-1)[0];
     const r = this.referee;
+    // Ralenti APRÈS l'action (pendant que le jeu est arrêté), jamais au moment de l'action.
+    const replayAfter = (afterS, wait, kind) => {
+      if (this.speed > 4 || this.opts.replays === false || this.replayPlan || this.replayLive) return;
+      if (this.hlMode === 'auto' && this.highlights && !this.inHL) return;   // en accéléré : on ne s'arrête pas
+      this.replayPlan = { cut: (this.liveSteps || 0) + Math.round(afterS * 96), wait, frames: null, kind };
+    };
     if (ev.type === 'foul') {
-      this.slowmo = { t: 1.5, k: 0.3 };
+      replayAfter(0.6, 1.2, 'foul');
       this.banner = { text: `FAUTE · ${nm(ev.pid)}`, color: '#e63946', t: 0, dur: 2, small: true };
       r.focus = { x: ev.x, y: ev.y, t: 3 }; r.whistle = 0.8; r.pointLater = 1.0; // puis il indique le sens du coup franc
     }
@@ -771,10 +781,9 @@ export class MatchView {
       r.card = 1.6;
       const p = this.players.get(ev.pid); if (p) r.focus = { x: p.x, y: p.y, t: 2.5 };
     }
-    if (ev.type === 'offside') { this.slowmo = { t: 0.9, k: 0.4 }; this.banner = { text: `HORS-JEU · ${nm(ev.pid)}`, color: '#3a86ff', t: 0, dur: 1.8, small: true }; }
+    if (ev.type === 'offside') { replayAfter(0.5, 1.0, 'offside'); this.banner = { text: `HORS-JEU · ${nm(ev.pid)}`, color: '#3a86ff', t: 0, dur: 1.8, small: true }; }
     if (ev.type === 'penalty') { r.focus = { x: ev.x, y: ev.y, t: 2.5 }; r.point = 1.4; }
-    if (ev.type === 'shot' && (ev.xg >= 0.15 || ev.outcome === 'post' || ev.outcome === 'goal')) this.slowmo = { t: 1.1, k: 0.4 };
-    if (ev.type === 'tackle' && Math.random() < 0.35) this.slowmo = { t: 0.7, k: 0.45 };
+    if (ev.type === 'shot' && ev.outcome !== 'goal' && (ev.xg >= 0.25 || ev.outcome === 'post')) replayAfter(1.4, 0.8, 'chance');
   }
 
   /** Arbitre : suit le jeu en diagonale, court vers le lieu d'une faute, siffle, montre les cartons. */

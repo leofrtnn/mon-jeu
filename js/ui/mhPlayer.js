@@ -119,7 +119,9 @@ export function buildMHPlayer(mh, p3, opts) {
   const M = opts.mats;
   const parts = [
     ['body', skinMat(mh, eth, opts.skin)],
-    ['shirt', M.shirt], [opts.gk ? 'sleeveLong' : 'sleeve', M.sleeve || M.shirt], ['shorts', M.shorts], ['socks', M.socks], ['boots', M.boot],
+    ['shirt', M.shirt], [opts.gk || opts.longSleeve ? 'sleeveLong' : 'sleeve', M.sleeve || M.shirt],
+    // Entraîneur / staff : pantalon long à la place du short et des chaussettes.
+    ...(opts.trousers && mh.meta.parts.trousers ? [['trousers', M.shorts]] : [['shorts', M.shorts], ['socks', M.socks]]), ['boots', M.boot],
     ['eyes', (() => { const m = new THREE.MeshStandardMaterial({ map: mh.getTex(`eye_${opts.eyeTex || 'brown'}.jpg`), roughness: 0.25 }); return m; })()],
     ['brows', hairMat(mh, 'brows', opts.hair)],
   ];
