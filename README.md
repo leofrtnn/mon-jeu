@@ -278,3 +278,8 @@ tests/                      tests Node + test d'interface Playwright
 
 Le jeu est publié sur **https://coachdepoche.eu** (GitHub Pages, domaine personnalisé déclaré dans le fichier `CNAME`).
 L'ancienne adresse `leofrtnn.github.io/mon-jeu` redirige automatiquement vers le nouveau domaine.
+
+## Crédits graphiques
+
+- Joueurs vus de près : corps, peaux, cheveux, yeux et sourcils issus des données de
+  [MakeHuman](http://www.makehuman.org) (ressources CC0), adaptés par `scripts/mhbake/`.

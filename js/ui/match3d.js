@@ -11,12 +11,13 @@ import * as THREE from '../vendor/three.module.min.js';
 export { THREE as THREE_NS };
 import { toLocal, localRect } from './viewport.js';
 import { personLook, portraitSvg } from './avatar.js';
+import { loadMH, buildMHPlayer } from './mhPlayer.js';
 
 const L = 105, W = 68;
 // Échelle RÉELLE face aux cages (7,32 × 2,44 m) : joueurs à leur taille, ballon de 22 cm.
 // Sur téléphone, très léger grossissement pour rester lisible sur un petit écran.
 const COARSE = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
-const K = COARSE ? 1.08 : 1;
+const K = COARSE ? 1.14 : 1.07; // (léger grossissement de lisibilité, comme dans les jeux de foot télévisés)
 const BALL_R = 0.11 * (COARSE ? 1.45 : 1.15);
 
 function canvasTex(w, h, draw) {
@@ -274,6 +275,12 @@ function drawnFace(look) {
 
 /* ---------------- Joueur 3D ---------------- */
 
+/**
+ * Proportions du squelette (mètres, joueur de 1,80 m) : celles du corps humain réaliste
+ * (data/mh, MakeHuman) — hanche à 0,96 m, genou à 0,52 m, cheville à 7 cm, épaules à 1,44 m.
+ * Le modèle simplifié (joueurs éloignés) et le modèle réaliste partagent ces os.
+ */
+const RIG = { hip: [-0.005, 0.959, 0.113], thigh: 0.44, shin: 0.451, sh: [0.021, 1.439, 0.194], upperArm: 0.262, kneel: 0.5 };
 const GEO = {};
 function geo() {
   if (GEO.torso) return GEO;
@@ -281,7 +288,7 @@ function geo() {
   // Profils anatomiques (tour de révolution) : rayon selon la hauteur.
   const lathe = (pts, seg = 16) => new THREE.LatheGeometry(pts.map(([r, y]) => new THREE.Vector2(r, y)), seg);
   // Maillot : bas qui flotte un peu par-dessus le short, taille, poitrine, épaules arrondies.
-  GEO.torsoA = lathe([[0.155, -0.07], [0.15, -0.03], [0.14, 0.04], [0.142, 0.1], [0.15, 0.18], [0.172, 0.3], [0.186, 0.4], [0.184, 0.46], [0.168, 0.52], [0.138, 0.57], [0.098, 0.605], [0.05, 0.625], [0.001, 0.63]], 24);
+  GEO.torsoA = lathe([[0.155, -0.07], [0.15, -0.03], [0.14, 0.04], [0.142, 0.1], [0.148, 0.18], [0.162, 0.3], [0.171, 0.4], [0.176, 0.46], [0.17, 0.52], [0.148, 0.57], [0.108, 0.605], [0.05, 0.625], [0.001, 0.63]], 24);
   // Coordonnées de texture selon la HAUTEUR (le motif et le sponsor ne sont pas déformés).
   { const pos = GEO.torsoA.attributes.position, uv = GEO.torsoA.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setY(i, (pos.getY(i) + 0.07) / 0.702); }
   // Jambe de short : tube évasé qui suit la cuisse (attaché à la hanche).
@@ -324,14 +331,30 @@ function geo() {
   GEO.fore = cap(0.043, 0.2);
   GEO.hand = new THREE.SphereGeometry(0.045, 8, 6);
   GEO.elbow = new THREE.SphereGeometry(0.047, 8, 6);
-  GEO.head = new THREE.SphereGeometry(0.118, 18, 14);
+  GEO.head = new THREE.SphereGeometry(0.118, 24, 18);
+  // Crâne → mâchoire : sous les pommettes la tête s'affine vers le menton, la nuque rentre
+  // (une vraie tête, pas une boule). Même déformation pour la coque du visage.
+  const jaw = (g, r) => {
+    const pa = g.attributes.position;
+    for (let i = 0; i < pa.count; i++) {
+      const x = pa.getX(i), y = pa.getY(i), z = pa.getZ(i);
+      const t = Math.max(0, Math.min(1, (-y / r - 0.05) / 0.95));
+      pa.setZ(i, z * (1 - 0.3 * t) * 0.95);
+      pa.setX(i, x > 0 ? x * (1 - 0.06 * t) : x * (1 - 0.5 * t));
+      if (y < -0.5 * r && x > 0) pa.setY(i, y - 0.012 * t);   // menton marqué
+    }
+    g.computeVertexNormals();
+  };
+  jaw(GEO.head, 0.118);
+  GEO.jaw = jaw;
   GEO.hair = new THREE.SphereGeometry(0.1235, 22, 14, 0, Math.PI * 2, 0, Math.PI * 0.5);
   // Ligne des cheveux : le bord avant remonte en arc sur le front, les côtés descendent
   // vers les tempes (au lieu d'une frange coupée au bol).
   { const pa = GEO.hair.attributes.position; for (let i = 0; i < pa.count; i++) { const x = pa.getX(i), y = pa.getY(i), f = Math.max(0, x / 0.1235); if (y < 0.06) pa.setY(i, y + f * f * (0.06 - y) * 0.75); } GEO.hair.computeVertexNormals(); }
   GEO.ear = new THREE.SphereGeometry(0.03, 8, 6);
   GEO.face = new THREE.CircleGeometry(0.088, 24);
-  GEO.neck = new THREE.CylinderGeometry(0.05, 0.058, 0.12, 10);
+  GEO.neck = new THREE.CylinderGeometry(0.057, 0.068, 0.13, 12);
+  GEO.jaw(GEO.faceShell, 0.1215);
   GEO.back = new THREE.PlaneGeometry(0.24, 0.28);
   GEO.front = new THREE.PlaneGeometry(0.1, 0.1);
   GEO.shadow = new THREE.CircleGeometry(0.55, 20);
@@ -484,7 +507,7 @@ export class Player3D {
     // Buste en V (poitrine, dos, taille), épaules (deltoïdes), col ; fessiers sous le short.
     const torso = limb(this.body, G.torsoA, mats.shirt, 0.92);
     torso.scale.set(0.74, 1, 1.18);
-    for (const z of [-0.2, 0.2]) { const dl = limb(this.body, G.delt, mats.sleeve || mats.shirt, 1.425); dl.position.z = z; dl.scale.set(0.78, 0.66, 0.74); }
+    for (const z of [-0.19, 0.19]) { const dl = limb(this.body, G.delt, mats.sleeve || mats.shirt, 1.43); dl.position.z = z; dl.scale.set(0.9, 0.8, 0.92); }
     const collar = limb(this.body, G.collar, mats.trim || mats.shorts, 1.535); collar.rotation.x = Math.PI / 2; collar.scale.set(1.15, 1.25, 1);
     const shorts = limb(this.body, G.shortsA, mats.shorts, 0.97); shorts.scale.set(0.74, 1, 1.22);
     limb(this.body, G.neck, skinM, 1.56);
@@ -517,20 +540,22 @@ export class Player3D {
     const back = new THREE.Mesh(G.back, new THREE.MeshLambertMaterial({ map: numTex, transparent: true }));
     back.position.set(-0.142, 1.26, 0); back.rotation.y = -Math.PI / 2;
     this.body.add(back);
+    this.numBack = back;
     const front = new THREE.Mesh(G.front, new THREE.MeshLambertMaterial({ map: numTex, transparent: true }));
     front.position.set(0.142, 1.36, 0.07); front.rotation.y = Math.PI / 2;
     this.body.add(front);
+    this.numFront = front;
     // Jambes : hanche → (short, cuisse) → genou → (chaussette) → crampon.
     this.legs = [-1, 1].map((sgn) => {
-      const hip = new THREE.Group(); hip.position.set(0, 0.8, sgn * 0.1); this.body.add(hip);
+      const hip = new THREE.Group(); hip.position.set(RIG.hip[0], RIG.hip[1], sgn * RIG.hip[2]); this.body.add(hip);
       limb(hip, G.thighA, skinM, 0).scale.set(1.1, 1, 1.05);
       // Jambe du short : elle suit la cuisse (un vrai short, pas une culotte collée au bassin).
       const sl = limb(hip, G.shortLegA, mats.shorts, 0); sl.scale.set(1, 1, 1.02);
-      const knee = new THREE.Group(); knee.position.y = -0.42; hip.add(knee);
+      const knee = new THREE.Group(); knee.position.y = -RIG.thigh; hip.add(knee);
       limb(knee, G.kneeA, skinM, 0);                                 // genou nu, fondu dans la cuisse
       const sock = limb(knee, G.shinA, mats.socks, -0.07); sock.scale.set(1.1, 0.84, 1.1);   // chaussette sous le genou (protège-tibia)
       limb(knee, G.sockBand, mats.trim || mats.shorts, -0.1).scale.set(1.1, 1, 1.1);
-      const ankle = new THREE.Group(); ankle.position.y = -0.41; knee.add(ankle);
+      const ankle = new THREE.Group(); ankle.position.y = -RIG.shin; knee.add(ankle);
       const boot = limb(ankle, G.boot, mats.boot, -0.02);
       boot.rotation.z = Math.PI / 2; boot.position.x = 0.055; boot.scale.set(1, 1, 0.92);
       const sole = limb(ankle, G.sole, mats.sole || mats.boot, -0.06); sole.position.x = 0.055;
@@ -538,11 +563,11 @@ export class Player3D {
     });
     // Bras : épaule → (manche, bras) → coude → avant-bras → main.
     this.arms = [-1, 1].map((sgn) => {
-      const sh = new THREE.Group(); sh.position.set(0, 1.44, sgn * 0.25); this.body.add(sh);
+      const sh = new THREE.Group(); sh.position.set(RIG.sh[0], RIG.sh[1], sgn * RIG.sh[2]); this.body.add(sh);
       limb(sh, G.sleeveA, mats.sleeve || mats.shirt, 0);
       const cuff = limb(sh, G.cuff, mats.trim || mats.shorts, -0.158); cuff.rotation.x = Math.PI / 2; cuff.scale.set(1.13, 1.13, 1);
       limb(sh, G.upperA, skinM, -0.01);
-      const el = new THREE.Group(); el.position.y = -0.27; sh.add(el);
+      const el = new THREE.Group(); el.position.y = -RIG.upperArm; sh.add(el);
       limb(el, G.foreA, skinM, 0);
       // Gardien : maillot à manches longues.
       if (opts.gk) limb(el, G.foreA, mats.sleeve || mats.shirt, 0.01).scale.set(1.22, 0.92, 1.22);
@@ -566,6 +591,7 @@ export class Player3D {
     // Tête articulée (crâne, cheveux, oreilles, visage) : elle suit le ballon des yeux.
     this.headPivot = new THREE.Group(); this.headPivot.position.y = 1.6; this.body.add(this.headPivot);
     for (const c of this.body.children.slice()) if (c !== this.headPivot && c.position.y >= 1.64 && c.position.y < 2.2) { this.body.remove(c); c.position.y -= 1.6; this.headPivot.add(c); }
+    this.headPivot.position.y = 1.583; // cou plus court : la tête repose sur les trapèzes, pas sur une tige
     // Haut du corps (buste, bras, tête) : il pivote en sens inverse des hanches pendant la course.
     this.upper = new THREE.Group(); this.upper.position.y = 0.95; this.body.add(this.upper);
     for (const c of this.body.children.slice()) if (c !== this.upper && c.position.y >= 1.0) { this.body.remove(c); c.position.y -= 0.95; this.upper.add(c); }
@@ -664,7 +690,7 @@ export class Player3D {
     const body = this.body;
     this.root.updateMatrixWorld(true);
     const at = (o) => body.worldToLocal(o.getWorldPosition(new THREE.Vector3()));
-    const SEG = 14;
+    const SEG = 18;
     // Tube le long d'une chaîne d'os (verticale au repos) : rings = [{ y, r, w: [w0, w1, w2], z }] du haut vers le bas.
     const tube = (cx, cz, rings, flatX = 1, flatZ = 1.04) => {
       const pos = [], nor = [], idx = [], si = [], sw = [];
@@ -754,8 +780,38 @@ export class Player3D {
   setDetail(on) {
     if (on === this.detail) return;
     this.detail = on;
+    if (this.mhGroup) { this.showMH(on); return; }
     for (const o of this.lodMeshes) o.visible = on;
     if (this.faceMesh) this.faceMesh.visible = on;
+  }
+  /**
+   * Corps réaliste (data/mh) : de près il remplace le modèle simplifié (mêmes os, mêmes
+   * animations) ; de loin on garde le modèle simplifié, bien moins coûteux.
+   */
+  attachMH(mh, opts) {
+    if (this.mhGroup || !mh) return;
+    try { this.mhGroup = buildMHPlayer(mh, this, opts); } catch (e) { console.warn('joueur réaliste', e); return; }
+    // Numéro et nom dans le dos : posés sur le maillot réaliste.
+    const mk = mh.meta.marks, up = this.upper;
+    for (const [src, x, y, z, ry] of [[this.numBack, mk.backX, mk.backY, 0, -Math.PI / 2]]) {
+      if (!src) continue;
+      const pl = new THREE.Mesh(src.geometry, src.material);
+      pl.position.set(x, y - up.position.y, z); pl.rotation.y = ry;
+      up.add(pl); pl.userData.mh = true; this.mhGroup.userData.extra = (this.mhGroup.userData.extra || []).concat(pl);
+    }
+    this.detail = !this.detail; this.setDetail(!this.detail);
+  }
+  showMH(on) {
+    const mhSet = new Set();
+    this.mhGroup.traverse((o) => mhSet.add(o));
+    for (const o of this.mhGroup.userData.extra || []) { mhSet.add(o); o.visible = on; }
+    this.mhGroup.visible = on;
+    const lod = new Set(this.lodMeshes);
+    this.root.traverse((o) => {
+      if (!o.isMesh || mhSet.has(o) || o === this.shadow || o === this.ring || this.footShadows?.includes(o)) return;
+      o.visible = !on && !lod.has(o) && o !== this.faceMesh;
+    });
+    for (const f of this.footShadows || []) f.visible = on;
   }
   /** Gants du gardien. */
   setGloves(c) { const m = new THREE.MeshLambertMaterial({ color: c }); for (const a of this.arms) if (a.hand) a.hand.material = m; }
@@ -1083,7 +1139,7 @@ export class Player3D {
         cL.sh.rotation.set(-cL.sgn * sxL, cL.sgn * yL, szL); cL.el.rotation.set(0, 0, eL);
         cR.sh.rotation.set(-cR.sgn * sxR, cR.sgn * yR, szR); cR.el.rotation.set(0, 0, eR);
       };
-      const kneel = () => { this.body.position.y = -0.42; lL.hip.rotation.z = lR.hip.rotation.z = 0.1; lL.knee.rotation.z = lR.knee.rotation.z = -1.9; };
+      const kneel = () => { this.body.position.y = -RIG.kneel; lL.hip.rotation.z = lR.hip.rotation.z = 0.1; lL.knee.rotation.z = lR.knee.rotation.z = -1.9; };
       if (p.celebType === 'slide' && sp > 2 && p.celeb < 2.4) {   // glissade à genoux, buste en arrière
         kneel(); this.body.rotation.z = -0.35; arms(0.3, 1.5, 0.1, 0.3, 1.5, 0.1); this.headPivot.rotation.z = 0.3;
       } else if (sp > 2) for (const a of this.arms) { a.sh.rotation.x = -a.sgn * 1.45; a.sh.rotation.z = 0; a.el.rotation.z = 0.05; }
@@ -1106,7 +1162,7 @@ export class Player3D {
       } else if (p.celebType === 'badge') {         // il embrasse l'écusson
         arms(0.15, 0.2, 0.3, 0.7, 0.05, 2.2, 0, 1.3); this.headPivot.rotation.z = -0.5; this.upper.rotation.z = -0.08;
       } else if (p.celebType === 'knees') {           // à genoux, bras au ciel
-        this.body.position.y = -0.42; this.body.rotation.z = 0.25;
+        this.body.position.y = -RIG.kneel; this.body.rotation.z = 0.25;
         lL.hip.rotation.z = lR.hip.rotation.z = 0.1; lL.knee.rotation.z = lR.knee.rotation.z = -1.9;
         for (const a of this.arms) { a.sh.rotation.x = -a.sgn * 2.7; a.sh.rotation.z = 0.3; a.el.rotation.z = 0.15; }
       } else if (p.celebType === 'fist') {          // poing rageur, buste penché
@@ -1138,12 +1194,6 @@ export class Player3D {
       f.scale.set(1.6 * k, k, 1);
     }
   }
-}
-
-/** Taille estimée quand la vraie n'est pas connue (selon le poste et le physique). */
-function estHeight(p) {
-  const base = { GB: 189, DC: 187, MDC: 181, DG: 177, DD: 177, MC: 179, MO: 176, AG: 175, AD: 175, BU: 183 }[p.pos] ?? 180;
-  return base + ((p.attrs?.phy ?? 65) - 65) * 0.15 + ((p.id * 37) % 9) - 4;
 }
 
 /* ---------------- Scène ---------------- */
@@ -1426,6 +1476,12 @@ export class Match3D {
     if (this.gfx === 'ultra' && !this.mobile) this.initBloom(!!(globalThis.__cdpWx || view.m.weather)?.night);
     this.buildBall();
     this.players = new Map(); // id -> { p3, label, side }
+    // Joueurs réalistes pour les gros plans (chargés en arrière-plan ; pas en mode éco).
+    if (this.gfx !== 'eco' && !globalThis.__cdpNoMH) loadMH().then((mh) => {
+      if (!mh || this.destroyed) return;
+      this.mh = mh;
+      for (const e of this.players.values()) if (e.mhOpts) e.p3.attachMH(mh, e.mhOpts);
+    });
     this.buildCoaches();
     // Arbitre : tenue noire.
     const black = new THREE.MeshLambertMaterial({ color: '#15171c' });
@@ -1931,7 +1987,8 @@ export class Match3D {
         // Apparence réaliste : teint et cheveux selon la nationalité (stables), coiffure, crampons, gants.
         const lk = personLook(id, p.mp?.p?.nat || '', p.mp?.p?.age || 25);
         const bootC = ['#111111', '#111111', '#f2f2f2', '#d7263d', '#2d7ff9', '#e8ff3a', '#ff8c1a'][id % 7];
-        const p3 = new Player3D({ ...mats, boot: bootMat(bootC) }, lk.skin, lk.hairColor, p.num, shirtHex, ink, p.mp?.p?.photo || null, { look: lk, name: p.mp?.p?.last || p.short || '', gk: !!p.gk });
+        const boot = bootMat(bootC);
+        const p3 = new Player3D({ ...mats, boot }, lk.skin, lk.hairColor, p.num, shirtHex, ink, p.mp?.p?.photo || null, { look: lk, name: p.mp?.p?.last || p.short || '', gk: !!p.gk });
         p3.setHair(lk.hairStyle);
         if (p.gk) p3.setGloves('#c6f432');
         // Morphologie du vrai joueur : taille (grand défenseur, petit ailier) et carrure (physique).
@@ -1949,6 +2006,10 @@ export class Match3D {
         p3.root.add(label);
         this.scene.add(p3.root);
         e = { p3, label };
+        // Corps réaliste (gros plans) : mêmes os que le modèle simplifié.
+        const eyeC = new THREE.Color(lk.eyes || '#2a1a10'), eyeTex = eyeC.b > eyeC.r * 1.15 ? 'blue' : eyeC.g > eyeC.r * 1.1 ? 'green' : (eyeC.r + eyeC.g + eyeC.b) > 1.2 ? 'grey' : 'brown';
+        e.mhOpts = { skin: lk.skin, hair: lk.hairColor, hairStyle: lk.hairStyle, eyeTex, nat: p.mp?.p?.nat || '', mats: { ...mats, boot } };
+        if (this.mh) e.p3.attachMH(this.mh, e.mhOpts);
         this.players.set(id, e);
       }
     }
@@ -2008,7 +2069,7 @@ export class Match3D {
       if (want2 !== this._dirMode && nowT - (this._dirAt || 0) > (want2 === 'goal' ? 600 : 2600)) { this._dirMode = want2; this._dirAt = nowT; }
       mode = this._dirMode || 'tv';
     }
-    if (mode === 'tv') { want.set(Math.max(-36, Math.min(36, bx * 0.9)), 25, 53); look.set(bx * 0.97, 0, bz * 0.35 - 3); this.camera.fov = 29; }
+    if (mode === 'tv') { want.set(Math.max(-40, Math.min(40, bx * 0.93)), 24, 52); look.set(bx, 0, bz * 0.38 - 4); this.camera.fov = 24.5; }   // plan serré façon FM : joueurs bien lisibles
     else if (mode === 'pitchside') { want.set(Math.max(-48, Math.min(48, bx * 0.85)), 1.7, W / 2 + 3.2); look.set(bx, 1.1, bz); this.camera.fov = 42; }     // caméra à hauteur d'homme, au bord de la ligne
     else if (mode === 'tribune') { want.set(Math.max(-30, Math.min(30, bx * 0.6)), 34, 74); look.set(bx * 0.8, 0, bz * 0.25); this.camera.fov = 34; }  // tout en haut de la tribune principale
     else if (mode === 'player') {
@@ -2279,7 +2340,8 @@ export class Match3D {
     const flip = this.flip();
     const carrier = v.holder ?? (v.cur ? v.cur.carrier : null);
     const camP = this.camera.position;
-    const lodD2 = (this.gfx === 'ultra' ? 40 : 30) ** 2;
+    // Ultra : corps réalistes jusqu'à 85 m (toute la vue télé) ; Haute : 34 m (gros plans).
+    const lodD2 = (this.gfx === 'ultra' ? (this.mh ? 85 : 40) : this.mh ? 34 : 30) ** 2;
     for (const [id, e] of this.players) {
       const p = v.players.get(id);
       const [x, z] = this.toWorld(p.x, p.y, flip);
