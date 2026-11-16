@@ -11,7 +11,7 @@ import * as THREE from '../vendor/three.module.min.js';
 export { THREE as THREE_NS };
 import { toLocal, localRect } from './viewport.js';
 import { personLook, portraitSvg } from './avatar.js';
-import { loadMH, buildMHPlayer } from './mhPlayer.js';
+import { loadMH, buildMHPlayer, addMHPart, setMHSkin } from './mhPlayer.js';
 
 const L = 105, W = 68;
 // Échelle RÉELLE face aux cages (7,32 × 2,44 m) : joueurs à leur taille, ballon de 22 cm.
@@ -497,6 +497,7 @@ function keyPose(seq, t) {
 export class Player3D {
   constructor(mats, skin, hair, num, shirtHex, inkHex, photo = null, opts = {}) {
     const G = geo();
+    this.photo = photo;
     this.root = new THREE.Group();
     this.body = new THREE.Group();          // inclinaisons (tacle, plongeon)
     this.root.add(this.body);
@@ -799,6 +800,13 @@ export class Player3D {
       pl.position.set(x, y - up.position.y, z); pl.rotation.y = ry;
       up.add(pl); pl.userData.mh = true; this.mhGroup.userData.extra = (this.mhGroup.userData.extra || []).concat(pl);
     }
+    // Photo du joueur : posée sur son visage réaliste (décalque aux bords fondus), teint accordé.
+    if (this.photo) loadFace(this.photo).then((f) => {
+      if (!f || !this.mhGroup) return;
+      setMHSkin(mh, this, f.skin);
+      const d = addMHPart(mh, this, 'faceDecal', new THREE.MeshStandardMaterial({ map: f.tex, transparent: true, depthWrite: false, roughness: 0.6, polygonOffset: true, polygonOffsetFactor: -2 }));
+      if (d) d.visible = this.mhGroup.visible;
+    }).catch((e) => console.warn('photo 3D', e));
     this.detail = !this.detail; this.setDetail(!this.detail);
   }
   showMH(on) {

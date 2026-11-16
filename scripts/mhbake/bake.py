@@ -332,6 +332,22 @@ def sleeve_long_uv(P, vs, uvi):
 SL_ALL = shirt | longSleeve
 PARTS.append(('sleeveLong', build_part('sleeveLong', SL_ALL, lambda v: 0.012, sleeve_long_uv, faces=[f for f in BODY_F if all(SL_ALL[v] for v in f[0]) and any(armW[v] >= 0.5 for v in f[0])])))
 PARTS.append(('gloves', build_part('gloves', gloves, lambda v: 0.007, lambda P, vs, uvi: np.zeros((len(P), 2)))))
+# Décalque du visage (photo du joueur) : faces de l'avant du visage, projection plane calée
+# sur les yeux et la bouche (photo recadrée 128 × 128 : yeux vers 38 % du haut, bouche vers 75 %).
+EYE = (to_game(group_center(X0, 'joint-l-eye')[None])[0] + to_game(group_center(X0, 'joint-r-eye')[None])[0]) / 2
+MOUTH = to_game(group_center(X0, 'joint-mouth')[None])[0]
+EYE_V, MOUTH_V = 0.62, 0.25
+VS_ = (EYE_V - MOUTH_V) / 0.068          # yeux → lèvres : ≈ 6,8 cm sur un visage d'adulte
+faceR = isBody & (headW > 0.9) & (G0[:, 0] > JR['neck'][0] + 0.02) & (ys > MOUTH[1] - 0.075) & (ys < EYE[1] + 0.085) & (np.abs(G0[:, 2]) < 0.078)
+
+
+def face_uv(P, vs, uvi):
+    v = EYE_V + (P[:, 1] - EYE[1]) * VS_
+    u = 0.5 - P[:, 2] * VS_          # la droite du joueur (+z) est à gauche sur une photo de face
+    return np.stack([u, v], 1)
+
+
+PARTS.append(('faceDecal', build_part('faceDecal', faceR, lambda v: 0.0015, face_uv)))
 PARTS.append(('shorts', build_part('shorts', shorts, lambda v: 0.016 + 0.02 * np.clip((WAIST - G0[v, 1]) / (WAIST - SHORT_END), 0, 1), lambda P, vs, uvi: cyl_uv(P, ctr, SHORT_END, WAIST))))
 PARTS.append(('socks', build_part('socks', socks, lambda v: 0.0055, lambda P, vs, uvi: cyl_uv(P, P.mean(0), BOOT_TOP, SOCK_TOP))))
 PARTS.append(('boots', build_part('boots', boots, lambda v: 0.008, lambda P, vs, uvi: np.zeros((len(P), 2)))))

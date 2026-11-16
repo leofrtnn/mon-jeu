@@ -121,6 +121,7 @@ export function buildMHPlayer(mh, p3, opts) {
   const hp = HAIR_OF[opts.hairStyle] ?? 'hair_short';
   if (hp) parts.push([hp, hairMat(mh, hp, opts.hair)]);
   const group = new THREE.Group();
+  group.userData.skeleton = skeleton; group.userData.eth = eth;
   p3.body.add(group);   // géométrie exprimée dans le repère du corps (taille et carrure du joueur incluses)
   group.updateMatrixWorld(true);
   for (const [name, mat] of parts) {
@@ -137,4 +138,34 @@ export function buildMHPlayer(mh, p3, opts) {
   p3.root.position.copy(rootSaved[0]); p3.root.quaternion.copy(rootSaved[1]);
   p3.root.updateMatrixWorld(true);
   return group;
+}
+
+/**
+ * Ajoute une pièce à un joueur réaliste déjà construit (ex. le décalque de la photo du visage).
+ * La liaison se fait dans la pose de repos (comme à la construction).
+ */
+export function addMHPart(mh, p3, name, mat) {
+  const group = p3.mhGroup, g = geometry(mh, name, group.userData.eth);
+  if (!g) return null;
+  const skel = group.userData.skeleton, bones = skel.bones;
+  const saved = bones.map((b) => [b.quaternion.clone(), b.position.clone()]);
+  const rootSaved = [p3.root.position.clone(), p3.root.quaternion.clone()];
+  const bodyPos = p3.body.position.clone();
+  for (const b of bones) b.quaternion.identity();
+  p3.body.position.set(0, 0, 0); p3.root.position.set(0, 0, 0); p3.root.quaternion.identity();
+  p3.root.updateMatrixWorld(true);
+  const m = new THREE.SkinnedMesh(g, mat);
+  group.add(m); m.updateMatrixWorld(true);
+  m.bind(skel, m.matrixWorld.clone());   // os inchangés : mêmes matrices inverses que les autres pièces
+  m.frustumCulled = false; m.renderOrder = 2;
+  bones.forEach((b, i) => { b.quaternion.copy(saved[i][0]); b.position.copy(saved[i][1]); });
+  p3.body.position.copy(bodyPos); p3.root.position.copy(rootSaved[0]); p3.root.quaternion.copy(rootSaved[1]);
+  p3.root.updateMatrixWorld(true);
+  return m;
+}
+
+/** Peau d'un joueur réaliste ajustée à un teint (celui de sa photo). */
+export function setMHSkin(mh, p3, skinHex) {
+  const m = p3.mhGroup?.children.find((o) => o.userData.mhPart === 'body');
+  if (m) m.material = skinMat(mh, p3.mhGroup.userData.eth, skinHex);
 }
