@@ -160,6 +160,30 @@ for f in ('10_01', '10_02', '11_01'):
     except SystemExit as e: print(e)
 res['kicks'] = kicks
 
+
+def jump_clip(f):
+    """Saut (jeu de tête) : fenêtre de 0,7 s centrée sur le sommet ; hauteur du bassin au-dessus de la station debout."""
+    global RAW
+    RAW = True
+    keys, A, ft, P, idx, leg_len = clip_angles(os.path.join(D, f + '.bvh'))
+    RAW = False
+    y = P[:, idx['Hips'], 1]
+    c = int(np.argmax(y))
+    T = 0.7
+    t = np.linspace(c - 0.5 * T / ft, c + 0.5 * T / ft, 30)
+    if t[0] < 0 or t[-1] > len(A) - 1: raise SystemExit(f'{f} : fenêtre hors du clip')
+    C = np.array([np.interp(t, np.arange(len(A)), A[:, k]) for k in range(len(keys))]).T
+    C[:, keys.index('bob')] = (np.interp(t, np.arange(len(y)), y) - np.median(y)) / leg_len * 0.88
+    print('saut', f, 'hauteur du bassin max %.2f m' % C[:, keys.index('bob')].max())
+    return C
+
+
+jumps = []
+for f in ('16_03', '02_04'):
+    try: jumps.append(np.round(jump_clip(f), 3).tolist())
+    except SystemExit as e: print(e)
+res['jumps'] = jumps
+
 with open(OUT, 'w') as fo:
     fo.write('/**\n * Cycles de foulée issus de captures de mouvement réelles (base CMU, Carnegie Mellon University,\n'
              ' * libre d\'usage y compris commercial ; conversion BVH de B. Hahne). Générés par\n'

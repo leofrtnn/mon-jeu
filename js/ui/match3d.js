@@ -312,6 +312,14 @@ function gaitAt(sp, ph) {
 }
 /** Frappe issue de capture (base CMU) à l'instant t (0 → 1, contact à 0,55) ; null si absente. */
 const KICKS = GAITS.kicks || [];
+const JUMPS = GAITS.jumps || [];
+const _sA = new Float32Array(GAIT_KEYS.length);
+/** Échantillon d'une séquence capturée (t de 0 à 1). */
+function sampleSeq(c, t) {
+  const x = Math.max(0, Math.min(1, t)) * (c.length - 1), i0 = Math.floor(x), i1 = Math.min(c.length - 1, i0 + 1), f = x - i0;
+  for (let k = 0; k < _sA.length; k++) _sA[k] = c[i0][k] + (c[i1][k] - c[i0][k]) * f;
+  return _sA;
+}
 const _kA = new Float32Array(GAIT_KEYS.length);
 function kickAt(i, t) {
   const c = KICKS[i % Math.max(1, KICKS.length)];
@@ -1201,7 +1209,20 @@ export class Player3D {
     // Ballon sur lui : il se couche / bloque, mains en avant.
     if (p.block > 0) { for (const a of this.arms) { a.sh.rotation.z = 1.3; a.el.rotation.z = 0.3; } lL.knee.rotation.z = lR.knee.rotation.z = -0.5; }
     // Saut (tête) : impulsion, bras qui montent, coup de tête.
-    if (p.jump > 0) {
+    const JD = p.jump > 0 && JUMPS.length ? sampleSeq(JUMPS[(p.id ?? 0) % JUMPS.length], 1 - p.jump / 0.45) : null;
+    if (JD) {
+      // Saut réel (capture de mouvement) : impulsion bras, détente, réception.
+      const g = (k) => JD[GI[k]];
+      lL.hip.rotation.set(g('hxL'), 0, g('hzL')); lR.hip.rotation.set(-g('hxR'), 0, g('hzR'));
+      lL.knee.rotation.z = g('kzL'); lR.knee.rotation.z = g('kzR');
+      lL.ankle.rotation.set(0, 0, g('azL')); lR.ankle.rotation.set(0, 0, g('azR'));
+      // Bras du joueur de tête : levés vers l'avant pour l'équilibre (et protéger l'espace).
+      const kA = Math.sin(Math.max(0, Math.min(1, 1 - p.jump / 0.45)) * Math.PI);
+      for (const a of this.arms) { a.sh.rotation.set(-a.sgn * 0.45 * kA, 0, 1.25 * kA); a.el.rotation.z = 0.5 + 0.5 * kA; }
+      this.upper.rotation.set(0, g('twist') * 0.5, 0);
+      this.body.rotation.z = -g('lean') * 0.8;
+      this.body.position.y = Math.max(0, g('bob')) * K * 1.15;
+    } else if (p.jump > 0) {
       const t = 1 - p.jump / 0.45;
       this.body.position.y += Math.sin(t * Math.PI) * 0.75;
       for (const a of this.arms) { a.sh.rotation.z = 1.4 * Math.sin(t * Math.PI); a.el.rotation.z = 0.9; }
