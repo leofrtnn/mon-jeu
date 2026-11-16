@@ -57,7 +57,7 @@ const TUNE = {   // calibré en TEMPS RÉEL (horloge 1) : ~2,8 buts, ~28 tirs, ~
   lossW: 6,         // coût de la perte de balle dans le choix des passes
   tackleRate: 0.65,    // fréquence des tentatives de tacle
   foulP: 0.088,        // part des tentatives de tacle qui finissent en faute
-  xg: 0.62,          // échelle du modèle d'xG géométrique
+  xg: 0.7,          // échelle du modèle d'xG géométrique
   takeonW: 0.3,       // attrait du crochet / débordement
   hold: 1.6,            // temps de réflexion avant de jouer le ballon (×)
   recv: 3.2,            // temps de contrôle à la réception (×)
@@ -868,6 +868,9 @@ export class LiveSim {
       const waited = h.waitN || 0;                               // on ne temporise pas indéfiniment
       opts.push({ k: 'hold', u: (TUNE.holdU + 0.02 * room) * (1 + waited * 0.6) - (press < 1.4 ? 0.1 : 0) - waited * 0.03 });
     }
+    // Une-deux : le partenaire qui vient de donner et repart dans le dos est servi en remise
+    // dès que la passe est sûre (c'est tout l'intérêt du mouvement).
+    for (const o of opts) if (o.k === 'pass' && o.r.goRun && this.now < o.r.goRun.until && !o.offside && o.p > 0.55) o.u += 0.035;
     // Sous pression prolongée, la passe la plus sûre redevient acceptable (on joue simple).
     if (contact && (h.waitN || 0) >= 1) for (const o of opts) if (o.k === 'pass' && !o.lofted) o.u += 0.03 * Math.min(3, h.waitN);
     if (!opts.length) { h.next = this.now + 0.3; return; }
@@ -966,7 +969,9 @@ export class LiveSim {
     const lead = (r.speed || 0) > 2 ? Math.min(1.2, d0 / 16) * 0.9 : 0.2;
     let tx = this.X(r) + (r.vx || 0) * lead, ty = this.Y(r) + (r.vy || 0) * lead;
     let through = false;
-    if (r.role === 'run') { tx += dir * 6; through = true; }
+    // Appel en profondeur : ballon devant lui. Une-deux : remise courte, au sol, dans sa course.
+    if (r.goRun && this.now < r.goRun.until) { tx = this.X(r) + (r.vx || 0) * 0.7; ty = this.Y(r) + (r.vy || 0) * 0.7; }
+    else if (r.role === 'run') { tx += dir * 6; through = true; }
     tx = clamp(tx, 1.5, L - 1.5); ty = clamp(ty, 1.5, W - 1.5);
     const len = Math.hypot(tx - sx, ty - sy);
     if (len < 4 || len > 60) return null;
@@ -1538,8 +1543,11 @@ export class LiveSim {
       const lead = Math.min(0.6, Math.hypot(P.vx, P.vy) / 25);
       if (this.now > pd.t0 + pd.T * 0.6) { r.tx = clamp((P.x + P.vx * lead) / L, 0, 1); r.ty = clamp((P.y + P.vy * lead) / W, 0, 1); }
       for (const q of this.players.values()) q.faceBall = q === r && this.dist(r, P.x, P.y) < 9;
+      // Sortie aérienne du gardien : il s'élance, bras tendus au-dessus de la tête, et capte haut.
+      if (r.gk && pd.aerial && !r._claimJ && this.now > pd.t0 + pd.T - 0.42) { r._claimJ = true; r.jump = 0.45; r.claimHigh = 0.8; }
       const f = this.foot(r, 0.4);
       const d = Math.hypot(f.x - P.x, f.y - P.y);
+      if (r.gk && pd.aerial && d < 1.6 && P.z < 3.1 && this.inOwnBox(r)) { r._claimJ = false; this.gkCatch(r, out); return; }
       const reach = Math.hypot(P.vx, P.vy) < 9 ? 1.9 : 1.35; // ballon lent : il va le chercher d'un pas
       if (d < reach && P.z < 1.3) { this.receive(r, pd, out); return; }
       if (d < 1.4 && P.z < 2.8 && pd.aerial) { this.header(r, pd, out); return; }
@@ -2154,7 +2162,7 @@ export class LiveSim {
       if (p.mp && !p.celeb) { const v = p.speed || 0; p.mp.work = (p.mp.work || 0) + v * dt * (0.6 + (v / 6.5) ** 2 * 1.6); }
       const gd = dt / GS;
       if (p.diveDelay != null) { p.diveDelay -= dt; if (p.diveDelay <= 0) { p.diveDelay = null; p.dive = 0.75; } }
-      for (const k of ['kick', 'slide', 'dive', 'jump', 'celeb', 'touch', 'fall', 'block', 'throwIn', 'ctrl', 'place', 'signal', 'bump', 'hurt', 'appeal', 'headHands', 'kickOut', 'skillT']) if (p[k] > 0) p[k] = Math.max(0, p[k] - gd);
+      for (const k of ['kick', 'slide', 'dive', 'jump', 'celeb', 'touch', 'fall', 'block', 'throwIn', 'ctrl', 'place', 'signal', 'bump', 'hurt', 'appeal', 'headHands', 'kickOut', 'skillT', 'claimHigh']) if (p[k] > 0) p[k] = Math.max(0, p[k] - gd);
     }
     // Contacts : on ne se traverse pas.
     const arr = [...this.players.values()];

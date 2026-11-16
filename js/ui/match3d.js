@@ -509,8 +509,10 @@ const KEYS = {
     { t: 0.12, bz: 0.4, by: 0, hL: 0.2, hR: 0.75, kL: -1.7, kR: -0.3, aZ: -0.2, aX: 0.35, e: 0.4, uz: -0.2 },
     { t: 0.26, bz: 0.95, by: 0, hL: 0.15, hR: 0.62, kL: -2.45, kR: -0.04, aZ: -0.95, aX: 0.4, e: 0.2, uz: -0.45 },
     { t: 0.55, bz: 0.98, by: 0, hL: 0.12, hR: 0.6, kL: -2.5, kR: -0.04, aZ: -1.0, aX: 0.4, e: 0.2, uz: -0.5 },
-    { t: 0.7, bz: 0.55, by: 0, hL: 1.4, hR: 0.5, kL: -2.2, kR: -0.9, aZ: -0.2, aX: 0.3, e: 0.5, uz: -0.55 },
-    { t: 0.86, bz: -0.1, by: 0, hL: 1.25, hR: 0.15, kL: -1.6, kR: -1.2, aZ: 0.5, aX: 0.1, e: 0.8, uz: -0.25 },
+    // Relevé : il se tourne sur un genou (main au sol), puis pousse sur ses jambes.
+    { t: 0.68, bz: 0.25, by: -0.42, hL: 0.25, hR: 1.45, kL: -2.4, kR: -1.7, aZ: -0.5, aX: 0.45, e: 0.3, uz: -0.35 },
+    { t: 0.8, bz: -0.12, by: -0.3, hL: 0.35, hR: 1.35, kL: -2.2, kR: -1.5, aZ: 0.2, aX: 0.3, e: 0.6, uz: -0.3 },
+    { t: 0.9, bz: -0.18, by: -0.1, hL: 0.7, hR: 0.6, kL: -1.2, kR: -1.0, aZ: 0.35, aX: 0.15, e: 0.7, uz: -0.2 },
     { t: 1, bz: 0, by: 0, hL: 0, hR: 0, kL: -0.15, kR: -0.15, aZ: 0.2, aX: 0, e: 0.5, uz: 0 },
   ],
   // Tacle debout : appui fléchi, jambe tendue qui va chercher le ballon, buste au-dessus.
@@ -1246,7 +1248,8 @@ export class Player3D {
       // Joueur de tête : bras écartés et levés, coudes pliés (équilibre, protéger son espace),
       // tête qui part en arrière à l'impulsion puis vient frapper le ballon au sommet du saut.
       const tj = Math.max(0, Math.min(1, 1 - p.jump / 0.45)), kA = Math.sin(tj * Math.PI);
-      for (const a of this.arms) { a.sh.rotation.set(-a.sgn * 1.15 * kA, 0, 0.45 * kA); a.el.rotation.z = 0.4 + 1.0 * kA; }
+      if (p.gk || p.claimHigh > 0) for (const a of this.arms) { a.sh.rotation.set(-a.sgn * 0.25 * kA, 0, 2.85 * kA); a.el.rotation.z = 0.25; }   // gardien : bras tendus pour capter haut
+      else for (const a of this.arms) { a.sh.rotation.set(-a.sgn * 1.15 * kA, 0, 0.45 * kA); a.el.rotation.z = 0.4 + 1.0 * kA; }
       this.headPivot.rotation.z = tj < 0.45 ? 0.35 * Math.sin((tj / 0.45) * Math.PI / 2) : 0.35 - 0.8 * Math.sin(Math.min(1, (tj - 0.45) / 0.2) * Math.PI / 2) * (tj < 0.8 ? 1 : 1 - (tj - 0.8) / 0.2);
       this.upper.rotation.set(0, g('twist') * 0.5, 0);
       this.body.rotation.z = -g('lean') * 0.8;
