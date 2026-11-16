@@ -70,8 +70,10 @@ export class Broadcast {
   /** Scorebug : sigles, couleurs, score, chrono. */
   bug(score = this.score, clock = this.clock) {
     this.score = score; this.clock = clock;
-    const { hc, ac, colors } = this.ctx;
-    this.$('bc-bug').innerHTML = `<span class="t" style="--tc:${colors[0]}">${esc(hc.short)}</span><b>${score[0]}<i>-</i>${score[1]}</b><span class="t" style="--tc:${colors[1]}">${esc(ac.short)}</span><em>${esc(clock)}</em>`;
+    const { hc, ac, colors, m } = this.ctx;
+    // Cartons rouges à côté du sigle (comme à la télé).
+    const reds = (sd) => { const t = m?.teams?.[sd]; const n = t ? [...t.onPitch, ...t.out].filter((mp) => mp && mp.red).length : 0; return n ? `<i class="rc">${'▮'.repeat(Math.min(3, n))}</i>` : ''; };
+    this.$('bc-bug').innerHTML = `<span class="t" style="--tc:${colors[0]}">${esc(hc.short)}${reds(0)}</span><b>${score[0]}<i>-</i>${score[1]}</b><span class="t" style="--tc:${colors[1]}">${reds(1)}${esc(ac.short)}</span><em>${esc(clock)}</em>`;
   }
 
   pop(el) { el.classList.remove('show'); void el.offsetWidth; el.classList.add('show'); }

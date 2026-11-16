@@ -353,6 +353,7 @@ export function openMatch(app, opts = {}) {
     ffUpdate();
     if (view.inHL) ctrl.ffHidden = false;
     if (!duel && ctrl.pendingSubs.length && stoppageNow() && !view.paused) applyPendingSubs();
+    $('bcast')?.classList.toggle('replaying', !!view.replaying); // pastille « RALENTI » pendant les ralentis
     if (duel) duelTick();
     // Chants réguliers des tribunes (toutes les 35-70 s réelles), plus fréquents quand on gagne à domicile.
     if (audio.on && m.phase === 'live' && !view.paused && (ctrl.chantT = (ctrl.chantT || 0) + 0.2) > (ctrl.chantNext ||= 35 + Math.random() * 35)) { ctrl.chantT = 0; ctrl.chantNext = (m.score[0] > m.score[1] ? 25 : 40) + Math.random() * 30; audio.chant(8 + Math.floor(Math.random() * 8)); }

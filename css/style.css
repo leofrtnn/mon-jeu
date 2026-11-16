@@ -1439,3 +1439,5 @@ ul.notes { margin: 4px 0 0; padding-left: 18px; font-size: 13px; line-height: 1.
 .chat-msg { align-self: flex-start; max-width: 82%; background: rgba(255,255,255,.06); border-radius: 12px 12px 12px 4px; padding: 6px 10px; }
 .chat-msg.me { align-self: flex-end; background: rgba(124,58,237,.35); border-radius: 12px 12px 4px 12px; }
 .chat-msg small { color: var(--muted); font-size: 11px; }
+.bc-bug .rc { font-style: normal; color: #e5302f; font-size: 11px; margin: 0 4px; letter-spacing: 1px; }
+.bcast.replaying::after { content: '↺ RALENTI'; position: absolute; top: 12px; right: 14px; padding: 5px 12px; border-radius: 6px; background: rgba(229, 48, 47, .92); color: #fff; font: 800 13px "Barlow Condensed", system-ui, sans-serif; letter-spacing: .12em; box-shadow: 0 4px 12px rgba(0,0,0,.4); animation: tutoIn .3s ease; }

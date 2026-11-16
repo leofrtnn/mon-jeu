@@ -198,6 +198,11 @@ function drawnFace(look) {
         g.save(); g.beginPath(); g.ellipse(64, 64, 62, 63, 0, 0, Math.PI * 2); g.clip();
         g.drawImage(img, 30 * 2, 26 * 2, 40 * 2, 46 * 2, 0, 0, 128, 128);
         g.restore();
+        // Bords fondus : le visage se fond dans le crâne (coque enroulée autour de la tête).
+        g.globalCompositeOperation = 'destination-in';
+        const grd = g.createRadialGradient(64, 62, 40, 64, 64, 64);
+        grd.addColorStop(0, 'rgba(0,0,0,1)'); grd.addColorStop(1, 'rgba(0,0,0,0)');
+        g.fillStyle = grd; g.fillRect(0, 0, 128, 128);
         const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
         resolve(t);
       };
@@ -217,12 +222,31 @@ function geo() {
   const cap = (r, l, rs = 10) => new THREE.CapsuleGeometry(r, l, 4, rs);
   // Profils anatomiques (tour de révolution) : rayon selon la hauteur.
   const lathe = (pts, seg = 16) => new THREE.LatheGeometry(pts.map(([r, y]) => new THREE.Vector2(r, y)), seg);
-  GEO.torsoA = lathe([[0.001, 0], [0.135, 0.005], [0.14, 0.08], [0.15, 0.18], [0.172, 0.3], [0.188, 0.42], [0.19, 0.5], [0.165, 0.57], [0.11, 0.615], [0.05, 0.63], [0.001, 0.632]], 20);
-  GEO.thighA = lathe([[0.001, 0], [0.084, -0.01], [0.09, -0.08], [0.083, -0.2], [0.07, -0.33], [0.06, -0.42], [0.001, -0.43]]);
+  // Maillot : bas qui flotte un peu par-dessus le short, taille, poitrine, épaules arrondies.
+  GEO.torsoA = lathe([[0.155, -0.07], [0.15, -0.03], [0.14, 0.04], [0.142, 0.1], [0.15, 0.18], [0.172, 0.3], [0.188, 0.42], [0.19, 0.5], [0.165, 0.57], [0.11, 0.615], [0.05, 0.63], [0.001, 0.632]], 24);
+  // Coordonnées de texture selon la HAUTEUR (le motif et le sponsor ne sont pas déformés).
+  { const pos = GEO.torsoA.attributes.position, uv = GEO.torsoA.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setY(i, (pos.getY(i) + 0.07) / 0.702); }
+  // Jambe de short : tube évasé qui suit la cuisse (attaché à la hanche).
+  // (tubes ouverts : points du bas vers le haut, pour que l'extérieur soit la face visible)
+  GEO.shortLegA = lathe([[0.113, -0.222], [0.118, -0.215], [0.116, -0.17], [0.112, -0.08], [0.108, 0.0], [0.104, 0.05], [0.001, 0.06]], 16);
+  // Manche courte : large à l'épaule, ourlet à mi-bras.
+  GEO.sleeveA = lathe([[0.064, -0.165], [0.068, -0.16], [0.07, -0.12], [0.074, -0.04], [0.072, 0.02], [0.05, 0.055], [0.001, 0.06]], 14);
+  // Visage : coque qui épouse l'avant du crâne (la photo ou le visage dessiné s'y enroule).
+  GEO.faceShell = new THREE.SphereGeometry(0.1215, 28, 18, Math.PI - 1.05, 2.1, 0.5, 1.62);
+  // Coiffures : arrière long, chignon, crête, tresses.
+  GEO.hairBack = lathe([[0.001, -0.175], [0.09, -0.17], [0.112, -0.13], [0.118, -0.06], [0.11, 0.0]], 14);
+  GEO.bun = new THREE.SphereGeometry(0.05, 10, 8);
+  GEO.mohawk = new THREE.BoxGeometry(0.2, 0.05, 0.035);
+  GEO.dread = new THREE.CylinderGeometry(0.012, 0.009, 0.16, 5);
+  // Cuisse : elle se prolonge dans le genou (pas de jointure visible entre cuisse et tibia).
+  GEO.thighA = lathe([[0.001, 0], [0.084, -0.01], [0.09, -0.08], [0.083, -0.2], [0.07, -0.33], [0.061, -0.41], [0.057, -0.45], [0.042, -0.48], [0.001, -0.485]]);
   GEO.shinA = lathe([[0.001, 0.02], [0.056, 0.0], [0.064, -0.09], [0.066, -0.15], [0.052, -0.27], [0.038, -0.37], [0.036, -0.41], [0.001, -0.42]]);
   GEO.shortsA = lathe([[0.001, 0.02], [0.112, 0.02], [0.118, -0.08], [0.122, -0.19], [0.001, -0.19]]);
-  GEO.upperA = lathe([[0.001, 0.02], [0.054, 0.0], [0.056, -0.07], [0.047, -0.2], [0.041, -0.27], [0.001, -0.28]], 12);
-  GEO.foreA = lathe([[0.001, 0.0], [0.044, -0.01], [0.046, -0.06], [0.034, -0.2], [0.028, -0.25], [0.001, -0.26]], 12);
+  GEO.upperA = lathe([[0.001, 0.02], [0.054, 0.0], [0.056, -0.07], [0.047, -0.2], [0.042, -0.27], [0.036, -0.3], [0.001, -0.31]], 12);
+  // Avant-bras : il commence dans le prolongement du bras (coude sans « boule »).
+  GEO.foreA = lathe([[0.001, 0.035], [0.03, 0.03], [0.04, -0.01], [0.045, -0.06], [0.034, -0.2], [0.028, -0.25], [0.001, -0.26]], 12);
+  // Genou (peau) : de la cuisse jusqu'au haut de la chaussette.
+  GEO.kneeA = lathe([[0.001, 0.04], [0.05, 0.035], [0.06, 0.0], [0.058, -0.05], [0.05, -0.075], [0.001, -0.08]], 14);
   GEO.delt = new THREE.SphereGeometry(0.068, 12, 10);
   GEO.glute = new THREE.SphereGeometry(0.11, 12, 10);
   GEO.collar = new THREE.TorusGeometry(0.06, 0.013, 6, 18);
@@ -243,7 +267,10 @@ function geo() {
   GEO.hand = new THREE.SphereGeometry(0.045, 8, 6);
   GEO.elbow = new THREE.SphereGeometry(0.047, 8, 6);
   GEO.head = new THREE.SphereGeometry(0.118, 18, 14);
-  GEO.hair = new THREE.SphereGeometry(0.126, 18, 14, 0, Math.PI * 2, 0, Math.PI * 0.52);
+  GEO.hair = new THREE.SphereGeometry(0.1235, 22, 14, 0, Math.PI * 2, 0, Math.PI * 0.5);
+  // Ligne des cheveux : le bord avant remonte en arc sur le front, les côtés descendent
+  // vers les tempes (au lieu d'une frange coupée au bol).
+  { const pa = GEO.hair.attributes.position; for (let i = 0; i < pa.count; i++) { const x = pa.getX(i), y = pa.getY(i), f = Math.max(0, x / 0.1235); if (y < 0.06) pa.setY(i, y + f * f * (0.06 - y) * 0.75); } GEO.hair.computeVertexNormals(); }
   GEO.ear = new THREE.SphereGeometry(0.03, 8, 6);
   GEO.face = new THREE.CircleGeometry(0.088, 24);
   GEO.neck = new THREE.CylinderGeometry(0.05, 0.058, 0.12, 10);
@@ -381,22 +408,25 @@ export class Player3D {
     // Buste en V (poitrine, dos, taille), épaules (deltoïdes), col ; fessiers sous le short.
     const torso = limb(this.body, G.torsoA, mats.shirt, 0.92);
     torso.scale.set(0.74, 1, 1.18);
-    for (const z of [-0.205, 0.205]) { const dl = limb(this.body, G.delt, mats.shirt, 1.45); dl.position.z = z; dl.scale.set(0.95, 0.85, 0.9); }
+    for (const z of [-0.2, 0.2]) { const dl = limb(this.body, G.delt, mats.sleeve || mats.shirt, 1.445); dl.position.z = z; dl.scale.set(0.86, 0.78, 0.82); }
     const collar = limb(this.body, G.collar, mats.trim || mats.shorts, 1.535); collar.rotation.x = Math.PI / 2; collar.scale.set(1.15, 1.25, 1);
     const shorts = limb(this.body, G.shortsA, mats.shorts, 0.97); shorts.scale.set(0.74, 1, 1.22);
     limb(this.body, G.neck, skinM, 1.56);
     const head = limb(this.body, G.head, skinM, 1.7);
     head.scale.set(0.96, 1.1, 0.9);
     const hairMesh = this.hairMesh = limb(this.body, G.hair, hairM, 1.72);
-    hairMesh.position.x = -0.012; hairMesh.scale.set(0.98, 1.08, 0.94);
+    // Calotte inclinée vers l'arrière : le front dégagé, la nuque couverte.
+    // (ajustée au crâne : même proportions que la tête, pas un casque posé dessus)
+    hairMesh.position.set(-0.012, 1.708, 0); hairMesh.scale.set(0.97, 1.1, 0.92); hairMesh.rotation.z = 0.26;
     for (const z of [-0.105, 0.105]) { const e = limb(this.body, G.ear, skinM, 1.69); e.position.z = z; e.scale.set(0.6, 1, 0.5); }
     // Visage : photo du joueur (Wikimedia) si disponible, sinon visage dessiné (yeux, nez, bouche…).
+    // Le visage s'enroule autour de l'avant du crâne (coque ajustée à la tête) : relief des
+    // joues, du front et du menton, au lieu d'un disque plaqué.
     const addFace = (tex) => {
-      const face = new THREE.Mesh(G.face, new THREE.MeshStandardMaterial({ map: tex, transparent: true, roughness: 0.75 }));
-      face.position.set(0.119 - 1.6 * 0 , 1.69, 0); face.rotation.y = Math.PI / 2;
-      face.scale.set(0.95, 1.12, 1);
-      (this.headPivot || this.body).add(face);
-      if (this.headPivot) face.position.y -= 1.6;
+      const face = new THREE.Mesh(G.faceShell, new THREE.MeshStandardMaterial({ map: tex, transparent: true, roughness: 0.68, polygonOffset: true, polygonOffsetFactor: -2, depthWrite: false }));
+      face.renderOrder = 2;
+      head.add(face);
+      this.faceMesh = face;
     };
     if (photo) {
       loadFace(photo).then((f) => {
@@ -418,10 +448,12 @@ export class Player3D {
     this.legs = [-1, 1].map((sgn) => {
       const hip = new THREE.Group(); hip.position.set(0, 0.8, sgn * 0.1); this.body.add(hip);
       limb(hip, G.thighA, skinM, 0).scale.set(1.1, 1, 1.05);
+      // Jambe du short : elle suit la cuisse (un vrai short, pas une culotte collée au bassin).
+      const sl = limb(hip, G.shortLegA, mats.shorts, 0); sl.scale.set(1, 1, 1.02);
       const knee = new THREE.Group(); knee.position.y = -0.42; hip.add(knee);
-      limb(knee, G.knee, skinM, 0.0).scale.set(0.82, 0.8, 0.8);
-      limb(knee, G.shinA, mats.socks, -0.01);
-      limb(knee, G.sockBand, mats.trim || mats.shorts, -0.06);
+      limb(knee, G.kneeA, skinM, 0);                                 // genou nu, fondu dans la cuisse
+      const sock = limb(knee, G.shinA, mats.socks, -0.07); sock.scale.set(1.1, 0.84, 1.1);   // chaussette sous le genou (protège-tibia)
+      limb(knee, G.sockBand, mats.trim || mats.shorts, -0.1).scale.set(1.1, 1, 1.1);
       const ankle = new THREE.Group(); ankle.position.y = -0.41; knee.add(ankle);
       const boot = limb(ankle, G.boot, mats.boot, -0.02);
       boot.rotation.z = Math.PI / 2; boot.position.x = 0.055; boot.scale.set(1, 1, 0.92);
@@ -431,12 +463,13 @@ export class Player3D {
     // Bras : épaule → (manche, bras) → coude → avant-bras → main.
     this.arms = [-1, 1].map((sgn) => {
       const sh = new THREE.Group(); sh.position.set(0, 1.44, sgn * 0.25); this.body.add(sh);
-      limb(sh, G.sleeve, mats.shirt, -0.07).scale.set(1.05, 1.1, 1.05);
-      limb(sh, G.cuff, mats.trim || mats.shorts, -0.15).rotation.x = Math.PI / 2;
+      limb(sh, G.sleeveA, mats.sleeve || mats.shirt, 0);
+      const cuff = limb(sh, G.cuff, mats.trim || mats.shorts, -0.158); cuff.rotation.x = Math.PI / 2; cuff.scale.set(1.25, 1.25, 1);
       limb(sh, G.upperA, skinM, -0.01);
       const el = new THREE.Group(); el.position.y = -0.27; sh.add(el);
-      limb(el, G.elbow, skinM, 0).scale.setScalar(0.78);
       limb(el, G.foreA, skinM, 0);
+      // Gardien : maillot à manches longues.
+      if (opts.gk) limb(el, G.foreA, mats.sleeve || mats.shirt, 0.01).scale.set(1.22, 0.92, 1.22);
       const hand = limb(el, G.hand, skinM, -0.29);
       hand.scale.set(0.7, 1.05, 0.5);
       return { sh, el, sgn, hand };
@@ -453,8 +486,15 @@ export class Player3D {
     // Haut du corps (buste, bras, tête) : il pivote en sens inverse des hanches pendant la course.
     this.upper = new THREE.Group(); this.upper.position.y = 0.95; this.body.add(this.upper);
     for (const c of this.body.children.slice()) if (c !== this.upper && c.position.y >= 1.0) { this.body.remove(c); c.position.y -= 0.95; this.upper.add(c); }
-    // Ombres portées (projecteurs / soleil).
-    this.root.traverse((o) => { if (o.isMesh && o !== this.shadow && o !== this.ring) o.castShadow = true; });
+    // Petites pièces (col, poignets, bandes des chaussettes, semelles, oreilles, numéro avant) :
+    // invisibles de loin ; on ne les dessine pas (et elles ne projettent pas d'ombre).
+    const small = new Set([G.collar, G.cuff, G.sockBand, G.sole, G.ear, G.front, G.kneeA]);
+    this.lodMeshes = [];
+    this.root.traverse((o) => {
+      if (!o.isMesh || o === this.shadow || o === this.ring) return;
+      if (small.has(o.geometry)) { this.lodMeshes.push(o); o.castShadow = false; } else o.castShadow = true;
+    });
+    this.detail = true;
     this._sm = null; // poses lissées (pas d'à-coups entre deux gestes)
   }
 
@@ -515,11 +555,24 @@ export class Player3D {
   setHair(style) {
     const h = this.hairMesh;
     if (!h) return;
+    const G = geo(), M = this.hairM, hp = this.headPivot;
+    const add = (g, x, y, z) => { const o = new THREE.Mesh(g, M); o.position.set(x, y, z); o.castShadow = true; hp.add(o); return o; };
     if (style === 'bald') { h.visible = false; return; }
-    if (style === 'buzz' || style === 'receding') h.scale.set(0.93, 0.98, 0.9);
-    else if (style === 'afro' || style === 'curly') h.scale.set(1.12, 1.22, 1.1);
-    else if (style === 'long' || style === 'dreads' || style === 'bun') { h.scale.set(1.05, 1.18, 1.0); h.position.y -= 0.03; }
-    else if (style === 'quiff' || style === 'mohawk') h.scale.set(0.98, 1.2, 0.92);
+    if (style === 'buzz' || style === 'receding') { h.scale.set(0.95, 0.99, 0.93); if (style === 'receding') h.rotation.z = 0.42; }
+    else if (style === 'afro') { h.scale.set(1.2, 1.3, 1.18); h.rotation.z = 0.1; }
+    else if (style === 'curly') { h.scale.set(1.1, 1.2, 1.08); }
+    else if (style === 'long') { h.scale.set(1.04, 1.12, 1.0); add(G.hairBack, -0.04, 0.1, 0).scale.set(0.95, 1, 1.05); }      // cheveux aux épaules
+    else if (style === 'bun') { h.scale.set(1.0, 1.08, 0.96); add(G.bun, -0.08, 0.2, 0); }                                    // chignon
+    else if (style === 'dreads') { h.scale.set(1.06, 1.14, 1.02); for (let i = 0; i < 9; i++) { const a = -1.2 + i * 0.3; add(G.dread, -0.05 - Math.abs(Math.sin(a)) * 0.02, 0.0, Math.sin(a) * 0.11).rotation.x = Math.sin(a) * 0.25; } }
+    else if (style === 'mohawk') { h.scale.set(0.93, 0.98, 0.88); add(G.mohawk, -0.01, 0.235, 0); }                         // crête
+    else if (style === 'quiff') { h.scale.set(0.99, 1.2, 0.93); h.rotation.z = 0.28; }                                        // houppe
+  }
+  /** Niveau de détail : plein (proche de la caméra) ou allégé (loin). */
+  setDetail(on) {
+    if (on === this.detail) return;
+    this.detail = on;
+    for (const o of this.lodMeshes) o.visible = on;
+    if (this.faceMesh) this.faceMesh.visible = on;
   }
   /** Gants du gardien. */
   setGloves(c) { const m = new THREE.MeshLambertMaterial({ color: c }); for (const a of this.arms) if (a.hand) a.hand.material = m; }
@@ -546,8 +599,9 @@ export class Player3D {
     lR.knee.rotation.z = -(0.08 + kneeMax * Math.max(0, Math.sin(ph + 1.7 + Math.PI))) * jog;
     for (const a of this.arms) {
       a.sh.rotation.set(0, 0, (a.sgn < 0 ? -sw : sw) * (0.7 + 0.5 * run));
-      a.sh.rotation.x = -a.sgn * 0.12;
-      a.el.rotation.z = 0.35 + 1.0 * run;
+      // Bras le long du corps à l'arrêt (légèrement écartés), coude qui se plie avec l'allure.
+      a.sh.rotation.x = -a.sgn * (0.06 + 0.08 * jog);
+      a.el.rotation.z = 0.18 + 0.25 * jog + 1.0 * run;
     }
     const lean = p.back ? -0.08 : Math.max(-0.25, Math.min(0.32, 0.05 + 0.2 * run + (p.acc || 0) * 0.025));
     // Virage : le joueur s'incline vers l'intérieur de la courbe, d'autant plus qu'il va vite.
@@ -719,7 +773,8 @@ export class Player3D {
     // Repos loin du ballon : mains sur les hanches (joueurs de champ) ; porteur arrêté : il
     // protège le ballon, bras écartés et centre de gravité bas.
     if (sp < 0.4 && ctx.restFar && !p.gk && !(p.kick > 0) && !(p.celeb > 0)) {
-      for (const a of this.arms) { a.sh.rotation.x = -a.sgn * 0.55; a.sh.rotation.z = -0.35; a.el.rotation.z = 1.75; }
+      // (bras tourné vers l'intérieur : le coude part sur le côté et la main se pose sur la hanche)
+      for (const a of this.arms) { a.sh.rotation.x = -a.sgn * 0.55; a.sh.rotation.y = a.sgn * 1.3; a.sh.rotation.z = -0.35; a.el.rotation.z = 1.75; }
     }
     if (ctx.shield && sp < 2.5 && !(p.kick > 0)) {
       for (const a of this.arms) { a.sh.rotation.x = -a.sgn * 0.75; a.el.rotation.z = 0.45; }
@@ -886,8 +941,11 @@ const KIT_TEX = new Map();
  * Texture du maillot (enroulée autour du buste) : couleur et motif, col et bas de maillot
  * contrastés, coutures, plis du tissu, écusson sur le cœur.
  */
-export function kitTexture(c1, c2, pattern) {
-  const key = `${c1}|${c2}|${pattern}`;
+/** Sponsors maillot (marques imaginaires) : un par club, stable. */
+const SPONSORS = ['NOVAMAX', 'ATLAS AIR', 'VELTA', 'ORIONBANK', 'KAIRO', 'LUMEN', 'TERRA', 'HELIX', 'ZENKO', 'MERIDIA', 'AURORA', 'POLARIS', 'VEXA', 'SOLARA', 'KESTREL', 'NORDIX', 'QUANTA', 'ALTIS', 'BRAVA', 'CIRRUS'];
+export const sponsorOf = (club) => SPONSORS[Math.abs(((club?.id ?? 7) * 2654435761) | 0) % SPONSORS.length];
+export function kitTexture(c1, c2, pattern, sponsor = '', sleeve = false) {
+  const key = `${c1}|${c2}|${pattern}|${sponsor}|${sleeve}`;
   if (KIT_TEX.has(key)) return KIT_TEX.get(key);
   const tex = canvasTex(512, 256, (g, w, h) => {
     g.fillStyle = c1; g.fillRect(0, 0, w, h);
@@ -908,12 +966,26 @@ export function kitTexture(c1, c2, pattern) {
       gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(0.5, i % 3 ? `rgba(0,0,0,${a})` : `rgba(255,255,255,${a})`); gr.addColorStop(1, 'rgba(0,0,0,0)');
       g.fillStyle = gr; g.fillRect(x - 9, 0.06 * h, 18, 0.9 * h);
     }
+    if (sleeve) return; // manches : motif et tissu seulement
     // Écusson sur le cœur (côté gauche du joueur, à l'avant).
     const bx = 0.3 * w, by = 0.26 * h;
     g.fillStyle = c2; g.beginPath(); g.moveTo(bx - 9, by - 10); g.lineTo(bx + 9, by - 10); g.lineTo(bx + 9, by + 3); g.quadraticCurveTo(bx, by + 13, bx - 9, by + 3); g.closePath(); g.fill();
     g.fillStyle = c1; g.beginPath(); g.arc(bx, by - 2, 4.5, 0, Math.PI * 2); g.fill();
     // Petit logo d'équipementier (générique) à l'opposé.
     g.strokeStyle = c2; g.lineWidth = 2.5; g.beginPath(); g.moveTo(0.2 * w - 7, by - 2); g.quadraticCurveTo(0.2 * w, by + 6, 0.2 * w + 8, by - 6); g.stroke();
+    // Sponsor sur la poitrine (marque imaginaire), à l'encre du maillot.
+    if (sponsor) {
+      g.save(); g.fillStyle = c2; g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.font = `900 ${sponsor.length > 8 ? 17 : 21}px "Barlow Condensed", system-ui, sans-serif`;
+      g.fillText(sponsor, 0.25 * w, 0.43 * h, 0.17 * w);
+      g.restore();
+    }
+    // Ombre douce sous les bras et sur les flancs (volume du buste).
+    for (const u of [0, 0.5, 1]) {
+      const gr = g.createLinearGradient(u * w - 40, 0, u * w + 40, 0);
+      gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(0.5, 'rgba(0,0,0,0.13)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
+      g.fillStyle = gr; g.fillRect(u * w - 40, 0, 80, h);
+    }
   });
   tex.wrapS = THREE.RepeatWrapping;
   KIT_TEX.set(key, tex);
@@ -1098,6 +1170,11 @@ export class Match3D {
     Object.assign(sun.shadow.camera, { left: -62, right: 62, top: 42, bottom: -42, near: 10, far: 220 });
     sun.shadow.bias = -0.0005; sun.shadow.normalBias = 0.02;
     this.scene.add(sun);
+    // Contre-jour (comme les projecteurs du côté opposé) : il découpe la silhouette des joueurs
+    // sur la pelouse, au lieu de personnages « plats ».
+    this.rim = new THREE.DirectionalLight('#d6e4ff', 0.55);
+    this.rim.position.set(35, 30, -70);
+    this.scene.add(this.rim);
     this.buildStadium();
     this.applyConditions(view.m.weather);
     this.buildBall();
@@ -1110,6 +1187,7 @@ export class Match3D {
     this.ref3d = new Player3D(refMats, '#c68642', '#1a120c', '', '#15171c', '#15171c');
     this.scene.add(this.ref3d.root);
     this.mats = view.colors.map((c, side) => this.teamMats(side));
+    try { this.buildBenchSubs(); } catch (e) { console.warn('banc 3D', e); }
     this.resize();
   }
 
@@ -1123,9 +1201,16 @@ export class Match3D {
         const home = club?.colors && String(club.colors[0]).toLowerCase() === String(v.colors[side]).toLowerCase();
         const pat = home ? kitPattern(club) : 'plain';
         const c2 = home && club.colors[1] ? club.colors[1] : v.textColors[side];
-        return new THREE.MeshStandardMaterial({ color: '#ffffff', map: kitTexture(v.colors[side], c2, pat), roughness: 0.74, metalness: 0.02 });
+        return new THREE.MeshStandardMaterial({ color: '#ffffff', map: kitTexture(v.colors[side], c2, pat, sponsorOf(club)), roughness: 0.74, metalness: 0.02 });
       })(),
-      gk: new THREE.MeshStandardMaterial({ color: v.gkColors[side], roughness: 0.78 }),
+      sleeve: (() => {
+        const club = v.m.teams[side]?.club;
+        const home = club?.colors && String(club.colors[0]).toLowerCase() === String(v.colors[side]).toLowerCase();
+        return new THREE.MeshStandardMaterial({ color: '#ffffff', map: kitTexture(v.colors[side], home && club.colors[1] ? club.colors[1] : v.textColors[side], home ? kitPattern(club) : 'plain', '', true), roughness: 0.74, metalness: 0.02 });
+      })(),
+      gkSleeve: new THREE.MeshStandardMaterial({ color: v.gkColors[side], roughness: 0.78 }),
+      // Gardien : maillot uni à sa couleur, avec sponsor et écusson.
+      gk: new THREE.MeshStandardMaterial({ color: '#ffffff', map: kitTexture(v.gkColors[side], '#111111', 'plain', sponsorOf(v.m.teams[side]?.club)), roughness: 0.78 }),
       shorts: new THREE.MeshStandardMaterial({ color: v.shorts[side], roughness: 0.72 }),
       socks: new THREE.MeshStandardMaterial({ color: v.colors[side], roughness: 0.9 }),
       trim: new THREE.MeshStandardMaterial({ color: v.textColors[side], roughness: 0.7 }),
@@ -1430,6 +1515,7 @@ export class Match3D {
     this.scene.background = canvasTex(4, 256, (g, ww, h) => { const gr = g.createLinearGradient(0, 0, 0, h); [0, 0.55, 0.85, 1].forEach((o, i) => gr.addColorStop(o, sky[i])); g.fillStyle = gr; g.fillRect(0, 0, ww, h); });
     const fogC = night ? '#141d33' : grey ? '#9aa2ad' : '#b9d3ee';
     this.scene.fog = new THREE.Fog(fogC, w.kind === 'fog' ? 45 : w.kind === 'storm' ? 90 : 150, w.kind === 'fog' ? 140 : w.kind === 'storm' ? 200 : 280);
+    if (this.rim) { this.rim.intensity = night ? 0.95 : grey ? 0.35 : 0.55; this.rim.color.set(night ? '#cfe0ff' : '#d6e4ff'); } // projecteurs : contre-jour plus franc la nuit
     if (!night) { this.sun.intensity = grey ? 0.9 : 1.9; this.sun.color.set(grey ? '#e6ebf2' : '#fff4dc'); this.hemi.intensity = grey ? 1.0 : 1.25; for (const g of this.glows || []) g.visible = false; }
     else { this.sun.intensity = 1.1; this.hemi.intensity = 1.05; }
     if (['rain', 'storm', 'snow'].includes(w.kind) && this.pitchMat) this.pitchMat.color.set(w.kind === 'snow' ? '#f2f6f8' : '#c4cec6'); // pelouse détrempée / poudrée
@@ -1513,13 +1599,13 @@ export class Match3D {
       if (!e) {
         const side = p.side;
         const base = this.mats[side];
-        const mats = p.gk ? { ...base, shirt: base.gk, socks: base.gk } : base;
+        const mats = p.gk ? { ...base, shirt: base.gk, sleeve: base.gkSleeve, socks: base.gk } : base;
         const shirtHex = p.gk ? v.gkColors[side] : v.colors[side];
         const ink = p.gk ? '#111' : v.textColors[side];
         // Apparence réaliste : teint et cheveux selon la nationalité (stables), coiffure, crampons, gants.
         const lk = personLook(id, p.mp?.p?.nat || '', p.mp?.p?.age || 25);
         const bootC = ['#111111', '#111111', '#f2f2f2', '#d7263d', '#2d7ff9', '#e8ff3a', '#ff8c1a'][id % 7];
-        const p3 = new Player3D({ ...mats, boot: bootMat(bootC) }, lk.skin, lk.hairColor, p.num, shirtHex, ink, p.mp?.p?.photo || null, { look: lk, name: p.mp?.p?.last || p.short || '' });
+        const p3 = new Player3D({ ...mats, boot: bootMat(bootC) }, lk.skin, lk.hairColor, p.num, shirtHex, ink, p.mp?.p?.photo || null, { look: lk, name: p.mp?.p?.last || p.short || '', gk: !!p.gk });
         p3.setHair(lk.hairStyle);
         if (p.gk) p3.setGloves('#c6f432');
         // Morphologie du vrai joueur : taille (grand défenseur, petit ailier) et carrure (physique).
@@ -1546,7 +1632,7 @@ export class Match3D {
   cycleCamera() {
     const order = ['tv', 'director', 'close', 'pitchside', 'player', 'tribune', 'high', 'goal'];
     this.camMode = order[(order.indexOf(this.camMode) + 1) % order.length];
-    return { tv: 'Caméra télé', director: 'Réalisation TV (plans automatiques)', close: 'Caméra rapprochée', pitchside: 'Bord du terrain', player: 'Derrière le porteur', tribune: 'Haut de tribune', high: 'Vue d\'ensemble', goal: 'Derrière le but' }[this.camMode];
+    return { tv: 'Caméra télé', director: 'Réalisation TV (plans automatiques)', close: 'Caméra rapprochée', pitchside: 'Bord du terrain', player: 'Derrière le porteur', tribune: 'Panoramique (haut de tribune)', high: 'Vue tactique', goal: 'Derrière le but' }[this.camMode];
   }
 
   updateCamera(dt) {
@@ -1557,6 +1643,10 @@ export class Match3D {
     const [bx, bz] = this.toWorld(Math.max(-0.02, Math.min(1.02, lx)), Math.max(0, Math.min(1, ly)));
     let mode = this.camMode;
     const celebrating = v.banner && v.banner.text === 'BUT !';
+    // Réalisation après un but (comme à la télé) : gros plan sur le buteur qui célèbre, plan sur
+    // son entraîneur, plan sur un adversaire abattu ; le ralenti est filmé depuis derrière le but.
+    if (this._goalSeq && !v.replaying && this.camMode !== 'intro') { if (this.goalShot(dt)) return; this._goalSeq = false; this._gs = null; this.snapCam = true; }
+    if (v.replaying) { if (this.replayShot(dt, bx, bz)) return; } else this._replayCam = false;
     if (v.replaying || celebrating) mode = 'close';
     const want = new THREE.Vector3(), look = new THREE.Vector3(bx, 0, bz * 0.35);
     if (mode === 'intro') {
@@ -1572,6 +1662,16 @@ export class Match3D {
     // le porteur dans les 30 derniers mètres, derrière le but sur une frappe, bord terrain sur
     // les coups de pied arrêtés), sans couper trop souvent.
     if (mode === 'director') {
+      // Grosse occasion manquée : gros plan sur le joueur, mains sur la tête.
+      if (!v.replaying && v.hl !== 'skip') {
+        let miss = null;
+        for (const [id, p] of v.players) if ((p.headHands || 0) > 1.2) { miss = id; break; }
+        if (miss != null && (this._missId !== miss || performance.now() - this._missAt < 1800)) {
+          if (this._missId !== miss) { this._missId = miss; this._missAt = performance.now(); }
+          const e = this.players.get(miss);
+          if (e) { const q = e.p3.root.position; this.placeCam(new THREE.Vector3(q.x + 3.8, 1.7, q.z + 2.6), new THREE.Vector3(q.x, 1.35, q.z), 32, dt, performance.now() - this._missAt < 60); return; }
+        }
+      }
       const L2 = v.live, P2 = v.phys;
       const near = L2 && P2 ? Math.min(Math.abs(P2.x - 0), Math.abs(P2.x - L)) : 50;
       let want2 = 'tv';
@@ -1582,7 +1682,7 @@ export class Match3D {
       if (want2 !== this._dirMode && nowT - (this._dirAt || 0) > (want2 === 'goal' ? 600 : 2600)) { this._dirMode = want2; this._dirAt = nowT; }
       mode = this._dirMode || 'tv';
     }
-    if (mode === 'tv') { want.set(Math.max(-36, Math.min(36, bx * 0.9)), 21, 58); look.set(bx * 0.97, 0, bz * 0.35 - 1); this.camera.fov = 30; }
+    if (mode === 'tv') { want.set(Math.max(-36, Math.min(36, bx * 0.9)), 20, 54); look.set(bx * 0.97, 0, bz * 0.35 - 1); this.camera.fov = 27; }
     else if (mode === 'pitchside') { want.set(Math.max(-48, Math.min(48, bx * 0.85)), 1.7, W / 2 + 3.2); look.set(bx, 1.1, bz); this.camera.fov = 42; }     // caméra à hauteur d'homme, au bord de la ligne
     else if (mode === 'tribune') { want.set(Math.max(-30, Math.min(30, bx * 0.6)), 34, 74); look.set(bx * 0.8, 0, bz * 0.25); this.camera.fov = 34; }  // tout en haut de la tribune principale
     else if (mode === 'player') {
@@ -1604,6 +1704,64 @@ export class Match3D {
     this.camera.position.copy(this.camPos);
     this.camera.lookAt(this.camLook);
     this.camera.updateProjectionMatrix();
+  }
+
+  /** Pose la caméra (position, cible, focale) : douce, ou en coupe franche pour un changement de plan. */
+  placeCam(pos, look, fov, dt, cut) {
+    const k = cut ? 1 : 1 - Math.exp(-dt * 3.5);
+    this.camPos.lerp(pos, k); this.camLook.lerp(look, k);
+    this.camera.fov = fov;
+    this.camera.position.copy(this.camPos); this.camera.lookAt(this.camLook); this.camera.updateProjectionMatrix();
+  }
+  /** Séquence de plans après un but (retourne false quand elle est finie). */
+  goalShot(dt) {
+    const v = this.v;
+    if (!this._gs) {
+      // Buteur : le joueur qui célèbre le plus longtemps (le jeu lui donne la plus longue célébration).
+      let best = null, side = 0;
+      for (const [id, p] of v.players) if ((p.celeb || 0) > (best?.p.celeb || 0)) { best = { id, p }; side = p.side; }
+      if (!best) return false;
+      let opp = null;
+      for (const [id, p] of v.players) if (p.side !== side && (p.gk || !opp)) opp = { id, p };
+      this._gs = { t: 0, t0: performance.now(), scorer: best.id, side, opp: opp?.id, shot: -1, ang: Math.random() * Math.PI * 2 };
+    }
+    const g = this._gs;
+    g.t = Math.max(g.t, (performance.now() - g.t0) / 1000); // temps réel (même si l'image est lente)
+    const shot = g.t < 3.4 ? 0 : g.t < 5.4 ? 1 : g.t < 7.0 ? 2 : 3;
+    const cut = shot !== g.shot; g.shot = shot;
+    const v3 = (x, y, z) => new THREE.Vector3(x, y, z);
+    if (shot === 0) {
+      const e = this.players.get(g.scorer);
+      if (!e) return false;
+      const q = e.p3.root.position;
+      const a = g.ang + g.t * 0.35;            // travelling circulaire autour du buteur
+      this.placeCam(v3(q.x + Math.cos(a) * 5.2, 1.75, q.z + Math.sin(a) * 5.2), v3(q.x, 1.25, q.z), 30, dt, cut);
+      return true;
+    }
+    if (shot === 1) {
+      const c = this.coaches?.[g.side];
+      if (!c) { g.t0 -= (5.4 - g.t) * 1000; return true; }
+      const q = c.root.position;
+      this.placeCam(v3(q.x + (g.side === 0 ? 4 : -4), 1.65, q.z - 4.6), v3(q.x, 1.35, q.z), 28, dt, cut);
+      return true;
+    }
+    if (shot === 2) {
+      const e = this.players.get(g.opp);
+      if (!e) { g.t0 -= (7 - g.t) * 1000; return true; }
+      const q = e.p3.root.position;
+      this.placeCam(v3(q.x + 3.4, 1.6, q.z + 2.2), v3(q.x, 1.3, q.z), 30, dt, cut);
+      return true;
+    }
+    return false; // retour au plan large
+  }
+  /** Ralenti : filmé depuis derrière le but attaqué, à hauteur de la barre. */
+  replayShot(dt, bx, bz) {
+    const goalX = bx >= 0 ? L / 2 : -L / 2;
+    const want = new THREE.Vector3(goalX + Math.sign(goalX) * 9, 3.1, bz * 0.4 + 2);
+    const look = new THREE.Vector3(bx, 1, bz);
+    const cut = !this._replayCam; this._replayCam = true;
+    this.placeCam(want, look, 38, dt, cut);
+    return true;
   }
 
   /** Baisse la résolution si les images mettent trop de temps à venir (PC sans grosse carte graphique), la remonte sinon. */
@@ -1653,11 +1811,59 @@ export class Match3D {
     const s = ev.side;
     if (s == null || s < 0) return;
     const mine = C[s], other = C[1 - s];
-    if (ev.type === 'goal') { mine?.react('celebrate', 4.5); other?.react('despair', 3.5); }
+    if (ev.type === 'goal') { mine?.react('celebrate', 4.5); other?.react('despair', 3.5); if (!ev.replay) { this._goalSeq = true; this._gs = null; this._benchT = 6; this._benchSide = s; } }
     else if (ev.type === 'shot' && ev.outcome !== 'goal' && (ev.xg || 0) >= 0.18) { mine?.react('despair', 1.8); other?.react('applaud', 1.4); }
     else if (ev.type === 'foul') { mine?.react('protest', 1.8); other?.react('shout', 1.6); }
     else if (ev.type === 'yellow' || ev.type === 'red') mine?.react('protest', 2.6);
     else if (ev.type === 'skill') mine?.react('applaud', 1.6);
+  }
+
+  /**
+   * Remplaçants assis sur le banc (les vrais joueurs du banc, en tenue) : ils se lèvent et
+   * sautent sur un but de leur équipe ; ceux d'en face se prennent la tête dans les mains.
+   * Version allégée (pas de petits détails, pas d'ombre) ; aucun sur les appareils « éco ».
+   */
+  buildBenchSubs() {
+    const n = this.gfx === 'eco' ? 0 : this.gfx === 'ultra' ? 5 : 3;
+    this.benchSubs = [];
+    if (!n) return;
+    const v = this.v;
+    for (const side of [0, 1]) {
+      const team = v.m.teams[side];
+      const subs = (team?.bench || []).filter(Boolean).slice(0, n);
+      subs.forEach((mp, i) => {
+        const lk = personLook(mp.id, mp.p?.nat || '', mp.p?.age || 25);
+        const base = this.mats[side];
+        const p3 = new Player3D({ ...base, boot: bootMat('#111111') }, lk.skin, lk.hairColor, mp.number ?? '', v.colors[side], v.textColors[side], null, { look: lk, name: '' });
+        p3.setHair(lk.hairStyle);
+        p3.setDetail(false);
+        p3.root.traverse((o) => { if (o.isMesh) o.castShadow = false; });
+        p3.shadow.visible = false;
+        const x = (side === 0 ? -9 : 9) - 2.6 + i * (5.2 / Math.max(1, n - 1));
+        p3.root.position.set(x, 0, W / 2 + 4.95);
+        p3.root.scale.setScalar(0.98);
+        this.scene.add(p3.root);
+        this.benchSubs.push({ p3, side, ph: Math.random() * 6 });
+      });
+    }
+  }
+  updateBenchSubs(dt) {
+    if (!this.benchSubs?.length) return;
+    this._benchT = Math.max(0, (this._benchT || 0) - dt);
+    const goal = this._benchT > 0;
+    for (const b of this.benchSubs) {
+      b.ph += dt;
+      if (goal && b.side === this._benchSide) {
+        // Debout, bras au ciel, petits bonds.
+        b.p3.pose({ id: 0, face: -Math.PI / 2, speed: 0, phase: 0, celeb: 1 + Math.abs(Math.sin(b.ph * 7)), celebType: 'jump' }, false, { dt });
+        b.p3.root.rotation.y = Math.PI / 2;
+      } else {
+        // Assis, face au terrain (penché en avant quand l'adversaire vient de marquer).
+        const sad = goal ? 1 : 0;
+        b.p3.applyKeys({ bz: -0.05 - 0.25 * sad, by: 0, hL: 1.5, hR: 1.45, kL: -1.55, kR: -1.5, aZ: 0.35 + 2.3 * sad, aX: 0.12 + 0.4 * sad, e: 1.2 + 0.9 * sad, uz: -0.05 - 0.2 * sad });
+        b.p3.root.rotation.y = Math.PI / 2;
+      }
+    }
   }
 
   updateCoaches(dt) {
@@ -1675,9 +1881,10 @@ export class Match3D {
     const v = this.v;
     this.stepPrecip(Math.min(0.05, dt || 0.016));
     this.updateCoaches(dt);
+    this.updateBenchSubs(Math.min(0.05, dt || 0.016));
     // La foule se lève et saute après un but (la texture des tribunes « vibre »).
     {
-      const cheer = v.banner && v.banner.text === 'BUT !';
+      const cheer = (v.banner && v.banner.text === 'BUT !') || !!this._goalSeq;
       const tense = !cheer && v.inHL; // temps fort : la foule se lève à moitié
       this._cheerT = (this._cheerT || 0) + (dt || 0.016);
       for (const c of this.crowdGroups || []) {
@@ -1690,10 +1897,13 @@ export class Match3D {
     this.syncPlayers();
     const flip = this.flip();
     const carrier = v.holder ?? (v.cur ? v.cur.carrier : null);
+    const camP = this.camera.position;
+    const lodD2 = (this.gfx === 'ultra' ? 40 : 30) ** 2;
     for (const [id, e] of this.players) {
       const p = v.players.get(id);
       const [x, z] = this.toWorld(p.x, p.y, flip);
       e.p3.root.position.set(x, 0, z);
+      e.p3.setDetail((x - camP.x) ** 2 + (z - camP.z) ** 2 + camP.y ** 2 < lodD2);
       const dB = Math.hypot((p.x - v.ball.x) * L, (p.y - v.ball.y) * W);
       const isCar = id === carrier;
       // Adversaire au contact (duel) : de quel côté est-il ?
