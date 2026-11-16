@@ -463,7 +463,9 @@ def part_positions(X):
     NR = vnormals(G, BODY_F)
     # Maillot ample : décollé du corps (plus à la taille), puis lissé (pas de pectoraux ni
     # d'abdominaux dessinés) ; le même champ sert au buste et aux manches (coutures jointives).
-    off = np.where(armW >= 0.5, 0.017, 0.019 + 0.02 * np.clip((HEM + 0.2 - G[:, 1]) / 0.2, 0, 1))
+    # Coupe ample : buste +3 cm, ventre jusqu'à +5 cm, épaules et haut des manches +2,5 cm.
+    shoulderK = np.clip((G[:, 1] - (shY - 0.16)) / 0.16, 0, 1)
+    off = np.where(armW >= 0.5, 0.024 + 0.008 * shoulderK, 0.03 + 0.022 * np.clip((HEM + 0.22 - G[:, 1]) / 0.22, 0, 1) + 0.006 * shoulderK)
     SH = G + NR * off[:, None]
     # Tombé du tissu : sous la poitrine et les omoplates, le maillot pend presque droit (il ne
     # suit plus le creux de la taille ni les abdominaux) — rayon « tenu » par le point le plus
@@ -481,7 +483,7 @@ def part_positions(X):
             idx = idx[np.argsort(-P[idx, 1])]
             hold, yh = 0.0, None
             for i in idx:
-                if yh is not None: hold -= 0.22 * (yh - P[i, 1])
+                if yh is not None: hold -= 0.1 * (yh - P[i, 1])
                 hold = max(hold, rad[i]); yh = P[i, 1]
                 newr[i] = rad[i] + (hold - rad[i]) * 0.85
         k = newr / np.maximum(rad, 1e-6)
@@ -495,7 +497,7 @@ def part_positions(X):
         d2 = (Q[:, None, 1] - Q[None, :, 1]) ** 2 + (Q[:, None, 2] - Q[None, :, 2]) ** 2
         Wt = np.exp(-d2 / (2 * 0.04 ** 2))
         xs = (Wt @ Q[:, 0]) / Wt.sum(1)
-        SH[CH, 0] = xs + 0.006
+        SH[CH, 0] = xs + 0.012
     SH = smooth_region(SH, SHIRT_ALL, 22, 0.5)
     # Bords (col, ourlets) : lissés le long de leur contour (plus de dents de scie).
     for _ in range(12):
@@ -506,7 +508,7 @@ def part_positions(X):
         SH = nxt
     # Le lissage rétrécit les cylindres (bras) : le tissu reste toujours au-dessus de la peau.
     d = ((SH - G) * NR).sum(1)
-    lo = np.where(armW >= 0.5, 0.014, 0.006)
+    lo = np.where(armW >= 0.5, 0.02, 0.014)
     if len(CH): lo[CH] = -0.03
     SH += NR * np.maximum(0, lo - d)[:, None]
     # Bout des manches : coupe nette, perpendiculaire au bras (plus d'escalier de facettes).
