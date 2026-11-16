@@ -45,8 +45,8 @@ const TR = (pl, k) => !!pl?.mp?.p?.traits?.includes(k);
 
 const TUNE = {   // calibré en TEMPS RÉEL (horloge 1) : ~2,8 buts, ~28 tirs, ~22 fautes par match
   clock: 1,        // secondes de match par seconde de jeu simulé (1 = temps réel)
-  shotW: 0.4,         // attrait de la frappe face aux autres options
-  shotCost: 4.4,     // coût de la perte de balle dans le choix de tirer
+  shotW: 0.32,        // attrait de la frappe face aux autres options
+  shotCost: 5.3,     // coût de la perte de balle dans le choix de tirer
   carryW: 0.5,        // attrait de la conduite de balle
   keepW: 0.25,        // valeur de garder le ballon (passe sûre à un partenaire libre)
   holdU: -0.025,       // temporiser balle au pied (négatif : seulement quand les autres options sont mauvaises)
@@ -55,7 +55,7 @@ const TUNE = {   // calibré en TEMPS RÉEL (horloge 1) : ~2,8 buts, ~28 tirs, ~
   lossW: 6,         // coût de la perte de balle dans le choix des passes
   tackleRate: 0.65,    // fréquence des tentatives de tacle
   foulP: 0.088,        // part des tentatives de tacle qui finissent en faute
-  xg: 0.46,          // échelle du modèle d'xG géométrique
+  xg: 0.62,          // échelle du modèle d'xG géométrique
   takeonW: 0.3,       // attrait du crochet / débordement
   hold: 1.6,            // temps de réflexion avant de jouer le ballon (×)
   recv: 3.2,            // temps de contrôle à la réception (×)
@@ -372,11 +372,17 @@ export class LiveSim {
         if (p.tx * L * dirD > dLine + 15) p.tx = clamp((dLine + 15) * dirD, 1, L - 1) / L;
       }
     }
+    // Passe et va : le passeur poursuit sa course (une-deux possible : on le cherche dans la course).
+    for (const p of attackers) {
+      if (!p.goRun) continue;
+      if (this.now > p.goRun.until || p.side !== poss) { p.goRun = null; continue; }
+      p.tx = p.goRun.x / L; p.ty = p.goRun.y / W; p.role = 'run';
+    }
     // Attaque : chacun se rend disponible (loin des marqueurs, ligne de passe ouverte).
     if (h && !this.inHands) this.findSpace(A, h, busy);
     // Deux solutions courtes autour du porteur, un appel en profondeur.
     if (h && !this.inHands) {
-      const mates = attackers.map((p) => ({ p, d: this.dist(p, rx, ry) })).sort((a, b) => a.d - b.d);
+      const mates = attackers.filter((p) => !p.goRun).map((p) => ({ p, d: this.dist(p, rx, ry) })).sort((a, b) => a.d - b.d);
       mates.slice(0, 2).forEach(({ p }, i) => {
         const side = (i === 0 ? 1 : -1) * (ry < W / 2 ? 1 : -1);
         p.tx = clamp(rx + dirA * (4 + i * 5), 2, L - 2) / L;
@@ -864,7 +870,26 @@ export class LiveSim {
     this.pending = { to, ok, from: h, t0: this.now, T, through: o.through };
     to.tx = tx / L; to.ty = ty / W;
     if (ok) m.lastPasser = h.mp;
+    if (ok && !o.lofted) this.planGiveGo(h, to, tx, ty);
     if (o.lofted || o.through) emit(m, out, { type: o.lofted ? 'longpass' : 'pass', side: A.side, pid: h.mp.id, pid2: o.r.mp.id, x: tx / L, y: ty / W, zone: m.zone });
+  }
+
+  /**
+   * « Passe et va » : après une passe courte vers l'avant, le passeur ne regarde pas, il file
+   * dans le dos de son adversaire pour offrir le une-deux (ou devenir le troisième homme).
+   */
+  planGiveGo(h, r, tx, ty) {
+    const A = h.team, dir = this.dir(A.side), pos = A.slots[h.mp.slot]?.pos;
+    if (!pos || pos === 'GB' || pos === 'DC') return;
+    const hx = this.X(h), hy = this.Y(h);
+    if ((dir > 0 ? hx : L - hx) < L * 0.35 || Math.hypot(tx - hx, ty - hy) > 24 || (tx - hx) * dir < -2) return;
+    if ((h.mp.id + Math.floor(this.now * 2)) % 3 === 0) return; // pas à chaque passe
+    const deep = Math.max(-Infinity, ...this.list(1 - A.side).filter((p) => !p.gk).map((p) => this.X(p) * dir));
+    const off = Math.max(deep, tx * dir) - 0.5;
+    const gx = Math.min(Math.max(hx * dir + 11, tx * dir + 5), off);
+    if (gx < hx * dir + 4) return; // pas d'espace devant lui
+    const gy = clamp(ty + (hy - ty) * 0.4 + (W / 2 - ty) * 0.15, 3, W - 3);
+    h.goRun = { until: this.now + 2.6, x: clamp(gx * dir, 2, L - 2), y: gy };
   }
 
   /** Frappe le ballon vers (tx, ty) : au sol, ou en l'air. Retourne la durée du trajet. */
@@ -1168,7 +1193,9 @@ export class LiveSim {
           continue;
         }
         // Raté : le défenseur lit l'action et récupère le ballon (ou commet une faute).
-        if (this.rand() < TUNE.foulP * 0.5 * (m.profile.fouls || 1)) { this.foul(h, o, out); return; }
+        // Dans sa surface, le défenseur se retient aussi ici (sinon : un penalty par dribble raté).
+        const inOwnBox = Math.abs(this.P.x - this.goalX(h.side)) < 16.5 && Math.abs(this.P.y - W / 2) < 20.15;
+        if (this.rand() < TUNE.foulP * 0.5 * (m.profile.fouls || 1) * (inOwnBox ? 0.15 : 1)) { this.foul(h, o, out); return; }
         o.slide = o.tk === 'slide' ? 0.8 : 0.55; h.fall = o.tk === 'slide' ? 1.4 : this.rand() < 0.3 ? 0.7 : 0; h.cd = 2.4;
         D.stats.tackles++; o.mp.tackles++; addRating(o.mp, 0.06);
         emit(m, out, { type: 'tackle', side: D.side, pid: o.mp.id, pid2: h.mp.id, x: this.P.x / L, y: this.P.y / W, zone: m.zone });
@@ -1181,7 +1208,7 @@ export class LiveSim {
       const tk = TK[D.tactics.tackling] || 0;
       // Dans sa propre surface, un défenseur se retient (sinon c'est penalty).
       const ownBox = Math.abs(this.P.x - this.goalX(h.side)) < 16.5 && Math.abs(this.P.y - W / 2) < 20.15;
-      const foulP = TUNE.foulP * this.ref.whistle * (m.profile.fouls || 1) * (1 + tk * 0.35) * (TR(o, 'rugueux') ? 1.35 : 1) * (TR(o, 'sangchaud') ? 1.2 : 1) * ((h.speed || 0) > 5 ? 1.3 : 1) * (ownBox ? 0.07 : 1) * (behind ? 2.2 : 1) * (h.prep ? 0.35 : 1);
+      const foulP = TUNE.foulP * this.ref.whistle * (m.profile.fouls || 1) * (1 + tk * 0.35) * (TR(o, 'rugueux') ? 1.35 : 1) * (TR(o, 'sangchaud') ? 1.2 : 1) * ((h.speed || 0) > 5 ? 1.3 : 1) * (ownBox ? 0.015 : 1) * (behind ? 2.2 : 1) * (h.prep ? 0.35 : 1);
       o.face = Math.atan2((h.y - o.y) * W, (h.x - o.x) * L);
       if (this.rand() < foulP) { this.foul(h, o, out); return; }
       const att = eff(h.mp, 'dri') * 0.75 + eff(h.mp, 'phy') * 0.25;
