@@ -469,6 +469,15 @@ for ei, eth in enumerate(ETH):
                 else:
                     k2 = np.clip((crotch + 0.13 - p[1]) / 0.1, 0, 1)
                     P[i] += NR[v] * 0.014 * k2
+            # Tissu : on lisse la coque (plus de relief anatomique à l'entrejambe ni aux fessiers),
+            # ceinture et ourlets fixes, puis on la regonfle légèrement.
+            loc = {v: i for i, v in enumerate(src)}
+            nb = [[loc[u] for u in NB[v] if u in loc] for v in src]
+            fixed = np.array([any(not shorts[u] for u in NB[v]) for v in src])
+            for _ in range(14):
+                M = np.array([P[n].mean(0) if n else P[i] for i, n in enumerate(nb)])
+                P = np.where(fixed[:, None], P, 0.5 * P + 0.5 * M)
+            P = P + NR[src] * 0.004
 
         add(f'{pname}.pos{ei}', q_pos(P), np.int16)
         add(f'{pname}.nrm{ei}', q_nrm(NR[src]), np.int8)
