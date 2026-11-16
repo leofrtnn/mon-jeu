@@ -48,7 +48,7 @@ const TR = (pl, k) => !!pl?.mp?.p?.traits?.includes(k);
 const TUNE = {   // calibré en TEMPS RÉEL (horloge 1) : ~2,8 buts, ~28 tirs, ~22 fautes par match
   clock: 1,        // secondes de match par seconde de jeu simulé (1 = temps réel)
   shotW: 0.32,        // attrait de la frappe face aux autres options
-  shotCost: 5.3,     // coût de la perte de balle dans le choix de tirer
+  shotCost: 10,     // coût de la perte de balle dans le choix de tirer
   carryW: 0.5,        // attrait de la conduite de balle
   keepW: 0.25,        // valeur de garder le ballon (passe sûre à un partenaire libre)
   holdU: -0.025,       // temporiser balle au pied (négatif : seulement quand les autres options sont mauvaises)
@@ -57,13 +57,14 @@ const TUNE = {   // calibré en TEMPS RÉEL (horloge 1) : ~2,8 buts, ~28 tirs, ~
   lossW: 6,         // coût de la perte de balle dans le choix des passes
   tackleRate: 0.65,    // fréquence des tentatives de tacle
   foulP: 0.088,        // part des tentatives de tacle qui finissent en faute
-  xg: 0.65,          // échelle du modèle d'xG géométrique
+  xg: 0.62,          // échelle du modèle d'xG géométrique
   takeonW: 0.3,       // attrait du crochet / débordement
   hold: 1.6,            // temps de réflexion avant de jouer le ballon (×)
   recv: 3.2,            // temps de contrôle à la réception (×)
   clearCorner: 0.025,  // part des dégagements d'urgence qui finissent en corner
   loftPen: 0.2,       // coût de choix d'un ballon aérien (réalisme : surtout des passes au sol)
 };
+if (globalThis.__T) Object.assign(TUNE, globalThis.__T);   // réglages de calibrage (outils)
 
 /** Durée (s) de l'animation de chaque geste technique. */
 const SKILL_DUR = { crochet: 0.35, feinte: 0.45, passement: 0.6, jongle: 0.8, petitpont: 0.4, talon: 0.4, roulette: 0.7, sombrero: 0.55, virgule: 0.45, coupdusombrero: 0.5 };
@@ -232,6 +233,7 @@ export class LiveSim {
     if (this.reshapeT > 0.3) { this.reshapeT = 0; this.positioning(); }
     if (this.restart) this.updateRestart(dt, out);
     else {
+      this.duelWatch(dt, out);
       this.updateHolder(dt, out);
       this.updateDefense(dt, out);
       this.updateLoose(dt, out);
@@ -258,13 +260,50 @@ export class LiveSim {
    * largeur, selon la position du ballon), pressing, couverture, marquage, soutien, appels.
    */
   positioning() {
+    this._positioning();
+    this.steadyTargets();
+  }
+
+  /**
+   * Placement calme : sans ballon, un joueur ne change pas de cible à chaque réévaluation
+   * (sinon il « panique » en zigzag). Petites corrections = glissement doux vers la nouvelle
+   * place ; il ne repart franchement que si sa place change vraiment (> 4 m) ou s'il a une
+   * mission urgente (presser, appel, dédoublement, attaque de la surface, marquage serré).
+   */
+  steadyTargets() {
+    if (globalThis.__X?.nosteady) return;
+    const urgent = new Set(['press', 'press2', 'run', 'overlap', 'box', 'recover', 'hold']);
+    for (const p of this.players.values()) {
+      if (p === this.holder || p === this.pending?.to || this.restart || p.gk || urgent.has(p.role)) { p._ax = p.tx; p._ay = p.ty; continue; }
+      if (p._ax == null) { p._ax = p.tx; p._ay = p.ty; continue; }
+      const dx = (p.tx - p._ax) * L, dy = (p.ty - p._ay) * W, d = Math.hypot(dx, dy);
+      if (d > 4 || p.role !== p._role) { p._ax = p.tx; p._ay = p.ty; }
+      else { p._ax += (p.tx - p._ax) * 0.3; p._ay += (p.ty - p._ay) * 0.3; p.tx = p._ax; p.ty = p._ay; }
+      p._role = p.role;
+    }
+  }
+
+  _positioning() {
     const P = this.P, m = this.m;
+    // Le bloc coulisse avec le jeu, mais à allure humaine : il suit un « ballon de référence »
+    // qui rattrape le vrai ballon à ~6 m/s (une passe de 30 m ne fait pas sprinter 20 joueurs).
+    // L'équipe qui défend réagit plus vite (elle doit fermer les espaces) que celle qui attaque.
+    const refs = (this._brefs ||= [{ x: P.x, y: P.y, t: this.now }, { x: P.x, y: P.y, t: this.now }]);
+    for (let sd = 0; sd < 2; sd++) {
+      const R = refs[sd], span = Math.min(1, this.now - R.t), dxr = P.x - R.x, dyr = P.y - R.y, dr = Math.hypot(dxr, dyr);
+      const v = this.poss === sd ? 6.5 : 11;
+      const stepR = Math.min(dr, v * span + (dr > 25 ? (dr - 25) * 0.6 : 0));
+      if (dr > 1e-6) { R.x += (dxr / dr) * stepR; R.y += (dyr / dr) * stepR; }
+      if (this.restart || this.celebrate > 0 || globalThis.__X?.nolag) { R.x = P.x; R.y = P.y; }
+      R.t = this.now;
+    }
     const bx = clamp(P.x / L, 0, 1), by = clamp(P.y / W, 0, 1);
     const h = this.holder, poss = this.poss;
     const busy = new Set([h, this.pending?.to, this.restart?.taker].filter(Boolean));
     for (const p of this.players.values()) {
       if (busy.has(p) || p.celeb > 0) continue;
-      const f = formationPos(p.team, p.mp, bx, by, p.side === poss, false);
+      const R = refs[p.side];
+      const f = formationPos(p.team, p.mp, clamp(R.x / L, 0, 1), clamp(R.y / W, 0, 1), p.side === poss, false);
       p.tx = f.x; p.ty = f.y;
       p.role = null;
     }
@@ -274,9 +313,16 @@ export class LiveSim {
       if (!p.gk || busy.has(p)) continue;
       const own = p.side === 0 ? 0 : L, sgn = p.side === 0 ? 1 : -1;
       const dB = Math.hypot(P.x - own, P.y - W / 2);
-      const k = clamp(1.2 + dB / 14, 1.2, 9) / Math.max(1, dB);
-      p.tx = (own + (P.x - own) * k + sgn * 0.3) / L;
-      p.ty = clamp(W / 2 + (P.y - W / 2) * k, W / 2 - GOAL_HALF - 1, W / 2 + GOAL_HALF + 1) / W;
+      // Gardien moderne : sur sa ligne quand le ballon est proche, avancé quand il s'éloigne, et
+      // en « libéro » au bord de sa surface quand son équipe attaque (il couvre la profondeur).
+      const ours = poss === p.side;
+      let dep = dB < 12 ? 0.9 : dB < 25 ? 0.9 + (dB - 12) * 0.17 : dB < 45 ? 3.1 + (dB - 25) * 0.22 : 7.5 + (dB - 45) * 0.3;
+      dep = Math.min(dep, ours ? 19 : 11);
+      const k = dep / Math.max(1, dB);
+      p.tx = (own + (P.x - own) * k) / L;
+      const latMax = dep < 6 ? GOAL_HALF - 0.4 : 9;
+      p.ty = clamp(W / 2 + (P.y - W / 2) * k, W / 2 - latMax, W / 2 + latMax) / W;
+      if (sgn * (p.tx * L - own) < 0.5) p.tx = (own + sgn * 0.5) / L;
     }
     if (poss < 0) return;
     const A = m.teams[poss], D = m.teams[1 - poss];
@@ -564,6 +610,14 @@ export class LiveSim {
     const dBall = Math.hypot(f.x - P.x, f.y - P.y);
     const aheadB = (P.x - h.x * L) * Math.cos(h.face) + (P.y - h.y * W) * Math.sin(h.face);
     const inStride = (h.speed || 0) > 1.5 && dBall < 4.2 && aheadB > -0.3 && P.z < 0.8;   // ballon poussé devant lui
+    // Geste armé (passe, frappe) : il est joué même si, en pivotant, le pied s'est un peu écarté
+    // du ballon (sinon le geste expirait sans partir et le joueur restait planté).
+    if (h.prep && dBall < 1.9 && P.z < 0.8) {
+      h.tx = h.x; h.ty = h.y; h.faceBall = false;
+      if (this.now >= h.prep.at) { const pk = h.prep.pick; h.prep = null; h.next = this.now + 0.4; this.execute(h, pk, out); }
+      else if (this.now > h.prep.until) h.prep = null;
+      return;
+    }
     if ((dBall > 0.9 && !inStride) || P.z > 0.8) { h.tx = P.x / L; h.ty = P.y / W; h.faceBall = true; return; }
     h.faceBall = false;
     // Entre deux touches, il court vers le ballon qu'il vient de pousser (il ne le dépasse pas).
@@ -582,7 +636,7 @@ export class LiveSim {
     } else if (h.carry) {
       h.tx = h.carry.x / L; h.ty = h.carry.y / W;
       const pressed = this.pressure(h) < 2.2;
-      if (this.dist(h, h.carry.x, h.carry.y) < 1.5 || this.now > h.carry.until || (pressed && !h.carry.takeon && this.now > h.carry.t0 + 0.4)) { h.carry = null; h.next = Math.min(h.next, this.now); }
+      if (this.dist(h, h.carry.x, h.carry.y) < 1.5 || this.now > h.carry.until || (pressed && !h.carry.takeon && !h.carry.escape && this.now > h.carry.t0 + 0.9)) { h.carry = null; h.next = Math.min(h.next, this.now); }
     } else {
       // Sans consigne : il protège le ballon s'il est pressé, sinon il avance tranquillement.
       const dir = this.dir(h.side);
@@ -592,6 +646,42 @@ export class LiveSim {
     h.shieldK = this.pressure(h) < 2.5 ? 1 : 0;
     // Il ne frappe / passe que le ballon à portée de pied (sinon il attend la prochaine touche).
     if (this.now >= h.next && dBall < 1.5) this.decide(h, out);
+  }
+
+  /**
+   * Arbitre des duels : un ballon coincé entre deux joueurs (porteur arrêté, adversaire collé)
+   * ne doit jamais durer. Au-delà de 3 s, le duel se dénoue : le défenseur l'emporte (tacle),
+   * ou le porteur se dégage d'une passe en retrait / d'un dégagement — selon leurs qualités.
+   */
+  duelWatch(dt, out) {
+    const h = this.holder, P = this.P;
+    const slow = Math.hypot(P.vx, P.vy) < 1.5 && (!h || (h.speed || 0) < 1.5);
+    const opp = h && !this.inHands ? [...this.players.values()].find((o) => o.side !== h.side && Math.hypot(o.x * L - P.x, o.y * W - P.y) < 2.6) : null;
+    const loose = !h && !this.pending && [...this.players.values()].filter((o) => Math.hypot(o.x * L - P.x, o.y * W - P.y) < 2.6).length >= 2;
+    if (slow && (opp || loose) && !this.shot) this._stall = (this._stall || 0) + dt; else this._stall = 0;
+    if (this._stall < 3) return;
+    this._stall = 0;
+    if (loose) {
+      const c = [...this.players.values()].sort((a, b) => Math.hypot(a.x * L - P.x, a.y * W - P.y) - Math.hypot(b.x * L - P.x, b.y * W - P.y))[0];
+      if (c) this.gain(c, out);
+      return;
+    }
+    h.prep = null; h.carry = null; h.waitN = 0;
+    // Face au gardien : il se couche sur le ballon (ou le dégage) — l'attaquant a trop attendu.
+    if (opp.gk) { if (typeof this.gkCatch === 'function' && Math.abs(P.x - this.goalX(h.side)) < 16.5) this.gkCatch(opp, out); else this.gain(opp, out, true); return; }
+    const att = eff(h.mp, 'dri') * 0.6 + eff(h.mp, 'pas') * 0.4, def = eff(opp.mp, 'def') * 0.75 + eff(opp.mp, 'phy') * 0.25;
+    if (this.rand() < sig((def - att) / 14)) {
+      opp.slide = this.rand() < 0.3 ? 0.8 : 0.5; opp.face = Math.atan2((h.y - opp.y) * W, (h.x - opp.x) * L);
+      opp.team.stats.tackles++; opp.mp.tackles++;
+      emit(this.m, out, { type: 'tackle', side: opp.side, pid: opp.mp.id, pid2: h.mp.id, x: P.x / L, y: P.y / W, zone: this.m.zone });
+      h.cd = 2.6; h.bump = 0.6; h.bumpDir = Math.atan2((h.y - opp.y) * W, (h.x - opp.x) * L);   // le perdant est déséquilibré
+      this.gain(opp, out, true);
+      return;
+    }
+    // Le porteur se dégage : passe vers le partenaire le plus libre (souvent en retrait), sinon dégagement.
+    const mates = this.list(h.side).filter((q) => q !== h).map((q) => ({ q, o: this.passOption(h, q) })).filter((x) => x.o).sort((a, b) => (b.o.p || 0) - (a.o.p || 0));
+    if (mates.length) { const o = mates[0].o; o.offside = false; h.kick = 0.24; h.kickMax = 0.24; h.kickFoot = this.footSign(h) > 0 ? 'R' : 'L'; this.doPass(h, o, out); }
+    else this.doClear(h, out);
   }
 
   /** Distance au plus proche adversaire. */
@@ -698,11 +788,26 @@ export class LiveSim {
     if (Math.hypot(ownGx - hx, W / 2 - hy) < 22 && press < 3) opts.push({ k: 'clear', u: 0.02 });
     // Temporiser : sans adversaire au contact, garder le ballon (se protéger, lever la tête,
     // attendre l'appel d'un partenaire) vaut mieux qu'une passe ou une frappe sans intérêt.
-    if (!h.gk) {
+    // Adversaire au contact : on peut protéger le ballon un instant, puis il faut jouer
+    // (crochet pour se dégager, passe de sécurité, dribble) — jamais de face-à-face qui s'éternise.
+    const opp1 = this.list(D.side).filter((o) => !(o.fall > 0) && !(o.slide > 0)).map((o) => ({ o, d: Math.hypot(this.X(o) - hx, this.Y(o) - hy) })).sort((a, b) => a.d - b.d)[0];
+    const contact = opp1 && opp1.d < 2.4;
+    const dGoalE = Math.hypot(this.goalX(A.side) - hx, W / 2 - hy);
+    if (contact && (h.waitN || 0) >= 1 && dGoalE > 24 && !globalThis.__X?.noesc) {
+      // Se dégager : demi-tour / pas de côté, le corps entre l'adversaire et le ballon.
+      const ax = hx - this.X(opp1.o), ay = hy - this.Y(opp1.o), al = Math.hypot(ax, ay) || 1;
+      const side = ((h.mp.id + Math.floor(this.now)) % 2 ? 1 : -1);
+      const ex = clamp(hx + (ax / al) * 4 + (-ay / al) * side * 2.5, 2, L - 2), ey = clamp(hy + (ay / al) * 4 + (ax / al) * side * 2.5, 2, W - 2);
+      opts.push({ k: 'carry', u: -0.035 + (h.waitN || 0) * 0.022 + eff(h.mp, 'dri') / 5000, x: ex, y: ey, escape: true });
+    }
+    // On temporise au plus trois fois de suite (≈ 2-3 s), et deux fois sous la pression d'un adversaire.
+    if (!h.gk && !(contact && (h.waitN || 0) >= 2) && (h.waitN || 0) < 3) {
       const room = clamp((press - 1.6) / 4, 0, 1);
       const waited = h.waitN || 0;                               // on ne temporise pas indéfiniment
-      opts.push({ k: 'hold', u: (TUNE.holdU + 0.02 * room) * (1 + waited * 0.6) - (press < 1.4 ? 0.1 : 0) });
+      opts.push({ k: 'hold', u: (TUNE.holdU + 0.02 * room) * (1 + waited * 0.6) - (press < 1.4 ? 0.1 : 0) - waited * 0.03 });
     }
+    // Sous pression prolongée, la passe la plus sûre redevient acceptable (on joue simple).
+    if (contact && (h.waitN || 0) >= 1) for (const o of opts) if (o.k === 'pass' && !o.lofted) o.u += 0.03 * Math.min(3, h.waitN);
     if (!opts.length) { h.next = this.now + 0.3; return; }
     // Choix : le meilleur, avec une part de hasard d'autant plus faible que le joueur voit le jeu.
     const vis = eff(h.mp, 'vis');
@@ -712,6 +817,7 @@ export class LiveSim {
     const lean = (o) => (o.k === 'shot' ? hf.shot : o.k === 'carry' || o.k === 'takeon' ? hf.dribble : o.k === 'cross' ? hf.cross : o.k === 'pass' ? (o.lofted ? hf.long || hf.pass : hf.pass) : 1) || 1;
     const ws = opts.map((o) => Math.exp((o.u - Math.max(...opts.map((x) => x.u))) / temp) * lean(o));
     const pick = opts[this.rng.weightedIndex(ws)];
+    h.lastPick = pick.k;
     const tempo = LVL[A.tactics.tempo] || 0;
     h.next = this.now + (0.45 + this.rand() * 0.5) * TUNE.hold * (1 - tempo * 0.18) * (press < 3 ? 0.6 : 1) * (1.3 - vis / 250) * (mood.counter ? 0.82 : 1) * (mood.wasting && press > 4 ? 1.7 : 1);
     // Passe, frappe, centre, dégagement : le joueur s'arrête sur son appui et arme sa jambe ;
@@ -742,7 +848,7 @@ export class LiveSim {
     h.waitN = 0;
     if (pick.k === 'shot') this.doShot(h, 'open', out);
     else if (pick.k === 'pass') this.doPass(h, pick, out);
-    else if (pick.k === 'carry') { h.carry = { x: pick.x, y: pick.y, t0: this.now, until: this.now + 1.2 + this.rand() * 1.4 }; h.next = h.carry.until; }
+    else if (pick.k === 'carry') { h.carry = { x: pick.x, y: pick.y, t0: this.now, until: this.now + (pick.escape ? 0.9 : 1.2 + this.rand() * 1.4), escape: !!pick.escape }; h.next = h.carry.until; }
     else if (pick.k === 'takeon') {
       // Le crochet est joué : réussi, le défenseur se jette dans le vide ; raté, il gagne le duel.
       h.carry = { x: pick.x, y: pick.y, t0: this.now, until: this.now + 2.2, takeon: { def: pick.opp, win: this.rand() < pick.pWin, move: pick.move } };
@@ -1215,13 +1321,13 @@ export class LiveSim {
       o.cd -= dt;
       if (o.cd > 0 || o.fall > 0 || o.slide > 0) continue; // au sol ou en plein geste : pas de nouveau duel
       const d = Math.hypot((o.x - h.x) * L, (o.y - h.y) * W);
-      if (d > 1.4) continue;
+      if (d > ((h.speed || 0) < 1.2 ? 2.0 : 1.4)) continue;   // porteur arrêté : on peut aller le chercher d'un pas
       if (o.role !== 'press' && o !== h.carry?.takeon?.def && d > 0.9) continue; // seul le presseur va au duel
       const press = LVL[D.tactics.pressing] || 0;
       // Par derrière : on tente rarement (et c'est plus souvent faute).
       const hs = Math.hypot(h.vx || 0, h.vy || 0);
       const behind = hs > 1.5 && (((o.x - h.x) * L * (h.vx || 0) + (o.y - h.y) * W * (h.vy || 0)) / hs) < -0.6;
-      if (behind && this.rand() < 0.7) { o.cd = 0.6; continue; }
+      if (behind && (h.speed || 0) > 1.2 && this.rand() < 0.7) { o.cd = 0.6; continue; }
       this.duelCd = 0.9 + this.rand() * 0.5;
       o.tk = this.rand() < 0.35 ? 'slide' : 'stand';
       const to = h.carry?.takeon;
@@ -1253,12 +1359,14 @@ export class LiveSim {
         return;
       }
       o.cd = 0.55 + this.rand() * 0.5 - press * 0.1;
-      if (this.rand() > (0.5 + press * 0.12) * TUNE.tackleRate) continue;
+      // Porteur arrêté (il protège le ballon) : le défenseur au contact va le chercher.
+      const still = (h.speed || 0) < 1.2 ? 1.8 : 1;
+      if (this.rand() > Math.min(0.95, (0.5 + press * 0.12) * TUNE.tackleRate * still)) continue;
       // Tentative de tacle : faute, ballon récupéré, ou dribble réussi du porteur.
       const tk = TK[D.tactics.tackling] || 0;
       // Dans sa propre surface, un défenseur se retient (sinon c'est penalty).
       const ownBox = Math.abs(this.P.x - this.goalX(h.side)) < 16.5 && Math.abs(this.P.y - W / 2) < 20.15;
-      const foulP = TUNE.foulP * this.ref.whistle * (m.profile.fouls || 1) * (1 + tk * 0.35) * (TR(o, 'rugueux') ? 1.35 : 1) * (TR(o, 'sangchaud') ? 1.2 : 1) * ((h.speed || 0) > 5 ? 1.3 : 1) * (ownBox ? 0.015 : 1) * (behind ? 2.2 : 1) * (h.prep ? 0.35 : 1);
+      const foulP = TUNE.foulP * this.ref.whistle * (m.profile.fouls || 1) * (1 + tk * 0.35) * (TR(o, 'rugueux') ? 1.35 : 1) * (TR(o, 'sangchaud') ? 1.2 : 1) * ((h.speed || 0) > 5 ? 1.3 : 1) * (ownBox ? 0.015 : 1) * (behind ? 2.2 : 1) * (h.prep ? 0.35 : 1) * ((h.speed || 0) < 1.2 ? 0.6 : 1);
       o.face = Math.atan2((h.y - o.y) * W, (h.x - o.x) * L);
       if (this.rand() < foulP) { this.foul(h, o, out); return; }
       const att = eff(h.mp, 'dri') * 0.75 + eff(h.mp, 'phy') * 0.25;
@@ -1326,6 +1434,8 @@ export class LiveSim {
     if (this.dist(p, this.P.x, this.P.y) < 2.5) p.face = Math.atan2(this.P.y - p.y * W, this.P.x - p.x * L);
     // Ballon gagné dans un duel : on joue vite (sinon l'adversaire, juste à côté, retacle aussitôt).
     p.next = this.now + (fast ? 0.25 + this.rand() * 0.3 : (0.35 + this.rand() * 0.45) * TUNE.recv);
+    // Adversaire au contact : il n'a pas le temps de s'installer, il joue tout de suite.
+    if (this.pressure(p) < 2.4) p.next = Math.min(p.next, this.now + 0.25 + this.rand() * 0.2);
     if (fast) { this.duelCd = Math.max(this.duelCd || 0, 1.8); p.cd = 1.2; }
     p.touch = 0.2;
     this.lastTouch = p.side;
@@ -1921,8 +2031,12 @@ export class LiveSim {
       else {
         // Sans ballon, on recule face au jeu (petits pas, pas de demi-tour) quand le ballon est devant soi.
         const toBall = Math.atan2(P.y - p.y * W, P.x - p.x * L), mv = Math.atan2(p.vy, p.vx);
-        p.back = p !== this.holder && p.speed > 0.8 && p.speed < 5.4 && Math.cos(mv - toBall) < -0.35 && dist < 12;
-        target = p.back ? toBall : p.speed > 1.2 ? mv : toBall;
+        // Reculer face au jeu : un défenseur qui se replace sur quelques mètres, le gardien,
+        // ou un petit ajustement. Sinon on court droit devant soi (la tête suit le ballon).
+        const defending = this.poss !== p.side;
+        p.back = p !== this.holder && p.speed > 0.6 && Math.cos(mv - toBall) < -0.35
+          && (p.gk ? p.speed < 5 : (defending && dist < 7 && p.speed < 4.6) || (dist < 2.5 && p.speed < 2.6));
+        target = p.back ? toBall : p.gk && p.speed < 4 ? toBall : p.speed > 1.2 ? mv : toBall;
       }
       let d = target - (p.face || 0);
       while (d > Math.PI) d -= Math.PI * 2;
@@ -1941,10 +2055,18 @@ export class LiveSim {
       if (this.restart?.hurry) cap = Infinity;   // l'arbitre presse : on court se replacer
       else if (this.restart && p !== this.restart.taker) { const dd = Math.hypot((p.tx - p.x) * L, (p.ty - p.y) * W); cap = dd > 25 ? 6.4 : dd > 10 ? 5 : 3.4; }
       else if (this.restart) cap = Math.hypot((p.tx - p.x) * L, (p.ty - p.y) * W) > 12 ? 6.5 : 4.2;   // le tireur file vers le ballon
-      else if (p !== this.holder && p !== this.pending?.to && !['press', 'run', 'overlap', 'box'].includes(p.role) && !p.gk && this.dist(p, this.P.x, this.P.y) > 24) {
-        // Loin de l'action : on marche ou on trottine pour garder sa place (on ne sprinte pas sans raison).
+      else if (!globalThis.__X?.nocap && p !== this.holder && p !== this.pending?.to && !['press', 'press2', 'run', 'overlap', 'box', 'recover', 'hold'].includes(p.role) && !p.gk) {
+        // Allure selon l'urgence : on marche ou on trottine pour garder sa place, on accélère
+        // seulement si l'on est loin de sa place, près de l'action, ou si l'on défend un
+        // ballon qui file vers son but (on ne sprinte pas sans raison).
         const dd = Math.hypot((p.tx - p.x) * L, (p.ty - p.y) * W);
-        cap = dd > 15 ? 5.4 : dd > 6 ? 3.8 : 2.2;
+        const dBall = this.dist(p, this.P.x, this.P.y);
+        const own = this.goalX(1 - p.side), threatened = this.poss !== p.side && (Math.abs(this.P.x - own) < 52 || (this.P.vx * (own - this.P.x)) > 0);
+        // En possession : celui qui se projette devant le ballon ou se propose au porteur y va franchement.
+        const attacking = this.poss === p.side && (p.tx * L - this.P.x) * this.dir(p.side) > -2 && dBall < 40;
+        const near = dBall < 15 || attacking || p.role === 'support';
+        cap = dd > 18 ? (dBall > 30 && !threatened ? 5 : 6.2) : dd > 9 ? (near || threatened ? 6 : 4.8) : dd > 4 ? (near || threatened ? 5 : 3.6) : dd > 1.5 ? 2.4 : 1.4;
+        if (p.role === 'mark' && dd > 2) cap = Math.max(cap, 5.2);
       } else if (p === this.holder && !this.inHands && !p.carry?.takeon) {
         // Porteur libre de tout marquage : il ne fonce pas, il marche ou trottine balle au pied en
         // levant la tête (il n'accélère que pressé, en contre-attaque ou dans un espace à attaquer).
