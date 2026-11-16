@@ -1491,3 +1491,10 @@ html.land .srch-f { position: sticky; top: 70px; max-height: calc(var(--H, 100vh
 .stable td.pl { display: flex; align-items: center; gap: 9px; min-width: 170px; }
 .stable td.pl small { display: block; color: var(--muted); font-size: 11px; }
 .stable td.pl .face { width: 34px; height: 34px; flex: none; }
+
+/* ---- Habillage télé : bandeau du nom sur les gros plans ---- */
+.lower3 { position: absolute; left: 4%; bottom: 13%; display: flex; align-items: stretch; gap: 0; z-index: 4; pointer-events: none;
+  transform: translateX(-12px); opacity: 0; transition: opacity .25s, transform .25s; font-family: var(--display, inherit); }
+.lower3.on { opacity: 1; transform: none; }
+.lower3 .n { min-width: 34px; padding: 6px 8px; color: #fff; font-weight: 800; text-align: center; font-size: 18px; text-shadow: 0 1px 2px rgba(0,0,0,.4); }
+.lower3 b { background: rgba(10, 14, 28, .88); color: #fff; padding: 6px 14px; font-size: 18px; letter-spacing: .04em; text-transform: uppercase; }

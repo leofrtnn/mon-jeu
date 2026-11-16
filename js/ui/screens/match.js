@@ -275,7 +275,7 @@ export function openMatch(app, opts = {}) {
   /** Présentation des équipes (caméra qui survole le stade), puis coup d'envoi. */
   const kickoffShow = () => {
     if (view.r3d) { view.r3d.camMode = 'intro'; view.r3d._introT = 0; }
-    return bc.intro(matchDay(m, cfg, currentDate(s))).then(() => { if (view.r3d) view.r3d.camMode = 'tv'; });
+    return bc.intro(matchDay(m, cfg, currentDate(s))).then(() => { if (view.r3d) view.r3d.camMode = 'director'; });
   };
   window.__bc = bc; window.__view = view; window.__journal = journal; window.__duel = duel; window.__ctrl = ctrl; window.__cfgSnap = () => replayCfg(cfg); // débogage
   view.ffSpeed = s.settings.ffSpeed ?? 'R'; // par défaut : résumé (seules les actions sont jouées)

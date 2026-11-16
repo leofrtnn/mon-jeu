@@ -1691,6 +1691,10 @@ export class Match3D {
     this.canvas = document.createElement('canvas');
     this.canvas.className = 'pitch3d';
     parent.insertBefore(this.canvas, view.canvas);
+    // Bandeau « nom du joueur » en bas de l'image sur les gros plans (habillage télé).
+    this.lower = document.createElement('div');
+    this.lower.className = 'lower3';
+    parent.appendChild(this.lower);
     // Téléphones / tablettes : pas d'anticrénelage matériel (coûteux), ombres simplifiées, 40 images/s max.
     this.mobile = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
     // Qualité graphique (Paramètres) : ultra (défaut sur PC), high (défaut sur téléphone), eco.
@@ -1709,7 +1713,7 @@ export class Match3D {
     });
     this.scene.fog = new THREE.Fog('#141d33', 150, 280);
     this.camera = new THREE.PerspectiveCamera(30, 1.5, 0.5, 600);
-    this.camMode = 'tv';
+    this.camMode = 'director';   // réalisation télé automatique par défaut
     this.camPos = new THREE.Vector3(0, 30, 70);
     this.camLook = new THREE.Vector3(0, 0, 0);
     this.hemi = new THREE.HemisphereLight('#e8f0ff', '#2f4a32', 1.1);
@@ -2372,7 +2376,7 @@ export class Match3D {
     // Réalisation après un but (comme à la télé) : gros plan sur le buteur qui célèbre, plan sur
     // son entraîneur, plan sur un adversaire abattu ; le ralenti est filmé depuis derrière le but.
     if (this._goalSeq && !v.replaying && this.camMode !== 'intro') { if (this.goalShot(dt)) return; this._goalSeq = false; this._gs = null; this.snapCam = true; }
-    if (v.replaying) { if (this.replayShot(dt, bx, bz)) return; } else this._replayCam = false;
+    if (v.replaying) { this.setLower(null); if (this.replayShot(dt, bx, bz)) return; } else { this._replayCam = false; this._replayKey = null; }
     if (v.replaying || celebrating) mode = 'close';
     const want = new THREE.Vector3(), look = new THREE.Vector3(bx, 0, bz * 0.35);
     if (mode === 'intro') {
@@ -2387,6 +2391,7 @@ export class Match3D {
     // Réalisation TV : le réalisateur change de plan selon l'action (plan large, plan serré sur
     // le porteur dans les 30 derniers mètres, derrière le but sur une frappe, bord terrain sur
     // les coups de pied arrêtés), sans couper trop souvent.
+    if (mode !== 'director') this.setLower(null);
     if (mode === 'director') {
       // Grosse occasion manquée : gros plan sur le joueur, mains sur la tête.
       if (!v.replaying && v.hl !== 'skip') {
@@ -2398,17 +2403,40 @@ export class Match3D {
           if (e) { const q = e.p3.root.position; this.placeCam(new THREE.Vector3(q.x + 3.8, 1.7, q.z + 2.6), new THREE.Vector3(q.x, 1.35, q.z), 32, dt, performance.now() - this._missAt < 60); return; }
         }
       }
-      const L2 = v.live, P2 = v.phys;
-      const near = L2 && P2 ? Math.min(Math.abs(P2.x - 0), Math.abs(P2.x - L)) : 50;
+      // Réalisation : pendant le jeu, on reste sur la caméra principale (elle zoome dans le
+      // dernier tiers, sans couper en pleine action). On coupe sur les arrêts de jeu : gros plan
+      // sur le joueur fauché (avec son nom), plan derrière le tireur d'un coup franc / penalty,
+      // plan surélevé derrière le poteau de corner.
+      const L2 = v.live, rs = L2?.restart;
       let want2 = 'tv';
-      if (L2?.shot) want2 = 'goal';
-      else if (L2?.restart && ['corner', 'freekick', 'penalty'].includes(L2.restart.kind)) want2 = 'pitchside';
-      else if (near < 28 && v.holder != null) want2 = 'close';
       const nowT = performance.now();
-      if (want2 !== this._dirMode && nowT - (this._dirAt || 0) > (want2 === 'goal' ? 600 : 2600)) { this._dirMode = want2; this._dirAt = nowT; }
+      if (this._victim && nowT - this._victim.at < 1700) want2 = 'victim';
+      else if (rs && rs.kind === 'corner') want2 = 'corner';
+      else if (rs && rs.kind === 'penalty') want2 = 'pen';
+      else if (rs && rs.kind === 'freekick' && Math.hypot((rs.side === 0 ? L : 0) - rs.x, W / 2 - rs.y) < 32) want2 = 'fk';
+      const hold = this._dirMode === 'victim' ? 1500 : 1200;
+      if (want2 !== this._dirMode && (want2 !== 'tv' || nowT - (this._dirAt || 0) > hold)) { this._dirMode = want2; this._dirAt = nowT; }
       mode = this._dirMode || 'tv';
+      this.setLower(mode === 'victim' ? this._victim?.pid : null);
+      if (mode === 'victim') {
+        const e = this.players.get(this._victim?.pid);
+        if (e) { const q = e.p3.root.position; want.set(q.x + 3.2, 1.6, q.z + (q.z > 0 ? -3.2 : 3.2)); look.set(q.x, 0.8, q.z); this.camera.fov = 34; }
+        else mode = 'tv';
+      } else if (rs && (mode === 'corner' || mode === 'pen' || mode === 'fk')) {
+        const [rx, rz] = this.toWorld(rs.x / L, rs.y / W);
+        const [gx2, gz2] = this.toWorld(rs.side === 0 ? 1 : 0, 0.5);
+        const dx = gx2 - rx, dz = gz2 - rz, dl = Math.hypot(dx, dz) || 1;
+        if (mode === 'corner') { want.set(rx - Math.sign(rx) * 3, 10, rz - Math.sign(rz) * -4); look.set(gx2 - Math.sign(gx2) * 9, 0, 0); this.camera.fov = 40; }
+        else if (mode === 'pen') { want.set(rx - (dx / dl) * 7, 2.3, rz - (dz / dl) * 7); look.set(gx2, 1.2, gz2); this.camera.fov = 32; }
+        else { want.set(rx - (dx / dl) * 10, 4.2, rz - (dz / dl) * 10); look.set(gx2, 1, gz2); this.camera.fov = 36; }
+      }
     }
-    if (mode === 'tv') { want.set(Math.max(-40, Math.min(40, bx * 0.93)), 24, 52); look.set(bx, 0, bz * 0.38 - 4); this.camera.fov = 24.5; }   // plan serré façon FM : joueurs bien lisibles
+    if (mode === 'tv') {
+      // Plan serré façon FM ; le cadreur zoome doucement quand l'action entre dans le dernier tiers.
+      const zoomT = Math.abs(bx) > L / 2 - 30 ? 20.5 : 24.5;
+      this._tvFov = (this._tvFov ?? 24.5) + (zoomT - (this._tvFov ?? 24.5)) * Math.min(1, dt * 1.2);
+      want.set(Math.max(-40, Math.min(40, bx * 0.93)), 24, 52); look.set(bx, 0, bz * 0.38 - 4); this.camera.fov = this._tvFov;
+    }
     else if (mode === 'pitchside') { want.set(Math.max(-48, Math.min(48, bx * 0.85)), 1.7, W / 2 + 3.2); look.set(bx, 1.1, bz); this.camera.fov = 42; }     // caméra à hauteur d'homme, au bord de la ligne
     else if (mode === 'tribune') { want.set(Math.max(-30, Math.min(30, bx * 0.6)), 34, 74); look.set(bx * 0.8, 0, bz * 0.25); this.camera.fov = 34; }  // tout en haut de la tribune principale
     else if (mode === 'player') {
@@ -2421,11 +2449,12 @@ export class Match3D {
     }
     else if (mode === 'close') { want.set(bx * 0.9 - 4, 13, bz + 30); look.set(bx, 1, bz); this.camera.fov = 34; }
     else if (mode === 'high') { want.set(bx * 0.4, 95, 52); look.set(bx * 0.4, 0, 0); this.camera.fov = 38; }
+    else if (['victim', 'corner', 'pen', 'fk'].includes(mode)) { /* plan déjà posé par la réalisation */ }
     else { const side = bx >= 0 ? 1 : -1; want.set(side * (L / 2 + 22), 12, bz * 0.3); look.set(bx, 0, bz); this.camera.fov = 40; }
     const k = 1 - Math.exp(-dt * (mode === 'close' ? 3 : 2.2));
     // Changement de plan = coupe franche (comme en réalisation télé), jamais de glissement d'un
     // plan à l'autre ; à l'intérieur d'un même plan, la caméra suit l'action en douceur.
-    if (mode !== this._shotMode) { this._shotMode = mode; this.snapCam = true; }
+    if (mode !== this._shotMode) { this._shotMode = mode; this.snapCam = true; if (mode === 'tv') this._tvFov = Math.abs(bx) > L / 2 - 30 ? 20.5 : 24.5; }
     const kk = this.snapCam ? 1 : k; this.snapCam = false;
     this.clampCam(want);
     this.camPos.lerp(want, kk);
@@ -2474,6 +2503,17 @@ export class Match3D {
       this.composer = c;
     } catch (e) { console.warn('post-traitement indisponible', e); this.composer = null; }
   }
+  /** Bandeau du nom (numéro, nom, couleur de l'équipe) ; null pour le masquer. */
+  setLower(pid) {
+    if (!this.lower || this._lowerPid === pid) return;
+    this._lowerPid = pid;
+    if (pid == null) { this.lower.classList.remove('on'); return; }
+    const p = this.v.players.get(pid), nm = this.v.nameOf?.(pid) || '';
+    const col = p ? this.v.colors[p.side] : '#1c2333';
+    this.lower.innerHTML = `<span class="n" style="background:${col}">${p?.num ?? ''}</span><b>${String(nm).replace(/[<>&]/g, '')}</b>`;
+    this.lower.classList.add('on');
+  }
+
   /**
    * La caméra ne rentre jamais dans les tribunes : devant les virages et la grande tribune, elle
    * reste au bord du terrain ; côté caméras, elle ne passe derrière le premier rang que si elle
@@ -2541,12 +2581,26 @@ export class Match3D {
     return false; // retour au plan large
   }
   /** Ralenti : filmé depuis derrière le but attaqué, à hauteur de la barre. */
+  /**
+   * Plans du ralenti (comme à la télé) : but = 1er passage derrière le but, en hauteur, puis
+   * 2e passage au ras du sol, au plus près de l'action ; faute = plan serré au bord du terrain ;
+   * occasion = derrière le but. Chaque passage commence par une coupe franche.
+   */
   replayShot(dt, bx, bz) {
-    const goalX = bx >= 0 ? L / 2 : -L / 2;
-    const want = new THREE.Vector3(goalX + Math.sign(goalX) * 9, 3.1, bz * 0.4 + 2);
-    const look = new THREE.Vector3(bx, 1, bz);
-    const cut = !this._replayCam; this._replayCam = true;
-    this.placeCam(want, look, 38, dt, cut);
+    const R = this.v.replayLive || {}, kind = R.kind || 'goal', pass = R.pass || 0;
+    const key = `${kind}${pass}`;
+    const cut = this._replayKey !== key; this._replayKey = key; this._replayCam = true;
+    const goalX = bx >= 0 ? L / 2 : -L / 2, sg = Math.sign(goalX) || 1;
+    let want, look, fov;
+    if (kind === 'foul') {
+      want = new THREE.Vector3(bx + 4, 1.5, bz + (bz > 0 ? -9 : 9)); look = new THREE.Vector3(bx, 0.9, bz); fov = 30;
+    } else if (kind === 'goal' && pass === 1) {
+      // Au ras du sol, à hauteur du ballon, du côté du terrain : on voit le geste et le filet.
+      want = new THREE.Vector3(bx - sg * 6, 1.25, bz + (bz > 0 ? -6.5 : 6.5)); look = new THREE.Vector3(bx + sg * 2, 0.9, bz); fov = 34;
+    } else {
+      want = new THREE.Vector3(goalX + sg * 9, 3.1, bz * 0.4 + 2); look = new THREE.Vector3(bx, 1, bz); fov = 38;
+    }
+    this.placeCam(want, look, fov, dt, cut);
     return true;
   }
 
@@ -2605,7 +2659,7 @@ export class Match3D {
     const mine = C[s], other = C[1 - s];
     if (ev.type === 'goal') { mine?.react('celebrate', 4.5); other?.react('despair', 3.5); if (!ev.replay) { this._goalSeq = true; this._gs = null; this._benchT = 6; this._benchSide = s; } }
     else if (ev.type === 'shot' && ev.outcome !== 'goal' && (ev.xg || 0) >= 0.18) { mine?.react('despair', 1.8); other?.react('applaud', 1.4); }
-    else if (ev.type === 'foul') { mine?.react('protest', 1.8); other?.react('shout', 1.6); }
+    else if (ev.type === 'foul') { mine?.react('protest', 1.8); other?.react('shout', 1.6); if (!ev.replay && ev.pid2 != null) this._victim = { pid: ev.pid2, at: performance.now() }; }
     else if (ev.type === 'yellow' || ev.type === 'red') mine?.react('protest', 2.6);
     else if (ev.type === 'skill') mine?.react('applaud', 1.6);
   }
@@ -2803,5 +2857,6 @@ export class Match3D {
     this.composer?.dispose?.(); this.composer = null;
     this.renderer.dispose();
     this.canvas.remove();
+    this.lower?.remove();
   }
 }

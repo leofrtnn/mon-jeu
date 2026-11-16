@@ -693,21 +693,28 @@ export class MatchView {
   /** Lance le ralenti : sauvegarde l'état réel, puis rejoue la séquence enregistrée. */
   startReplay() {
     const frames = this.replayPlan.frames;
-    this.replayPlan = null;
+    const plan = this.replayPlan;
     if (!frames || frames.length < 10) return;
     const save = new Map();
     for (const [id, p] of this.players) save.set(id, { ...p });
-    this.replayLive = { frames, pos: 0, end: (frames[frames.length - 1].t - frames[0].t) / 96, save, P: { ...this.phys, rot: { ...(this.phys.rot || {}) } } };
+    // Ralenti de but : deux passages sous deux angles (derrière le but, puis au ras du sol) ;
+    // faute / occasion : un seul passage.
+    const kind = plan?.kind || 'goal';
+    this.replayLive = { frames, pos: 0, end: (frames[frames.length - 1].t - frames[0].t) / 96, save, P: { ...this.phys, rot: { ...(this.phys.rot || {}) } }, kind, pass: 0, passes: kind === 'goal' ? 2 : 1 };
+    this.replayPlan = null;
     this.replaying = true;
   }
 
   /** Avance le ralenti (vitesse 0,45) ; à la fin, tout revient exactement à l'état réel. */
   playReplay(realDt) {
     const R = this.replayLive;
-    R.pos += realDt * 0.5;
+    R.pos += realDt * (R.pass === 0 ? 0.55 : 0.4);   // 2e angle encore plus lent
     const t = R.frames[0].t + R.pos * 96;
     let i = R.frames.findIndex((f) => f.t > t);
-    if (i < 0 || R.pos >= R.end) { this.endReplay(); return; }
+    if (i < 0 || R.pos >= R.end) {
+      if (R.pass + 1 < R.passes) { R.pass++; R.pos = Math.max(0, R.end - 3.2); return; }   // 2e angle : les 3 dernières secondes
+      this.endReplay(); return;
+    }
     const a = R.frames[Math.max(0, i - 1)], b = R.frames[i];
     const k = b.t === a.t ? 0 : (t - a.t) / (b.t - a.t);
     const mix = (u, v) => u + (v - u) * k;
