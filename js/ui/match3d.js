@@ -903,12 +903,13 @@ export class Player3D {
       a.sh.rotation.set(0, 0, (a.sgn < 0 ? -sw : sw) * (0.7 + 0.5 * run));
       // Bras le long du corps à l'arrêt (légèrement écartés), coude qui se plie avec l'allure.
       a.sh.rotation.x = -a.sgn * (0.06 + 0.08 * jog);
-      a.el.rotation.z = 0.18 + 0.25 * jog + 1.0 * run;
+      a.el.rotation.z = 0.12 + 0.12 * jog + 1.1 * run * run;
     }
     const lean = pb ? -0.08 : Math.max(-0.25, Math.min(0.32, 0.05 + 0.2 * run + (p.acc || 0) * 0.025));
     // Jeu de corps : on se penche en avant pour démarrer, on se redresse et on « s'assoit » pour freiner.
     this._acc = (this._acc || 0) + (((p.acc || 0)) - (this._acc || 0)) * Math.min(1, (ctx.dt || 0.016) * 8);
-    const accLean = pb ? 0 : Math.max(-0.2, Math.min(0.22, this._acc * 0.035));
+    const accLean = pb ? 0 : Math.max(-0.3, Math.min(0.22, this._acc * 0.04));
+    const brake = pb ? 0 : Math.max(0, Math.min(1, (-this._acc - 1.5) / 5)) * Math.min(1, sp / 2.5);
     // Virage : le joueur s'incline vers l'intérieur de la courbe, d'autant plus qu'il va vite.
     const dtp = ctx.dt || 0.016;
     let dF = (p.face || 0) - (this._pf ?? p.face ?? 0);
@@ -941,6 +942,16 @@ export class Player3D {
       aL.el.rotation.z = g('ezL'); aR.el.rotation.z = g('ezR');
       this.upper.rotation.set(0, g('twist'), -Math.max(0, g('lean')) * 0.6 - accLean * 0.4);
       this.body.rotation.set(bank, 0, -Math.max(0, g('lean')) * 0.4 - accLean);
+      // Marche (et pas chassés) : bras relâchés le long du corps, coude à peine plié, petit balancier ;
+      // la tenue « bras de course » (coudes à 90°) n'apparaît qu'en trottinant puis en courant.
+      const walkK = Math.max(0, Math.min(1, (3.4 - sp) / 2.2));
+      if (walkK > 0) {
+        aL.el.rotation.z += (0.22 - aL.el.rotation.z) * walkK; aR.el.rotation.z += (0.22 - aR.el.rotation.z) * walkK;
+        aL.sh.rotation.x += (-aL.sgn * 0.07 - aL.sh.rotation.x) * walkK; aR.sh.rotation.x += (-aR.sgn * 0.07 - aR.sh.rotation.x) * walkK;
+        aL.sh.rotation.z *= 1 - 0.45 * walkK; aR.sh.rotation.z *= 1 - 0.45 * walkK;
+      }
+      // Freinage : appui planté, genoux fléchis, bassin qui descend (on « s'assoit » pour s'arrêter).
+      if (brake > 0) { lL.knee.rotation.z -= 0.3 * brake; lR.knee.rotation.z -= 0.3 * brake; lL.hip.rotation.z += 0.18 * brake; lR.hip.rotation.z += 0.18 * brake; this.body.position.y -= 0.05 * brake; }
       // Pas chassés : les jambes s'écartent et se rejoignent sur le côté (hanches en abduction).
       if (side) { const ab = Math.sin(ph) * 0.22; lL.hip.rotation.x += ab * side; lR.hip.rotation.x += ab * side; }
       // Pied d'appui au sol (la jambe fléchie abaisse le bassin), petite phase de vol en course.
