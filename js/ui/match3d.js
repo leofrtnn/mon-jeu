@@ -2480,15 +2480,6 @@ export class Match3D {
         p3.root.add(label);
         this.scene.add(p3.root);
         e = { p3, label };
-        // Jauge d'énergie au-dessus de la tête (joueurs de l'équipe du manager).
-        if (side === (v.userSide ?? 0)) {
-          const cv = document.createElement('canvas'); cv.width = 64; cv.height = 10;
-          const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
-          const bar = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true }));
-          bar.scale.set(0.75, 0.12, 1); bar.position.y = 2.42 * K * hk; bar.renderOrder = 11;
-          p3.root.add(bar);
-          e.energy = { bar, cv, tex, last: -1 };
-        }
         // Corps réaliste (gros plans) : mêmes os que le modèle simplifié.
         const eyeC = new THREE.Color(lk.eyes || '#2a1a10'), eyeTex = eyeC.b > eyeC.r * 1.15 ? 'blue' : eyeC.g > eyeC.r * 1.1 ? 'green' : (eyeC.r + eyeC.g + eyeC.b) > 1.2 ? 'grey' : 'brown';
         // Gabarit propre à chaque joueur (poids/taille réels) : plus costaud ou plus sec.
@@ -2984,17 +2975,6 @@ export class Match3D {
       e.p3.ring.visible = id === v.selected;   // pas de rond sous le porteur : seulement le joueur touché
       e.p3.ring.material = this.mats[p.side].ring;
       e.label.visible = v.labelMode === 'name' || (v.labelMode !== 'none' && hl);
-      if (e.energy) {
-        const en = Math.round(p.mp?.energy ?? 100), E = e.energy;
-        E.bar.visible = v.showEnergy !== false && !v.replaying;
-        if (E.bar.visible && en !== E.last) {
-          E.last = en;
-          const g = E.cv.getContext('2d');
-          g.clearRect(0, 0, 64, 10); g.fillStyle = 'rgba(8,12,18,.75)'; g.fillRect(0, 0, 64, 10);
-          g.fillStyle = en > 70 ? '#3ddc84' : en > 50 ? '#ffd166' : '#ef476f'; g.fillRect(2, 2, Math.max(0, 60 * en / 100), 6);
-          E.tex.needsUpdate = true;
-        }
-      }
     }
     // Arbitre.
     if (v.referee) {

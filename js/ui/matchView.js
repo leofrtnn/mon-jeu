@@ -418,6 +418,35 @@ export class MatchView {
     return best;
   }
 
+  /**
+   * Bandeau d'endurance en bas de l'écran (comme dans les jeux de foot) : le joueur de l'équipe du
+   * manager qui est dans l'action (le porteur, sinon le plus proche du ballon), son numéro, son nom
+   * et sa barre d'endurance.
+   */
+  updateStamina(dt) {
+    if (this.showEnergy === false || !this.canvas?.parentElement) { if (this._stam) this._stam.style.display = 'none'; return; }
+    this._stamT = (this._stamT || 0) + dt;
+    if (this._stamT < 0.15) return;
+    this._stamT = 0;
+    if (!this._stam) {
+      const el = this._stam = document.createElement('div');
+      el.className = 'stamina-hud';
+      el.innerHTML = '<span class="n"></span><div class="sb"><b></b><div class="bar"><i></i></div></div>';
+      this.canvas.parentElement.appendChild(el);
+    }
+    const el = this._stam;
+    const mine = [...this.players.entries()].filter(([, p]) => p.side === this.userSide && p.mp);
+    let pick = mine.find(([id]) => id === this.holder);
+    if (!pick && this.ball) pick = mine.filter(([, p]) => !p.gk).sort((a, b) => Math.hypot(a[1].x - this.ball.x, (a[1].y - this.ball.y) * 0.65) - Math.hypot(b[1].x - this.ball.x, (b[1].y - this.ball.y) * 0.65))[0];
+    if (!pick || this.replayLive) { el.style.display = 'none'; return; }
+    const [id, p] = pick, en = Math.max(0, Math.min(100, Math.round(p.mp.energy ?? 100)));
+    el.style.display = '';
+    if (el._id !== id) { el._id = id; el.querySelector('.n').textContent = p.num ?? ''; el.querySelector('.n').style.background = this.colors[this.userSide]; el.querySelector('.n').style.color = this.textColors?.[this.userSide] || '#fff'; el.querySelector('b').textContent = (this.nameOf(id) || '').toUpperCase(); }
+    const bar = el.querySelector('i');
+    bar.style.width = en + '%';
+    bar.style.background = en > 70 ? '#3ddc84' : en > 50 ? '#ffd166' : '#ef476f';
+  }
+
   nameOf(id) {
     for (const t of this.m.teams) {
       for (const mp of [...t.onPitch, ...t.bench, ...t.out]) if (mp && mp.id === id) return mp.name;
@@ -463,6 +492,7 @@ export class MatchView {
     if (!this.paused) this.update(dt * (this.cur?.replay ? Math.min(this.speed, 1.5) : this.liveSpeed(dt)), dt);
     else this.updateIdle(dt);
     this.draw();
+    this.updateStamina(dt);
     this.raf = requestAnimationFrame(this._loop);
   }
 

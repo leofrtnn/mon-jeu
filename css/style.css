@@ -1498,3 +1498,12 @@ html.land .srch-f { position: sticky; top: 70px; max-height: calc(var(--H, 100vh
 .lower3.on { opacity: 1; transform: none; }
 .lower3 .n { min-width: 34px; padding: 6px 8px; color: #fff; font-weight: 800; text-align: center; font-size: 18px; text-shadow: 0 1px 2px rgba(0,0,0,.4); }
 .lower3 b { background: rgba(10, 14, 28, .88); color: #fff; padding: 6px 14px; font-size: 18px; letter-spacing: .04em; text-transform: uppercase; }
+
+/* ---- Bandeau d'endurance (bas de l'écran, façon jeu de foot) ---- */
+.stamina-hud { position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); display: flex; align-items: stretch; z-index: 4; pointer-events: none;
+  font-family: var(--display, inherit); filter: drop-shadow(0 2px 4px rgba(0,0,0,.45)); }
+.stamina-hud .n { min-width: 30px; padding: 4px 7px; color: #fff; font-weight: 800; text-align: center; font-size: 16px; display: flex; align-items: center; justify-content: center; border-radius: 4px 0 0 4px; }
+.stamina-hud .sb { background: rgba(10, 14, 28, .85); padding: 4px 10px 5px; border-radius: 0 4px 4px 0; min-width: 130px; }
+.stamina-hud b { display: block; color: #fff; font-size: 13px; letter-spacing: .05em; line-height: 1.1; white-space: nowrap; }
+.stamina-hud .bar { height: 5px; background: rgba(255,255,255,.15); border-radius: 3px; margin-top: 3px; overflow: hidden; }
+.stamina-hud .bar i { display: block; height: 100%; border-radius: 3px; transition: width .3s, background .3s; }
