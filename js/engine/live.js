@@ -22,7 +22,7 @@
 import { SKILL_MOVES, movesFor } from '../game/stars.js';
 import { refereeProfile } from '../game/referee.js';
 import { createBall, stepBall, solveKick, predict, R as BR, GOAL_HALF, PITCH_L as L, PITCH_W as W } from '../ui/ballPhysics.js';
-import { reachAt, ballPath, interceptPlan } from './contact.js';
+import { reachAt, sweptReach, ballPath, interceptPlan, timeToReach, touchQuality, firstTouch } from './contact.js';
 import { formationPos } from './positions.js';
 import { roleFx } from '../data/constants.js';
 import { setPlanOf, cornerRoutine, setPieceEdge, directFkChance } from './setPlays.js';
@@ -167,13 +167,88 @@ export class LiveSim {
   /** Joueur exprimé en mètres pour la géométrie de contact (contact.js). */
   posM(p) { return { x: p.x * L, y: p.y * W, face: p.face || 0, vx: p.vx || 0, vy: p.vy || 0 }; }
   /** Diagnostic : enregistre un contact réellement effectué et dit s'il est physiquement possible. */
-  diagContact(p, kind) {
+  diagContact(p, kind, known = null) {
     if (!this.diag) return;
-    const P = this.P, r = reachAt(this.posM(p), P, { phy: p.mp?.p?.attrs?.phy });
+    const P = this.P;
+    if (known) { this.diag.contact(this.now, { pid: p.mp.id, side: p.side, kind, x: known.x, y: known.y, z: known.z, speed: known.speed, part: known.part, dist: known.dist, stretch: known.stretch, quality: known.q, physical: true }); return; }
+    const r = reachAt(this.posM(p), P, { phy: p.mp?.p?.attrs?.phy });
     const dBody = Math.hypot(p.x * L - P.x, p.y * W - P.y);
     const physical = kind === 'gk' ? dBody < 1.3 + Math.max(0, P.z - 1) * 0.3 : !!r;
     this.diag.contact(this.now, { pid: p.mp.id, side: p.side, kind, x: P.x, y: P.y, z: P.z, speed: Math.hypot(P.vx, P.vy, P.vz), part: r?.part || null, dist: r ? r.dist : dBody, stretch: r?.stretch ?? null, physical });
   }
+  /** Capacités physiques d'un joueur pour la géométrie de contact (mêmes vitesses que move()). */
+  reachOpts(p) {
+    const vit = p.mp?.p?.attrs?.vit ?? 60;
+    return { phy: p.mp?.p?.attrs?.phy ?? 60, vmax: 6.2 + vit * 0.03, acc: 4.4 + vit * 0.013 };
+  }
+
+  /** Le ballon a-t-il traversé une zone d'atteinte de `p` pendant le dernier pas ? (test balayé) */
+  sweepContact(p) {
+    const b0 = this._sw0, P = this.P;
+    if (!b0 || p._sx == null || p.fall > 0.3 || p.slide > 0.2) return null;
+    const pm = this.posM(p);
+    return sweptReach({ x: p._sx, y: p._sy, face: pm.face }, pm, b0, P, { phy: pm.phy ?? p.mp?.p?.attrs?.phy });
+  }
+
+  /** Direction du premier toucher : vers l'avant, en s'écartant de l'adversaire le plus proche. */
+  touchDir(r) {
+    const rx = this.X(r), ry = this.Y(r), dir = this.dir(r.side);
+    let vx = dir, vy = (W / 2 - ry) * 0.01;
+    let best = null, bd = 4.5;
+    for (const o of this.players.values()) { if (o.side === r.side) continue; const d = this.dist(o, rx, ry); if (d < bd) { bd = d; best = o; } }
+    if (best) { const ax = rx - this.X(best), ay = ry - this.Y(best), al = Math.hypot(ax, ay) || 1; const k = (4.5 - bd) / 4.5 * 1.5; vx += (ax / al) * k; vy += (ay / al) * k; }
+    return Math.atan2(vy, vx);
+  }
+
+  /**
+   * Contrôle PHYSIQUE (étape 4b) : le ballon a touché une partie du corps pendant le pas.
+   * On revient à l'instant exact du contact sur la trajectoire, on applique l'impulsion du premier
+   * toucher (qualité = technique × conditions réelles), puis le ballon termine le pas librement.
+   * Aucun déplacement artificiel : si le toucher est mauvais, le ballon s'échappe.
+   */
+  controlTouch(r, hit, kind, dt) {
+    const P = this.P, rm = this.posM(r), part = hit.reach.part;
+    const tech = eff(r.mp, 'dri') * 0.55 + eff(r.mp, 'pas') * 0.25 + eff(r.mp, 'sf') * 0.2;
+    const rel = Math.hypot(P.vx - rm.vx, P.vy - rm.vy, P.vz);
+    const pressure = this.pressure(r);
+    const q = touchQuality({ tech, stretch: hit.reach.stretch, rel, part, pressure });
+    const ft = firstTouch({ incoming: { vx: P.vx, vy: P.vy, vz: P.vz }, pl: rm, dir: this.touchDir(r), push: pressure < 3 ? 1.1 : 1.9, q, rnd: [this.rand(), this.rand()] });
+    const B = hit.ball;
+    Object.assign(P, { x: B.x, y: B.y, z: Math.max(BR, B.z), vx: ft.vx, vy: ft.vy, vz: ft.vz, spin: 0, top: 0, knuckle: 0 });
+    stepBall(P, Math.max(0, (1 - hit.t) * dt));
+    r.ctrl = 0.3; r.ctrlH = B.z; r.touch = 0.2; r.touchMax = 0.2; r.ctrlPart = part;
+    this.lastTouch = r.side;
+    const info = { x: B.x, y: B.y, z: B.z, speed: rel, part, dist: hit.reach.dist, stretch: hit.reach.stretch, q };
+    this.diagContact(r, kind, info);
+    return { q, d: hit.reach.dist, part };
+  }
+
+  /** Contacts du pas (après le mouvement) : réception de la passe en cours. */
+  contactStep(dt, out) {
+    const pd = this.pending;
+    if (pd && pd.to && this.players.has(pd.to.mp.id) && !(pd.to.gk && pd.aerial)) {
+      const r = pd.to;
+      let hit = this.sweepContact(r);
+      // Il laisse venir le ballon : tant qu'il est encore à portée (fin du pas) et qu'il se rapproche
+      // du point de contact idéal, le toucher attend (sinon on toucherait toujours jambe tendue).
+      if (hit && hit.reach.stretch > 0.05) {
+        const now = reachAt(this.posM(r), this.P, { phy: r.mp?.p?.attrs?.phy });
+        if (now) {
+          const rm = this.posM(r), c = Math.cos(rm.face), sn = Math.sin(rm.face), P = this.P;
+          const cx = rm.x + c * 0.32, cy = rm.y + sn * 0.32;
+          const d0 = Math.hypot(P.x - cx, P.y - cy), d1 = Math.hypot(P.x + (P.vx - rm.vx) * 0.02 - cx, P.y + (P.vy - rm.vy) * 0.02 - cy);
+          if (d1 < d0 - 0.002) hit = null;   // encore en approche : on attendra le pas suivant
+          else hit = { t: 1, reach: now, ball: { x: P.x, y: P.y, z: P.z } };
+        }
+      }
+      if (hit) {
+        if (hit.reach.part === 'head') { this.header(r, pd, out); return; }
+        this.controlTouch(r, hit, r.side === pd.from.side ? 'réception' : 'interception', dt);
+        this.receive(r, pd, out);
+      }
+    }
+  }
+
   foot(p, d = 0.55) { return { x: p.x * L + Math.cos(p.face) * d, y: p.y * W + Math.sin(p.face) * d }; }
   /** Geste technique pour éliminer le défenseur à `d` mètres (seulement ceux permis par ses étoiles). */
   pickMove(h, d) {
@@ -272,8 +347,13 @@ export class LiveSim {
       if (!this.restart) this.updateDefense(dt, out);
       if (!this.restart) this.updateLoose(dt, out);
     }
+    // Instantané avant le mouvement : les contacts sont vérifiés sur le mouvement RÉEL du pas
+    // (ballon et joueurs de l'instant t à t + dt), jamais par proximité approximative.
+    this._sw0 = { x: P.x, y: P.y, z: P.z, vx: P.vx, vy: P.vy, vz: P.vz };
+    for (const p of this.players.values()) { p._sx = p.x * L; p._sy = p.y * W; }
     this.move(dt);
     this.ballStep(dt, out);
+    if (!this.restart && !this.holder && !this.celebrate) this.contactStep(dt, out);
     // Statistiques continues : possession, carte de chaleur, état du moteur.
     if (this.poss >= 0) m.teams[this.poss].stats.poss += dt;
     this.heatT = (this.heatT || 0) + dt;
@@ -1606,8 +1686,8 @@ export class LiveSim {
   }
 
   /** Le joueur p récupère le ballon (contrôle, tacle, interception). */
-  gain(p, out, fast = false) {
-    this.diagContact(p, fast ? 'duel' : 'récupération');
+  gain(p, out, fast = false, viaTouch = false) {
+    if (!viaTouch) this.diagContact(p, fast ? 'duel' : 'récupération');
     const m = this.m;
     this.holder = p; this.inHands = false; this.pending = null;
     p.carry = null; p._gotT = this.now;
@@ -1642,19 +1722,38 @@ export class LiveSim {
     if (pd) {
       const r = pd.to;
       if (!this.players.has(r.mp.id)) { this.pending = null; return; }
-      // Le destinataire (receveur ou intercepteur) court à la réception.
-      const lead = Math.min(0.6, Math.hypot(P.vx, P.vy) / 25);
-      if (this.now > pd.t0 + pd.T * 0.6) { r.tx = clamp((P.x + P.vx * lead) / L, 0, 1); r.ty = clamp((P.y + P.vy * lead) / W, 0, 1); }
+      // Le destinataire se rend au point où il peut couper la VRAIE trajectoire du ballon (physique
+      // prédite), réévalué toutes les 0,15 s (rebonds, effet). Le contact lui-même est vérifié
+      // après le mouvement (contactStep) : s'il arrive trop tard ou se place mal, il manque le ballon.
+      if (!(r.gk && pd.aerial) && (!pd.planT || this.now >= pd.planT)) {
+        pd.planT = this.now + 0.15;
+        const rm = this.posM(r), opt = this.reachOpts(r);
+        const path = ballPath(P, predict, { horizon: 3, step: 0.05 });
+        let plan = interceptPlan(rm, path, opt);
+        if (!plan) {
+          // Hors de portée : il va au point de la trajectoire où son retard est le plus faible.
+          let best = null;
+          for (const sp of path) { const late = timeToReach(rm, sp.x, sp.y, opt) - sp.t; if (!best || late < best.late) best = { x: sp.x, y: sp.y, z: sp.z, t: sp.t, late }; }
+          plan = best ? { ...best, part: null, margin: -best.late, late: true } : null;
+        }
+        pd.plan = plan;
+        if (plan) { r.tx = clamp(plan.x / L, 0, 1); r.ty = clamp(plan.y / W, 0, 1); }
+        if (this.diag && plan) this.diag.plan(this.now, { pid: r.mp.id, side: r.side, x: plan.x, y: plan.y, z: plan.z, part: plan.part, eta: plan.t, margin: plan.margin });
+      }
       for (const q of this.players.values()) q.faceBall = q === r && this.dist(r, P.x, P.y) < 9;
       // Sortie aérienne du gardien : il s'élance, bras tendus au-dessus de la tête, et capte haut.
+      // (gardien : inchangé à ce stade — refonte physique à l'étape 4d)
       if (r.gk && pd.aerial && !r._claimJ && this.now > pd.t0 + pd.T - 0.42) { r._claimJ = true; r.jump = 0.45; r.claimHigh = 0.8; }
-      const f = this.foot(r, 0.4);
-      const d = Math.hypot(f.x - P.x, f.y - P.y);
-      if (r.gk && pd.aerial && d < 1.6 && P.z < 3.1 && this.inOwnBox(r)) { r._claimJ = false; this.gkCatch(r, out); return; }
-      const reach = Math.hypot(P.vx, P.vy) < 9 ? 1.9 : 1.35; // ballon lent : il va le chercher d'un pas
-      if (d < reach && P.z < 1.3) { this.receive(r, pd, out); return; }
-      if (d < 1.4 && P.z < 2.8 && pd.aerial) { this.header(r, pd, out); return; }
-      if (this.now > pd.t0 + pd.T + 1.2) this.pending = null; // raté : ballon libre
+      if (r.gk && pd.aerial) {
+        const f = this.foot(r, 0.4), d = Math.hypot(f.x - P.x, f.y - P.y);
+        if (d < 1.6 && P.z < 3.1 && this.inOwnBox(r)) { r._claimJ = false; this.gkCatch(r, out); return; }
+        if (d < 1.9 && P.z < 1.3) { this.receive(r, pd, out); return; }
+      }
+      // Raté : le ballon a filé (trajectoire dépassée) — il devient libre.
+      if (this.now > pd.t0 + pd.T + 1.2 || (pd.plan?.late && pd.plan.t < 0.1 && this.now > pd.t0 + 0.5)) {
+        if (this.diag) this.diag.miss(this.now, { pid: r.mp.id, side: r.side, x: P.x, y: P.y, reason: pd.plan?.late ? 'trop tard / hors de portée' : 'ballon manqué' });
+        this.pending = null;
+      }
       return;
     }
     // Ballon libre : le plus proche de chaque équipe y va ; le premier au contact le contrôle.
@@ -1741,30 +1840,13 @@ export class LiveSim {
       if (!r.gk) emit(m, out, { type: 'interception', side: r.side, pid: r.mp.id, pid2: pd.from.mp.id, x: this.P.x / L, y: this.P.y / W, zone: m.zone });
     }
     const P = this.P;
-    // Interception du bout du pied : souvent le ballon est juste dévié (il file, parfois en touche).
-    // Ballon rapide et contrôle approximatif : il rebondit trop loin (« contrôle raté »).
-    const spd = Math.hypot(P.vx, P.vy);
-    const tech = eff(r.mp, 'dri') * 0.5 + eff(r.mp, 'pas') * 0.5;
-    const deflect = r.side !== pd.from.side && !r.gk && this.rand() < 0.42;
-    const heavy = !deflect && !r.gk && spd > 11 && this.rand() < clamp(0.32 - tech / 330, 0.03, 0.2);
-    if (deflect || heavy) {
-      const a = Math.atan2(P.vy, P.vx) + (deflect ? (this.rand() - 0.5) * 2.2 : (this.rand() - 0.5) * 0.9);
-      const v = deflect ? 3 + spd * (0.25 + this.rand() * 0.35) : 3.5 + this.rand() * 3;
-      P.vx = Math.cos(a) * v; P.vy = Math.sin(a) * v; P.vz = deflect && this.rand() < 0.4 ? 2.5 : 0; P.spin = 0;
-      // Près de son but, un défenseur qui dévie le ballon cherche à l'éloigner (pas à le pousser derrière sa ligne).
-      const own = this.goalX(1 - r.side);
-      if (deflect && Math.abs(P.x - own) < 22 && (own - P.x) * P.vx > 0 && this.rand() < 0.6) P.vx = -P.vx * 0.7;
-      this.lastTouch = r.side; this.pending = null; r.touch = 0.2; r.ctrl = 0.25; r.ctrlH = P.z;
-      return;
-    }
-    // Contrôle orienté : le corps face au ballon, qui reste devant lui.
+    // Le premier toucher a déjà eu lieu physiquement (controlTouch) : ici, seulement la possession.
+    // Un toucher raté (ballon qui s'échappe au-delà de la zone d'atteinte) ne donne pas le ballon.
     r.faceBall = false;
-    r.face = Math.atan2(P.y - r.y * W, P.x - r.x * L);
-    // Contrôle : le ballon est amorti (pied, cuisse ou poitrine selon la hauteur).
-    r.ctrl = 0.3; r.ctrlH = P.z;
-    P.vx *= 0.2; P.vy *= 0.2; P.vz = Math.min(0, P.vz) * 0.2; P.spin = 0;
+    this.pending = null;
     if (r.gk && this.inOwnBox(r) && pd.aerial) { this.gkCatch(r, out); return; }
-    this.gain(r, out);
+    const rel = Math.hypot(P.vx - (r.vx || 0), P.vy - (r.vy || 0));
+    if (r.gk || reachAt(this.posM(r), P, { phy: r.mp?.p?.attrs?.phy }) || rel < 3.5) this.gain(r, out, false, true);
   }
 
   /** Tête : frappe dans la surface adverse, sinon remise / dégagement. */

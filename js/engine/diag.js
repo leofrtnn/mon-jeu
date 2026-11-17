@@ -16,14 +16,16 @@ export class Diag {
     this.paths = [];           // { t, pts: [{x,y,z}], by }
     this.plans = [];           // { t, pid, x, y, z, part, eta, margin }
     this.contacts = [];        // { t, pid, kind, x, y, z, speed, part, dist, physical }
-    this.counts = { contacts: 0, physical: 0, nonPhysical: 0 };
+    this.misses = [];          // { t, pid, x, y, reason } : réceptions manquées (trop tard, mal placé)
+    this.counts = { contacts: 0, physical: 0, nonPhysical: 0, misses: 0 };
   }
   _trim(now) {
     const lim = now - this.keep;
-    for (const k of ['paths', 'plans', 'contacts']) { const a = this[k]; let i = 0; while (i < a.length && a[i].t < lim) i++; if (i) a.splice(0, i); }
+    for (const k of ['paths', 'plans', 'contacts', 'misses']) { const a = this[k]; let i = 0; while (i < a.length && a[i].t < lim) i++; if (i) a.splice(0, i); }
   }
   path(now, pts, by) { this.paths.push({ t: now, pts, by }); this._trim(now); }
   plan(now, p) { this.plans.push({ t: now, ...p }); this._trim(now); }
+  miss(now, m) { this.misses.push({ t: now, ...m }); this.counts.misses++; this._trim(now); }
   contact(now, c) {
     this.contacts.push({ t: now, ...c });
     this.counts.contacts++;

@@ -16,6 +16,8 @@ for (const c of diag.contacts) { const k = c.kind; (by[k] ||= { n: 0, physique: 
 const med = (a) => a.slice().sort((x, y) => x - y)[Math.floor(a.length / 2)];
 console.log('contacts réellement effectués (10 min de jeu) :');
 for (const [k, v] of Object.entries(by)) console.log(' ', k.padEnd(14), 'n=' + String(v.n).padEnd(5), 'physiquement possibles', String(Math.round(100 * v.physique / v.n)).padStart(3) + ' %', '  distance médiane au point de contact', med(v.dist).toFixed(2) + ' m');
+const recv = (by['réception']?.n || 0) + (by['interception']?.n || 0);
+console.log('réceptions manquées :', diag.misses.length, `(${Math.round(100 * diag.misses.length / Math.max(1, recv + diag.misses.length))} % des ballons destinés à un joueur)`, ' ', Object.entries(diag.misses.reduce((a, m) => ((a[m.reason] = (a[m.reason] || 0) + 1), a), {})).map(([k, v]) => k + ' ' + v).join(', '));
 console.log('interceptions prévues :', diag.plans.length, ' trajectoires :', diag.paths.length);
 if (svgOut) {
   const S = 9, X = (x) => (x * S).toFixed(1), Y = (y) => (y * S).toFixed(1);
@@ -24,6 +26,7 @@ if (svgOut) {
   g += `<rect x="0" y="0" width="${L * S}" height="${W * S}" fill="none" stroke="#fff" stroke-opacity=".6"/><line x1="${L * S / 2}" y1="0" x2="${L * S / 2}" y2="${W * S}" stroke="#fff" stroke-opacity=".6"/>`;
   for (const p of diag.paths.filter(win)) g += `<polyline points="${p.pts.map((q) => X(q.x) + ',' + Y(q.y)).join(' ')}" fill="none" stroke="#9ad0ff" stroke-width="${1.5}" stroke-opacity=".7"/>`;
   for (const p of diag.plans.filter(win)) g += `<g stroke="#ffd166" stroke-width="2"><line x1="${+X(p.x) - 6}" y1="${+Y(p.y) - 6}" x2="${+X(p.x) + 6}" y2="${+Y(p.y) + 6}"/><line x1="${+X(p.x) - 6}" y1="${+Y(p.y) + 6}" x2="${+X(p.x) + 6}" y2="${+Y(p.y) - 6}"/></g>`;
+  for (const c of diag.misses.filter(win)) g += `<rect x="${+X(c.x) - 5}" y="${+Y(c.y) - 5}" width="10" height="10" fill="none" stroke="#ff9f1c" stroke-width="2"/>`;
   for (const c of diag.contacts.filter(win)) g += `<circle cx="${X(c.x)}" cy="${Y(c.y)}" r="${Math.max(3, c.dist * S)}" fill="${c.physical ? '#3ddc84' : '#ef476f'}" fill-opacity=".35" stroke="${c.physical ? '#3ddc84' : '#ef476f'}"/>`;
   g += `<text x="0" y="${W * S + 25}" fill="#fff">bleu : trajectoire prédite · jaune ✕ : interception prévue · vert : contact physiquement possible · rouge : contact impossible (rayon = distance au point de contact)</text></svg>`;
   writeFileSync(svgOut, g);
