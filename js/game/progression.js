@@ -40,8 +40,9 @@ export function weeklyTraining(p, rng, playedMinutes = 0, tp = null) {
     const pos = ind.slice(4);
     if (pos !== p.pos && !(p.pos2 || []).includes(pos)) {
       p.posXp = p.posXp || {};
-      p.posXp[pos] = (p.posXp[pos] || 0) + (1 + (playedMinutes > 0 ? 0.3 : 0)) * Math.min(1.6, mult) * (p.age <= 24 ? 1.3 : p.age >= 30 ? 0.7 : 1);
-      if (p.posXp[pos] >= 24) { (p.pos2 ||= []).push(pos); delete p.posXp[pos]; p.tFocus = null; ev = { learned: pos }; }
+      // Même échelle que l'expérience en match (15 = poste appris) : ~4 mois d'entraînement spécifique.
+      p.posXp[pos] = (p.posXp[pos] || 0) + 0.62 * (1 + (playedMinutes > 0 ? 0.3 : 0)) * Math.min(1.6, mult) * (p.age <= 24 ? 1.3 : p.age >= 30 ? 0.7 : 1);
+      if (p.posXp[pos] >= 15) { (p.pos2 ||= []).push(pos); p.tFocus = null; ev = { learned: pos }; }
     } else p.tFocus = null;
   }
   const indAttr = ind && !ind.startsWith('pos:') ? ind : null;

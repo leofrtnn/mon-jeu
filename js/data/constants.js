@@ -53,7 +53,14 @@ const RELATED = {
 /** Aptitude d'un JOUEUR à un poste : poste principal, ou postes secondaires (comme FM, ≈ 0,96). */
 export function playerFit(p, played) {
   let f = positionFit(p.pos, played);
-  if (f < 1 && p.pos2) for (const x of p.pos2) f = Math.max(f, x === played ? 0.96 : positionFit(x, played) * 0.95);
+  if (f >= 1) return 1;
+  const xp = p.posXp?.[played] || 0;   // matchs joués à ce poste (voir game/versatility.js)
+  if (p.pos2) for (const x of p.pos2) {
+    // Poste secondaire : 0,96, puis 1 (vrai poste principal) à force d'y jouer (35 matchs).
+    f = Math.max(f, x === played ? 0.96 + 0.04 * Math.min(1, Math.max(0, xp - 15) / 20) : positionFit(x, played) * 0.95);
+  }
+  // Pas encore appris : l'aisance progresse avec l'expérience du poste.
+  if (xp > 0 && f < 0.96) f += (0.96 - f) * Math.min(1, xp / 15);
   return f;
 }
 

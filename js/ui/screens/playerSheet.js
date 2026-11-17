@@ -122,7 +122,8 @@ export function showPlayer(app, pid, onChange) {
     return `<div class="row" style="gap:12px;margin-bottom:10px">
         ${face(p, club, 'lg')}<div style="font-size:30px;font-weight:900;color:var(--muted);min-width:34px;text-align:center">${p.number || ''}</div>
         <div class="grow"><h2>${esc(p.first)} ${esc(p.last)}</h2>
-          <div class="row" style="gap:6px;flex-wrap:wrap">${posBadge(p.pos)}${(p.pos2 || []).map((x) => `<span class="pos2" title="Poste secondaire : ${POSITION_LABELS[x]}">${posBadge(x)}</span>`).join('')}<small>${POSITION_LABELS[p.pos]} · ${p.age} ans · ${esc(p.nat || '')}</small>${statusTags(p)}</div>
+          <div class="row" style="gap:6px;flex-wrap:wrap">${posBadge(p.pos)}${(p.pos2 || []).map((x) => `<span class="pos2" title="${(p.posXp?.[x] || 0) >= 35 ? 'Poste principal (maîtrisé à force d\'y jouer)' : 'Poste secondaire'} : ${POSITION_LABELS[x]}">${posBadge(x)}${(p.posXp?.[x] || 0) >= 35 ? '<small class="pos-txt">★</small>' : ''}</span>`).join('')}<small>${POSITION_LABELS[p.pos]} · ${p.age} ans · ${esc(p.nat || '')}</small>${statusTags(p)}</div>
+          ${posLearning(p)}
           <small>${club ? `<a data-act="club" style="text-decoration:underline;cursor:pointer">${esc(club.name)}</a>` : 'Libre'}${p.onLoanFrom ? ` (prêt de ${esc(clubById(s, p.onLoanFrom).short)})` : ''}</small></div>
         <div class="center">${ovrHtml}</div>
       </div>
@@ -225,4 +226,13 @@ function detHtml(p) {
       const x = v(a + k);
       return `<div class="row between"><span>${esc(n)}</span><b style="color:${x >= 16 ? '#4ade80' : x >= 13 ? '#a3e635' : x >= 10 ? '#facc15' : x >= 7 ? '#fb923c' : '#f87171'}">${x || '–'}</b></div>`;
     }).join('')}</div>`).join('')}</div></details>`;
+}
+
+/** Postes en cours d'apprentissage (matchs joués à ce poste) et maîtrise des postes secondaires. */
+function posLearning(p) {
+  const xs = Object.entries(p.posXp || {}).filter(([x, v]) => v >= 1 && v < 35 && x !== p.pos);
+  if (!xs.length) return '';
+  return `<small class="muted" style="display:block;margin-top:3px">${xs.map(([x, v]) => (p.pos2 || []).includes(x)
+    ? `${x} : maîtrise ${Math.round(Math.min(1, (v - 15) / 20) * 100)} %`
+    : `apprend ${x} : ${Math.round((v / 15) * 100)} %`).join(' · ')}</small>`;
 }

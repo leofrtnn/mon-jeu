@@ -42,3 +42,18 @@ test('débrief : recadrer un joueur qui a bien joué le vexe', () => {
   const q = { id: 2, name: 'C D', morale: 60, form: 50, pers: 'loyal' };
   assert.ok(debriefPlayer(q, 'praise', 7.8).delta > 0);
 });
+
+test('polyvalence : jouer à un poste le rend principal', async () => {
+  const { playedAt, assignVersatility } = await import('../js/game/versatility.js');
+  const { playerFit } = await import('../js/data/constants.js');
+  const p = { id: 9, pos: 'DC', age: 24, attrs: {} };
+  const f0 = playerFit(p, 'DD');
+  let learned = null;
+  for (let i = 0; i < 40; i++) learned = playedAt(p, 'DD', 90) || learned;
+  assert.ok(p.pos2.includes('DD'));
+  assert.ok(f0 < 0.9 && playerFit(p, 'DD') === 1);
+  // Un milieu technique a déjà plusieurs postes au départ, un gardien jamais.
+  const mo = { id: 3, pos: 'MO', age: 28, attrs: { vit: 80, phy: 60, tir: 80, pas: 85, dri: 86, def: 40, vis: 85, sf: 80 } };
+  assignVersatility(mo); assert.ok((mo.pos2 || []).length >= 1);
+  const gk = { id: 4, pos: 'GB', attrs: { arr: 80 } }; assignVersatility(gk); assert.ok(!gk.pos2);
+});

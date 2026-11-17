@@ -14,6 +14,7 @@ import { ensureStaff } from './career.js';
 import { ensureBoard } from './board.js';
 import { ensureLife } from './life.js';
 import { assignAllTraits } from './traits.js';
+import { assignAllVersatility, assignVersatility } from './versatility.js';
 import { assignAllStars } from './stars.js';
 import { playerValue } from './economy.js';
 import { TOP100_V } from './ratingsImport.js';
@@ -48,6 +49,8 @@ export function upgradeSave(state) {
   // Nouveaux attributs des joueurs (traits, étoiles), calculés d'après leurs notes actuelles.
   if (state.traitsV !== 1) assignAllTraits(state);
   if (state.starsV !== 1) assignAllStars(state);
+  if (state.versV !== 1) assignAllVersatility(state);
+  else for (const p of Object.values(state.players)) if (p.versV !== 1) assignVersatility(p);   // jeunes, nouveaux joueurs
   if (state.valueV !== 2) { for (const p of Object.values(state.players)) p.value = playerValue(p); state.valueV = 2; }
   if ((state.upgradeV || 0) < UPGRADE_V) {
     for (const p of Object.values(state.players)) {

@@ -36,6 +36,7 @@ import { runSummerTournaments, breakLabel } from './international.js';
 import { dealsDaily } from './deals.js';
 import { retire } from './afterlife.js';
 import { assignAllTraits, updateTraits, TRAITS } from './traits.js';
+import { assignAllVersatility, assignVersatility, playedAt } from './versatility.js';
 import { assignAllStars, evolveStars } from './stars.js';
 import { cohesionDaily, cohesionAfterUserMatch, linksWeekly, teamCohesion, cohMult, clubCoh } from './cohesion.js';
 import { aiSeasonBudget, finHealth } from './owners.js';
@@ -142,6 +143,7 @@ export function newGame(seed = (Date.now() >>> 0), { real = null } = {}) {
   applyTop100(state);   // notes du top 100 intégré (monde réel)
   applyFM27(state, { rosters: true }); // Premier League et Ligue 1 2026-27 (fichier de l'utilisateur)
   assignAllTraits(state); // traits (Magicien, Maestro…) d'après les vraies qualités
+  assignAllVersatility(state); // postes multiples d'après les qualités
   assignAllStars(state);  // étoiles de gestes techniques et de mauvais pied
   return state;
 }
@@ -1344,6 +1346,14 @@ function applyResult(state, f, sum, m, ctx) {
         st.tackles = (st.tackles || 0) + mp.tackles; st.saves = (st.saves || 0) + mp.saves;
         if ((side === 0 ? g1 : g0) === 0 && mins >= 60 && ['GB', 'DC', 'DG', 'DD'].includes(pos)) st.cs = (st.cs || 0) + 1;
         if (pos === 'GB') st.conceded = (st.conceded || 0) + (side === 0 ? g1 : g0);
+        // Polyvalence : jouer souvent à un poste finit par en faire un poste principal.
+        const lp = playedAt(p, pos, mins);
+        if (lp && isHumanClub(state, p.clubId)) {
+          const hu = humanOfClub(state, p.clubId);
+          withHuman(state, hu, () => pushMessage(state, { prio: 2, icon: '🎓', action: { type: 'player', pid: p.id },
+            title: lp.learned ? `${p.name} s'est fait au poste de ${lp.learned}` : `${p.name} maîtrise totalement le poste de ${lp.mastered}`,
+            text: lp.learned ? 'À force d\'y jouer, c\'est devenu un de ses postes : presque plus de pénalité.' : 'Il y est désormais aussi bon qu\'à son poste d\'origine.' }));
+        }
         p.form = clamp(Math.round(p.form * 0.6 + (50 + (mp.rating - 6.4) * 28) * 0.4), 5, 95);
         p.morale = clamp(p.morale + (diff > 0 ? 4 : diff < 0 ? -4 : 0) + (mp.minIn === 0 ? 1 : 0), 5, 99);
         if (mp.yellow && !mp.red) {
@@ -1519,6 +1529,7 @@ export function endSeason(state) {
     for (const id of c.playerIds.slice()) {
       const p = state.players[id];
       const dev = seasonDevelopment(p, rng, mult);
+      if (p.versV !== 1) assignVersatility(p);
       // Traits gagnés / perdus avec l'évolution du niveau.
       const tr = updateTraits(p);
       if (rep && (tr.gained.length || tr.lost.length)) (rep.traits ||= []).push({ name: p.name, gained: tr.gained, lost: tr.lost });
