@@ -19,6 +19,7 @@ const L = 105, W = 68;
 // Sur téléphone, très léger grossissement pour rester lisible sur un petit écran.
 const COARSE = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
 const K = COARSE ? 1.14 : 1.07; // (léger grossissement de lisibilité, comme dans les jeux de foot télévisés)
+const GK_ARM_Z = 0.45;   // bras du gardien en attente : mains basses, devant lui
 const BALL_R = 0.11 * (COARSE ? 1.45 : 1.15);
 
 function canvasTex(w, h, draw) {
@@ -927,7 +928,7 @@ export class Player3D {
     // vraie foulée de marche à amplitude réduite (au lieu de glisser jambes immobiles).
     const turning = sp < 0.8 && Math.abs(this._turn || 0) > 1.2 && !(p.kick > 0) && !(p.celeb > 0) && !(p.fall > 0) && !(p.slide > 0) && !(p.dive > 0);
     if (turning) this._tph = (this._tph || 0) + dtp * Math.min(9, Math.abs(this._turn) * 2.4);
-    const G2 = (sp >= 0.35 || turning) && !pb ? gaitAt(Math.max(sp, turning ? 1 : 0), turning ? this._tph : ph) : null;
+    const G2 = (sp >= 0.15 || turning) && !pb ? gaitAt(Math.max(sp, turning ? 1 : 0), turning ? this._tph : ph) : null;
     if (G2 && (turning || sp < 0.8 || side)) {
       const amp = turning ? 0.55 : side ? 0.5 : Math.max(0.35, sp / 0.8);
       for (const key of ['hzL', 'hzR', 'kzL', 'kzR', 'szL', 'szR', 'twist', 'azL', 'azR', 'bob']) G2[GI[key]] *= amp;
@@ -961,11 +962,14 @@ export class Player3D {
     // À l'arrêt : genoux souples ; le gardien se met en position d'attente quand le jeu approche.
     if (sp < 0.8 && !G2) {
       const ready = p.gk && ctx.ballNear ? 1 : 0.25;
-      lL.knee.rotation.z = lR.knee.rotation.z = -0.25 * ready - 0.08;
-      lL.hip.rotation.z = lR.hip.rotation.z = 0.15 * ready;
-      this.body.rotation.z = -0.18 * ready;
-      this.body.position.y = -0.06 * ready;
-      if (p.gk && ctx.ballNear) for (const a of this.arms) { a.sh.rotation.x = -a.sgn * 0.75; a.sh.rotation.z = -0.3; a.el.rotation.z = 0.5; }
+      // Gardien en attente : appuis écartés, genoux bien fléchis, buste penché, mains basses et
+      // ouvertes devant les cuisses, coudes pliés (et non bras tendus à l'horizontale).
+      lL.knee.rotation.z = lR.knee.rotation.z = -0.55 * ready - 0.08;
+      lL.hip.rotation.z = lR.hip.rotation.z = 0.32 * ready;
+      lL.hip.rotation.x = 0.12 * ready; lR.hip.rotation.x = -0.12 * ready;
+      this.body.rotation.z = -0.2 * ready;
+      this.body.position.y = -0.1 * ready;
+      if (p.gk && ctx.ballNear) for (const a of this.arms) { a.sh.rotation.x = -a.sgn * 0.32; a.sh.rotation.z = GK_ARM_Z; a.el.rotation.z = 1.05; }
       // Vie à l'arrêt : respiration (plus ample quand il est fatigué), transfert d'appui d'une
       // jambe sur l'autre, tête qui balaie le jeu ; près du ballon, en alerte sur la pointe des pieds.
       if (!(p.kick > 0) && !(p.celeb > 0) && !(p.fall > 0) && !(p.slide > 0) && !(p.hurt > 0)) {
@@ -2317,8 +2321,12 @@ export class Match3D {
     for (const m of this.nets) {
       const N = m.userData.net;
       tmp.copy(bw); m.worldToLocal(tmp);
-      const inside = Math.abs(tmp.x) < N.w / 2 + 0.2 && Math.abs(tmp.y) < N.h / 2 + 0.2;
-      const pen = inside ? tmp.z * N.out + BALL_R + 0.02 : 0;   // le ballon pousse au-delà du plan du filet
+      // Seulement quand le ballon est réellement DANS la cage (entré entre les poteaux) : un ballon
+      // qui passe à côté du filet latéral ou au-dessus de la barre ne le fait pas bouger.
+      const inCage = !!this.v.phys?.inGoal && Math.sign(bw.x) === Math.sign(m.parent.children[0].position.x || 1);
+      const inside = inCage && Math.abs(tmp.x) < N.w / 2 + 0.2 && Math.abs(tmp.y) < N.h / 2 + 0.2;
+      const pen0 = inside ? tmp.z * N.out + BALL_R + 0.02 : 0;   // le ballon pousse au-delà du plan du filet
+      const pen = pen0 > 1.3 ? 0 : pen0;
       if (pen > 0.005) { N.amp = Math.max(N.amp, pen); N.vel = 0; N.cx = tmp.x; N.cy = tmp.y; N.hold = 0.08; }
       else {
         if ((N.hold -= dt) > 0) continue;
@@ -2472,6 +2480,15 @@ export class Match3D {
         p3.root.add(label);
         this.scene.add(p3.root);
         e = { p3, label };
+        // Jauge d'énergie au-dessus de la tête (joueurs de l'équipe du manager).
+        if (side === (v.userSide ?? 0)) {
+          const cv = document.createElement('canvas'); cv.width = 64; cv.height = 10;
+          const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
+          const bar = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true }));
+          bar.scale.set(0.75, 0.12, 1); bar.position.y = 2.42 * K * hk; bar.renderOrder = 11;
+          p3.root.add(bar);
+          e.energy = { bar, cv, tex, last: -1 };
+        }
         // Corps réaliste (gros plans) : mêmes os que le modèle simplifié.
         const eyeC = new THREE.Color(lk.eyes || '#2a1a10'), eyeTex = eyeC.b > eyeC.r * 1.15 ? 'blue' : eyeC.g > eyeC.r * 1.1 ? 'green' : (eyeC.r + eyeC.g + eyeC.b) > 1.2 ? 'grey' : 'brown';
         // Gabarit propre à chaque joueur (poids/taille réels) : plus costaud ou plus sec.
@@ -2967,6 +2984,17 @@ export class Match3D {
       e.p3.ring.visible = id === v.selected;   // pas de rond sous le porteur : seulement le joueur touché
       e.p3.ring.material = this.mats[p.side].ring;
       e.label.visible = v.labelMode === 'name' || (v.labelMode !== 'none' && hl);
+      if (e.energy) {
+        const en = Math.round(p.mp?.energy ?? 100), E = e.energy;
+        E.bar.visible = v.showEnergy !== false && !v.replaying;
+        if (E.bar.visible && en !== E.last) {
+          E.last = en;
+          const g = E.cv.getContext('2d');
+          g.clearRect(0, 0, 64, 10); g.fillStyle = 'rgba(8,12,18,.75)'; g.fillRect(0, 0, 64, 10);
+          g.fillStyle = en > 70 ? '#3ddc84' : en > 50 ? '#ffd166' : '#ef476f'; g.fillRect(2, 2, Math.max(0, 60 * en / 100), 6);
+          E.tex.needsUpdate = true;
+        }
+      }
     }
     // Arbitre.
     if (v.referee) {
@@ -2977,15 +3005,33 @@ export class Match3D {
     let [bx, bz] = this.toWorld(v.ball.x, v.ball.y, flip);
     let hgt = v.ball.h * 26;
     // Ballon dans les mains : gardien (contre la poitrine) ou joueur qui fait la touche (au-dessus de la tête).
-    const handP = carrier != null && v.inHands ? v.players.get(carrier) : [...v.players.values()].find((p) => p.hold > 0);
+    let handId = carrier != null && v.inHands ? carrier : null;
+    if (handId == null) for (const [id, p] of v.players) if (p.hold > 0) { handId = id; break; }
+    const handP = handId != null ? v.players.get(handId) : null;
+    let inHandsPos = null;
     if (handP) {
-      const [hx, hz] = this.toWorld(handP.x, handP.y, flip);
-      const fa = flip ? handP.face + Math.PI : handP.face;
-      const fwd = handP.hold > 0 ? -0.12 : 0.32;
-      bx = hx + Math.cos(fa) * fwd; bz = hz + Math.sin(fa) * fwd;
-      hgt = (handP.hold > 0 ? 2.05 : 1.15) * K;
+      // Le ballon est DANS les mains : on le place entre les deux mains du modèle (pose réelle :
+      // plongeon, ballon serré contre la poitrine, touche au-dessus de la tête), jamais en lévitation.
+      const e = this.players.get(handId);
+      const hands = e?.p3?.arms?.map((a) => a.hand).filter(Boolean);
+      if (hands?.length === 2) {
+        e.p3.root.updateMatrixWorld(true);
+        const a = hands[0].getWorldPosition(this._hA ||= new THREE.Vector3()), b = hands[1].getWorldPosition(this._hB ||= new THREE.Vector3());
+        inHandsPos = a.add(b).multiplyScalar(0.5);
+        // un peu devant les paumes (le ballon a un rayon)
+        const fa = flip ? handP.face + Math.PI : handP.face;
+        inHandsPos.x += Math.cos(fa) * BALL_R * 0.8; inHandsPos.z += Math.sin(fa) * BALL_R * 0.8;
+        inHandsPos.y = Math.max(BALL_R, inHandsPos.y);
+      } else {
+        const [hx, hz] = this.toWorld(handP.x, handP.y, flip);
+        const fa = flip ? handP.face + Math.PI : handP.face;
+        const fwd = handP.hold > 0 ? -0.12 : 0.32;
+        bx = hx + Math.cos(fa) * fwd; bz = hz + Math.sin(fa) * fwd;
+        hgt = (handP.hold > 0 ? 2.05 : 1.15) * K;
+      }
     }
-    this.ball.position.set(bx, BALL_R + hgt, bz);
+    if (inHandsPos) this.ball.position.copy(inHandsPos);
+    else this.ball.position.set(bx, BALL_R + hgt, bz);
     // Rotation réelle : le ballon roule sur lui-même dans le sens de sa course.
     const P = v.phys;
     if (P) {

@@ -31,7 +31,7 @@ const K_MAGNUS = 0.03;                  // accélération par (unité d'effet)·
 const SPIN_DECAY = 0.12;                // l'effet s'atténue en vol (par seconde)
 const BOUNCE_E = 0.58;                  // restitution verticale sur l'herbe
 const BOUNCE_F = 0.8;                   // perte de vitesse horizontale à chaque rebond
-const ROLL_DEC = 1.7;                   // décélération du ballon qui roule (m/s²)
+const ROLL_DEC = 1.4;                  // décélération du ballon qui roule (m/s²) : une passe de 10 m/s roule ~40 m
 export const GOAL_HALF = 3.66, BAR = 2.44, POST_R = 0.06, NET_D = 2.0;
 
 export function createBall(x = PITCH_L / 2, y = PITCH_W / 2) {

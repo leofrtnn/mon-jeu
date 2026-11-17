@@ -47,7 +47,7 @@ const TR = (pl, k) => !!pl?.mp?.p?.traits?.includes(k);
 
 const TUNE = {   // calibré en TEMPS RÉEL : ~2,7 buts, ~23 tirs, ~20 fautes, ~80 % de passes, ~4,5 passes par possession
   clock: 1,        // secondes de match par seconde de jeu simulé (1 = temps réel)
-  shotW: 0.4,        // attrait de la frappe face aux autres options
+  shotW: 0.5,        // attrait de la frappe face aux autres options
   shotCost: 5,     // coût de la perte de balle dans le choix de tirer
   carryW: 0.5,        // attrait de la conduite de balle
   keepW: 0.6,        // valeur de garder le ballon (passe sûre à un partenaire libre)
@@ -56,8 +56,8 @@ const TUNE = {   // calibré en TEMPS RÉEL : ~2,7 buts, ~23 tirs, ~20 fautes, ~
   passRisk: 1.0,      // sévérité des interceptions
   lossW: 10,         // coût de la perte de balle dans le choix des passes
   tackleRate: 0.4,    // fréquence des tentatives de tacle
-  foulP: 0.26,        // part des tentatives de tacle qui finissent en faute
-  xg: 0.82,          // échelle du modèle d'xG géométrique
+  foulP: 0.16,        // part des tentatives de tacle qui finissent en faute
+  xg: 0.95,          // échelle du modèle d'xG géométrique
   takeonW: 0.3,       // attrait du crochet / débordement
   hold: 2.4,            // temps de réflexion avant de jouer le ballon (×)
   recv: 3.2,            // temps de contrôle à la réception (×)
@@ -65,6 +65,7 @@ const TUNE = {   // calibré en TEMPS RÉEL : ~2,7 buts, ~23 tirs, ~20 fautes, ~
   loftPen: 0.2,       // coût de choix d'un ballon aérien (réalisme : surtout des passes au sol)
   passErr: 0.0032,    // imprécision des passes selon la longueur
   carryLoss: 1.5,     // part du coût de perte appliquée à la conduite de balle
+  backKeep: 10,        // à quel point garder le ballon en reculant vaut moins (m)
   temp: 0.005,        // part de hasard dans les choix (plus bas = choix plus lucides)
 };
 if (globalThis.__T) Object.assign(TUNE, globalThis.__T);   // réglages de calibrage (outils)
@@ -901,7 +902,11 @@ export class LiveSim {
     const dGoalE = Math.hypot(this.goalX(A.side) - hx, W / 2 - hy);
     if (contact && (h.waitN || 0) >= 1 && dGoalE > 24 && !globalThis.__X?.noesc) {
       // Se dégager : demi-tour / pas de côté, le corps entre l'adversaire et le ballon.
-      const ax = hx - this.X(opp1.o), ay = hy - this.Y(opp1.o), al = Math.hypot(ax, ay) || 1;
+      // On se dégage de côté ou en avant (le corps entre l'adversaire et le ballon), pas en
+      // repartant vers son propre but.
+      let ax = hx - this.X(opp1.o), ay = hy - this.Y(opp1.o);
+      if (ax * dir < 0) ax *= 0.25;
+      const al = Math.hypot(ax, ay) || 1;
       const side = ((h.mp.id + Math.floor(this.now)) % 2 ? 1 : -1);
       const ex = clamp(hx + (ax / al) * 4 + (-ay / al) * side * 2.5, 2, L - 2), ey = clamp(hy + (ay / al) * 4 + (ax / al) * side * 2.5, 2, W - 2);
       opts.push({ k: 'carry', u: -0.035 + (h.waitN || 0) * 0.022 + eff(h.mp, 'dri') / 5000, x: ex, y: ey, escape: true });
@@ -1082,7 +1087,10 @@ export class LiveSim {
     const backK = cutback || back <= 18 || ownHalf ? 1 : Math.exp(-(back - 18) / (pressed ? 14 : 8));
     // Une-deux : le passeur qui a redoublé sa course est cherché en priorité s'il est démarqué.
     const oneTwo = r.goRun && this.now < r.goRun.until && ((tx - sx) * dir) > 2 ? 2.4 : 1;
-    const val = (this.threat(A.side, tx, ty) * (1 + ment * 0.05) * fwd * (cutback ? 2.1 : 1) * oneTwo + keep * backK) * lenW * dirW * lane;
+    // Garder le ballon vaut moins s'il faut reculer pour ça : une passe en retrait se justifie pour
+    // sortir de la pression, pas comme réflexe (sinon on joue « à l'envers » sans arrêt).
+    const keepDir = cutback ? 1 : back > 3 ? Math.exp(-(back - 3) / (pressed ? 14 : TUNE.backKeep)) : 1;
+    const val = (this.threat(A.side, tx, ty) * (1 + ment * 0.05) * fwd * (cutback ? 2.1 : 1) * oneTwo + keep * backK * keepDir) * lenW * dirW * lane;
     // Perdre le ballon coûte la valeur de la possession actuelle + le danger d'une contre-attaque.
     const danger = this.threat(1 - A.side, worst ? worst.x : tx, worst ? worst.y : ty) + this.threat(A.side, sx, sy) * 1.4 + 0.012;
     // Les équipes jouent surtout à ras de terre : le long ballon reste un choix (consigne « direct »).
@@ -1369,7 +1377,7 @@ export class LiveSim {
     P.inGoal = 0; P.hitPost = false;
     const d = Math.hypot(tgt.x - P.x, tgt.y - P.y, tgt.z - P.z);
     const T = solveKick(P, tgt, { T: Math.max(0.25, d / speed), spin, top, knuckle });
-    this.shot = { side: A.side, outcome: o, shooter: h, gk, at: this.now + T, kind, xg, how, blocker: blocker?.o, catchIt: speed < 27 && r2 < 0.55 * (m.wx?.grip || 1) * (gk && TR(gk, 'chat') ? 1.35 : 1) };
+    this.shot = { side: A.side, outcome: o, shooter: h, gk, at: this.now + T, kind, xg, how, blocker: blocker?.o, catchIt: speed < 27 && r2 < 0.42 * (m.wx?.grip || 1) * (gk && TR(gk, 'chat') ? 1.35 : 1) };
     this.pending = null;
     // Le gardien plonge vers le ballon au bon moment (trop tard s'il y a but).
     if (gk && o !== 'blocked') {
@@ -1605,7 +1613,7 @@ export class LiveSim {
     const px = P.x + P.vx * ahead, py = P.y + P.vy * ahead;
     // Où le ballon va-t-il s'arrêter ? S'il file hors du terrain et que l'adversaire l'a touché
     // en dernier, on le laisse sortir (touche / six mètres pour nous), comme les vrais joueurs.
-    const stop = sp > 0.3 ? (sp * sp) / (2 * 1.9) : 0;
+    const stop = sp > 0.3 ? (sp * sp) / (2 * 1.55) : 0;
     const rx = P.x + (sp > 0.3 ? (P.vx / sp) * stop : 0), ry = P.y + (sp > 0.3 ? (P.vy / sp) * stop : 0);
     const goingOut = P.z < 0.6 && (ry < -0.3 || ry > W + 0.3 || rx < -0.3 || rx > L + 0.3);
     const letGo = (side) => goingOut && this.lastTouch !== side;
@@ -1615,7 +1623,7 @@ export class LiveSim {
     const tReach = (p) => {
       const vmax = 6 + (p.mp?.p?.attrs?.vit ?? 60) * 0.03;
       for (let t = 0; t <= 3; t += 0.15) {
-        const bv = Math.max(0, sp - 1.9 * t), dd = sp > 0.3 ? (sp * t - 0.95 * t * t) * (bv > 0 ? 1 : 0) + (bv <= 0 ? stop : 0) : 0;
+        const bv = Math.max(0, sp - 1.55 * t), dd = sp > 0.3 ? (sp * t - 0.78 * t * t) * (bv > 0 ? 1 : 0) + (bv <= 0 ? stop : 0) : 0;
         const bx = P.x + (sp > 0.3 ? (P.vx / sp) * Math.min(dd, stop) : 0), by = P.y + (sp > 0.3 ? (P.vy / sp) * Math.min(dd, stop) : 0);
         const d = Math.max(0, this.dist(p, bx, by) - 0.6);
         if (d / vmax <= t + 0.15) return { t, bx, by };
@@ -1752,6 +1760,12 @@ export class LiveSim {
     const P = this.P, h = this.holder;
     // Ballon ramené pour une remise en jeu : trajectoire en cloche jusqu'au point exact.
     const F = this.restart?.fetch;
+    if (F && F.wait > 0) {
+      // Ballon sorti : il continue sa course (il roule, rebondit sur les panneaux) avant d'être rendu.
+      F.wait -= dt; stepBall(P, dt);
+      if (F.wait <= 0) { F.x0 = P.x; F.y0 = P.y; F.z0 = Math.max(BR, P.z); F.t = 0; const d0 = Math.hypot(P.x - this.restart.x, P.y - this.restart.y); F.T = clamp(d0 / 13, 0.45, 1.7); F.h = clamp(d0 * 0.09, 0.3, 3); }
+      return;
+    }
     if (F) {
       F.t += dt;
       const k = Math.min(1, F.t / F.T), rs = this.restart;
@@ -1774,7 +1788,12 @@ export class LiveSim {
       const sp = h.speed || 0;
       const f0 = this.foot(h, 0.45);
       const dB = Math.hypot(f0.x - P.x, f0.y - P.y);
-      if (P.z < 0.8 && (dB < 1.0 || (h.prep && dB < 1.7)) && (sp < 1.8 || h.prep)) {
+      const bsp = Math.hypot(P.vx, P.vy);
+      if (P.z < 0.8 && dB < 1.0 && !h.prep && bsp > 3.5 && sp < 1.8) {
+        // Premier contrôle : un ballon qui arrive vite est amorti (il ralentit en deux temps), il ne
+        // se « colle » pas au pied d'un coup.
+        P.vx *= 0.4; P.vy *= 0.4; h.ctrl = Math.max(h.ctrl || 0, 0.2); h.ctrlH = P.z;
+      } else if (P.z < 0.8 && (dB < 1.0 || (h.prep && dB < 1.7)) && (sp < 1.8 || h.prep)) {
         glued = true;
         const k = Math.min(1, dt * (h.prep ? 10 : 7));
         const nx = P.x + (f0.x - P.x) * k, ny = P.y + (f0.y - P.y) * k;
@@ -1855,6 +1874,7 @@ export class LiveSim {
     // But : seulement si le tir a été accordé ; sinon le ballon est repoussé sur la ligne.
     if (P.inGoal) {
       if (this.shot && this.shot.outcome === 'goal') { this.goal(out); return; }
+      if (globalThis.__CNT) globalThis.__CNT.rej = (globalThis.__CNT.rej || 0) + 1;
       const gx = P.inGoal > 0 ? L : 0, d = P.inGoal > 0 ? -1 : 1;
       P.x = gx + d * 0.3; P.vx = d * Math.max(3, Math.abs(P.vx) * 0.3); P.vy *= 0.5; P.vz = Math.max(P.vz, 1.5); P.inGoal = 0; P.spin = 0;
     }
@@ -1912,9 +1932,10 @@ export class LiveSim {
     // Le ballon revient à l'endroit de la remise en jeu (renvoyé par un ramasseur ou le joueur),
     // jamais téléporté : il fait le trajet, en cloche s'il est loin.
     const P = this.P, d0 = Math.hypot(P.x - x, P.y - y);
-    if (d0 > 1.2 && kind !== 'penalty') {
-      this.restart.fetch = { x0: P.x, y0: P.y, z0: Math.max(BR, P.z), t: 0, T: clamp(d0 / 13, 0.45, 1.7), h: clamp(d0 * 0.09, 0.3, 3) };
-      Object.assign(P, { spin: 0, top: 0, inGoal: 0, hitPost: false });
+    const rolling = Math.hypot(P.vx, P.vy) > 1 && kind !== 'freekick' && kind !== 'penalty';
+    if ((d0 > 1.2 || rolling) && kind !== 'penalty') {
+      this.restart.fetch = { x0: P.x, y0: P.y, z0: Math.max(BR, P.z), t: 0, T: clamp(d0 / 13, 0.45, 1.7), h: clamp(d0 * 0.09, 0.3, 3), wait: rolling ? 1.6 : 0 };
+      if (!rolling) Object.assign(P, { spin: 0, top: 0, inGoal: 0, hitPost: false });
     } else Object.assign(P, { x, y, z: BR, vx: 0, vy: 0, vz: 0, spin: 0, top: 0, inGoal: 0, hitPost: false });
     this.positioning();
   }
@@ -2220,7 +2241,9 @@ export class LiveSim {
       p.turnGap = Math.abs(d);
       p.face = (p.face || 0) + d * Math.min(1, dt * rate);
       // Foulée réelle : un cycle (deux pas) ≈ 4,4 m en sprint, ≈ 2,8 m en petite foulée.
-      p.phase = (p.phase || 0) + p.speed * dt * (1.45 + 0.8 * (1 - Math.min(1, p.speed / 8)));
+      // Cadence réelle : un cycle (deux pas) ≈ 1,4 m en marchant, 2,3 m au trot, 4,4 m en sprint
+      // (sinon les jambes tournent trop lentement pour la vitesse : le joueur « glisse »).
+      p.phase = (p.phase || 0) + p.speed * dt * (Math.PI * 2) / (1.0 + 0.42 * p.speed);
     };
     for (const p of this.players.values()) {
       const vit = p.mp?.p?.attrs?.vit ?? 60, en = p.mp?.energy ?? 100;

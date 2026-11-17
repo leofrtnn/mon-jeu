@@ -614,13 +614,15 @@ export class MatchView {
     if (!this.highlights || this.hlMode !== 'auto') return this.hlMode === 'auto' ? this.speed : +this.hlMode;
     const ff = this.ffSpeed === 'R' ? 8 : (this.ffSpeed || 4);
     // Temps fort : x1 (vitesse réelle) ; amorce en mode résumé : x2,5 ; sinon x4/x8.
-    let target = this.inHL ? 1 : this.ffSpeed === 'R' && this.hlPre() ? 2.5 : ff;
+    // Temps fort : ×1,2 (le direct paraît lent sur un écran) ; amorce : ×2,5 ; sinon ×4/×8.
+    let target = this.inHL ? 1.2 : this.ffSpeed === 'R' && this.hlPre() ? 2.5 : ff;
     // Remise en jeu sans danger (touche, six mètres, coup franc lointain) : pendant que les joueurs
     // se replacent, la réalisation accélère un peu (comme une coupure télé), puis revient au direct.
     const rs = this.live?.restart;
-    if (target === 1 && rs && ['throw', 'goalkick', 'kickoff'].concat(Math.abs((rs.side === 0 ? 105 : 0) - rs.x) > 35 ? ['freekick'] : []).includes(rs.kind) && rs.t > 1.2 && !rs.go) target = 2.5;
+    if (target <= 1.2 && rs && ['throw', 'goalkick', 'kickoff'].concat(Math.abs((rs.side === 0 ? 105 : 0) - rs.x) > 35 ? ['freekick'] : []).includes(rs.kind) && rs.t > 1.2 && !rs.go) target = 2.5;
     // Transitions douces dans les deux sens (plus de ralenti brutal suivi d'une reprise sèche).
-    this.effSpeed += (target - this.effSpeed) * Math.min(1, dt * (target < this.effSpeed ? 2.6 : 0.7));
+    // Transitions courtes (≈ 0,4 s) : plus de longues rampes où l'on ne sait plus à quelle vitesse on regarde.
+    this.effSpeed += (target - this.effSpeed) * Math.min(1, dt * (target < this.effSpeed ? 7 : 3));
     if (Math.abs(this.effSpeed - target) < 0.02) this.effSpeed = target;
     return this.effSpeed;
   }
@@ -803,16 +805,29 @@ export class MatchView {
   moveReferee(dt) {
     const r = this.referee, b = this.ball;
     if (r.focus && (r.focus.t -= dt) > 0) { r.tx = r.focus.x + (r.focus.x < 0.5 ? 0.025 : -0.025); r.ty = r.focus.y + 0.03; }
-    else { r.focus = null; r.tx = Math.max(0.08, Math.min(0.92, b.x - 0.1)); r.ty = Math.max(0.1, Math.min(0.9, b.y + (b.y < 0.5 ? 0.18 : -0.18))); }
+    else {
+      // Diagonale de l'arbitre : il suit le jeu à distance, sans courir après chaque passe (zone
+      // morte de ~8 m, place qui glisse au trot), et ne sprinte que si le jeu part loin.
+      r.focus = null;
+      const gx = Math.max(0.08, Math.min(0.92, b.x - 0.1)), gy = Math.max(0.1, Math.min(0.9, b.y + (b.y < 0.5 ? 0.18 : -0.18)));
+      const ex = (gx - r.tx) * PITCH_L, ey = (gy - r.ty) * PITCH_W, e = Math.hypot(ex, ey);
+      if (e > 8) r._mv = true; else if (e < 2) r._mv = false;
+      if (r._mv && e > 1e-6) { const st = Math.min(e, (e > 22 ? 6 : 3) * dt); r.tx += (ex / e) * st / PITCH_L; r.ty += (ey / e) * st / PITCH_W; }
+    }
     const dx = (r.tx - r.x) * PITCH_L, dy = (r.ty - r.y) * PITCH_W, d = Math.hypot(dx, dy);
-    const want = d < 0.3 ? 0 : Math.min(7.5, Math.sqrt(2 * 5 * d));
+    const want = d < 0.3 ? 0 : Math.min(r.focus ? 7 : d > 15 ? 6 : d > 5 ? 4 : 2.2, Math.sqrt(2 * 5 * d));
     const k = Math.min(1, dt * 3);
     r.vx = (r.vx || 0) + ((d ? dx / d : 0) * want - (r.vx || 0)) * k;
     r.vy = (r.vy || 0) + ((d ? dy / d : 0) * want - (r.vy || 0)) * k;
     r.x += (r.vx * dt) / PITCH_L; r.y += (r.vy * dt) / PITCH_W;
     r.speed = Math.hypot(r.vx, r.vy);
-    if (r.speed > 1) r.face = Math.atan2(r.vy, r.vx); else r.face = Math.atan2((b.y - r.y) * PITCH_W, (b.x - r.x) * PITCH_L);
-    r.phase = (r.phase || 0) + r.speed * dt * (1.45 + 0.8 * (1 - Math.min(1, r.speed / 8)));
+    // Il garde le jeu dans son champ de vision : de face s'il court vite, sinon le corps ouvert vers le ballon.
+    const toB = Math.atan2((b.y - r.y) * PITCH_W, (b.x - r.x) * PITCH_L), mv = Math.atan2(r.vy, r.vx);
+    let fT = toB;
+    if (r.speed > 0.6) { let o = toB - mv; o = Math.atan2(Math.sin(o), Math.cos(o)); fT = r.speed > 4.5 ? mv : mv + Math.max(-1.3, Math.min(1.3, o)); }
+    let df = fT - (r.face || 0); df = Math.atan2(Math.sin(df), Math.cos(df));
+    r.face = (r.face || 0) + df * Math.min(1, dt * 6);
+    r.phase = (r.phase || 0) + r.speed * dt * (Math.PI * 2) / (1.0 + 0.42 * r.speed);
     for (const k2 of ['card', 'whistle', 'point']) if (r[k2] > 0) r[k2] = Math.max(0, r[k2] - dt / 1.25);
     if (r.pointLater > 0 && (r.pointLater -= dt) <= 0) { r.pointLater = 0; if (!(r.card > 0)) r.point = 1.4; }
   }
@@ -1283,7 +1298,7 @@ export class MatchView {
       while (d < -Math.PI) d += Math.PI * 2;
       p.face += d * Math.min(1, dt * 7);
       // Foulée : plus ample (moins de pas par mètre) quand il sprinte.
-      p.phase += p.speed * dt * (2.3 + 1.6 * (1 - Math.min(1, p.speed / 8)));
+      p.phase += p.speed * dt * (Math.PI * 2) / (1.0 + 0.42 * p.speed);
     };
     for (const p of this.players.values()) {
       const vit = p.mp?.p?.attrs?.vit ?? 60, en = p.mp?.energy ?? 100;

@@ -290,6 +290,7 @@ export function openMatch(app, opts = {}) {
     onHighlight: (on) => { audio.swell(on); const b = root.querySelector('[data-c="speed"]'); if (b && SPEEDS[ctrl.speedIdx] === 'auto') { b.textContent = speedLabel('auto', on, view.ffSpeed); b.classList.toggle('hl-on', on); } ffUpdate(true); },
     beforeStep: replay ? (n) => applyJournal(n) : duel ? (n) => duelBeforeStep(n) : null, canStep: duel ? (n) => duel.canStep(n) : null, labelMode: s.settings.labels || ((s.settings.matchStyle || '3d') !== 'anim' ? 'num' : 'name'), style: s.settings.matchStyle || '3d', onPlayerTap: showTapCard,
     on3DFail: () => { app.toast('3D indisponible sur cet appareil : vue 2D.', 3500); s.settings.matchStyle = 'fm'; root.querySelector('[data-c=style]').textContent = '2D'; } });
+  view.showEnergy = !s.settings?.noEnergyBars;   // jauges d'énergie au-dessus des joueurs
   bc = new Broadcast($('bcast'), { m, cfg, hc, ac, colors: view.colors, nameOf, holderOf: () => (view.hl === 'skip' ? null : view.holder),
     coachOf: (side) => { const c = side === 0 ? hc : ac; if (c.id === s.userClubId && s.coach) return coachName(s.coach); const mg = managerOf(s, c); return mg ? (mg.fullName || mg.name) : ''; },
     coachImg: (side) => { const c = side === 0 ? hc : ac; if (c.id === s.userClubId && s.coach) return avatarSvg(s.coach.look, 40); const mg = managerOf(s, c); return mg?.photo ? face({ first: mg.first, last: mg.last, photo: mg.photo }, c, 'md') : ''; } });
