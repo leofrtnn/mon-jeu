@@ -48,16 +48,16 @@ const TR = (pl, k) => !!pl?.mp?.p?.traits?.includes(k);
 const TUNE = {   // calibré en TEMPS RÉEL : ~2,7 buts, ~23 tirs, ~20 fautes, ~80 % de passes, ~4,5 passes par possession
   clock: 1,        // secondes de match par seconde de jeu simulé (1 = temps réel)
   shotW: 0.4,        // attrait de la frappe face aux autres options
-  shotCost: 7,     // coût de la perte de balle dans le choix de tirer
+  shotCost: 5,     // coût de la perte de balle dans le choix de tirer
   carryW: 0.5,        // attrait de la conduite de balle
-  keepW: 0.9,        // valeur de garder le ballon (passe sûre à un partenaire libre)
+  keepW: 0.6,        // valeur de garder le ballon (passe sûre à un partenaire libre)
   holdU: -0.025,       // temporiser balle au pied (négatif : seulement quand les autres options sont mauvaises)
   crossW: 0.4,
   passRisk: 1.0,      // sévérité des interceptions
   lossW: 10,         // coût de la perte de balle dans le choix des passes
   tackleRate: 0.4,    // fréquence des tentatives de tacle
-  foulP: 0.2,        // part des tentatives de tacle qui finissent en faute
-  xg: 0.7,          // échelle du modèle d'xG géométrique
+  foulP: 0.26,        // part des tentatives de tacle qui finissent en faute
+  xg: 0.82,          // échelle du modèle d'xG géométrique
   takeonW: 0.3,       // attrait du crochet / débordement
   hold: 2.4,            // temps de réflexion avant de jouer le ballon (×)
   recv: 3.2,            // temps de contrôle à la réception (×)
@@ -291,10 +291,22 @@ export class LiveSim {
     const urgent = new Set(['press', 'press2', 'run', 'overlap', 'box', 'recover', 'hold', 'mark', 'chase']);
     for (const p of this.players.values()) {
       if (p === this.holder || p === this.pending?.to || this.restart || p.gk || urgent.has(p.role)) { p._ax = p.tx; p._ay = p.ty; continue; }
-      if (p._ax == null) { p._ax = p.tx; p._ay = p.ty; continue; }
+      if (p._ax == null) { p._ax = p.tx; p._ay = p.ty; p._at = this.now; continue; }
       const dx = (p.tx - p._ax) * L, dy = (p.ty - p._ay) * W, d = Math.hypot(dx, dy);
-      if (d > 4 || p.role !== p._role) { p._ax = p.tx; p._ay = p.ty; }
-      else { p._ax += (p.tx - p._ax) * 0.3; p._ay += (p.ty - p._ay) * 0.3; p.tx = p._ax; p.ty = p._ay; }
+      const span = Math.min(1, this.now - (p._at ?? this.now)); p._at = this.now;
+      if ((p.role && p.role !== p._role) || d > 30) { p._ax = p.tx; p._ay = p.ty; }
+      else {
+        // Sa place « mentale » glisse vers la place tactique à allure de trot : il se replace en
+        // trottinant au lieu de courir après une cible qui saute. Plus vite si son but est menacé.
+        const own = this.goalX(1 - p.side), threatened = this.poss !== p.side && this.poss >= 0 && Math.abs(this.P.x - own) < 45;
+        const vA = threatened ? 5 : this.poss === p.side ? 2.4 : 2.9;
+        // « À peu près à sa place » suffit : on ne se recale que si l'écart dépasse ~3 m, puis on
+        // s'arrête à 1 m (sinon 20 joueurs trottinent en permanence derrière une cible qui glisse).
+        if (d > (threatened ? 2 : 3.2)) p._mv = true; else if (d < 1) p._mv = false;
+        const k = !p._mv ? 0 : d > 1e-6 ? Math.min(1, (vA * span) / d) : 1;
+        p._ax += (p.tx - p._ax) * k; p._ay += (p.ty - p._ay) * k;
+        p.tx = p._ax; p.ty = p._ay;
+      }
       p._role = p.role;
     }
   }
@@ -2075,7 +2087,7 @@ export class LiveSim {
     // Temps de mise en place (le temps de jeu effectif baisse, mais tout est lisible) :
     // ballon posé, mur formé, joueurs placés, signal du tireur.
     const nearGoal = Math.hypot(this.goalX(rs.side) - rs.x, W / 2 - rs.y) < 32;
-    const minT = { kickoff: 2.4, throw: 1.4, goalkick: 3.0, corner: 4.2, freekick: nearGoal ? 5.5 : 3.2, penalty: 4.5 }[rs.kind] * (this.tacticalMood(rs.taker?.team || this.m.teams[rs.side]).wasting ? 1.8 : 1);
+    const minT = { kickoff: 4, throw: 7, goalkick: 11, corner: 12, freekick: nearGoal ? 14 : 8, penalty: 8 }[rs.kind] * (this.tacticalMood(rs.taker?.team || this.m.teams[rs.side]).wasting ? 1.8 : 1);
     const atBall = this.dist(t, rs.x, rs.y) < 1.4 && !rs.fetch;
     if (atBall && !rs.placed && rs.kind !== 'throw' && rs.kind !== 'kickoff') { rs.placed = true; t.place = 0.9; t.face = Math.atan2(rs.y - t.y * W, rs.x - t.x * L); }
     if (rs.kind === 'corner' && rs.placed && rs.t > minT - 1.4 && !rs.signal) { rs.signal = true; t.signal = 1.1; }
@@ -2096,7 +2108,7 @@ export class LiveSim {
     }
     // Trop long : l'arbitre presse les retardataires, qui sprintent (personne n'est jamais déplacé
     // d'un coup) ; on reprend dès que le tireur est au ballon et que l'engagement est réglementaire.
-    if (rs.t > 12) rs.hurry = true;
+    if (rs.t > minT + 5) rs.hurry = true;
     const kickoffOk = rs.kind !== 'kickoff' || [...this.players.values()].every((p) => (p.x * L - L / 2) * this.dir(p.side) <= 0.02);
     if (!(atBall && rs.t >= minT && (settled || (rs.hurry && kickoffOk) || rs.t > 30) && !(t.place > 0))) return;
     // Armé de la jambe avant de jouer le ballon (le geste précède le départ du ballon).
@@ -2195,8 +2207,12 @@ export class LiveSim {
         // ou un petit ajustement. Sinon on court droit devant soi (la tête suit le ballon).
         const defending = this.poss !== p.side;
         p.back = p !== this.holder && p.speed > 0.6 && Math.cos(mv - toBall) < -0.35
-          && (p.gk ? p.speed < 5 : (defending && dist < 7 && p.speed < 4.6) || (dist < 2.5 && p.speed < 2.6));
-        target = p.back ? toBall : p.gk && p.speed < 4 ? toBall : p.speed > 1.2 ? mv : toBall;
+          && (p.gk ? p.speed < 5 : (defending && dist < 7 && p.speed < 4.6 && Math.hypot(P.x - p.x * L, P.y - p.y * W) < 25) || (dist < 1 && p.speed < 1.5));
+        // Sinon il avance de face, le corps « ouvert » vers le jeu (jusqu'à ~50°), la tête sur le ballon.
+        let open = toBall - mv; open = Math.atan2(Math.sin(open), Math.cos(open));
+        const openK = defending || p === this.holder || ['run', 'hold', 'overlap', 'box', 'chase', 'press', 'press2', 'recover'].includes(p.role) ? 0 : 0.55;
+        const openMv = mv + clamp(open, -0.9, 0.9) * openK;
+        target = p.back ? toBall : p.gk && p.speed < 4 ? toBall : p.speed > 0.6 ? openMv : toBall;
       }
       let d = target - (p.face || 0);
       while (d > Math.PI) d -= Math.PI * 2;

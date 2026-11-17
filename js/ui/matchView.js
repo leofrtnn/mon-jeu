@@ -614,7 +614,11 @@ export class MatchView {
     if (!this.highlights || this.hlMode !== 'auto') return this.hlMode === 'auto' ? this.speed : +this.hlMode;
     const ff = this.ffSpeed === 'R' ? 8 : (this.ffSpeed || 4);
     // Temps fort : x1 (vitesse réelle) ; amorce en mode résumé : x2,5 ; sinon x4/x8.
-    const target = this.inHL ? 1 : this.ffSpeed === 'R' && this.hlPre() ? 2.5 : ff;
+    let target = this.inHL ? 1 : this.ffSpeed === 'R' && this.hlPre() ? 2.5 : ff;
+    // Remise en jeu sans danger (touche, six mètres, coup franc lointain) : pendant que les joueurs
+    // se replacent, la réalisation accélère un peu (comme une coupure télé), puis revient au direct.
+    const rs = this.live?.restart;
+    if (target === 1 && rs && ['throw', 'goalkick', 'kickoff'].concat(Math.abs((rs.side === 0 ? 105 : 0) - rs.x) > 35 ? ['freekick'] : []).includes(rs.kind) && rs.t > 1.2 && !rs.go) target = 2.5;
     // Transitions douces dans les deux sens (plus de ralenti brutal suivi d'une reprise sèche).
     this.effSpeed += (target - this.effSpeed) * Math.min(1, dt * (target < this.effSpeed ? 2.6 : 0.7));
     if (Math.abs(this.effSpeed - target) < 0.02) this.effSpeed = target;
