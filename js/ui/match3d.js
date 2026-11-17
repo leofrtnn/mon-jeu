@@ -1971,13 +1971,13 @@ export class Match3D {
     // Supporters animés UN PAR UN sur la carte graphique (aucun coût pour le processeur) :
     // léger balancement, à moitié levés sur un temps fort, bonds décalés et bras levés sur un
     // but de LEUR équipe (le parcage visiteur ne saute que sur les buts des visiteurs).
-    const U = this.crowdU = { uTime: { value: 0 }, uH: { value: 0 }, uA: { value: 0 }, uT: { value: 0 }, uWave: { value: 0 } };
+    const U = this.crowdU = { uTime: { value: 0 }, uH: { value: 0 }, uA: { value: 0 }, uT: { value: 0 }, uWave: { value: 0 }, uO: { value: 0 }, uC: { value: 0 } };
     const crowdMat = (head) => {
       const m = new THREE.MeshLambertMaterial({ color: '#ffffff' });
       m.onBeforeCompile = (sh) => {
         Object.assign(sh.uniforms, U);
         sh.vertexShader = sh.vertexShader.replace('#include <common>', `#include <common>
-          uniform float uTime, uH, uA, uT, uWave; attribute float aAway;`)
+          uniform float uTime, uH, uA, uT, uWave, uO, uC; attribute float aAway;`)
           .replace('#include <begin_vertex>', `#include <begin_vertex>
           #ifdef USE_INSTANCING
             vec3 ip = instanceMatrix[3].xyz;
@@ -1989,7 +1989,12 @@ export class Match3D {
             vec4 wp = modelMatrix * vec4(ip, 1.0);
             float wave = uWave * smoothstep(0.82, 1.0, sin(atan(wp.z, wp.x) * 1.0 - uTime * 2.2));
             transformed.y += wave * 0.42;
-            ${head ? '' : `if (abs(position.x) > 0.22) transformed.y += max(joy, wave) * (0.5 + 0.08 * sin(uTime * 9.0 + ph));   // bras levés
+            // « Ooh ! » sur une occasion manquée : tout le stade se lève, mains sur la tête.
+            // Applaudissements : debout, bras devant qui battent la mesure (chacun son rythme).
+            float clapB = 0.5 + 0.5 * sin(uTime * (13.0 + fract(ph * 3.1) * 4.0) + ph * 2.0);
+            transformed.y += (uO + uC * 0.7) * 0.09 * (0.7 + 0.3 * fract(ph * 1.7));
+            ${head ? '' : `if (abs(position.x) > 0.22) { transformed.y += uO * 0.36 + uC * 0.2; transformed.x *= 1.0 - uO * 0.25 - uC * (0.25 + 0.3 * clapB); transformed.z -= uC * 0.12; }
+            if (abs(position.x) > 0.22) transformed.y += max(joy, wave) * (0.5 + 0.08 * sin(uTime * 9.0 + ph));   // bras levés
             else if (position.y > 0.7) transformed.y += joy * (0.18 + 0.1 * sin(uTime * 9.0 + ph));`}
           #endif`);
       };
@@ -2131,6 +2136,34 @@ export class Match3D {
       this.crowdGroups.push({ g: crowdG, ph: rnd() * 6, ultras: !!opts.ultras });
       // Tifo et drapeaux (virage des supporters locaux).
       if (opts.ultras) {
+        // Tifo géant (grands matchs) : une mosaïque qui recouvre le premier étage du virage.
+        {
+          const t0 = rowsPos.filter((r) => r.tier === 0), a0 = t0[0], a1 = t0[t0.length - 1];
+          if (a0 && a1) {
+            const ww = len * 0.86, hh = Math.hypot(a1.z - a0.z, a1.y - a0.y) + 1.2;
+            const cv = canvasTex(1024, Math.round(1024 * hh / ww), (gg, w2, h2) => {
+              const c1 = h.color || '#c00', c2 = h.color2 || '#fff';
+              gg.fillStyle = c1; gg.fillRect(0, 0, w2, h2);
+              gg.fillStyle = c2; for (let x = -h2; x < w2; x += 90) { gg.beginPath(); gg.moveTo(x, h2); gg.lineTo(x + 40, h2); gg.lineTo(x + 40 + h2, 0); gg.lineTo(x + h2, 0); gg.fill(); }
+              gg.fillStyle = c1; gg.fillRect(w2 * 0.12, h2 * 0.18, w2 * 0.76, h2 * 0.64);
+              gg.strokeStyle = c2; gg.lineWidth = 10; gg.strokeRect(w2 * 0.12, h2 * 0.18, w2 * 0.76, h2 * 0.64);
+              gg.fillStyle = c2; gg.textAlign = 'center'; gg.textBaseline = 'middle';
+              const nm = (h.short || h.name || '').toUpperCase();
+              gg.font = `900 ${Math.round(h2 * 0.36)}px system-ui, sans-serif`; gg.fillText(nm, w2 / 2, h2 * 0.44, w2 * 0.7);
+              gg.font = `800 ${Math.round(h2 * 0.12)}px system-ui, sans-serif`; gg.fillText('★ ENSEMBLE JUSQU\'AU BOUT ★', w2 / 2, h2 * 0.7, w2 * 0.7);
+              // grain des cartons brandis
+              for (let k = 0; k < 2500; k++) { gg.fillStyle = `rgba(0,0,0,${Math.random() * 0.12})`; gg.fillRect(Math.random() * w2, Math.random() * h2, 6, 5); }
+            });
+            const geo = new THREE.PlaneGeometry(ww, hh); geo.translate(0, hh / 2, 0); geo.scale(-1, 1, 1);
+            const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ map: cv, color: '#d8d8d8', transparent: true, side: THREE.DoubleSide }));
+            const ang = Math.atan2(a1.y - a0.y, a1.z - a0.z);
+            mesh.rotation.x = Math.PI / 2 - ang;   // face au terrain (vu de dos : géométrie miroir)
+            const y0 = a0.y + 1.25;
+            mesh.position.set(0, y0, a0.z - 0.4); mesh.visible = false;
+            g.add(mesh);
+            this.bigTifo = { mesh, k: 0, y0 };
+          }
+        }
         const tifo = new THREE.Mesh(new THREE.PlaneGeometry(Math.min(40, len * 0.5), 2.2), new THREE.MeshBasicMaterial({ map: canvasTex(1024, 64, (gg, w2, h2) => {
           gg.fillStyle = h.color; gg.fillRect(0, 0, w2, h2); gg.fillStyle = h.color2 || '#fff'; gg.fillRect(0, 0, w2, 6); gg.fillRect(0, h2 - 6, w2, 6);
           gg.font = '900 40px system-ui, sans-serif'; gg.textAlign = 'center'; gg.textBaseline = 'middle'; gg.fillText(`ALLEZ ${h.short || h.name}`.toUpperCase(), w2 / 2, h2 / 2 + 2);
@@ -2694,8 +2727,17 @@ export class Match3D {
     });
   }
 
+  /** Réactions de la foule : « ooh » sur les grosses occasions, applaudissements. */
+  crowdEvent(ev) {
+    const now = performance.now();
+    if (ev.type === 'shot' && ev.outcome !== 'goal' && ((ev.xg || 0) >= 0.15 || ev.outcome === 'post')) { this._oohUntil = now + 2000; this._clapUntil = now + 4200; }
+    else if (ev.type === 'shot' && ev.outcome === 'saved') this._clapUntil = now + 2500;
+    else if (ev.type === 'skill' || ev.type === 'sub' || (ev.type === 'tackle' && ev.side === 0 && Math.random() < 0.3)) this._clapUntil = now + 2200;
+  }
+
   /** Réactions des coachs aux événements (but, occasion, faute, carton, geste technique). */
   coachEvent(ev) {
+    try { this.crowdEvent(ev); } catch { /* ignore */ }
     const C = this.coaches || [];
     const s = ev.side;
     if (s == null || s < 0) return;
@@ -2792,6 +2834,17 @@ export class Match3D {
         U.uH.value += ((cheer && sideH === 0 ? 1 : 0) - U.uH.value) * k;
         U.uA.value += ((cheer && sideH === 1 ? 1 : 0) - U.uA.value) * k;
         U.uT.value += ((tense ? 1 : 0) - U.uT.value) * k;
+        const now = performance.now();
+        U.uO.value += ((now < (this._oohUntil || 0) ? 1 : 0) - U.uO.value) * (1 - Math.exp(-(dt || 0.016) * 7));
+        U.uC.value += ((now < (this._clapUntil || 0) && now >= (this._oohUntil || 0) - 600 ? 1 : 0) - U.uC.value) * k;
+        // Tifo géant des grands soirs : déployé avant le coup d'envoi, rangé après quelques minutes.
+        if (this.bigTifo) {
+          const show = !!v.m?.big && (this.camMode === 'intro' || (v.m.minute ?? 0) < 3) && !(v.m.period > 1);
+          const T = this.bigTifo; T.k += ((show ? 1 : 0) - T.k) * (1 - Math.exp(-(dt || 0.016) * (show ? 0.9 : 2.5)));
+          T.mesh.visible = T.k > 0.01; T.mesh.scale.set(1, Math.max(0.01, T.k), 1);
+          T.mesh.material.opacity = Math.min(1, T.k * 1.4);
+          T.mesh.position.y = T.y0 + Math.sin(this._cheerT * 1.7) * 0.05;
+        }
         // Ola de temps en temps quand le jeu est calme (une vingtaine de secondes).
         const calm = !cheer && !tense;
         this._waveT = calm ? (this._waveT || 0) + (dt || 0.016) : 0;

@@ -181,6 +181,9 @@ function serve() {
     await page.evaluate(() => { const v = window.__view; v.ffBudget = 400; v.hlWant = () => false; v.hlPre = () => false; v.hlGrace = 0; v.hl = 'skip'; });
     await page.waitForSelector('[data-act=talk]', { timeout: 120000 });
     await page.click('[data-act=talk] >> nth=1');
+    await page.click('[data-act=one] >> nth=0');   // entretien individuel
+    await page.waitForSelector('.sheet .prow small:has-text("moral ")');
+    if (process.env.SHOTS) { await page.evaluate(() => [...document.querySelectorAll('.sheet .label')].find((b) => b.textContent.includes('Entretiens'))?.scrollIntoView()); await page.screenshot({ path: process.env.SHOTS + '/ht.png' }); }
     await page.click('[data-act=resume]');
     await page.click('[data-c=skip]');
     await page.waitForSelector('[data-act=done]');

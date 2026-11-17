@@ -26,6 +26,7 @@ import { xgChart, heatmap, shotMap } from '../charts.js';
 import { shotList, insights, playerLeaders } from '../../engine/analysis.js';
 import { DEBRIEF, debriefPlayer } from '../../game/debrief.js';
 import { userClub, clubById } from '../../game/state.js';
+import { isDerby } from '../../game/relations.js';
 import { staffEffects } from '../../game/career.js';
 import { managerOf } from '../../game/managers.js';
 import { pressQuestion, pressAnswer } from '../../game/media.js';
@@ -62,6 +63,12 @@ export function openMatch(app, opts = {}) {
   const m = createMatch(cfg);
   const userSide = opts.userSide ?? (cfg.home.club.id === s.userClubId ? 0 : 1);
   const label = opts.label || today(s).label;
+  // Grand match (derby, phase finale, coupe d'Europe à élimination) : tifo, ambiance électrique.
+  try {
+    const fx = opts.cfg ? null : today(s).userFixture;
+    m.big = !!((cfg.home.club?.id != null && cfg.away.club?.id != null && isDerby(s, cfg.home.club.id, cfg.away.club.id))
+      || (fx && ((fx.comp === 'conti' && fx.ko) || (fx.comp === 'cup' && fx.round >= 3))) || /finale|demi/i.test(label));
+  } catch { m.big = false; }
   const [hc, ac] = [cfg.home.club, cfg.away.club];
 
   const root = document.createElement('div');
@@ -933,12 +940,28 @@ export function openMatch(app, opts = {}) {
   function halfTime() {
     if (ctrl.finished) return;
     let talked = null;
+    const said = {};
+    // Entretiens individuels : un mot à chaque joueur selon sa première période.
+    const oneHtml = () => {
+      const T = m.teams[userSide];
+      const ps = activePlayers(T).slice().sort((a, b) => (a.rating ?? 6) - (b.rating ?? 6));
+      return `<div class="label">Entretiens individuels <small class="muted">(les moins bons d'abord)</small></div>
+        <div class="card list" style="padding:0 10px;margin-top:0">${ps.map((mp) => {
+          const r = said[mp.id];
+          return `<div class="prow" style="cursor:default;flex-wrap:wrap"><span class="posb pos-${POSITION_GROUP[T.slots[mp.slot]?.pos] || 'M'}">${T.slots[mp.slot]?.pos || ''}</span>
+            <div class="pname"><b>${esc(mp.name)}</b><small>moral ${Math.round(mp.morale)}${mp.yellow ? ' · 🟨' : ''}</small></div>
+            ${r ? '' : `<div class="row" style="gap:4px">${['praise', 'encourage', 'demand', ...(mp.yellow ? ['calm'] : [])].map((k) => `<button class="btn sm" data-act="one" data-id="${mp.id}" data-k="${k}" title="${PLAYER_SHOUTS[k].label}">${PLAYER_SHOUTS[k].icon}</button>`).join('')}</div>`}
+            ${ratingChip(mp.rating ?? 6)}
+            ${r ? `<small class="${r.delta > 0 ? 'pos-txt' : r.delta < 0 ? 'neg-txt' : 'muted'}" style="flex-basis:100%;padding:2px 0 4px">${esc(r.text)}${r.later ? '' : ` (moral ${r.delta >= 0 ? '+' : ''}${r.delta})`}</small>` : ''}</div>`;
+        }).join('')}</div>`;
+    };
     const html = () => `<div class="row between"><h2>Mi-temps</h2><b class="big" style="font-size:22px">${m.score[0]} - ${m.score[1]}</b></div>
       ${edgeHtml()}${statsHtml()}
       ${adviceHtml()}
       <div class="label">Causerie</div>
       ${talked ? `<div class="card" style="margin-top:0">${esc(talked.text)} ${talked.later ? '' : `<small>(moral ${talked.delta >= 0 ? '+' : ''}${talked.delta})</small>`}</div>` : `
         <div class="talk-grid">${Object.entries(TALKS).map(([k, t]) => `<button class="btn" data-act="talk" data-v="${k}">${t.icon} ${t.label}</button>`).join('')}</div>`}
+      ${oneHtml()}
       <div class="btns" style="margin-top:12px"><button class="btn" data-act="subs">Changements</button>
         <button class="btn primary" data-act="resume" ${talked ? '' : 'disabled'}>▶ 2e mi-temps</button></div>`;
     const h = app.sheet({
@@ -947,6 +970,12 @@ export function openMatch(app, opts = {}) {
         talk: (el) => {
           if (duel) { duel.record('talk', { side: userSide, kind: el.dataset.v }); talked = { text: `${TALKS[el.dataset.v].icon} Causerie prévue : « ${TALKS[el.dataset.v].label} ».`, delta: 0, later: true }; h.update(html()); return; }
           talked = teamTalk(m, userSide, el.dataset.v); rec('talk', { side: userSide, kind: el.dataset.v }); h.update(html());
+        },
+        one: (el) => {
+          const id = +el.dataset.id, k = el.dataset.k;
+          if (said[id]) return;
+          if (duel) { duel.record('pshout', { side: userSide, pid: id, kind: k }); said[id] = { text: 'Message noté : il sera passé à la reprise.', delta: 0, later: true }; h.update(html()); return; }
+          said[id] = playerShout(m, userSide, id, k); rec('pshout', { side: userSide, pid: id, kind: k }); h.update(html());
         },
         subs: () => pauseSheet(false, true),
         resume: () => {
