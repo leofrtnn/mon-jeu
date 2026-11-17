@@ -2210,6 +2210,24 @@ export class Match3D {
     }
     else { this.sun.intensity = 1.1; this.hemi.intensity = 1.05; }
     if (['rain', 'storm', 'snow'].includes(w.kind) && this.pitchMat) this.pitchMat.color.set(w.kind === 'snow' ? '#f2f6f8' : '#c4cec6'); // pelouse détrempée / poudrée
+    // Pluie : flaques luisantes là où la pelouse souffre (surfaces de but, rond central, couloirs),
+    // et gerbes d'eau quand le ballon file au sol ou qu'un joueur glisse.
+    if (['rain', 'storm'].includes(w.kind)) {
+      const pm = new THREE.MeshPhongMaterial({ color: '#3d5448', shininess: 120, specular: '#c8d8e8', transparent: true, opacity: w.kind === 'storm' ? 0.4 : 0.3, depthWrite: false });
+      let sd = 17; const r = () => ((sd = (sd * 16807) % 2147483647) / 2147483647);
+      const spots = [[-L / 2 + 4, 0, 5], [L / 2 - 4, 0, 5], [-L / 2 + 11, 0, 2.5], [L / 2 - 11, 0, 2.5], [0, 0, 3]];
+      for (let i = 0; i < (w.kind === 'storm' ? 16 : 10); i++) spots.push([(r() - 0.5) * (L - 10), (r() - 0.5) * (W - 8), 1 + r() * 2.2]);
+      for (const [x, z, rad] of spots) {
+        const pd = new THREE.Mesh(new THREE.CircleGeometry(rad, 20), pm);
+        pd.rotation.x = -Math.PI / 2; pd.position.set(x + (r() - 0.5) * 2, 0.012, z + (r() - 0.5) * 3); pd.scale.set(1, 0.55 + r() * 0.6, 1); pd.renderOrder = 1;
+        this.scene.add(pd);
+      }
+      const N = 260, geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(N * 3).fill(-50), 3));
+      this.spray = new THREE.Points(geo, new THREE.PointsMaterial({ color: '#e8f0f6', size: 0.09, transparent: true, opacity: 0.75, depthWrite: false }));
+      this.spray.userData = { v: new Float32Array(N * 3), life: new Float32Array(N), next: 0 };
+      this.scene.add(this.spray);
+    }
     if (['rain', 'storm', 'snow'].includes(w.kind)) {
       const n = w.kind === 'storm' ? 3600 : w.kind === 'rain' ? 1900 : 1500;
       const snow = w.kind === 'snow';
@@ -2225,6 +2243,31 @@ export class Match3D {
       this.precip.userData = { snow, speed: snow ? 2.2 : w.kind === 'storm' ? 30 : 22, slant: Math.min(0.6, (w.wind || 10) / 60) };
       this.scene.add(this.precip);
     }
+  }
+
+  /** Gerbes d'eau sur pelouse détrempée (ballon rapide au sol, joueurs qui glissent). */
+  stepSpray(dt) {
+    const S = this.spray;
+    if (!S) return;
+    const a = S.geometry.attributes.position, arr = a.array, U = S.userData, N = U.life.length;
+    const emit = (x, y, z, n, spd) => {
+      for (let k = 0; k < n; k++) {
+        const i = U.next; U.next = (U.next + 1) % N;
+        arr[i * 3] = x; arr[i * 3 + 1] = y; arr[i * 3 + 2] = z;
+        const an = Math.random() * Math.PI * 2;
+        U.v[i * 3] = Math.cos(an) * spd * (0.4 + Math.random()); U.v[i * 3 + 1] = 1.2 + Math.random() * 1.8; U.v[i * 3 + 2] = Math.sin(an) * spd * (0.4 + Math.random());
+        U.life[i] = 0.35 + Math.random() * 0.3;
+      }
+    };
+    const b = this.ball?.position, P = this.v.phys;
+    if (b && P && P.z < 0.3 && Math.hypot(P.vx, P.vy) > 5 && Math.random() < 0.7) emit(b.x, 0.05, b.z, 2, 1.1);
+    for (const [id, e] of this.players) { const p = this.v.players.get(id); if (p && (p.slide > 0 || (p.speed || 0) > 7) && Math.random() < (p.slide > 0 ? 0.9 : 0.08)) { const q = e.p3.root.position; emit(q.x, 0.05, q.z, p.slide > 0 ? 3 : 1, p.slide > 0 ? 1.6 : 0.8); } }
+    for (let i = 0; i < N; i++) {
+      if (U.life[i] <= 0) { if (arr[i * 3 + 1] > -40) arr[i * 3 + 1] = -50; continue; }
+      U.life[i] -= dt; U.v[i * 3 + 1] -= 9.8 * dt;
+      arr[i * 3] += U.v[i * 3] * dt; arr[i * 3 + 1] = Math.max(0.01, arr[i * 3 + 1] + U.v[i * 3 + 1] * dt); arr[i * 3 + 2] += U.v[i * 3 + 2] * dt;
+    }
+    a.needsUpdate = true;
   }
 
   /** Animation de la pluie / de la neige. */
@@ -2733,6 +2776,7 @@ export class Match3D {
   render(dt) {
     const v = this.v;
     this.stepPrecip(Math.min(0.05, dt || 0.016));
+    this.stepSpray(Math.min(0.05, dt || 0.016));
     this.updateCoaches(dt);
     this.updateBenchSubs(Math.min(0.05, dt || 0.016));
     // La foule se lève et saute après un but (la texture des tribunes « vibre »).

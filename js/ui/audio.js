@@ -46,7 +46,7 @@ export class MatchAudio {
     this.on = true;
   }
 
-  stop() { if (this.ctx) { this.ctx.close(); this.ctx = null; } this.on = false; }
+  stop() { if (this.ctx) { this.ctx.close(); this.ctx = null; } this.on = false; try { speechSynthesis?.cancel(); } catch { /* */ } }
   mute() { if (this.ctx) this.crowdGain.gain.setTargetAtTime(0, this.ctx.currentTime, 0.1); this.on = false; }
 
   /** Intensité 0..1 (ballon proche du but adverse, momentum…). */
@@ -111,6 +111,51 @@ export class MatchAudio {
         c.connect(hp).connect(cg).connect(this.master); c.start(t + beat * 0.5, Math.random()); c.stop(t + beat * 0.5 + 0.1);
       }
     }
+  }
+
+  /** Ballon frappé : un « toc » sourd (cuir + pelouse), plus fort pour une frappe que pour une passe. */
+  kick(power = 0.5) {
+    if (!this.on) return;
+    const ctx = this.ctx, t = ctx.currentTime;
+    const o = ctx.createOscillator(); o.type = 'sine';
+    o.frequency.setValueAtTime(150 + power * 60, t); o.frequency.exponentialRampToValueAtTime(55, t + 0.09);
+    const g = ctx.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.05 + power * 0.09, t + 0.004); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.12);
+    o.connect(g).connect(this.master); o.start(t); o.stop(t + 0.14);
+    const c = ctx.createBufferSource(); c.buffer = this.noise;
+    const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 900; bp.Q.value = 1.2;
+    const cg = ctx.createGain(); cg.gain.setValueAtTime(0.02 + power * 0.04, t); cg.gain.exponentialRampToValueAtTime(0.0001, t + 0.05);
+    c.connect(bp).connect(cg).connect(this.master); c.start(t, Math.random() * 3); c.stop(t + 0.06);
+  }
+
+  /** Applaudissements : des centaines de petits claquements aléatoires (beau geste, arrêt, sortie d'un joueur). */
+  applause(dur = 2.6, level = 1) {
+    if (!this.on) return;
+    const ctx = this.ctx, t0 = ctx.currentTime;
+    const n = Math.round(90 * dur * level);
+    for (let i = 0; i < n; i++) {
+      const t = t0 + Math.random() * dur * (0.4 + 0.6 * Math.random());
+      const c = ctx.createBufferSource(); c.buffer = this.noise;
+      const hp = ctx.createBiquadFilter(); hp.type = 'bandpass'; hp.frequency.value = 1500 + Math.random() * 1800; hp.Q.value = 1.4;
+      const g = ctx.createGain(); g.gain.setValueAtTime(0.012 * level, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.03);
+      c.connect(hp).connect(g).connect(this.master); c.start(t, Math.random() * 3); c.stop(t + 0.04);
+    }
+  }
+
+  /**
+   * Commentaire audio (synthèse vocale du navigateur, en français) : seulement les moments
+   * forts, jamais deux phrases l'une sur l'autre.
+   */
+  speak(text, urgent = false) {
+    if (!this.on || !this.voiceOn || !text || typeof speechSynthesis === 'undefined') return;
+    try {
+      if (speechSynthesis.speaking && !urgent) return;
+      if (urgent) speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(String(text).replace(/[^\p{L}\p{N} ,.!?'’:;-]/gu, ''));
+      u.lang = 'fr-FR'; u.rate = urgent ? 1.12 : 1.04; u.pitch = urgent ? 1.15 : 1; u.volume = 0.9;
+      const v = speechSynthesis.getVoices().find((x) => /^fr/i.test(x.lang));
+      if (v) u.voice = v;
+      speechSynthesis.speak(u);
+    } catch { /* synthèse indisponible */ }
   }
 
   /** Sifflet de l'arbitre : n coups, long ou court. */

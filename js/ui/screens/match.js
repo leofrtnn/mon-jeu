@@ -124,6 +124,7 @@ export function openMatch(app, opts = {}) {
     document.addEventListener('visibilitychange', onHide);
   }
   const audio = new MatchAudio();
+  audio.voiceOn = !!s.settings?.voice;
   const nameOf = (id) => {
     for (const t of m.teams) for (const mp of [...t.onPitch, ...t.bench, ...t.out]) if (mp && mp.id === id) return mp.name;
     return '';
@@ -219,6 +220,17 @@ export function openMatch(app, opts = {}) {
     else if (ev.type === 'shot' && ev.outcome !== 'goal' && (ev.xg >= 0.1 || ev.outcome === 'post')) (ev.outcome === 'wide' ? audio.groan() : audio.ooh());
     else if (ev.type === 'foul' && ev.side === 1) audio.boo();   // faute de l'équipe visiteuse : le stade siffle
     else if ((ev.type === 'yellow' || ev.type === 'red') && ev.side === 0) audio.boo();
+    // Ballon frappé, applaudissements (arrêt, geste technique, beau tacle de l'équipe qui reçoit).
+    if (['pass', 'longpass', 'cross', 'cornerkick', 'clearance', 'freekick'].includes(ev.type)) audio.kick(ev.type === 'pass' ? 0.3 : 0.6);
+    if (ev.type === 'shot') audio.kick(1);
+    if (ev.type === 'shot' && ev.outcome === 'saved') audio.applause(2.2, 0.8);
+    if (ev.type === 'skill' || (ev.type === 'tackle' && ev.side === 0 && Math.random() < 0.4)) audio.applause(1.6, 0.6);
+    if (ev.type === 'sub') audio.applause(2.4, 0.7);
+    // Commentaire audio : les moments forts seulement.
+    if (audio.voiceOn && ['goal', 'penalty', 'red', 'var', 'ht', 'ft'].concat(ev.type === 'shot' && (ev.xg >= 0.2 || ev.outcome === 'post') ? ['shot'] : []).includes(ev.type)) {
+      const line = describe(ev, ctx, Math.random);
+      if (line) audio.speak(line, ev.type === 'goal');
+    }
     const homeAttack = ev.poss === 0 ? ev.zone ?? 1 : 0;
     audio.intensity(Math.min(1, 0.15 + homeAttack * 0.22 + Math.max(0, m.momentum) / 250));
   }

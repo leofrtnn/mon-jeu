@@ -22,7 +22,7 @@ export function render(app) {
         <button class="btn sm ${st.liveEngine !== false ? 'primary' : ''}" data-act="engine">${st.liveEngine !== false ? 'En direct' : 'Classique'}</button></div>
       <div class="row between" style="padding:6px 0"><span>Qualité graphique<br><small class="muted">Ultra : ombres fines, anticrénelage, pleine résolution, jamais dégradé. Économie : pour les petits téléphones.</small></span>
         <span class="seg sm">${[['ultra', 'Ultra'], ['high', 'Haute'], ['eco', 'Économie']].map(([v, l]) => `<button data-act="gfx" data-v="${v}" class="${(st.gfx || (matchMedia('(pointer: coarse)').matches ? 'high' : 'ultra')) === v ? 'on' : ''}">${l}</button>`).join('')}</span></div>
-      ${tog('var', 'Arbitrage vidéo (VAR)')}${tog('replays', 'Ralentis des buts')}${tog('audio', 'Ambiance sonore')}</div>
+      ${tog('var', 'Arbitrage vidéo (VAR)')}${tog('replays', 'Ralentis des buts')}${tog('audio', 'Ambiance sonore')}${tog('voice', 'Commentaire audio (voix, moments forts)')}</div>
     <div class="card"><h3>Données · noms</h3>
       <p class="muted" style="font-size:13px;margin-top:0">Le jeu n'utilise que des noms fictifs. Vous pouvez exporter le fichier de noms, le modifier (par exemple avec de vrais noms), puis le réimporter.</p>
       <div class="btns"><button class="btn" data-act="exportNames">Exporter les noms</button>
