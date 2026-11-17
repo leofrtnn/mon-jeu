@@ -101,11 +101,11 @@ function sub(b, h, opts) {
   // Rotation visuelle : au sol, le ballon roule ; en l'air, il tourne selon son effet brossé/coupé.
   b.rot.a += (b.rolling ? Math.hypot(b.vx, b.vy) / R : -b.top * 2.2) * h;
   b.rot.b = Math.atan2(b.vy, b.vx);
-  if (!opts.noFrame) frame(b);
+  if (!opts.noFrame) frame(b, h);
 }
 
 /** Poteaux, transversale, filets, panneaux. */
-function frame(b) {
+function frame(b, h = 1 / 240) {
   for (const gx of [0, PITCH_L]) {
     const dir = gx === 0 ? -1 : 1;               // vers l'extérieur du terrain
     // Poteaux : cylindres verticaux.
@@ -125,11 +125,20 @@ function frame(b) {
       if (!b.inGoal) b.inGoal = gx === 0 ? -1 : 1;
     }
     if (b.inGoal === (gx === 0 ? -1 : 1)) {
-      // Filet du fond, filets latéraux, toit : ils absorbent l'énergie.
-      if (behind > NET_D - R) { b.x = gx + dir * (NET_D - R); b.vx *= -0.12; b.vy *= 0.45; b.vz *= 0.45; b.spin = 0; }
-      const lat = b.y - PITCH_W / 2;
-      if (Math.abs(lat) > GOAL_HALF - R) { b.y = PITCH_W / 2 + Math.sign(lat) * (GOAL_HALF - R); b.vy *= -0.15; b.vx *= 0.6; }
-      if (b.z > BAR - R) { b.z = BAR - R; b.vz = -Math.abs(b.vz) * 0.2; b.vx *= 0.6; }
+      // Filets SOUPLES : le ballon s'enfonce (le filet se tend comme un ressort amorti, jusqu'à
+      // ~1 m au fond), perd son énergie, puis retombe au pied du filet. Le rendu déforme le filet
+      // d'autant (match3d.js), et il ondule encore un instant après.
+      const soft = (pen, vOut, kS, cS, max) => {           // renvoie la nouvelle vitesse sortante
+        if (pen <= 0) return vOut;
+        const a = -kS * pen - cS * vOut;                   // ressort + amortissement (le filet « boit » le ballon)
+        return vOut + a * h - (pen > max ? (pen - max) / h * 0.5 : 0);
+      };
+      const penB = behind - (NET_D - R);
+      if (penB > 0) { const v = soft(penB, b.vx * dir, 260, 30, 1.0); b.vx = v * dir; b.vy *= 1 - 3 * h; b.vz *= 1 - 2 * h; b.spin *= 0.9; }
+      const lat = b.y - PITCH_W / 2, penS = Math.abs(lat) - (GOAL_HALF - R);
+      if (penS > 0) { const sg = Math.sign(lat); b.vy = soft(penS, b.vy * sg, 300, 30, 0.6) * sg; b.vx *= 1 - 4 * h; }
+      const penT = b.z - (BAR - R);
+      if (penT > 0) { b.vz = soft(penT, b.vz, 300, 30, 0.5); b.vx *= 1 - 3 * h; }
       if (behind < R && b.vx * dir < 0) { b.vx = 0; } // ne ressort pas du but
     }
   }

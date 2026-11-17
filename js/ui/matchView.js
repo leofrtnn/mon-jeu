@@ -454,7 +454,9 @@ export class MatchView {
   /* ---------------- Boucle d'animation ---------------- */
 
   frame(ts) {
-    const dt = Math.min(0.05, (ts - (this.lastTs || ts)) / 1000);
+    // Jusqu'à 0,12 s par image : sur un appareil qui tombe à 10-20 images/s, le match garde son
+    // allure réelle (la simulation avance par pas fixes, elle reste identique).
+    const dt = Math.min(0.12, (ts - (this.lastTs || ts)) / 1000);
     this.lastTs = ts;
     this.lastDt = dt;
     // Le ralenti garde une vitesse lisible même en x4.

@@ -881,8 +881,14 @@ export class Player3D {
     const jog = Math.min(1, sp / 3);
     const ph = p.phase || 0;
     const amp = 0.25 + 0.75 * run;                  // amplitude de la foulée
+    // Sens réel du déplacement par rapport au corps : vers l'avant, à reculons, ou en pas chassés.
+    // (Avant : la foulée « avant » jouait même quand le joueur reculait → effet moonwalk.)
+    let rel = Math.atan2(p.vy || 0, p.vx || 0) - (p.face || 0);
+    rel = Math.atan2(Math.sin(rel), Math.cos(rel));
+    const pb = !!p.back || (sp > 0.3 && Math.cos(rel) < -0.35);
+    const side = !pb && sp > 0.3 && Math.abs(Math.sin(rel)) > 0.72 ? Math.sign(Math.sin(rel)) : 0;
     // À reculons (face au jeu) : la foulée s'inverse et le buste se redresse.
-    const sw = Math.sin(ph) * amp * jog * (p.back ? -0.7 : 1);
+    const sw = Math.sin(ph) * amp * jog * (pb ? -0.7 : side ? 0.45 : 1);
     const [lL, lR] = this.legs;
     lL.hip.rotation.set(0, 0, sw); lR.hip.rotation.set(0, 0, -sw);
     // Épaules en opposition aux hanches ; cheville : pointe tendue pendant le retour de jambe, pied à plat à l'appui.
@@ -899,7 +905,10 @@ export class Player3D {
       a.sh.rotation.x = -a.sgn * (0.06 + 0.08 * jog);
       a.el.rotation.z = 0.18 + 0.25 * jog + 1.0 * run;
     }
-    const lean = p.back ? -0.08 : Math.max(-0.25, Math.min(0.32, 0.05 + 0.2 * run + (p.acc || 0) * 0.025));
+    const lean = pb ? -0.08 : Math.max(-0.25, Math.min(0.32, 0.05 + 0.2 * run + (p.acc || 0) * 0.025));
+    // Jeu de corps : on se penche en avant pour démarrer, on se redresse et on « s'assoit » pour freiner.
+    this._acc = (this._acc || 0) + (((p.acc || 0)) - (this._acc || 0)) * Math.min(1, (ctx.dt || 0.016) * 8);
+    const accLean = pb ? 0 : Math.max(-0.2, Math.min(0.22, this._acc * 0.035));
     // Virage : le joueur s'incline vers l'intérieur de la courbe, d'autant plus qu'il va vite.
     const dtp = ctx.dt || 0.016;
     let dF = (p.face || 0) - (this._pf ?? p.face ?? 0);
@@ -917,9 +926,9 @@ export class Player3D {
     // vraie foulée de marche à amplitude réduite (au lieu de glisser jambes immobiles).
     const turning = sp < 0.8 && Math.abs(this._turn || 0) > 1.2 && !(p.kick > 0) && !(p.celeb > 0) && !(p.fall > 0) && !(p.slide > 0) && !(p.dive > 0);
     if (turning) this._tph = (this._tph || 0) + dtp * Math.min(9, Math.abs(this._turn) * 2.4);
-    const G2 = (sp >= 0.35 || turning) && !p.back ? gaitAt(Math.max(sp, turning ? 1 : 0), turning ? this._tph : ph) : null;
-    if (G2 && (turning || sp < 0.8)) {
-      const amp = turning ? 0.55 : Math.max(0.35, sp / 0.8);
+    const G2 = (sp >= 0.35 || turning) && !pb ? gaitAt(Math.max(sp, turning ? 1 : 0), turning ? this._tph : ph) : null;
+    if (G2 && (turning || sp < 0.8 || side)) {
+      const amp = turning ? 0.55 : side ? 0.5 : Math.max(0.35, sp / 0.8);
       for (const key of ['hzL', 'hzR', 'kzL', 'kzR', 'szL', 'szR', 'twist', 'azL', 'azR', 'bob']) G2[GI[key]] *= amp;
     }
     if (G2) {
@@ -930,8 +939,10 @@ export class Player3D {
       const [aL, aR] = this.arms;
       aL.sh.rotation.set(-aL.sgn * g('sxL'), 0, g('szL')); aR.sh.rotation.set(-aR.sgn * g('sxR'), 0, g('szR'));
       aL.el.rotation.z = g('ezL'); aR.el.rotation.z = g('ezR');
-      this.upper.rotation.set(0, g('twist'), -Math.max(0, g('lean')) * 0.6);
-      this.body.rotation.set(bank, 0, -Math.max(0, g('lean')) * 0.4);
+      this.upper.rotation.set(0, g('twist'), -Math.max(0, g('lean')) * 0.6 - accLean * 0.4);
+      this.body.rotation.set(bank, 0, -Math.max(0, g('lean')) * 0.4 - accLean);
+      // Pas chassés : les jambes s'écartent et se rejoignent sur le côté (hanches en abduction).
+      if (side) { const ab = Math.sin(ph) * 0.22; lL.hip.rotation.x += ab * side; lR.hip.rotation.x += ab * side; }
       // Pied d'appui au sol (la jambe fléchie abaisse le bassin), petite phase de vol en course.
       this.body.position.y = 0; this.groundContact();
       this.body.position.y += Math.max(0, g('bob')) * K * 0.5;
@@ -1915,9 +1926,16 @@ export class Match3D {
       const gw = 7.32, gh = 2.44, gd = 2;
       for (const z of [-gw / 2, gw / 2]) { const p = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, gh, 8), post); p.position.set(x, gh / 2, z); g.add(p); }
       const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, gw, 8), post); bar.rotation.x = Math.PI / 2; bar.position.set(x, gh, 0); g.add(bar);
-      const back = new THREE.Mesh(new THREE.PlaneGeometry(gw, gh), netM); back.rotation.y = Math.PI / 2; back.position.set(x + sgn * gd, gh / 2, 0); g.add(back);
-      const top = new THREE.Mesh(new THREE.PlaneGeometry(gd, gw), netM); top.rotation.x = -Math.PI / 2; top.position.set(x + sgn * gd / 2, gh, 0); g.add(top);
-      for (const z of [-gw / 2, gw / 2]) { const sd = new THREE.Mesh(new THREE.PlaneGeometry(gd, gh), netM); sd.position.set(x + sgn * gd / 2, gh / 2, z); g.add(sd); }
+      // Filets maillés (géométrie subdivisée) : ils se déforment sous le ballon puis ondulent.
+      const netMesh = (w, hh, sx, sy, out) => {
+        const m = new THREE.Mesh(new THREE.PlaneGeometry(w, hh, sx, sy), netM);
+        m.userData.net = { w, h: hh, out, amp: 0, vel: 0, cx: 0, cy: 0, base: Float32Array.from(m.geometry.attributes.position.array) };
+        (this.nets ||= []).push(m);
+        return m;
+      };
+      const back = netMesh(gw, gh, 28, 10, sgn); back.rotation.y = Math.PI / 2; back.position.set(x + sgn * gd, gh / 2, 0); g.add(back);
+      const top = netMesh(gd, gw, 8, 28, 1); top.rotation.x = -Math.PI / 2; top.position.set(x + sgn * gd / 2, gh, 0); g.add(top);
+      for (const z of [-gw / 2, gw / 2]) { const sd = netMesh(gd, gh, 8, 10, Math.sign(z)); sd.position.set(x + sgn * gd / 2, gh / 2, z); g.add(sd); }
       s.add(g);
     }
     // Drapeaux de corner.
@@ -2278,6 +2296,41 @@ export class Match3D {
     }
   }
 
+  /**
+   * Filets : là où le ballon pousse, le filet suit exactement (poche autour du ballon) ; quand il
+   * le relâche, la poche revient comme un ressort amorti et le filet ondule un instant.
+   */
+  stepNets(dt) {
+    if (!this.nets || !this.ball) return;
+    const bw = this.ball.position, tmp = this._netV ||= new THREE.Vector3();
+    for (const m of this.nets) {
+      const N = m.userData.net;
+      tmp.copy(bw); m.worldToLocal(tmp);
+      const inside = Math.abs(tmp.x) < N.w / 2 + 0.2 && Math.abs(tmp.y) < N.h / 2 + 0.2;
+      const pen = inside ? tmp.z * N.out + BALL_R + 0.02 : 0;   // le ballon pousse au-delà du plan du filet
+      if (pen > 0.005) { N.amp = Math.max(N.amp, pen); N.vel = 0; N.cx = tmp.x; N.cy = tmp.y; N.hold = 0.08; }
+      else {
+        if ((N.hold -= dt) > 0) continue;
+        if (Math.abs(N.amp) < 0.003 && Math.abs(N.vel) < 0.01) { if (N.amp !== 0) { N.amp = 0; N.vel = 0; this.netShape(m, 0); } continue; }
+        const a = -140 * N.amp - 5 * N.vel;
+        N.vel += a * dt; N.amp += N.vel * dt;
+      }
+      this.netShape(m, N.amp);
+    }
+  }
+
+  netShape(m, amp) {
+    const N = m.userData.net, pos = m.geometry.attributes.position, arr = pos.array, b = N.base;
+    const sig2 = 2 * (0.45 + Math.abs(amp) * 0.6) ** 2;
+    for (let i = 0; i < arr.length; i += 3) {
+      const dx = b[i] - N.cx, dy = b[i + 1] - N.cy;
+      // Bords du filet tenus par les montants : pas de déplacement au bord.
+      const ex = 1 - (2 * Math.abs(b[i]) / N.w) ** 6, ey = 1 - (2 * Math.abs(b[i + 1]) / N.h) ** 6;
+      arr[i + 2] = b[i + 2] + N.out * amp * Math.exp(-(dx * dx + dy * dy) / sig2) * Math.max(0, ex) * Math.max(0, ey);
+    }
+    pos.needsUpdate = true;
+  }
+
   /** Gerbes d'eau sur pelouse détrempée (ballon rapide au sol, joueurs qui glissent). */
   stepSpray(dt) {
     const S = this.spray;
@@ -2511,8 +2564,20 @@ export class Match3D {
       // Plan serré façon FM ; le cadreur zoome doucement quand l'action entre dans le dernier tiers.
       const zoomT = Math.abs(bx) > L / 2 - 30 ? 20.5 : 24.5;
       this._tvFov = (this._tvFov ?? 24.5) + (zoomT - (this._tvFov ?? 24.5)) * Math.min(1, dt * 1.2);
-      want.set(Math.max(-40, Math.min(40, bx * 0.93)), 24, 52); look.set(bx, 0, bz * 0.38 - 4); this.camera.fov = this._tvFov;
+      // Le ballon ne sort jamais du cadre : longs ballons et ballons aériens = plan qui s'élargit,
+      // et la caméra regarde à mi-hauteur du ballon quand il est haut.
+      const bpos = this.ball?.position, bsp = P ? Math.hypot(P.vx, P.vy) : 0;
+      const widen = Math.min(9, Math.max(0, bsp - 13) * 0.45) + Math.min(7, (bpos?.y || 0) * 0.7);
+      this._tvWiden = (this._tvWiden || 0) + (widen - (this._tvWiden || 0)) * Math.min(1, dt * (widen > (this._tvWiden || 0) ? 4 : 0.8));
+      want.set(Math.max(-40, Math.min(40, bx * 0.93)), 24, 52); look.set(bx, Math.min(6, (bpos?.y || 0) * 0.5), bz * 0.38 - 4); this.camera.fov = this._tvFov + this._tvWiden;
+      if (bpos) {
+        const ndc = bpos.clone().project(this.camera);
+        const off = ndc.z > 1 ? 3 : Math.max(Math.abs(ndc.x) / 0.7, Math.abs(ndc.y) / 0.62);
+        this._camBoost = off > 1 ? Math.min(14, 4 + (off - 1) * 22) : 0;
+      }
     }
+    if (mode !== 'tv') this._camBoost = 0;
+    if (mode === 'tv') { /* plan télé posé ci-dessus */ }
     else if (mode === 'pitchside') { want.set(Math.max(-48, Math.min(48, bx * 0.85)), 1.7, W / 2 + 3.2); look.set(bx, 1.1, bz); this.camera.fov = 42; }     // caméra à hauteur d'homme, au bord de la ligne
     else if (mode === 'tribune') { want.set(Math.max(-30, Math.min(30, bx * 0.6)), 34, 74); look.set(bx * 0.8, 0, bz * 0.25); this.camera.fov = 34; }  // tout en haut de la tribune principale
     else if (mode === 'player') {
@@ -2527,7 +2592,7 @@ export class Match3D {
     else if (mode === 'high') { want.set(bx * 0.4, 95, 52); look.set(bx * 0.4, 0, 0); this.camera.fov = 38; }
     else if (['victim', 'corner', 'pen', 'fk'].includes(mode)) { /* plan déjà posé par la réalisation */ }
     else { const side = bx >= 0 ? 1 : -1; want.set(side * (L / 2 + 22), 12, bz * 0.3); look.set(bx, 0, bz); this.camera.fov = 40; }
-    const k = 1 - Math.exp(-dt * (mode === 'close' ? 3 : 2.2));
+    const k = 1 - Math.exp(-dt * ((mode === 'close' ? 3 : 2.2) + (this._camBoost || 0)));
     // Changement de plan = coupe franche (comme en réalisation télé), jamais de glissement d'un
     // plan à l'autre ; à l'intérieur d'un même plan, la caméra suit l'action en douceur.
     if (mode !== this._shotMode) { this._shotMode = mode; this.snapCam = true; if (mode === 'tv') this._tvFov = Math.abs(bx) > L / 2 - 30 ? 20.5 : 24.5; }
@@ -2819,6 +2884,7 @@ export class Match3D {
     const v = this.v;
     this.stepPrecip(Math.min(0.05, dt || 0.016));
     this.stepSpray(Math.min(0.05, dt || 0.016));
+    this.stepNets(Math.min(0.05, dt || 0.016));
     this.updateCoaches(dt);
     this.updateBenchSubs(Math.min(0.05, dt || 0.016));
     // La foule se lève et saute après un but (la texture des tribunes « vibre »).
