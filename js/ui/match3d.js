@@ -2580,19 +2580,25 @@ export class Match3D {
       }
     }
     if (mode === 'tv') {
-      // Plan serré façon FM ; le cadreur zoome doucement quand l'action entre dans le dernier tiers.
-      const zoomT = Math.abs(bx) > L / 2 - 30 ? 20.5 : 24.5;
-      this._tvFov = (this._tvFov ?? 24.5) + (zoomT - (this._tvFov ?? 24.5)) * Math.min(1, dt * 1.2);
-      // Le ballon ne sort jamais du cadre : longs ballons et ballons aériens = plan qui s'élargit,
-      // et la caméra regarde à mi-hauteur du ballon quand il est haut.
+      // Caméra principale de télévision : en tribune, à hauteur du rond central (elle ne fait
+      // presque que pivoter, comme un vrai cadreur), et elle règle son zoom pour cadrer ~38 m de
+      // terrain autour du ballon : plus serré dans le dernier tiers, plus large sur un long ballon
+      // ou un ballon aérien.
       const bpos = this.ball?.position, bsp = P ? Math.hypot(P.vx, P.vy) : 0;
-      const widen = Math.min(9, Math.max(0, bsp - 13) * 0.45) + Math.min(7, (bpos?.y || 0) * 0.7);
-      this._tvWiden = (this._tvWiden || 0) + (widen - (this._tvWiden || 0)) * Math.min(1, dt * (widen > (this._tvWiden || 0) ? 4 : 0.8));
-      want.set(Math.max(-40, Math.min(40, bx * 0.93)), 24, 52); look.set(bx, Math.min(6, (bpos?.y || 0) * 0.5), bz * 0.38 - 4); this.camera.fov = this._tvFov + this._tvWiden;
+      const camX = Math.max(-16, Math.min(16, bx * 0.3));
+      want.set(camX, 22, 60);
+      look.set(bx, Math.min(5, (bpos?.y || 0) * 0.45), bz * 0.8);
+      const lastThird = Math.abs(bx) > L / 2 - 33;
+      const widthT = (lastThird ? 33 : 40) + Math.min(14, Math.max(0, bsp - 12) * 0.9) + Math.min(10, (bpos?.y || 0) * 1.2);
+      this._tvW = (this._tvW ?? widthT) + (widthT - (this._tvW ?? widthT)) * Math.min(1, dt * (widthT > (this._tvW ?? 0) ? 3 : 0.9));
+      const dCam = Math.hypot(look.x - want.x, look.y - want.y, look.z - want.z);
+      const hf = 2 * Math.atan(this._tvW / 2 / dCam), asp = this.camera.aspect || 16 / 9;
+      this.camera.fov = Math.max(12, Math.min(48, THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(hf / 2) / asp))));
+      // Sécurité : si le ballon sort du cadre (longue passe, dégagement), le cadreur rattrape plus vite.
       if (bpos) {
         const ndc = bpos.clone().project(this.camera);
-        const off = ndc.z > 1 ? 3 : Math.max(Math.abs(ndc.x) / 0.7, Math.abs(ndc.y) / 0.62);
-        this._camBoost = off > 1 ? Math.min(14, 4 + (off - 1) * 22) : 0;
+        const off = ndc.z > 1 ? 3 : Math.max(Math.abs(ndc.x) / 0.72, Math.abs(ndc.y) / 0.65);
+        this._camBoost = off > 1 ? Math.min(12, 3 + (off - 1) * 18) : 0;
       }
     }
     if (mode !== 'tv') this._camBoost = 0;
@@ -2614,7 +2620,7 @@ export class Match3D {
     const k = 1 - Math.exp(-dt * ((mode === 'close' ? 3 : 2.2) + (this._camBoost || 0)));
     // Changement de plan = coupe franche (comme en réalisation télé), jamais de glissement d'un
     // plan à l'autre ; à l'intérieur d'un même plan, la caméra suit l'action en douceur.
-    if (mode !== this._shotMode) { this._shotMode = mode; this.snapCam = true; if (mode === 'tv') this._tvFov = Math.abs(bx) > L / 2 - 30 ? 20.5 : 24.5; }
+    if (mode !== this._shotMode) { this._shotMode = mode; this.snapCam = true; if (mode === 'tv') this._tvW = null; }
     const kk = this.snapCam ? 1 : k; this.snapCam = false;
     this.clampCam(want);
     this.camPos.lerp(want, kk);

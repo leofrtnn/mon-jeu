@@ -645,11 +645,12 @@ export class MatchView {
     const ff = this.ffSpeed === 'R' ? 8 : (this.ffSpeed || 4);
     // Temps fort : x1 (vitesse réelle) ; amorce en mode résumé : x2,5 ; sinon x4/x8.
     // Temps fort : ×1,2 (le direct paraît lent sur un écran) ; amorce : ×2,5 ; sinon ×4/×8.
-    let target = this.inHL ? 1.2 : this.ffSpeed === 'R' && this.hlPre() ? 2.5 : ff;
+    let target = this.inHL ? 1 : this.ffSpeed === 'R' && this.hlPre() ? 2.5 : ff;
     // Remise en jeu sans danger (touche, six mètres, coup franc lointain) : pendant que les joueurs
     // se replacent, la réalisation accélère un peu (comme une coupure télé), puis revient au direct.
     const rs = this.live?.restart;
-    if (target <= 1.2 && rs && ['throw', 'goalkick', 'kickoff'].concat(Math.abs((rs.side === 0 ? 105 : 0) - rs.x) > 35 ? ['freekick'] : []).includes(rs.kind) && rs.t > 1.2 && !rs.go) target = 2.5;
+    // (toutes les remises en jeu : on accélère la mise en place, et l'on revient au direct ~3 s avant que le ballon parte)
+    if (target <= 1.2 && rs && rs.t > 1.2 && !rs.go && rs.t < (rs.minT || 0) - 3) target = ['corner', 'penalty'].includes(rs.kind) || (rs.kind === 'freekick' && Math.abs((rs.side === 0 ? 105 : 0) - rs.x) < 35) ? 3 : 4;
     // Transitions douces dans les deux sens (plus de ralenti brutal suivi d'une reprise sèche).
     // Transitions courtes (≈ 0,4 s) : plus de longues rampes où l'on ne sait plus à quelle vitesse on regarde.
     this.effSpeed += (target - this.effSpeed) * Math.min(1, dt * (target < this.effSpeed ? 7 : 3));
