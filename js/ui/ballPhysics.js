@@ -131,14 +131,21 @@ function frame(b, h = 1 / 240) {
       const soft = (pen, vOut, kS, cS, max) => {           // renvoie la nouvelle vitesse sortante
         if (pen <= 0) return vOut;
         const a = -kS * pen - cS * vOut;                   // ressort + amortissement (le filet « boit » le ballon)
-        return vOut + a * h - (pen > max ? (pen - max) / h * 0.5 : 0);
+        const v = vOut + a * h;
+        return pen >= max ? Math.min(v, 0) : v;            // au bout de l'élasticité : il ne va pas plus loin
       };
       const penB = behind - (NET_D - R);
-      if (penB > 0) { const v = soft(penB, b.vx * dir, 260, 30, 1.0); b.vx = v * dir; b.vy *= 1 - 3 * h; b.vz *= 1 - 2 * h; b.spin *= 0.9; }
+      if (penB > 0) {
+        const v = soft(penB, b.vx * dir, 260, 30, 1.0); b.vx = v * dir; b.vy *= 1 - 3 * h; b.vz *= 1 - 2 * h; b.spin *= 0.9;
+        if (penB > 1.0) b.x = gx + dir * (NET_D - R + 1.0);
+      }
       const lat = b.y - PITCH_W / 2, penS = Math.abs(lat) - (GOAL_HALF - R);
-      if (penS > 0) { const sg = Math.sign(lat); b.vy = soft(penS, b.vy * sg, 300, 30, 0.6) * sg; b.vx *= 1 - 4 * h; }
+      if (penS > 0) {
+        const sg = Math.sign(lat); b.vy = soft(penS, b.vy * sg, 300, 30, 0.6) * sg; b.vx *= 1 - 4 * h;
+        if (penS > 0.6) b.y = PITCH_W / 2 + sg * (GOAL_HALF - R + 0.6);
+      }
       const penT = b.z - (BAR - R);
-      if (penT > 0) { b.vz = soft(penT, b.vz, 300, 30, 0.5); b.vx *= 1 - 3 * h; }
+      if (penT > 0) { b.vz = soft(penT, b.vz, 300, 30, 0.5); b.vx *= 1 - 3 * h; if (penT > 0.5) b.z = BAR - R + 0.5; }
       if (behind < R && b.vx * dir < 0) { b.vx = 0; } // ne ressort pas du but
     }
   }
