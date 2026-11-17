@@ -2350,6 +2350,58 @@ export class Match3D {
     pos.needsUpdate = true;
   }
 
+  /**
+   * Diagnostic physique (si actif) : zones d'atteinte du pied des joueurs proches du ballon
+   * (cercle = toucher propre, cercle extérieur = en s'étirant), trajectoire prédite du ballon,
+   * points d'interception prévus (✕ jaune), contacts réels des 3 dernières secondes
+   * (vert = physiquement possible, rouge = impossible). Données : engine/diag.js + contact.js.
+   */
+  drawDiag() {
+    const D = this.v.live?.diag;
+    if (!D) { if (this._diagG) this._diagG.visible = false; return; }
+    if (!this._diagG) {
+      this._diagG = new THREE.Group(); this.scene.add(this._diagG);
+      this._diagMat = {
+        ring: new THREE.MeshBasicMaterial({ color: '#7fd1ff', transparent: true, opacity: 0.55, depthWrite: false, side: THREE.DoubleSide }),
+        ring2: new THREE.MeshBasicMaterial({ color: '#7fd1ff', transparent: true, opacity: 0.2, depthWrite: false, side: THREE.DoubleSide }),
+        path: new THREE.LineBasicMaterial({ color: '#9ad0ff' }), plan: new THREE.LineBasicMaterial({ color: '#ffd166' }),
+        ok: new THREE.MeshBasicMaterial({ color: '#3ddc84', transparent: true, opacity: 0.7 }), bad: new THREE.MeshBasicMaterial({ color: '#ef476f', transparent: true, opacity: 0.7 }),
+      };
+    }
+    const G = this._diagG; G.visible = true;
+    while (G.children.length) { const c = G.children.pop(); c.geometry?.dispose?.(); }
+    const M = this._diagMat, now = this.v.live.now, P = this.v.phys;
+    const W3 = (x, y) => this.toWorld(x / L, y / W);
+    // Zones d'atteinte du pied (contact.js : PARTS.foot) des joueurs à moins de 12 m du ballon.
+    for (const p of this.v.players.values()) {
+      const px = p.x * L, py = p.y * W;
+      if (!P || Math.hypot(px - P.x, py - P.y) > 12) continue;
+      const cx = px + Math.cos(p.face || 0) * 0.32, cy = py + Math.sin(p.face || 0) * 0.32;
+      const [wx, wz] = W3(cx, cy);
+      for (const [r0, r1, mat] of [[0.36, 0.38 + 0.11, M.ring], [0.78, 0.8 + 0.11, M.ring2]]) {
+        const ring = new THREE.Mesh(new THREE.RingGeometry(r0, r1, 32), mat);
+        ring.rotation.x = -Math.PI / 2; ring.position.set(wx, 0.03, wz); G.add(ring);
+      }
+    }
+    // Dernière trajectoire prédite.
+    const path = D.paths[D.paths.length - 1];
+    if (path && now - path.t < 4) {
+      const pts = path.pts.map((q) => { const [x, z] = W3(q.x, q.y); return new THREE.Vector3(x, Math.max(0.05, q.z), z); });
+      G.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), M.path));
+    }
+    for (const pl of D.plans) {
+      if (now - pl.t > 3) continue;
+      const [x, z] = W3(pl.x, pl.y), s = 0.45;
+      G.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(x - s, 0.05, z - s), new THREE.Vector3(x + s, 0.05, z + s), new THREE.Vector3(x - s, 0.05, z + s), new THREE.Vector3(x + s, 0.05, z - s)]), M.plan));
+    }
+    for (const c of D.contacts) {
+      if (now - c.t > 3) continue;
+      const [x, z] = W3(c.x, c.y);
+      const m = new THREE.Mesh(new THREE.SphereGeometry(0.16, 10, 8), c.physical ? M.ok : M.bad);
+      m.position.set(x, Math.max(0.16, c.z), z); G.add(m);
+    }
+  }
+
   /** Gerbes d'eau sur pelouse détrempée (ballon rapide au sol, joueurs qui glissent). */
   stepSpray(dt) {
     const S = this.spray;
@@ -2910,6 +2962,7 @@ export class Match3D {
     this.stepPrecip(Math.min(0.05, dt || 0.016));
     this.stepSpray(Math.min(0.05, dt || 0.016));
     this.stepNets(Math.min(0.05, dt || 0.016));
+    this.drawDiag();
     this.updateCoaches(dt);
     this.updateBenchSubs(Math.min(0.05, dt || 0.016));
     // La foule se lève et saute après un but (la texture des tribunes « vibre »).

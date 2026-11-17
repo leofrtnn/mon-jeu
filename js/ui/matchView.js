@@ -15,6 +15,7 @@ import { formationPos } from '../engine/positions.js';
 import { toLocal, localRect } from './viewport.js';
 import { createBall, stepBall, solveKick, R as BALL_R, GOAL_HALF } from './ballPhysics.js';
 import { LiveSim } from '../engine/live.js';
+import { Diag } from '../engine/diag.js';
 
 const DUR = {
   pass: 0.75, longpass: 1.15, dribble: 0.9, tackle: 0.55, interception: 0.55, header: 0.6, cross: 1.0, cornerkick: 1.1,
@@ -110,6 +111,11 @@ export class MatchView {
     // se contente d'afficher. Sinon (ancien mode), la vue rejoue les événements du moteur.
     if (opts.live) {
       this.live = new LiveSim(match, { players: this.players, ball: this.phys, sync: () => this.syncPlayers(false) });
+      // Diagnostic physique (zones de contact, trajectoires, interceptions prévues, contacts réels) :
+      // Paramètres › « Diagnostic physique », ou ?diag=1 dans l'adresse. Sans effet sur le match.
+      let diagOn = !!opts.diag;
+      try { diagOn = diagOn || /[?&]diag=1/.test(location.search); } catch { /* hors navigateur */ }
+      if (diagOn) this.live.diag = new Diag();
       this.TS = 1; // temps réel : x2 = un match de 45 minutes
       this.highlights = opts.highlights !== false; // temps forts : le reste est passé en avance rapide
       this.hl = 'show'; this.hlCalm = 0; this.hlGrace = 10;

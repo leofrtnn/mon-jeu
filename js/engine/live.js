@@ -21,7 +21,8 @@
  */
 import { SKILL_MOVES, movesFor } from '../game/stars.js';
 import { refereeProfile } from '../game/referee.js';
-import { createBall, stepBall, solveKick, R as BR, GOAL_HALF, PITCH_L as L, PITCH_W as W } from '../ui/ballPhysics.js';
+import { createBall, stepBall, solveKick, predict, R as BR, GOAL_HALF, PITCH_L as L, PITCH_W as W } from '../ui/ballPhysics.js';
+import { reachAt, ballPath, interceptPlan } from './contact.js';
 import { formationPos } from './positions.js';
 import { roleFx } from '../data/constants.js';
 import { setPlanOf, cornerRoutine, setPieceEdge, directFkChance } from './setPlays.js';
@@ -163,6 +164,16 @@ export class LiveSim {
   list(side = null) { const a = [...this.players.values()]; return side == null ? a : a.filter((p) => p.side === side); }
   X(p) { return p.x * L; }
   Y(p) { return p.y * W; }
+  /** Joueur exprimé en mètres pour la géométrie de contact (contact.js). */
+  posM(p) { return { x: p.x * L, y: p.y * W, face: p.face || 0, vx: p.vx || 0, vy: p.vy || 0 }; }
+  /** Diagnostic : enregistre un contact réellement effectué et dit s'il est physiquement possible. */
+  diagContact(p, kind) {
+    if (!this.diag) return;
+    const P = this.P, r = reachAt(this.posM(p), P, { phy: p.mp?.p?.attrs?.phy });
+    const dBody = Math.hypot(p.x * L - P.x, p.y * W - P.y);
+    const physical = kind === 'gk' ? dBody < 1.3 + Math.max(0, P.z - 1) * 0.3 : !!r;
+    this.diag.contact(this.now, { pid: p.mp.id, side: p.side, kind, x: P.x, y: P.y, z: P.z, speed: Math.hypot(P.vx, P.vy, P.vz), part: r?.part || null, dist: r ? r.dist : dBody, stretch: r?.stretch ?? null, physical });
+  }
   foot(p, d = 0.55) { return { x: p.x * L + Math.cos(p.face) * d, y: p.y * W + Math.sin(p.face) * d }; }
   /** Geste technique pour éliminer le défenseur à `d` mètres (seulement ceux permis par ses étoiles). */
   pickMove(h, d) {
@@ -1167,6 +1178,7 @@ export class LiveSim {
     if (!ok && o.worst) { to = o.worst.o; tx = o.worst.x; ty = o.worst.y; }
     const T = this.kickBall(h, tx, ty, o.lofted);
     this.pending = { to, ok, from: h, t0: this.now, T, through: o.through };
+    if (this.diag) { const plan = interceptPlan(this.posM(to), ballPath(this.P, predict, { horizon: 3 }), { phy: to.mp?.p?.attrs?.phy }); if (plan) this.diag.plan(this.now, { pid: to.mp.id, side: to.side, x: plan.x, y: plan.y, z: plan.z, part: plan.part, eta: plan.t, margin: plan.margin }); }
     to.tx = tx / L; to.ty = ty / W;
     if (ok) m.lastPasser = h.mp;
     if (ok && !o.lofted) this.planGiveGo(h, to, tx, ty);
@@ -1203,8 +1215,10 @@ export class LiveSim {
     this.lastTouch = h.side;
     this._kickBy = h; this._kickT = this.now;   // le tireur ne peut pas reprendre son propre ballon tout de suite
     P.inGoal = 0; P.hitPost = false;
-    if (!lofted) return solveKick(P, { x: tx, y: ty }, { mode: 'ground', arrive: Math.min(12, 6 + len * 0.16) });
-    return solveKick(P, { x: tx, y: ty, z: z ?? (0.4 + this.rand() * 1.1) }, { T: 0.9 + len / 30, spin: h.throwIn > 0 ? 0 : this.footSign(h) * (0.5 + this.rand() * 3.5), top: h.throwIn > 0 ? 0 : 2.2 }); // longue passe : brossée de l'intérieur, rétro (elle « tient » en l'air)
+    const T = !lofted ? solveKick(P, { x: tx, y: ty }, { mode: 'ground', arrive: Math.min(12, 6 + len * 0.16) })
+      : solveKick(P, { x: tx, y: ty, z: z ?? (0.4 + this.rand() * 1.1) }, { T: 0.9 + len / 30, spin: h.throwIn > 0 ? 0 : this.footSign(h) * (0.5 + this.rand() * 3.5), top: h.throwIn > 0 ? 0 : 2.2 }); // longue passe : brossée de l'intérieur, rétro (elle « tient » en l'air)
+    if (this.diag) this.diag.path(this.now, ballPath(P, predict, { horizon: Math.min(3, T + 1), step: 0.1 }).map((q) => ({ x: q.x, y: q.y, z: q.z })), h.mp.id);
+    return T;
   }
 
   releaseBall(h) {
@@ -1593,6 +1607,7 @@ export class LiveSim {
 
   /** Le joueur p récupère le ballon (contrôle, tacle, interception). */
   gain(p, out, fast = false) {
+    this.diagContact(p, fast ? 'duel' : 'récupération');
     const m = this.m;
     this.holder = p; this.inHands = false; this.pending = null;
     p.carry = null; p._gotT = this.now;
@@ -1716,6 +1731,7 @@ export class LiveSim {
   }
 
   receive(r, pd, out) {
+    this.diagContact(r, 'réception');
     const m = this.m;
     if (pd.ok && r.side === pd.from.side) {
       r.team.stats.passesOk++; pd.from.mp.passesOk++;
@@ -1791,6 +1807,7 @@ export class LiveSim {
   }
 
   gkCatch(gk, out) {
+    this.diagContact(gk, 'gk');
     const P = this.P;
     this.holder = gk; this.inHands = true; this.pending = null;
     P.vx = P.vy = P.vz = 0; P.spin = 0;

@@ -286,7 +286,7 @@ export function openMatch(app, opts = {}) {
     const h = Math.abs((mg?.id ?? c?.id ?? 1) * 2654435761 % 997);
     return { ...lk, outfit: outfits[h % outfits.length], outfitColor: ['#1c2333', '#111111', '#2b2f36', '#203a6b', c?.color || '#1c2333'][h % 5], height: 172 + (h % 20), build: ['slim', 'athletic', 'athletic', 'stocky', 'heavy'][h % 5], stance: ['arms', 'pockets', 'hips', 'note'][h % 4], temper: ['calm', 'normal', 'volcanic'][h % 3], celeb: ['fist', 'arms', 'clap', 'calm', 'jump'][h % 5], acc: h % 7 === 0 ? 'scarf' : 'none' };
   });
-  const view = new MatchView($('pitch'), m, { userSide, onEventStart, onIdle, live: replay || duel ? true : s.settings.liveEngine !== false, hlMode: SPEEDS[ctrl.speedIdx],
+  const view = new MatchView($('pitch'), m, { userSide, onEventStart, onIdle, live: replay || duel ? true : s.settings.liveEngine !== false, diag: !!s.settings.physDiag, hlMode: SPEEDS[ctrl.speedIdx],
     onHighlight: (on) => { audio.swell(on); const b = root.querySelector('[data-c="speed"]'); if (b && SPEEDS[ctrl.speedIdx] === 'auto') { b.textContent = speedLabel('auto', on, view.ffSpeed); b.classList.toggle('hl-on', on); } ffUpdate(true); },
     beforeStep: replay ? (n) => applyJournal(n) : duel ? (n) => duelBeforeStep(n) : null, canStep: duel ? (n) => duel.canStep(n) : null, labelMode: s.settings.labels || ((s.settings.matchStyle || '3d') !== 'anim' ? 'num' : 'name'), style: s.settings.matchStyle || '3d', onPlayerTap: showTapCard,
     on3DFail: () => { app.toast('3D indisponible sur cet appareil : vue 2D.', 3500); s.settings.matchStyle = 'fm'; root.querySelector('[data-c=style]').textContent = '2D'; } });
