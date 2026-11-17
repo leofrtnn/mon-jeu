@@ -48,7 +48,7 @@ const TR = (pl, k) => !!pl?.mp?.p?.traits?.includes(k);
 const TUNE = {   // calibré en TEMPS RÉEL : ~2,7 buts, ~23 tirs, ~20 fautes, ~80 % de passes, ~4,5 passes par possession
   clock: 1,        // secondes de match par seconde de jeu simulé (1 = temps réel)
   shotW: 0.2,        // attrait de la frappe face aux autres options
-  shotCost: 12,     // coût de la perte de balle dans le choix de tirer
+  shotCost: 14,     // coût de la perte de balle dans le choix de tirer
   carryW: 0.5,        // attrait de la conduite de balle
   keepW: 0.6,        // valeur de garder le ballon (passe sûre à un partenaire libre)
   holdU: -0.025,       // temporiser balle au pied (négatif : seulement quand les autres options sont mauvaises)
@@ -57,8 +57,8 @@ const TUNE = {   // calibré en TEMPS RÉEL : ~2,7 buts, ~23 tirs, ~20 fautes, ~
   lossW: 10,         // coût de la perte de balle dans le choix des passes
   tackleRate: 0.4,    // fréquence des tentatives de tacle
   foulP: 0.16,        // part des tentatives de tacle qui finissent en faute
-  xg: 0.61,          // échelle du modèle d'xG géométrique
-  takeonW: 0.3,       // attrait du crochet / débordement
+  xg: 0.7,          // échelle du modèle d'xG géométrique
+  takeonW: 0.18,       // attrait du crochet / débordement
   hold: 2.4,            // temps de réflexion avant de jouer le ballon (×)
   recv: 3.2,            // temps de contrôle à la réception (×)
   clearCorner: 0.025,  // part des dégagements d'urgence qui finissent en corner
@@ -302,7 +302,7 @@ export class LiveSim {
         // Sa place « mentale » glisse vers la place tactique à allure de trot : il se replace en
         // trottinant au lieu de courir après une cible qui saute. Plus vite si son but est menacé.
         const own = this.goalX(1 - p.side), threatened = this.poss !== p.side && this.poss >= 0 && Math.abs(this.P.x - own) < 45;
-        const vA = threatened ? 5 : this.poss === p.side ? 2.4 : 2.9;
+        const vA = threatened ? 5 : this.poss === p.side ? 1.8 : 2.2;   // on se replace en marchant (vite)
         // « À peu près à sa place » suffit : on ne se recale que si l'écart dépasse ~3 m, puis on
         // s'arrête à 1 m (sinon 20 joueurs trottinent en permanence derrière une cible qui glisse).
         if (d > (threatened ? 2 : 3.2)) p._mv = true; else if (d < 1) p._mv = false;
@@ -862,7 +862,8 @@ export class LiveSim {
     if (space > 3.5 && dGoal > 11.5) {   // collé au but, on ne « conduit » plus : on frappe, on donne ou on dribble
       // Pas de conduite jusque dans les 6 mètres : on s'arrête vers le point de penalty pour frapper.
       const len = Math.min(space - 1.5, 12, Math.max(1.5, dGoal - 9));
-      const cx = clamp(hx + dir * len, 2, L - 2), cy = clamp(hy + (W / 2 - hy) * (dGoal < 35 ? 0.25 : 0.05), 2, W - 2);
+      // On ne conduit pas jusque sur la ligne de but ni la ligne de touche (on garde le ballon en jeu).
+      const cx = clamp(hx + dir * len, 7, L - 7), cy = clamp(hy + (W / 2 - hy) * (dGoal < 35 ? 0.25 : 0.05), 4, W - 4);
       const dri = eff(h.mp, 'dri');
       const keep = sig((space - 3) / 1.6) * (0.9 + dri / 1000);
       const w = TUNE.carryW * ({ less: 0.6, normal: 1, more: 1.5 }[piOf(A, h.mp, 'dribble', 'normal')]) * (1 + ment * 0.1) * (0.6 + 0.4 * mood.drib) * (mood.counter ? 1.25 : 1);
@@ -925,8 +926,8 @@ export class LiveSim {
     // On temporise au plus trois fois de suite (≈ 2-3 s), et deux fois sous la pression d'un adversaire.
     // Balle au pied depuis longtemps : on ne temporise plus, on cherche à jouer (passe de préférence).
     const heldT = this.now - (h._gotT ?? this.now);
-    if (heldT > 5) for (const o of opts) if (o.k === 'pass' && !o.offside) o.u += 0.012 * Math.min(5, heldT - 5);
-    if (heldT > 4) for (const o of opts) if (o.k === 'carry' && !o.escape) o.u -= 0.01 * Math.min(6, heldT - 4);   // une chevauchée finit par s'arrêter
+    if (heldT > 5) for (const o of opts) if (o.k === 'pass' && !o.offside) o.u += 0.025 * Math.min(5, heldT - 5);
+    if (heldT > 4) for (const o of opts) if ((o.k === 'carry' && !o.escape) || o.k === 'takeon') o.u -= 0.025 * Math.min(6, heldT - 4);   // une chevauchée finit par s'arrêter
     if (!h.gk && heldT < 6 && !(contact && (h.waitN || 0) >= 2) && (h.waitN || 0) < 3) {
       const room = clamp((press - 1.6) / 4, 0, 1);
       const waited = h.waitN || 0;                               // on ne temporise pas indéfiniment
@@ -1148,7 +1149,8 @@ export class LiveSim {
     let tx = o.tx, ty = o.ty, to = o.r;
     // Passe ratée : soit coupée par un adversaire, soit mal dosée / mal ajustée (le ballon
     // file dans le vide, parfois en touche), comme dans un vrai match.
-    if (!ok && (!o.worst || this.rand() < (o.lofted ? 0.5 : 0.32))) {
+    // (une passe qui échoue alors qu'un adversaire coupait la trajectoire est surtout interceptée)
+    if (!ok && (!o.worst || this.rand() < (o.lofted ? 0.35 : 0.15))) {
       const ang = Math.atan2(ty - P.y, tx - P.x) + (this.rand() - 0.5) * (o.lofted ? 1.0 : 0.8);
       const len = Math.hypot(tx - P.x, ty - P.y) * (0.7 + this.rand() * 0.8);
       const T = this.kickBall(h, P.x + Math.cos(ang) * len, P.y + Math.sin(ang) * len, o.lofted);
@@ -1840,7 +1842,8 @@ export class LiveSim {
           const dri = eff(h.mp, 'dri');
           const tight = h.carry?.takeon || this.pressure(h) < 4;            // collé au pied en un-contre-un
           // Au trot, des touches courtes (le ballon reste à un pas) ; lancé, il le pousse plus loin.
-          const push = (tight ? 0.6 : 0.6 + sp * 0.2 + this.rand() * 0.6) + (1 - dri / 100) * (tight ? 0.4 : 1.0);
+          const nearLine = Math.min(P.x, L - P.x, P.y, W - P.y) < 8;   // près d'une ligne : touches courtes
+          const push = (tight || nearLine ? 0.6 : 0.6 + sp * 0.2 + this.rand() * 0.6) + (1 - dri / 100) * (tight || nearLine ? 0.4 : 1.0);
           const err = (this.rand() - 0.5) * 0.3 * (1.2 - dri / 100);
           let tx = h.carry ? h.carry.x - h.x * L : fx, ty = h.carry ? h.carry.y - h.y * W : fy;
           const n = Math.hypot(tx, ty) || 1; tx /= n; ty /= n;
@@ -2313,7 +2316,7 @@ export class LiveSim {
         // trot 2-4 m/s, course 4-5,5 ; le sprint est réservé au repli quand le but est menacé.
         const loose = !this.holder && !this.pending;
         if (p._idle && dd < 4) cap = 1.1; else   // petits pas autour de sa place : on marche
-        cap = dd > 18 ? (threatened ? 6.2 : dBall > 30 ? 4.2 : 5) : dd > 9 ? (threatened && !loose ? 5.4 : near ? 4.4 : 3.6) : dd > 4 ? (threatened && !loose ? 4.2 : near ? 3.6 : 2.8) : dd > 1.5 ? 2.1 : 1.3;
+        cap = dd > 18 ? (threatened ? 6.2 : dBall > 30 ? 4.2 : 5) : dd > 9 ? (threatened && !loose ? 5.4 : near ? 4.4 : 3.6) : dd > 4 ? (threatened && !loose ? 4.2 : near ? 3.6 : 2.8) : dd > 1.5 ? 1.9 : 1.3;
         if (p.role === 'mark' && dd > 1.2) {
           // On suit son attaquant à SON allure : on sprinte s'il sprinte, on trottine s'il trottine.
           const a = p._markOf != null ? this.players.get(p._markOf) : null, as = a ? a.speed || 0 : 3;
