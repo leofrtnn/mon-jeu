@@ -47,7 +47,7 @@ const TR = (pl, k) => !!pl?.mp?.p?.traits?.includes(k);
 
 const TUNE = {   // calibré en TEMPS RÉEL : ~2,7 buts, ~23 tirs, ~20 fautes, ~80 % de passes, ~4,5 passes par possession
   clock: 1,        // secondes de match par seconde de jeu simulé (1 = temps réel)
-  shotW: 0.8,        // attrait de la frappe face aux autres options
+  shotW: 0.9,        // attrait de la frappe face aux autres options
   shotCost: 6,     // coût de la perte de balle dans le choix de tirer
   carryW: 0.5,        // attrait de la conduite de balle
   keepW: 0.6,        // valeur de garder le ballon (passe sûre à un partenaire libre)
@@ -56,19 +56,19 @@ const TUNE = {   // calibré en TEMPS RÉEL : ~2,7 buts, ~23 tirs, ~20 fautes, ~
   passRisk: 0.55,      // sévérité des interceptions
   lossW: 10,         // coût de la perte de balle dans le choix des passes
   tackleRate: 0.4,    // fréquence des tentatives de tacle
-  foulP: 0.18,        // part des tentatives de tacle qui finissent en faute
+  foulP: 0.2,        // part des tentatives de tacle qui finissent en faute
   xg: 0.85,          // échelle du modèle d'xG géométrique
   takeonW: 0.08,       // attrait du crochet / débordement
   hold: 2.4,            // temps de réflexion avant de jouer le ballon (×)
   recv: 3.2,            // temps de contrôle à la réception (×)
-  clearCorner: 0.12,  // part des dégagements d'urgence qui finissent en corner
+  clearCorner: 0.2,  // part des dégagements d'urgence qui finissent en corner
   loftPen: 0.3,       // coût de choix d'un ballon aérien (réalisme : surtout des passes au sol)
   passErr: 0.0024,    // imprécision des passes selon la longueur
   carryLoss: 1.5,
   carryFree: 0.15,
   longCost: 0.15,     // coût relatif d'une frappe hors de la surface
-  finish: 1.1,      // réussite des frappes (buts ≈ xG sur une saison)
-  onTarget: 0.12,      // précision de base des frappes
+  finish: 1.25,      // réussite des frappes (buts ≈ xG sur une saison)
+  onTarget: 0.31,      // précision de base des frappes
   offsideSeen: 0.86,   // à quel point le passeur voit (et évite) le hors-jeu    // part du risque de perte qui reste en conduisant sans adversaire proche     // part du coût de perte appliquée à la conduite de balle
   backKeep: 7,        // à quel point garder le ballon en reculant vaut moins (m)
   temp: 0.005,        // part de hasard dans les choix (plus bas = choix plus lucides)
@@ -1155,7 +1155,7 @@ export class LiveSim {
     // Passe ratée : soit coupée par un adversaire, soit mal dosée / mal ajustée (le ballon
     // file dans le vide, parfois en touche), comme dans un vrai match.
     // (une passe qui échoue alors qu'un adversaire coupait la trajectoire est surtout interceptée)
-    if (!ok && (!o.worst || this.rand() < (o.lofted ? 0.35 : 0.15))) {
+    if (!ok && (!o.worst || this.rand() < (o.lofted ? 0.45 : 0.28))) {
       const ang = Math.atan2(ty - P.y, tx - P.x) + (this.rand() - 0.5) * (o.lofted ? 1.0 : 0.8);
       const len = Math.hypot(tx - P.x, ty - P.y) * (0.7 + this.rand() * 0.8);
       const T = this.kickBall(h, P.x + Math.cos(ang) * len, P.y + Math.sin(ang) * len, o.lofted);
@@ -1260,7 +1260,7 @@ export class LiveSim {
       return;
     }
     const wideSide = this.Y(h) < W / 2 ? -1 : 1;
-    const toTouch = Math.abs(this.Y(h) - W / 2) > 18 && this.rand() < 0.22;   // « en touche ! » (dans l'urgence)
+    const toTouch = Math.abs(this.Y(h) - W / 2) > 12 && this.rand() < 0.45;   // « en touche ! » (dans l'urgence)
     const tx = clamp(this.X(h) + dir * (toTouch ? 20 + this.rand() * 15 : 35 + this.rand() * 20), 5, L - 5);
     const ty = toTouch ? W / 2 + wideSide * (W / 2 + 6) : clamp(this.Y(h) + (this.rand() - 0.5) * 40, 3, W - 3);
     this.kickBall(h, tx, ty, true, BR);
@@ -1529,7 +1529,7 @@ export class LiveSim {
       const tk = TK[D.tactics.tackling] || 0;
       // Dans sa propre surface, un défenseur se retient (sinon c'est penalty).
       const ownBox = Math.abs(this.P.x - this.goalX(h.side)) < 16.5 && Math.abs(this.P.y - W / 2) < 20.15;
-      const foulP = TUNE.foulP * this.ref.whistle * (m.profile.fouls || 1) * (1 + tk * 0.35) * (TR(o, 'rugueux') ? 1.35 : 1) * (TR(o, 'sangchaud') ? 1.2 : 1) * ((h.speed || 0) > 5 ? 1.3 : 1) * (ownBox ? 0.15 : 1) * (behind ? 2.2 : 1) * (h.prep ? 0.35 : 1) * ((h.speed || 0) < 1.2 ? 0.6 : 1);
+      const foulP = TUNE.foulP * this.ref.whistle * (m.profile.fouls || 1) * (1 + tk * 0.35) * (TR(o, 'rugueux') ? 1.35 : 1) * (TR(o, 'sangchaud') ? 1.2 : 1) * ((h.speed || 0) > 5 ? 1.3 : 1) * (ownBox ? 0.3 : 1) * (behind ? 2.2 : 1) * (h.prep ? 0.35 : 1) * ((h.speed || 0) < 1.2 ? 0.6 : 1);
       o.face = Math.atan2((h.y - o.y) * W, (h.x - o.x) * L);
       if (this.rand() < foulP) { this.foul(h, o, out); return; }
       const att = eff(h.mp, 'dri') * 0.75 + eff(h.mp, 'phy') * 0.25;
@@ -1540,7 +1540,11 @@ export class LiveSim {
         emit(m, out, { type: 'tackle', side: D.side, pid: o.mp.id, pid2: h.mp.id, x: this.P.x / L, y: this.P.y / W, zone: m.zone });
         // Souvent, le tacle ne fait que chasser le ballon : il roule (parfois en touche).
         if (o.tk === 'slide' || this.rand() < 0.3) {
-          const P = this.P, a = Math.atan2((h.y - o.y) * W, (h.x - o.x) * L) + (this.rand() - 0.5) * 1.6, v = 3.5 + this.rand() * 4.5;
+          const P = this.P, nearT = Math.min(P.y, W - P.y) < 12;
+          // Près de la ligne de touche, le tacle envoie souvent le ballon dehors (touche).
+          let a = Math.atan2((h.y - o.y) * W, (h.x - o.x) * L) + (this.rand() - 0.5) * 1.6;
+          if (nearT && this.rand() < 0.55) a = (P.y < W / 2 ? -Math.PI / 2 : Math.PI / 2) + (this.rand() - 0.5) * 0.9;
+          const v = 3.5 + this.rand() * 4.5;
           this.releaseBall(h); this.pending = null; this.lastTouch = D.side;
           P.vx = Math.cos(a) * v; P.vy = Math.sin(a) * v; P.vz = this.rand() < 0.3 ? 2 : 0;
           return;
@@ -1566,12 +1570,12 @@ export class LiveSim {
     emit(m, out, { type: 'foul', side: D.side, pid: offender.mp.id, pid2: victim.mp.id, x: fx / L, y: fy / W, zone: z });
     m.stoppages += 0.15;
     let yP = 0.135 + (z === 1 || z === 2 ? 0.04 : 0) + (m.minute > 75 ? 0.04 : 0) + (z === 3 ? 0.08 : 0);
-    if (offender.mp.yellow) yP *= 0.45;
+    if (offender.mp.yellow) yP *= 0.3;   // déjà averti : il se retient (et l'arbitre aussi)
     if (offender.mp.p?.traits?.includes('sangchaud')) yP *= 1.5;
     if (offender.mp.p?.traits?.includes('veteran')) yP *= 0.8;
     if ((offender.mp.calm || 0) > m.minute || (D.calmUntil || 0) > m.minute) yP *= 0.6; // consigne « calmez-vous » du banc
     yP *= this.ref.strict * (m.profile.cards || 1) * (1 + (TK[D.tactics.tackling] || 0) * 0.18) * (D.cm ? D.cm.cards : 1) * captainCalm(D);
-    if (this.rand() < 0.003) sendOff(m, out, D, offender.mp, 'direct');
+    if (this.rand() < 0.0022) sendOff(m, out, D, offender.mp, 'direct');
     else if (this.rand() < yP) {
       offender.mp.yellow++; D.stats.yellows++;
       addRating(offender.mp, -0.3);
@@ -1647,7 +1651,15 @@ export class LiveSim {
     const stop = sp > 0.3 ? (sp * sp) / (2 * 1.55) : 0;
     const rx = P.x + (sp > 0.3 ? (P.vx / sp) * stop : 0), ry = P.y + (sp > 0.3 ? (P.vy / sp) * stop : 0);
     const goingOut = P.z < 0.6 && (ry < -0.3 || ry > W + 0.3 || rx < -0.3 || rx > L + 0.3);
-    const letGo = (side) => goingOut && this.lastTouch !== side && sp > 0.8;   // arrêté dans le terrain : on va le chercher
+    // Ballon qui file dehors : l'adversaire du dernier toucheur le laisse sortir ; même le coéquipier
+    // abandonne s'il ne peut pas l'atteindre avant la ligne (sinon on rattrape tout, au millimètre).
+    const tLine = (() => {
+      if (sp < 0.5) return 99;
+      const dl = Math.min(P.vy < 0 ? P.y / -P.vy : P.vy > 0 ? (W - P.y) / P.vy : 99, P.vx < 0 ? P.x / -P.vx : P.vx > 0 ? (L - P.x) / P.vx : 99);
+      return dl * 1.15;   // (le ballon freine un peu)
+    })();
+    const canReach = (side) => this.list(side).some((p) => this.dist(p, P.x, P.y) < 1.6 || this.dist(p, P.x + P.vx * tLine * 0.85, P.y + P.vy * tLine * 0.85) / (6 + (p.mp?.p?.attrs?.vit ?? 60) * 0.03) < tLine * 0.85 - 0.25);
+    const letGo = (side) => goingOut && sp > 0.8 && (this.lastTouch !== side || !canReach(side));
     // Un seul joueur par équipe sur le ballon : celui qui l'atteint le plus tôt (sa vitesse, la
     // trajectoire du ballon), et on ne change pas de chasseur sans une vraie raison.
     const ch = (this._chaser ||= [null, null]);
@@ -1768,7 +1780,7 @@ export class LiveSim {
       }
     }
     // Tête défensive (ou remise) : le ballon repart vers l'avant de l'équipe qui la gagne.
-    if (r.side !== pd.from.side) { addRating(r.mp, 0.05); emit(m, out, { type: 'header', side: r.side, pid: r.mp.id, x: P.x / L, y: P.y / W, zone: m.zone }); }
+    if (r.side !== pd.from.side) { addRating(r.mp, 0.05); emit(m, out, { type: 'header', side: r.side, pid: r.mp.id, x: P.x / L, y: P.y / W, zone: m.zone }); if (Math.abs(this.X(r) - this.goalX(1 - r.side)) < 35) emit(m, out, { type: 'clearance', side: r.side, pid: r.mp.id, x: P.x / L, y: P.y / W, zone: m.zone, head: true }); }
     const dir = this.dir(r.side);
     let tx = clamp(P.x + dir * (12 + this.rand() * 15), 3, L - 3), ty = clamp(P.y + (this.rand() - 0.5) * 20, 3, W - 3);
     // Tête défensive sous pression : parfois mise en corner.
