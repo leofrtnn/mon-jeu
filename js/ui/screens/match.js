@@ -22,7 +22,9 @@ import { coachName } from '../../game/coach.js';
 import { esc, crest, cmpBar, ratingChip, posBadge, seg, scaleColor, face } from '../components.js';
 import { avatarSvg, personLook } from '../avatar.js';
 import { MatchAudio } from '../audio.js';
-import { xgChart, heatmap } from '../charts.js';
+import { xgChart, heatmap, shotMap } from '../charts.js';
+import { shotList, insights, playerLeaders } from '../../engine/analysis.js';
+import { DEBRIEF, debriefPlayer } from '../../game/debrief.js';
 import { userClub, clubById } from '../../game/state.js';
 import { staffEffects } from '../../game/career.js';
 import { managerOf } from '../../game/managers.js';
@@ -848,6 +850,7 @@ export function openMatch(app, opts = {}) {
   function chartsHtml() {
     const cols = [hc.color, view.colors[1]];
     return `<div class="label">xG minute par minute</div>${xgChart(m, cols, [hc.short, ac.short])}
+      <div class="label">Carte des tirs (${esc(hc.short)} attaque →)</div>${shotMap(shotList(m), cols)}
       <div class="label">Cartes de chaleur (attaque →)</div>
       <div class="row" style="gap:8px;align-items:flex-start"><div class="grow"><small>${esc(hc.short)}</small>${heatmap(m, 0, cols[0])}</div>
       <div class="grow"><small>${esc(ac.short)}</small>${heatmap(m, 1, cols[1])}</div></div>`;
@@ -967,22 +970,45 @@ export function openMatch(app, opts = {}) {
     const my = sum.ratings[userSide];
     const res = sum.winnerSide === userSide ? 'Victoire !' : sum.winnerSide === -1 ? 'Match nul' : 'Défaite';
     const motm = sum.motm;
-    app.sheet({
-      root, dismissable: false,
-      html: `<div class="center"><small>${esc(label)}</small><h2 style="font-size:24px;margin:4px 0">${res}</h2>
+    const talked = {};
+    const canTalk = !replay && !s.online && !!s.players;
+    const analysisHtml = () => {
+      const tac = { ...(m.teams[userSide].tactics || {}) };
+      const L = playerLeaders(m, userSide);
+      return `<div class="card"><b>🔎 Analyse du staff</b>
+        <ul class="edgelist" style="margin-top:6px">${insights(m, userSide, tac).map((i) => `<li class="${i.tone === 'good' ? 'good' : i.tone === 'bad' ? 'bad' : ''}">${i.tone === 'good' ? '▲' : i.tone === 'bad' ? '▼' : '•'} ${esc(i.text)}</li>`).join('')}</ul>
+        <small class="muted">${[L.tackler && `Duels gagnés : <b>${esc(L.tackler.name)}</b> (${L.tackler.n})`, L.accurate && `Passes : <b>${esc(L.accurate.name)}</b> ${L.accurate.pct} %`, L.volume && `Plaque tournante : <b>${esc(L.volume.name)}</b> (${L.volume.n} passes)`].filter(Boolean).join(' · ')}</small></div>`;
+    };
+    const rowHtml = (r) => {
+      const t = talked[r.id];
+      const btns = canTalk && !t && s.players[r.id] ? `<div class="row" style="gap:4px">${Object.entries(DEBRIEF).map(([k, d]) => `<button class="btn sm" data-act="debrief" data-id="${r.id}" data-k="${k}" title="${d.label}">${d.icon}</button>`).join('')}</div>` : '';
+      return `<div class="prow" style="cursor:default;flex-wrap:wrap">
+          <span class="posb pos-${POSITION_GROUP[r.pos]}">${r.pos}</span>
+          <div class="pname"><b>${esc(r.name)}</b><small>${r.minutes}' ${r.goals ? '⚽'.repeat(r.goals) : ''}${r.assists ? ' 🅰'.repeat(r.assists) : ''}${r.yellow ? ' 🟨' : ''}${r.red ? ' 🟥' : ''}${r.injured ? ' ✚' : ''}</small></div>
+          ${btns}${ratingChip(r.rating)}
+          ${t ? `<small class="${t.tone === 'good' ? 'pos-txt' : t.tone === 'bad' ? 'neg-txt' : 'muted'}" style="flex-basis:100%;padding:2px 0 4px">${esc(t.text)} (moral ${t.delta > 0 ? '+' : ''}${t.delta})</small>` : ''}</div>`;
+    };
+    const ftHtml = () => `<div class="center"><small>${esc(label)}</small><h2 style="font-size:24px;margin:4px 0">${res}</h2>
         <div class="row" style="justify-content:center;gap:14px;margin:10px 0">${crest(hc)}<b class="big">${m.score[0]} - ${m.score[1]}</b>${crest(ac)}</div>
         ${sum.shootout ? `<p style="margin:0">Tirs au but : <b>${sum.shootout.score[0]} - ${sum.shootout.score[1]}</b></p>` : ''}
         <p class="muted" style="font-size:12px;margin:4px 0 12px">${sum.goals.map((g) => `${esc(g.name)} ${clockLabel(g.minute, g.extra)}${g.pen ? ' (p)' : ''}`).join(' · ') || 'Aucun but'}</p></div>
         ${motm ? `<div class="motm"><span style="font-size:26px">🏅</span><div class="grow">Homme du match<br><span style="font-size:17px">${esc(motm.name)}</span></div>${ratingChip(motm.rating)}</div>` : ''}
         <div class="card">${statsHtml()}</div>
+        ${analysisHtml()}
         <div class="card">${chartsHtml()}</div>
-        <div class="label">Notes de vos joueurs</div>
-        <div class="card list" style="padding:0 10px;margin-top:0">${my.map((r) => `<div class="prow" style="cursor:default">
-          <span class="posb pos-${POSITION_GROUP[r.pos]}">${r.pos}</span>
-          <div class="pname"><b>${esc(r.name)}</b><small>${r.minutes}' ${r.goals ? '⚽'.repeat(r.goals) : ''}${r.assists ? ' 🅰'.repeat(r.assists) : ''}${r.yellow ? ' 🟨' : ''}${r.red ? ' 🟥' : ''}${r.injured ? ' ✚' : ''}</small></div>
-          ${ratingChip(r.rating)}</div>`).join('')}</div>
-        <button class="btn primary lg block" data-act="done">Continuer</button>`,
+        <div class="label">Notes de vos joueurs${canTalk ? ' · un mot à chacun ? (👏 féliciter, 💪 encourager, ☝ recadrer)' : ''}</div>
+        <div class="card list" style="padding:0 10px;margin-top:0">${my.map(rowHtml).join('')}</div>
+        <button class="btn primary lg block" data-act="done">Continuer</button>`;
+    app.sheet({
+      root, dismissable: false,
+      html: ftHtml(),
       actions: {
+        debrief: (el, a, h) => {
+          const id = +el.dataset.id, p = s.players[id], r = my.find((x) => x.id === id);
+          if (!p || !r || talked[id]) return;
+          talked[id] = debriefPlayer(p, el.dataset.k, r.rating);
+          h.update(ftHtml());
+        },
         done: (el, a, h) => {
           h.close();
           if (replay) { closeScreen(); return; }

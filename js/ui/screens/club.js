@@ -14,6 +14,7 @@ import { money, wageBill, sponsorIncome, prizeMoney } from '../../game/economy.j
 import { DIVISIONS } from '../../data/world.js';
 import { marketList, windowOpen, academyCost, upgradeAcademy, sellPlayer, counterIncoming, acceptIncoming, SALE_STAGE, youthRecruitCost, upgradeYouthRecruit, releaseYouth, promoteYouth } from '../../game/transfers.js';
 import { tablePosition, DIV_NAMES, CONTI_NAME } from '../../game/season.js';
+import { DRILLS, drillMastery, drillEffects } from '../../game/drills.js';
 import { STAFF_ROLES, staffWages, hireStaff, fireStaff, bestStaff, staffEffects, trainingUpgradeCost, upgradeTraining, STADIUM_OPTIONS, stadiumCost, expandStadium, TRAINING_FOCUS, INTENSITY, staffDemand, staffOffer } from '../../game/career.js';
 import { randomLook } from '../../game/coach.js';
 import { createRng, hashSeed } from '../../core/rng.js';
@@ -354,6 +355,7 @@ function training(s) {
       <label class="row" style="gap:8px;padding:4px 0"><input type="checkbox" data-act="topt" data-k="oppPrep" ${t.oppPrep ? 'checked' : ''}><span><b>Préparer spécifiquement le prochain adversaire</b><br><small class="muted">Vidéo, coups de pied arrêtés, plan de jeu : léger avantage au prochain match, mais −12 % de progression.</small></span></label>
       <label class="row" style="gap:8px;padding:4px 0"><input type="checkbox" data-act="topt" data-k="autoRest" ${t.autoRest !== false ? 'checked' : ''}><span><b>Gestion automatique de la charge</b><br><small class="muted">Les joueurs dont la condition passe sous 40 % sont mis au repos (récupération, pas de progression cette semaine).</small></span></label>
     </div>
+    ${drillCard(uc)}
     ${seasonProgress(s, uc)}
     <div class="card"><h3>Effets actuels</h3>
       <div class="row between"><span>Centre d'entraînement</span>${stars(uc.facilities.training)}</div>
@@ -362,6 +364,22 @@ function training(s) {
       <div class="row between"><span>Maîtrise tactique</span><b style="color:${scaleColor(uc.fam ?? 60)}">${Math.round(uc.fam ?? 60)} %</b></div></div>
     ${trainReport(s, uc)}
     ${individualTraining(s, uc)}`;
+}
+
+/** Séance collective de la semaine : thème travaillé, maîtrise acquise, effet sur la tactique actuelle. */
+function drillCard(uc) {
+  const sel = uc.training.drill || 'none', fx = drillEffects(uc, uc.tactics);
+  const rows = Object.entries(DRILLS).filter(([k]) => k !== 'none').map(([k, d]) => {
+    const v = drillMastery(uc, k), on = fx.active.includes(k);
+    return `<div class="row between" style="padding:3px 0"><span>${d.icon} ${d.label}${on ? ' <small class="pos-txt">· actif</small>' : v >= 15 && k !== 'setpieces' ? ' <small class="muted">· inutilisé par la tactique</small>' : ''}</span>
+      <span><span class="mtr" style="width:90px"><i style="width:${v}%;background:${on ? 'var(--good)' : 'var(--muted)'}"></i></span> <b>${v}</b></span></div>`;
+  }).join('');
+  const gain = Math.round((fx.perf - 1) * 1000) / 10;
+  return `<div class="card"><h3>🧩 Séance collective</h3>
+    <div class="chips" style="flex-wrap:wrap">${Object.entries(DRILLS).map(([k, d]) => `<button class="chip ${sel === k ? 'on' : ''}" data-act="tdrill" data-v="${k}">${d.icon} ${d.label}</button>`).join('')}</div>
+    <p class="muted" style="font-size:13px">${DRILLS[sel].desc}${sel !== 'none' ? ' Coût : −7 % de progression individuelle.' : ''}</p>
+    <div class="label">Maîtrise de l'équipe</div>${rows}
+    <p class="muted" style="font-size:12px;margin:6px 0 0">Effet avec la tactique actuelle : rendement ${gain > 0 ? `<b class="pos-txt">+${gain} %</b>` : '±0 %'}${fx.cpa >= 0.5 ? ` · CPA <b class="pos-txt">+${fx.cpa.toFixed(1)}</b> (niveau entraîneur)` : ''}${fx.fatigue < 0.99 ? ` · fatigue <b class="pos-txt">−${Math.round((1 - fx.fatigue) * 100)} %</b>` : ''}${fx.cards < 0.99 ? ` · fautes <b class="pos-txt">−${Math.round((1 - fx.cards) * 100)} %</b>` : ''}. La maîtrise monte chaque journée travaillée et s'érode doucement sinon.</p></div>`;
 }
 
 /** Bilan de la saison : qui progresse le plus à l'entraînement (et qui régresse). */
@@ -578,6 +596,7 @@ export const actions = {
     done(app, expandStadium(app.state, seats));
   },
   tfocus(el, app) { userClub(app.state).training.focus = el.dataset.v; app.save(); app.render(); },
+  tdrill(el, app) { userClub(app.state).training.drill = el.dataset.v; app.save(); app.render(); },
   tint(el, app) { userClub(app.state).training.intensity = el.dataset.v; app.save(); app.render(); },
   tind(el, app) { if (el.tagName !== 'SELECT') return; const p = app.state.players[+el.dataset.id]; if (p) { p.tFocus = el.value || null; app.save(); app.toast(el.value ? `${p.name} : programme individuel enregistré.` : `${p.name} suit le programme collectif.`); } },
   accept(el, app) {

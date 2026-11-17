@@ -1334,7 +1334,8 @@ export class LiveSim {
       const lat = tgt.y - this.Y(gk);
       if (Math.abs(lat) > 0.9 || tgt.z > 1.6) { gk.diveDelay = Math.max(0, T - 0.35); gk.diveDir = Math.sign(lat) || 1; gk.diveH = Math.min(1, tgt.z / 2.2); }
     }
-    const ev = emit(m, out, { type: 'shot', side: A.side, pid: h.mp.id, xg: +xg.toFixed(2), kind, zone: 3, outcome: o, x: tgt.x / L, y: tgt.y / W, how: how || undefined });
+    const ev = emit(m, out, { type: 'shot', side: A.side, pid: h.mp.id, xg: +xg.toFixed(2), kind, zone: 3, outcome: o, x: tgt.x / L, y: tgt.y / W, how: how || undefined,
+      ax: +(gx > L / 2 ? h.x : 1 - h.x).toFixed(3), ay: +(gx > L / 2 ? h.y : 1 - h.y).toFixed(3) });
     if (o === 'saved') { A.stats.onTarget++; D.stats.saves++; addRating(h.mp, 0.08); if (gk) { gk.mp.saves++; addRating(gk.mp, 0.2 + xg * 0.8); } ev.pid2 = gk?.mp.id ?? null; }
     if (o === 'blocked' && blocker) { ev.pid2 = blocker.o.mp.id; addRating(blocker.o.mp, 0.08); }
     if (o === 'post') addRating(h.mp, 0.05);

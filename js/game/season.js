@@ -4,6 +4,7 @@
  * fin de saison (promotions/relégations, palmarès, évolution).
  */
 import { createRng, hashSeed, clamp } from '../core/rng.js';
+import { weeklyDrill, drillEffects } from './drills.js';
 import { createWorld, createYouth, getNextId, setNextId, assignNumbers } from '../data/generator.js';
 import { createRealWorld } from '../data/realWorld.js';
 import { applyTop100 } from './ratingsImport.js';
@@ -715,8 +716,8 @@ export function teamCfg(state, club, opponent, isHome, isUser) {
   if (isUser) {
     validateUserLineup(state);
     return { club, players, lineup: club.lineup.slice(), bench: club.bench.slice(), tactics: { ...club.tactics }, isAI: false, talk: matchMods(state)?.me || 0,
-      roles: (club.roles || []).slice(), setPieces: { ...(club.setPieces || {}) }, pi: (club.pi || []).map((x) => ({ ...x })), injuryMod: staffEffects(club).injuryMod, setPlan: club.setPlan || null, cpaCoach: staffEffects(club).setpiece,
-      coachMods: (() => { const cm = coachMods(state.coach); return { ...cm, perf: cm.perf * staffEffects(club).perf * familiarityMult(club) * cohMult(teamCohesion(state, club, club.lineup)) * (club.training?.oppPrep ? 1.008 : 1) * (optInfo(state, 'difficulty').perf || 1) }; })(), ...captainCfg(state, club) };
+      roles: (club.roles || []).slice(), setPieces: { ...(club.setPieces || {}) }, pi: (club.pi || []).map((x) => ({ ...x })), injuryMod: staffEffects(club).injuryMod, setPlan: club.setPlan || null, cpaCoach: staffEffects(club).setpiece + drillEffects(club, club.tactics).cpa,
+      coachMods: (() => { const cm = coachMods(state.coach), dr = drillEffects(club, club.tactics); return { ...cm, fatigue: (cm.fatigue ?? 1) * dr.fatigue, cards: (cm.cards ?? 1) * dr.cards, perf: dr.perf * cm.perf * staffEffects(club).perf * familiarityMult(club) * cohMult(teamCohesion(state, club, club.lineup)) * (club.training?.oppPrep ? 1.008 : 1) * (optInfo(state, 'difficulty').perf || 1) }; })(), ...captainCfg(state, club) };
   }
   const rng = createRng(hashSeed(`${state.seed}-${state.season}-${state.day}-${club.id}`));
   const style = managerStyle(state, club);
@@ -1022,6 +1023,7 @@ export function completeDay(state, userMatch = null) {
       }
       // Maîtrise tactique : progresse chaque semaine (plus vite avec un thème tactique et un bon adjoint).
       c.fam = clamp((c.fam ?? 60) + (2.5 + (tp.focus === 'tactical' ? 2.5 : 0)) * (eff?.progression || 1), 0, 100);
+      if (isUser) weeklyDrill(c, eff?.progression || 1);
     }
   }
 

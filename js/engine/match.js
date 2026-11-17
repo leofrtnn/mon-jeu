@@ -319,6 +319,7 @@ export function refreshMultipliers(m) {
 /* Événements                                                          */
 /* ------------------------------------------------------------------ */
 
+const ANA_LANE = new Set(['pass', 'longpass', 'through', 'cross', 'dribble', 'skill']);
 const KEY_TYPES = new Set(['goal', 'shot', 'yellow', 'red', 'penalty', 'injury', 'sub', 'var', 'ht', 'ft', 'et', 'eht', 'kickoff', 'added', 'post', 'save', 'freekick']);
 
 export function emit(m, out, ev) {
@@ -329,6 +330,13 @@ export function emit(m, out, ev) {
   if (ev.x != null && ev.x >= 0 && ev.x <= 1) {
     m.ball.x = ev.x; m.ball.y = ev.y;
     if (m.poss >= 0) m.heat[m.poss][Math.min(11, Math.floor(ev.x * 12)) * 8 + Math.min(7, Math.floor(ev.y * 8))]++;
+  }
+  // Données d'analyse d'après-match (repère d'attaque de l'équipe concernée).
+  if (ev.x != null && ev.x >= 0 && ev.x <= 1 && (ev.side === 0 || ev.side === 1)) {
+    const A = (m.ana ||= { rec: [[0, 0, 0], [0, 0, 0]], lane: [[0, 0, 0], [0, 0, 0]] });
+    const ax = ev.side === 0 ? ev.x : 1 - ev.x, ay = ev.side === 0 ? ev.y : 1 - ev.y;
+    if (ev.type === 'tackle' || ev.type === 'interception') A.rec[ev.side][Math.min(2, Math.floor(ax * 3))]++;
+    else if (ANA_LANE.has(ev.type) && ax > 0.45) A.lane[ev.side][ay < 0.33 ? 0 : ay > 0.67 ? 2 : 1]++;
   }
   out.push(ev);
   if (ev.key && ev.type !== 'kickoff') m.log.push(ev);
@@ -693,7 +701,12 @@ function shoot(m, out, A, D, s, z, opts) {
   const blockP = opts.type === 'penalty' ? 0 : opts.type === 'header' ? 0.08 : opts.type === 'freekick' ? 0.25 : [0.4, 0.38, 0.32, 0.22][z];
   const goalP = clamp(xg * kf / (1 - blockP), 0, 0.95);
   const goalSide = A.side === 0 ? 1 : 0; // x du but visé
-  const ev = { type: 'shot', side: A.side, pid: s.id, xg: +xg.toFixed(2), kind: opts.type, zone: z };
+  // Position du tireur (repère d'attaque, 0 = propre but, 1 = but adverse) pour la carte des tirs,
+  // déduite de la zone et du type de tir, sans consommer d'aléa.
+  const mn = m.minute + (m.extra || 0) * 0.37 + s.id % 7;
+  const dS = opts.type === 'penalty' ? 11 : opts.type === 'header' ? 5 + (mn * 3) % 6 : opts.type === 'freekick' ? 19 + (mn * 5) % 9 : opts.type === 'rebound' ? 6 + (mn * 7) % 5 : [31, 24, 17.5, 10][z] + (mn * 7) % 5;
+  const ev = { type: 'shot', side: A.side, pid: s.id, xg: +xg.toFixed(2), kind: opts.type, zone: z,
+    ax: +(1 - dS / 105).toFixed(3), ay: opts.type === 'penalty' ? 0.5 : +(0.5 + (((mn * 37) % 11) - 5) / 11 * Math.min(0.32, dS / 60 + 0.08)).toFixed(3) };
 
   if (m.rng.chance(blockP)) {
     ev.outcome = 'blocked';

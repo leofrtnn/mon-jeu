@@ -184,6 +184,17 @@ function serve() {
     await page.click('[data-act=resume]');
     await page.click('[data-c=skip]');
     await page.waitForSelector('[data-act=done]');
+    // Fin de match : analyse du staff, carte des tirs, débrief individuel.
+    assert.ok(await page.$('.sheet:has-text("Analyse du staff")'), 'analyse d\'après-match');
+    await page.click('.sheet [data-act=debrief] >> nth=0');
+    await page.waitForSelector('.sheet .prow small:has-text("moral")');
+    if (process.env.SHOTS) {
+      await page.screenshot({ path: process.env.SHOTS + '/ft.png' });
+      await page.evaluate(() => [...document.querySelectorAll('.sheet b')].find((b) => b.textContent.includes('Analyse du staff'))?.scrollIntoView());
+      await page.screenshot({ path: process.env.SHOTS + '/ft_ana.png' });
+      await page.evaluate(() => [...document.querySelectorAll('.sheet .label')].find((b) => b.textContent.includes('Carte des tirs'))?.scrollIntoView());
+      await page.screenshot({ path: process.env.SHOTS + '/ft_map.png' });
+    }
     await page.click('[data-act=done]');
     // Interview d'après-match : une carte par question, effets visibles après le choix.
     await page.waitForSelector('.press-btn');

@@ -6,7 +6,7 @@
  * VERSION est incrémentée par scripts/update-sw.js à chaque livraison.
  */
 const IMG_CACHE = 'cdp-img';
-const VERSION = 'cdp-v142';
+const VERSION = 'cdp-v143';
 const ASSETS = [
   './',
   './css/style.css',
@@ -37,6 +37,7 @@ const ASSETS = [
   './js/data/top500.js',
   './js/data/world.js',
   './js/engine/ai.js',
+  './js/engine/analysis.js',
   './js/engine/commentary.js',
   './js/engine/live.js',
   './js/engine/match.js',
@@ -56,6 +57,8 @@ const ASSETS = [
   './js/game/dates.js',
   './js/game/deadline.js',
   './js/game/deals.js',
+  './js/game/debrief.js',
+  './js/game/drills.js',
   './js/game/economy.js',
   './js/game/fans.js',
   './js/game/fm27.js',

@@ -232,7 +232,7 @@ export function trainingParams(club, isUser) {
   const eff = staffEffects(club);
   return {
     focus: t.focus, intensity: t.intensity, individual: true,
-    mult: base.mult * imult * eff.progression * (t.focus === 'rest' ? 0.3 : 1) * (t.oppPrep ? 0.88 : 1),
+    mult: base.mult * imult * eff.progression * (t.focus === 'rest' ? 0.3 : 1) * (t.oppPrep ? 0.88 : 1) * (t.drill && t.drill !== 'none' ? 0.93 : 1),
     oppPrep: !!t.oppPrep, autoRest: t.autoRest !== false,
     fatigue: ({ low: -6, mid: 0, high: 7 }[t.intensity]) + (t.focus === 'physical' ? 3 : 0) + (t.focus === 'rest' ? -10 : 0),
     injury: t.intensity === 'high' ? 0.004 : 0,

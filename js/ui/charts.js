@@ -50,3 +50,24 @@ export function heatmap(m, side, color) {
     <circle cx="${W / 2}" cy="${H / 2}" r="13"/><rect x="1" y="${H / 2 - 30}" width="24" height="60"/><rect x="${W - 25}" y="${H / 2 - 30}" width="24" height="60"/></g>
     <path d="M${W - 18} 8 l10 0 m-4 -4 l4 4 l-4 4" stroke="#fff" fill="none" stroke-width="1.5"/></svg>`;
 }
+
+/**
+ * Carte des tirs (les deux équipes : la nôtre attaque vers la droite si side 0).
+ * Taille = xG ; plein = but ; cerclé = cadré ; pâle = non cadré / contré.
+ */
+export function shotMap(shots, colors) {
+  const W = 156, H = 101;
+  const dots = shots.slice().sort((a, b) => (a.outcome === 'goal') - (b.outcome === 'goal')).map((s) => {
+    const x = s.side === 0 ? s.ax * W : (1 - s.ax) * W, y = s.side === 0 ? s.ay * H : (1 - s.ay) * H;
+    const r = (1.8 + Math.sqrt(s.xg) * 6).toFixed(1), c = colors[s.side];
+    const st = s.outcome === 'goal' ? `fill="${c}" stroke="#fff" stroke-width="1.2"`
+      : s.outcome === 'saved' || s.outcome === 'post' ? `fill="${c}" fill-opacity=".35" stroke="${c}" stroke-width="1.2"`
+      : `fill="${c}" fill-opacity=".15" stroke="${c}" stroke-opacity=".55" stroke-width=".8"`;
+    return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${r}" ${st}><title>${s.minute}' · ${s.xg.toFixed(2)} xG · ${({ goal: 'but', saved: 'arrêté', post: 'poteau', blocked: 'contré', off: 'non cadré' })[s.outcome] || s.outcome}</title></circle>`;
+  }).join('');
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" style="background:#1f6b3a;border-radius:8px;max-width:460px;display:block;margin:0 auto">
+    <g fill="none" stroke="rgba(255,255,255,.55)" stroke-width="1"><rect x="1" y="1" width="${W - 2}" height="${H - 2}"/><line x1="${W / 2}" y1="1" x2="${W / 2}" y2="${H - 1}"/>
+    <circle cx="${W / 2}" cy="${H / 2}" r="13"/><rect x="1" y="${H / 2 - 30}" width="24" height="60"/><rect x="${W - 25}" y="${H / 2 - 30}" width="24" height="60"/>
+    <rect x="1" y="${H / 2 - 13}" width="8" height="26"/><rect x="${W - 9}" y="${H / 2 - 13}" width="8" height="26"/></g>${dots}</svg>
+    <div class="row" style="gap:12px;justify-content:center;font-size:11px;opacity:.8;margin-top:3px"><span>● but</span><span>◍ cadré</span><span>○ non cadré / contré</span><span>taille = xG</span></div>`;
+}
