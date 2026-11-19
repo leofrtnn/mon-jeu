@@ -33,6 +33,8 @@ export const PARTS = {
   thigh: { zMin: 0.45, zMax: 0.95, ahead: 0.3, reach: 0.3, stretch: 0.15, back: 0.05 },
   chest: { zMin: 0.95, zMax: 1.55, ahead: 0.22, reach: 0.28, stretch: 0.1, back: 0 },
   head: { zMin: 1.5, zMax: 2.05, ahead: 0.12, reach: 0.25, stretch: 0.1, back: 0 },
+  // Mains du GARDIEN (dans sa surface seulement) : du sol jusqu'à bras tendus (2,35 m, + détente).
+  hands: { zMin: 0, zMax: 2.35, ahead: 0.3, reach: 0.6, stretch: 0.45, back: 0.1 },
 };
 /** Hauteur gagnée en sautant (tête), selon le physique (0-99) : ~0,35 m à 0,65 m. */
 export const jumpGain = (phy = 60) => 0.35 + Math.max(0, Math.min(1, (phy - 40) / 55)) * 0.3;
@@ -41,10 +43,13 @@ export const jumpGain = (phy = 60) => 0.35 + Math.max(0, Math.min(1, (phy - 40) 
 const FAST = 9;
 
 /** Parties du corps utilisables pour un ballon à la hauteur z (en tenant compte du saut). */
-export function partsForHeight(z, { canJump = true, phy = 60 } = {}) {
+export function partsForHeight(z, { canJump = true, phy = 60, gk = false, jumpK = 1 } = {}) {
+  // Gardien dans sa surface : il joue des mains, à toutes les hauteurs qu'il peut atteindre.
+  if (gk) return z >= 0 && z <= PARTS.hands.zMax + (canJump ? (jumpGain(phy) + 0.1) * jumpK : 0) ? ['hands'] : [];
   const out = [];
   for (const [k, P] of Object.entries(PARTS)) {
-    const zMax = k === 'head' && canJump ? P.zMax + jumpGain(phy) : P.zMax;
+    if (k === 'hands') continue;
+    const zMax = k === 'head' && canJump ? P.zMax + jumpGain(phy) * jumpK : P.zMax;   // jumpK : timing du saut (1 = parfait)
     if (z >= P.zMin && z <= zMax) out.push(k);
   }
   return out;
@@ -190,7 +195,7 @@ export function ballPath(ball, predictFn, { horizon = 3, step = 0.05 } = {}) {
  *  - pressure : distance (m) de l'adversaire le plus proche.
  */
 export function touchQuality({ tech = 60, stretch = 0, rel = 5, part = 'foot', pressure = 10 }) {
-  const partK = { foot: 1, thigh: 0.88, chest: 0.92, head: 0.7 }[part] ?? 0.8;
+  const partK = { foot: 1, thigh: 0.88, chest: 0.92, head: 0.7, hands: 1 }[part] ?? 0.8;
   const t = (tech - 30) / 65;                                 // 0 (30) … 1 (95)
   const speedPen = Math.max(0, rel - 6) * (0.035 - 0.02 * t);  // ballon fusant : plus dur pour les moins techniques
   const pressPen = pressure < 1.5 ? 0.12 : pressure < 3 ? 0.06 : 0;
@@ -276,6 +281,114 @@ export function sweptBody(p0, p1, b0, b1) {
     const bx = b0.x + (b1.x - b0.x) * t, by = b0.y + (b1.y - b0.y) * t, bz = (b0.z ?? BALL_R) + ((b1.z ?? BALL_R) - (b0.z ?? BALL_R)) * t;
     const px = p0.x + (p1.x - p0.x) * t, py = p0.y + (p1.y - p0.y) * t;
     if (bz - BALL_R < BODY.height && Math.hypot(bx - px, by - py) < BODY.radius * 0.8 + BALL_R) return { t, ball: { x: bx, y: by, z: bz } };
+  }
+  return null;
+}
+
+/* ------------------------------------------------------------------------------------------
+ * GARDIEN (étape 4d) : plongeon, mains, prise de balle — tout se joue au contact réel.
+ * ---------------------------------------------------------------------------------------- */
+
+/**
+ * Plongeon : après l'impulsion (tPush), le corps se déplace latéralement de S mètres en T secondes
+ * (courbe douce), les bras se tendent (ARM au-delà du corps), les mains montent à la hauteur visée.
+ * S dépend de l'agilité du gardien (réflexes / physique) : ~1,3 m (moyen) à ~2,4 m (excellent).
+ */
+export const DIVE = { tPush: 0.1, T: 0.5, arm: 0.95, handR: 0.3, dur: 0.75 };
+export const diveRange = (agil = 0.5) => 1.3 + Math.max(0, Math.min(1, agil)) * 1.1;
+/** Fraction du plongeon accomplie à l'instant t (0 → 1). */
+export function diveFrac(t) {
+  if (t <= DIVE.tPush) return 0;
+  const u = Math.min(1, (t - DIVE.tPush) / (DIVE.T - DIVE.tPush));
+  return u * u * (3 - 2 * u);
+}
+/** Temps nécessaire pour que les mains couvrent `lat` mètres latéralement (Infinity si hors de portée). */
+export function diveTimeFor(lat, S) {
+  const need = lat - DIVE.arm;
+  if (need <= 0) return DIVE.tPush + 0.08;
+  if (need > S) return Infinity;
+  let lo = DIVE.tPush, hi = DIVE.T;
+  for (let i = 0; i < 20; i++) { const m = (lo + hi) / 2; if (diveFrac(m) * S < need) lo = m; else hi = m; }
+  return hi;
+}
+/** Position des mains pendant un plongeon. d = { x0, y0, ux, uy (direction latérale), S, h (hauteur visée), t0 }. */
+export function diveHands(d, now) {
+  // Les bras se tendent dès l'impulsion (~0,12 s), le corps suit la courbe du plongeon.
+  const t = now - d.t0, f = diveFrac(t), arm = DIVE.arm * Math.min(1, 0.45 + t / 0.22);
+  const bx = d.x0 + d.ux * d.S * f, by = d.y0 + d.uy * d.S * f;
+  return { x: bx + d.ux * arm, y: by + d.uy * arm, z: 0.9 + (d.h - 0.9) * Math.min(1, 0.25 + f * 1.3), bx, by, f };
+}
+/** Le ballon (b0 → b1 pendant le pas) passe-t-il dans les mains (point h0 → h1) ? Renvoie { t, ball, dist } ou null. */
+export function sweptPoint(h0, h1, b0, b1, r = DIVE.handR) {
+  for (let i = 1; i <= 16; i++) {
+    const t = i / 16;
+    const bx = b0.x + (b1.x - b0.x) * t, by = b0.y + (b1.y - b0.y) * t, bz = b0.z + (b1.z - b0.z) * t;
+    const hx = h0.x + (h1.x - h0.x) * t, hy = h0.y + (h1.y - h0.y) * t, hz = h0.z + (h1.z - h0.z) * t;
+    const dist = Math.hypot(bx - hx, by - hy, bz - hz);
+    if (dist < r + BALL_R) return { t, ball: { x: bx, y: by, z: bz }, dist };
+  }
+  return null;
+}
+
+/**
+ * Prise de balle au contact (gardien). La QUALITÉ du geste dépend de ses mains (arrêts, sang-froid),
+ * de la vitesse du ballon, de l'extension (plongeon à fond, ballon au bout des doigts), de la
+ * hauteur (ras du sol, sous la barre), d'un ballon flottant et du terrain glissant.
+ * Un tirage (fourni par l'appelant) ajoute la part d'aléa du geste. Résultat :
+ *   'catch' (capté), 'parry' (repoussé de la paume), 'tip' (effleuré : le ballon est à peine dévié).
+ */
+export function gkHandle({ handling = 0.6, speed = 15, stretch = 0, z = 1, knuckle = 0, grip = 1, rnd = 0.5 } = {}) {
+  let q = 0.3 + 0.65 * handling;
+  q -= Math.max(0, speed - 10) * 0.016;           // frappe appuyée
+  q -= stretch * 0.38;                            // au bout des gants
+  if (z < 0.25 || z > 2.1) q -= 0.08;             // ras du sol / sous la barre
+  q -= Math.min(5, knuckle) * 0.025;              // ballon flottant
+  q -= (1 - Math.min(1, grip)) * 0.4;             // pluie : ballon qui glisse
+  q = Math.max(0, Math.min(1, q));
+  const sc = q + (rnd - 0.5) * 0.32;
+  // Effleurer n'arrive qu'au bout des gants (extension) ; près du corps, un geste raté est un
+  // ballon repoussé (parfois mal, devant le but).
+  const result = sc > 0.62 && stretch < 0.8 && speed < 30 ? 'catch' : sc > 0.22 || stretch < 0.45 ? 'parry' : 'tip';
+  return { q, result };
+}
+
+/**
+ * Erreur d'exécution d'un TIR (même principe que la passe) : écart d'angle horizontal et vertical
+ * (rad) appliqué au point visé dans le but. Dépend de la frappe, du sang-froid, du pied, de
+ * l'équilibre, de la pression, d'un ballon reçu en une touche, de l'extension et du geste
+ * (tête, plat du pied, frappe en force, lob). `tb` (> 1) : trait / spécialité qui affine le geste.
+ */
+export function shotError({ tir = 60, sf = 60, wf = 3, weak = false, tech = 'drive', pressure = 99, speed = 0, turn = 0, stretch = 0, ballRel = 0, tb = 1, aim = 1, rnd = [0.5, 0.5, 0.5, 0.5] } = {}) {
+  const skill = Math.max(0, Math.min(1, (tir * 0.8 + sf * 0.2) / 100));
+  let k = 1;
+  const pr = pressure < 1.5 ? 1.6 : pressure < 3 ? 1.25 : 1;
+  k *= Math.pow(pr, 1 - sf / 200);
+  if (speed > 4) k *= 1 + (speed - 4) * 0.08;
+  if (speed > 1.5) k *= 1 + (Math.min(Math.PI, Math.abs(turn)) / Math.PI) * 0.7 * Math.min(1, speed / 5);
+  if (weak) k *= 1 + (5 - wf) * 0.15;
+  k *= 1 + stretch * 0.7;
+  if (ballRel > 4) k *= 1 + Math.min(14, ballRel - 4) * 0.035;        // reprise de volée / en une touche
+  k *= { drive: 1.25, finesse: 0.85, curl: 1.05, chip: 1.1, header: 1.6, penalty: 0.6, freekick: 1.0 }[tech] ?? 1;
+  k *= aim / Math.max(0.5, tb);
+  // Dispersion d'une frappe de match (le tireur frappe fort, vite, rarement à l'arrêt) : ~2,5° à
+  // ~5° d'écart-type selon la technique, avant les conditions — un tir sur deux à trois est cadré.
+  const sH = (0.04 + (1 - skill) * 0.07) * k, sV = (0.034 + (1 - skill) * 0.06) * k;
+  return { dH: sH * gauss(rnd[0], rnd[1]), dV: sV * gauss(rnd[2], rnd[3]), sH, sV, k };
+}
+
+/**
+ * Corps allongé pendant le plongeon : segment épaule → mains (bras et buste tendus), à la hauteur
+ * des mains côté mains et ~0,5 m côté corps. Le ballon qui le traverse est arrêté (rayon ~0,22 m).
+ */
+export function sweptLimb(body, hand, b0, b1, r = 0.22) {
+  const ax = body.x, ay = body.y, az = 0.5, bx = hand.x, by = hand.y, bz = hand.z;
+  const vx = bx - ax, vy = by - ay, vz = bz - az, l2 = vx * vx + vy * vy + vz * vz || 1;
+  for (let i = 1; i <= 16; i++) {
+    const t = i / 16;
+    const px = b0.x + (b1.x - b0.x) * t, py = b0.y + (b1.y - b0.y) * t, pz = b0.z + (b1.z - b0.z) * t;
+    const u = Math.max(0, Math.min(1, ((px - ax) * vx + (py - ay) * vy + (pz - az) * vz) / l2));
+    const d = Math.hypot(px - (ax + vx * u), py - (ay + vy * u), pz - (az + vz * u));
+    if (d < r + BALL_R) return { t, ball: { x: px, y: py, z: pz }, u };
   }
   return null;
 }

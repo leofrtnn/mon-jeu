@@ -116,3 +116,43 @@ test('corps immobile : un ballon ne touche un joueur qui n\'a pas réagi que s\'
   assert.equal(sweptBody(p, p, ball({ x: 49, y: 34.7 }), ball({ x: 51, y: 34.7 })), null, 'à 70 cm : il passe');
   assert.equal(sweptBody(p, p, ball({ x: 49, y: 34, z: 2.3 }), ball({ x: 51, y: 34, z: 2.3 })), null, 'au-dessus de la tête');
 });
+
+import { diveRange, diveTimeFor, diveHands, sweptPoint, sweptLimb, gkHandle, shotError, DIVE } from '../js/engine/contact.js';
+
+test('gardien : ses mains vont plus haut qu\'une tête de joueur de champ, seulement dans sa surface', () => {
+  assert.deepEqual(partsForHeight(2.6, { gk: true, phy: 70 }), ['hands']);
+  assert.equal(partsForHeight(2.6, { phy: 70 }).includes('hands'), false);
+  assert.deepEqual(partsForHeight(3.4, { gk: true, phy: 99 }), []);
+});
+
+test('plongeon : un gardien agile va plus loin ; un ballon trop loin est hors de portée', () => {
+  assert.ok(diveRange(0.9) > diveRange(0.4));
+  assert.ok(diveTimeFor(2.6, diveRange(0.9)) < Infinity);
+  assert.equal(diveTimeFor(3.9, diveRange(0.4)), Infinity);
+  assert.ok(diveTimeFor(2.4, 2) > diveTimeFor(1.4, 2), 'plus loin = plus long');
+});
+
+test('plongeon : les mains suivent le geste, le ballon n\'est arrêté que s\'il passe réellement dans les mains', () => {
+  const d = { t0: 0, x0: 104, y0: 34, ux: 0, uy: 1, S: 1.6, h: 1.2 };
+  const h0 = diveHands(d, 0.45), h1 = diveHands(d, 0.5);
+  assert.ok(h1.y > 36, `mains à y=${h1.y}`);
+  const b0 = { x: 103, y: h1.y, z: 1.2 }, b1 = { x: 105, y: h1.y, z: 1.2 };
+  assert.ok(sweptPoint(h0, h1, b0, b1), 'ballon dans les mains');
+  assert.equal(sweptPoint(h0, h1, { ...b0, y: h1.y + 0.9 }, { ...b1, y: h1.y + 0.9 }), null, 'ballon 90 cm plus loin : manqué');
+  assert.ok(sweptLimb({ x: h1.bx, y: h1.by }, h1, { x: 103, y: 36.05, z: 0.85 }, { x: 105, y: 36.05, z: 0.85 }), 'ballon dans le corps allongé');
+});
+
+test('prise de balle : vitesse, extension, terrain glissant dégradent le geste', () => {
+  const q = (o) => gkHandle({ handling: 0.7, speed: 15, stretch: 0, z: 1, rnd: 0.5, ...o }).q;
+  assert.ok(q({ speed: 28 }) < q({}) && q({ stretch: 0.9 }) < q({}) && q({ grip: 0.7 }) < q({}) && q({ handling: 0.9 }) > q({}));
+  assert.equal(gkHandle({ handling: 0.9, speed: 12, stretch: 0, z: 1, rnd: 0.5 }).result, 'catch');
+  assert.notEqual(gkHandle({ handling: 0.5, speed: 26, stretch: 0.95, z: 2.2, rnd: 0.2 }).result, 'catch');
+  assert.notEqual(gkHandle({ handling: 0.2, speed: 25, stretch: 0.1, z: 1, rnd: 0 }).result, 'tip', 'près du corps : repoussé, pas effleuré');
+});
+
+test('tir : la frappe d\'un bon tireur est plus précise ; une tête l\'est moins qu\'un plat du pied', () => {
+  const s = (o) => shotError({ tir: 65, sf: 60, ...o }).sH;
+  assert.ok(s({ tir: 90 }) < s({}) && s({ pressure: 1 }) > s({}) && s({ tech: 'header' }) > s({ tech: 'finesse' }) && s({ weak: true, wf: 1 }) > s({}));
+  assert.ok(s({ tb: 1.3 }) < s({}), 'spécialité');
+  assert.ok(DIVE.T > DIVE.tPush);
+});

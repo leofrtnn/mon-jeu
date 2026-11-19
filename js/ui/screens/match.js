@@ -231,7 +231,8 @@ export function openMatch(app, opts = {}) {
     else if ((ev.type === 'yellow' || ev.type === 'red') && ev.side === 0) audio.boo();
     // Ballon frappé, applaudissements (arrêt, geste technique, beau tacle de l'équipe qui reçoit).
     if (['pass', 'longpass', 'cross', 'cornerkick', 'clearance', 'freekick'].includes(ev.type)) audio.kick(ev.type === 'pass' ? 0.3 : 0.6);
-    if (ev.type === 'shot') audio.kick(1);
+    // Moteur en direct : le son part à la frappe (« strike ») ; l'issue du tir n'est connue qu'ensuite.
+    if (ev.type === 'strike' || (ev.type === 'shot' && !view.live)) audio.kick(1);
     if (ev.type === 'shot' && ev.outcome === 'saved') audio.applause(2.2, 0.8);
     if (ev.type === 'skill' || (ev.type === 'tackle' && ev.side === 0 && Math.random() < 0.4)) audio.applause(1.6, 0.6);
     if (ev.type === 'sub') audio.applause(2.4, 0.7);
