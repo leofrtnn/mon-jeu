@@ -26,7 +26,7 @@ if (process.env.WORKER) {
     const pc = (f) => (100 * a.filter(f).length / a.length).toFixed(1).padStart(5) + ' %';
     const mean = (f) => a.reduce((s, r) => s + f(r), 0) / a.length;
     console.log(label.padEnd(34), String(a.length).padStart(6), ' réussies', pc(ok), ' interceptées', pc((r) => r.outcome === 'interceptée'), ' déviées', pc((r) => r.outcome === 'déviée'),
-      ' manquées', pc((r) => /destinataire/.test(r.outcome || '')), ' contrôle raté', pc((r) => r.outcome === 'contrôle raté'), ' |erreur| moy.', mean((r) => Math.abs(r.dAng)).toFixed(2) + '°', ' écart au point visé', mean((r) => Math.hypot(r.exec.x - r.aim.x, r.exec.y - r.aim.y)).toFixed(2) + ' m');
+      ' manquées', pc((r) => /destinataire/.test(r.outcome || '')), ' sorties sans contact', pc((r) => r.outcome === 'sortie sans contact'), ' contrôle raté', pc((r) => r.outcome === 'contrôle raté'), ' |erreur| moy.', mean((r) => Math.abs(r.dAng)).toFixed(2) + '°', ' écart au point visé', mean((r) => Math.hypot(r.exec.x - r.aim.x, r.exec.y - r.aim.y)).toFixed(2) + ' m');
   };
   console.log(`passes analysées : ${all.length} (${N} matchs, ${(all.length / N).toFixed(0)} par match)\n`);
   line('toutes', all);

@@ -2752,6 +2752,7 @@ export class LiveSim {
 
   setRestart(kind, side, x, y, out = null) {
     const m = this.m, T = m.teams[side];
+    if (this.pending?.rec && !this.pending.rec.outcome) this.pending.rec.outcome = 'sortie sans contact';   // (diagnostic)
     this.holder = null; this.pending = null; this.inHands = false;
     if (this.shot?.resolved) this.shot = null;   // un tir non encore constaté (sorti) le sera au pas suivant
     for (const p of this.players.values()) { p.carry = null; p._dive = null; p._threat = null; }
