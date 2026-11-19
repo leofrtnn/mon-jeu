@@ -168,7 +168,8 @@ export function receivePlan(pl, path, opts = {}) {
     const x = s.x - (s.vx / sp) * P.ahead, y = s.y - (s.vy / sp) * P.ahead;
     const margin = s.t - timeToReach(pl, x, y, opts);
     if (margin < minMargin) continue;
-    const cost = Math.hypot(x - pl.x, y - pl.y) + waitCost * s.t;
+    // headCost : seul, on préfère laisser redescendre le ballon pour le contrôler plutôt que le jouer de la tête.
+    const cost = Math.hypot(x - pl.x, y - pl.y) + waitCost * s.t + (part === 'head' ? (opts.headCost || 0) : 0);
     if (cost < bc) { bc = cost; best = { t: s.t, x, y, z: s.z, part, margin }; }
   }
   return best;
@@ -263,7 +264,8 @@ export function passError({ pas = 60, vis = 60, sf = 60, wf = 3, weak = false, c
   if (lofted) k *= 1.45;
   if (through) k *= 1.12;
   const sAng = (0.014 + (1 - skill) * 0.055) * k;
-  const sLen = (0.035 + (1 - skill) * 0.07) * k * (lofted ? 1.4 : 1) * (len > 30 ? 1.15 : 1);
+  // (la difficulté d'une passe levée est déjà dans k : pas de seconde pénalité sur le dosage)
+  const sLen = (0.035 + (1 - skill) * 0.07) * k * (len > 30 ? 1.15 : 1);
   return { dAng: sAng * gauss(rnd[0], rnd[1]), dLen: sLen * gauss(rnd[2], rnd[3]), sAng, sLen, k };
 }
 

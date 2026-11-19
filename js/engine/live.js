@@ -1528,6 +1528,13 @@ export class LiveSim {
     }
     cand.sort((a, b) => a.t - b.t || a.p.mp.id - b.p.mp.id);
     pd.cuts = cand.slice(0, 2);
+    // Ballon aérien : le défenseur le plus proche du point de réception va disputer le ballon au
+    // receveur (côté but, au contact), même s'il ne peut pas y arriver avant lui.
+    if (pd.lofted && rPlan && !rPlan.late) {
+      let ch = null, cd = 7;
+      for (const o of this.players.values()) { if (o.side === pd.from.side || o.gk || pd.cuts.some((c) => c.p === o)) continue; const d = Math.hypot(this.X(o) - rPlan.x, this.Y(o) - rPlan.y); if (d < cd) { cd = d; ch = o; } }
+      if (ch) { const goalSide = this.goalX(pd.from.side) === L ? 0.5 : -0.5; pd.cuts.push({ p: ch, x: rPlan.x + goalSide, y: rPlan.y, t: rPlan.t, abs: this.now + rPlan.t, margin: 0, part: rPlan.part, challenge: true }); }
+    }
     // Centre : les partenaires du destinataire dans la surface attaquent aussi le ballon.
     if (pd.cross) {
       const runs = [];
@@ -2138,7 +2145,8 @@ export class LiveSim {
         const path = ballPath(P, predict, { horizon: 3, step: 0.05 });
         // Comme un vrai receveur, il vise un point où il arrive avec un peu d'avance pour s'installer
         // (sinon il arrive lancé au dernier instant et le ballon lui passe sous le pied).
-        let plan = receivePlan(rm, path, { ...opt, minMargin: 0.3 }) || interceptPlan(rm, path, opt);
+        const alone = this.pressure(r) > 4;
+        let plan = receivePlan(rm, path, { ...opt, minMargin: 0.3, headCost: alone ? 6 : 0 }) || interceptPlan(rm, path, opt);
         if (!plan) {
           // Hors de portée : il va au point de la trajectoire où son retard est le plus faible.
           let best = null;
@@ -2375,7 +2383,11 @@ export class LiveSim {
       // Déviation / prolongation : le ballon garde sa course, légèrement réorienté vers l'avant.
       const vin = Math.atan2(P.vy, P.vx), fwd = dir > 0 ? 0 : Math.PI;
       let da = Math.atan2(Math.sin(fwd - vin), Math.cos(fwd - vin)); da = clamp(da, -0.5, 0.5);
-      const a = vin + da * q + err, v = Math.hypot(P.vx, P.vy) * (0.45 + q * 0.25) + 2;
+      // Près d'une ligne de touche, il prolonge vers l'intérieur du terrain (pas vers la ligne).
+      const edge = Math.min(B.y, W - B.y);
+      let inw = 0;
+      if (edge < 10) { const inward = B.y < W / 2 ? Math.PI / 2 : -Math.PI / 2; const di = Math.atan2(Math.sin(inward - (vin + da * q)), Math.cos(inward - (vin + da * q))); inw = clamp(di, -1.0, 1.0) * (1 - edge / 12) * (0.6 + 0.4 * q); }
+      const a = vin + da * q + inw + err, v = Math.hypot(P.vx, P.vy) * (0.45 + q * 0.25) + 2;
       P.vx = Math.cos(a) * v; P.vy = Math.sin(a) * v; P.vz = Math.max(0.5, Math.abs(P.vz) * 0.3 + 1.5 * q); P.spin = 0; P.top = 0;
     }
     if (this.poss !== r.side && type !== 'déviation') { this.poss = r.side; changePossession(m, r.side, m.zone, r.mp); }
