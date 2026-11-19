@@ -19,6 +19,7 @@ if (process.env.WORKER) {
   const N = +(process.argv[2] || 8), base0 = +(process.argv[3] || 100), P = 4, per = Math.ceil(N / P);
   const parts = await Promise.all([...Array(P)].map((_, i) => new Promise((res) => { const c = fork(new URL(import.meta.url).pathname, [], { env: { ...process.env, WORKER: `${base0 + i * 100},${per}` } }); c.on('message', res); })));
   const all = parts.flat();
+  const crosses = all.filter((r) => r.cross); const cw = {}; for (const r of crosses) cw[r.outcome || '(en cours)'] = (cw[r.outcome || '(en cours)'] || 0) + 1;
   const ok = (r) => r.outcome === 'reçue' || r.outcome === 'contrôle raté' || r.outcome === 'tête';
   const line = (label, a) => {
     if (!a.length) return console.log(label.padEnd(34), '—');
@@ -34,7 +35,7 @@ if (process.env.WORKER) {
   console.log('\n— distance —');
   line('  < 10 m', all.filter((r) => r.len < 10)); line('  10-20 m', all.filter((r) => r.len >= 10 && r.len < 20)); line('  20-30 m', all.filter((r) => r.len >= 20 && r.len < 30)); line('  ≥ 30 m', all.filter((r) => r.len >= 30));
   console.log('\n— type, pied, conditions —');
-  line('  au sol', all.filter((r) => !r.lofted)); line('  aérienne', all.filter((r) => r.lofted)); line('  dans la course (profondeur)', all.filter((r) => r.through));
+  line('  centres', all.filter((r) => r.cross)); line('  au sol', all.filter((r) => !r.lofted)); line('  aérienne', all.filter((r) => r.lofted)); line('  dans la course (profondeur)', all.filter((r) => r.through));
   line('  pied fort', all.filter((r) => !r.weak && !r.awk)); line('  pied faible', all.filter((r) => r.weak)); line('  bon pied, ballon du mauvais côté', all.filter((r) => r.awk));
   line('  adversaire < 1,5 m', all.filter((r) => r.pressure < 1.5)); line('  adversaire 1,5-3 m', all.filter((r) => r.pressure >= 1.5 && r.pressure < 3)); line('  libre (> 5 m)', all.filter((r) => r.pressure >= 5));
   line('  passeur lancé (> 5 m/s)', all.filter((r) => r.speed > 5)); line('  passe à contre-sens de sa course', all.filter((r) => r.speed > 2 && r.turn > 1.6));
@@ -51,4 +52,5 @@ if (process.env.WORKER) {
   console.log(`  qualité moyenne du contrôle du destinataire : ${(rec.reduce((s, r) => s + r.contact.q, 0) / Math.max(1, rec.length)).toFixed(2)}`);
   const out = {}; for (const r of all) out[r.outcome || '(en cours à la fin)'] = (out[r.outcome || '(en cours à la fin)'] || 0) + 1;
   console.log('\nissues :', out);
+  console.log('issues des centres :', cw);
 }

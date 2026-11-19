@@ -287,10 +287,10 @@ export class LiveSim {
     let best = null;
     const P = this.P, b0 = this._sw0;
     for (const p of this.players.values()) {
-      if (p !== pd.to && p.side === pd.from.side) continue;                 // les partenaires laissent filer vers le destinataire
+      if (p !== pd.to && p.side === pd.from.side && !pd.cross) continue;    // les partenaires laissent filer vers le destinataire (sauf sur un centre : chacun attaque le ballon)
       if (p === this._kickBy && this.now - this._kickT < 0.45) continue;
       let hit;
-      if (p !== pd.to && this.now - pd.t0 < this.reactT(p, pd.fromX, pd.fromY)) {
+      if (p.side !== pd.from.side && this.now - pd.t0 < this.reactT(p, pd.fromX, pd.fromY) + (pd.reactPlus || 0)) {
         // Pas encore réagi : seul le corps immobile peut arrêter le ballon (pas de jambe tendue).
         if (!b0 || p._sx == null || p.fall > 0.3 || p.slide > 0.2) continue;
         const bh = sweptBody({ x: p._sx, y: p._sy }, { x: this.X(p), y: this.Y(p) }, b0, P);
@@ -302,7 +302,7 @@ export class LiveSim {
     }
     if (!best) return;
     const { p, hit } = best, rec = pd.rec;
-    if (p === pd.to) {
+    if (p === pd.to || p.side === pd.from.side) {
       if (hit.reach.part === 'head') {
         if (rec) rec.outcome = 'tête';
         p.team.stats.passesOk++; pd.from.mp.passesOk++;   // la passe lui parvient (qu'il la joue de la tête)
@@ -1444,13 +1444,25 @@ export class LiveSim {
     for (const o of this.players.values()) {
       if (o.side === pd.from.side || o.fall > 0.3 || o.slide > 0.2) continue;
       if (o.gk && !this.inOwnBox(o)) continue;
-      const rt = this.reactT(o, pd.fromX, pd.fromY);
+      const rt = this.reactT(o, pd.fromX, pd.fromY) + (pd.reactPlus || 0);
       if (el < rt) continue;                                   // il n'a pas encore « lu » la passe
       const ip = interceptPlan(this.posM(o), path, { ...this.reachOpts(o), react: 0.05, slack: 0.3 });
       if (ip && ip.t < tr + 0.2) cand.push({ p: o, x: ip.x, y: ip.y, t: ip.t, margin: ip.margin, part: ip.part });
     }
     cand.sort((a, b) => a.t - b.t || a.p.mp.id - b.p.mp.id);
     pd.cuts = cand.slice(0, 2);
+    // Centre : les partenaires du destinataire dans la surface attaquent aussi le ballon.
+    if (pd.cross) {
+      const runs = [];
+      for (const o of this.players.values()) {
+        if (o.side !== pd.from.side || o === pd.to || o === pd.from || o.gk || o.fall > 0.3) continue;
+        if (Math.abs(this.X(o) - this.goalX(o.side)) > 20) continue;
+        const ip = interceptPlan(this.posM(o), path, { ...this.reachOpts(o), react: Math.max(0, 0.18 - el), slack: 0.3 });
+        if (ip) runs.push({ p: o, x: ip.x, y: ip.y, t: ip.t, margin: ip.margin, part: ip.part });
+      }
+      runs.sort((a, b) => a.t - b.t || a.p.mp.id - b.p.mp.id);
+      pd.cuts.push(...runs.slice(0, 2));
+    }
     if (pd.rec) for (const c of pd.cuts) if (!pd.rec.interceptors.some((x) => x.pid === c.p.mp.id)) pd.rec.interceptors.push({ pid: c.p.mp.id, eta: +(el + c.t).toFixed(2), margin: +c.margin.toFixed(2), x: c.x, y: c.y });
     if (this.diag) for (const c of pd.cuts) this.diag.plan(this.now, { pid: c.p.mp.id, side: c.p.side, x: c.x, y: c.y, z: 0, part: c.part, eta: c.t, margin: c.margin, cut: true });
   }
@@ -1516,24 +1528,26 @@ export class LiveSim {
     const len = Math.hypot(tx - P.x, ty - P.y);
     // Centre brossé de l'intérieur du pied (rentrant ou sortant selon le pied et le côté), parfois de l'extérieur.
     const cf = this.footSign(h) * (this.rand() < 0.15 && eff(h.mp, 'pas') >= 76 ? -0.8 : 1);
-    const T = solveKick(P, { x: tx, y: ty, z: 1.8 + this.rand() * 0.5 }, { T: 0.95 + len / 32, spin: cf * (7 + this.rand() * 5) * (swing > 0 ? 1 : 0.6), top: 1.2 });
-    // Duel aérien : l'attaquant visé contre le défenseur le plus proche (le gardien sort parfois).
+    // Étape 4c : précision du centre au contact (même modèle que les passes, geste aérien) ; aucun
+    // duel aérien n'est tranché d'avance : attaquants, défenseurs et gardien vont au ballon selon
+    // leurs capacités, et le premier contact réel l'emporte.
+    const P0 = { x: P.x, y: P.y };
+    const ex = this.passExec(h, { x: tx, y: ty }, true, false);
+    const T = solveKick(P, { x: ex.x, y: ex.y, z: 1.8 + this.rand() * 0.5 }, { T: 0.95 + len / 32, spin: cf * (7 + this.rand() * 5) * (swing > 0 ? 1 : 0.6), top: 1.2 });
     const D = m.teams[1 - A.side];
-    const def = this.list(D.side).filter((p) => !p.gk).sort((a, b) => Math.hypot(this.X(a) - tx, this.Y(a) - ty) - Math.hypot(this.X(b) - tx, this.Y(b) - ty))[0];
-    const gk = this.list(D.side).find((p) => p.gk);
-    const delivery = eff(h.mp, 'pas') * 0.7 + eff(h.mp, 'vis') * 0.3;
-    const att = eff(r.mp, 'phy') * 0.55 + eff(r.mp, 'tir') * 0.25 + eff(r.mp, 'sf') * 0.2;
-    const dfn = def ? eff(def.mp, 'phy') * 0.5 + eff(def.mp, 'def') * 0.5 : 40;
-    // Coup de pied arrêté : combinaison travaillée contre l'organisation défensive adverse.
+    // Coup de pied arrêté : une combinaison travaillée surprend l'organisation défensive adverse —
+    // elle retarde la lecture des défenseurs (temps de réaction), elle ne choisit pas le vainqueur.
     const spE = this._spAim ? setPieceEdge(A.setPlan || setPlanOf(), D.setPlan || setPlanOf(), this._spAim, A.cpaCoach, D.cpaCoach) : 0;
     this._spAim = null;
-    let win = sig((delivery - m.level) / 18 + (att - dfn) / 14 - 0.55 + spE);
-    const gkClaim = gk && Math.abs(tx - gx) < 6 && this.rand() < 0.35;
-    let to = r;
-    if (gkClaim) to = gk; else if (this.rand() > win && def) to = def;
-    this.pending = { to, ok: to === r, from: h, t0: this.now, T, aerial: true };
-    to.tx = tx / L; to.ty = ty / W;
-    if (to === r) m.lastPasser = h.mp;
+    const pd = this.pending = { kind: 'pass', cross: true, aerial: true, lofted: true, to: r, from: h, fromX: P0.x, fromY: P0.y, t0: this.now, T, aim: { x: tx, y: ty }, err: ex, reactPlus: clamp(spE * 0.25, -0.1, 0.25) };
+    if (this.diag) {
+      pd.rec = { pid: h.mp.id, side: A.side, to: r.mp.id, aim: { x: tx, y: ty }, exec: { x: ex.x, y: ex.y }, from: P0, dAng: ex.dAng * 57.3, dLen: ex.dLen, sAng: ex.sAng * 57.3, k: ex.k, weak: ex.weak, lofted: true, cross: true, through: false, len: ex.len, pas: eff(h.mp, 'pas'), pressure: ex.pressure, speed: ex.speed, turn: ex.turn, awk: ex.awk, interceptors: [], outcome: null };
+      this.diag.pass(this.now, pd.rec);
+      this.diag.path(this.now, ballPath(P, predict, { horizon: Math.min(3, T + 1), step: 0.1 }).map((q) => ({ x: q.x, y: q.y, z: q.z })), h.mp.id);
+    }
+    this._kickBy = h; this._kickT = this.now;
+    r.tx = tx / L; r.ty = ty / W;
+    m.lastPasser = h.mp;
     emit(m, out, { type: 'cross', side: A.side, pid: h.mp.id, pid2: r.mp.id, x: tx / L, y: ty / W, zone: 3 });
   }
 
@@ -2046,7 +2060,7 @@ export class LiveSim {
     const m = this.m, P = this.P;
     // Le premier toucher a déjà eu lieu physiquement (controlTouch) : ici, seulement la possession.
     // Passe RÉUSSIE = le destinataire touche le ballon (même s'il le contrôle mal ensuite).
-    if (r.side === pd.from.side && (pd.kind !== 'pass' || r === pd.to) && (pd.ok ?? true)) {
+    if (r.side === pd.from.side && (pd.kind !== 'pass' || r === pd.to || pd.cross) && (pd.ok ?? true)) {
       r.team.stats.passesOk++; pd.from.mp.passesOk++;
       addRating(pd.from.mp, 0.012);
     }
@@ -2073,7 +2087,8 @@ export class LiveSim {
     const gx = this.goalX(r.side);
     if (r.gk && this.inOwnBox(r)) { this.gkCatch(r, out); return; }
     // Duel aérien : le défenseur le plus proche saute aussi ; le plus fort dans les airs gagne.
-    if (r.side === pd.from.side) {
+    // (passe / centre de l'étape 4c : le duel aérien a déjà été tranché par le premier contact réel)
+    if (r.side === pd.from.side && pd.kind !== 'pass') {
       let dfn = null, dd = 2.2;
       for (const o of this.list(1 - r.side)) { if (o.gk) continue; const d = this.dist(o, P.x, P.y); if (d < dd) { dd = d; dfn = o; } }
       if (dfn) {

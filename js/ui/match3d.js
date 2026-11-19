@@ -2366,6 +2366,7 @@ export class Match3D {
         ring2: new THREE.MeshBasicMaterial({ color: '#7fd1ff', transparent: true, opacity: 0.2, depthWrite: false, side: THREE.DoubleSide }),
         path: new THREE.LineBasicMaterial({ color: '#9ad0ff' }), plan: new THREE.LineBasicMaterial({ color: '#ffd166' }),
         ok: new THREE.MeshBasicMaterial({ color: '#3ddc84', transparent: true, opacity: 0.7 }), bad: new THREE.MeshBasicMaterial({ color: '#ef476f', transparent: true, opacity: 0.7 }),
+        aim: new THREE.LineBasicMaterial({ color: '#ffffff' }), exec: new THREE.LineBasicMaterial({ color: '#ff9f1c' }), cut: new THREE.LineBasicMaterial({ color: '#ef476f' }),
       };
     }
     const G = this._diagG; G.visible = true;
@@ -2392,7 +2393,16 @@ export class Match3D {
     for (const pl of D.plans) {
       if (now - pl.t > 3) continue;
       const [x, z] = W3(pl.x, pl.y), s = 0.45;
-      G.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(x - s, 0.05, z - s), new THREE.Vector3(x + s, 0.05, z + s), new THREE.Vector3(x - s, 0.05, z + s), new THREE.Vector3(x + s, 0.05, z - s)]), M.plan));
+      // ✕ jaune : point de réception prévu ; ✕ rouge : point de coupe prévu par un défenseur.
+      G.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(x - s, 0.05, z - s), new THREE.Vector3(x + s, 0.05, z + s), new THREE.Vector3(x - s, 0.05, z + s), new THREE.Vector3(x + s, 0.05, z - s)]), pl.cut ? M.cut : M.plan));
+    }
+    // Dernière passe : trait blanc = direction voulue (cible), trait orange = frappe réelle
+    // (après l'erreur d'exécution au contact).
+    const ps = D.passes?.[D.passes.length - 1];
+    if (ps && now - ps.t < 3) {
+      const [fx, fz] = W3(ps.from.x, ps.from.y), [ax, az] = W3(ps.aim.x, ps.aim.y), [ex, ez] = W3(ps.exec.x, ps.exec.y);
+      G.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(fx, 0.06, fz), new THREE.Vector3(ax, 0.06, az)]), M.aim));
+      G.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(fx, 0.08, fz), new THREE.Vector3(ex, 0.08, ez)]), M.exec));
     }
     for (const c of D.contacts) {
       if (now - c.t > 3) continue;
