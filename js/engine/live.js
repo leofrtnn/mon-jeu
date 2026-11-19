@@ -22,7 +22,7 @@
 import { SKILL_MOVES, movesFor } from '../game/stars.js';
 import { refereeProfile } from '../game/referee.js';
 import { createBall, stepBall, solveKick, predict, R as BR, GOAL_HALF, PITCH_L as L, PITCH_W as W } from '../ui/ballPhysics.js';
-import { reachAt, sweptReach, ballPath, interceptPlan, timeToReach, touchQuality, firstTouch } from './contact.js';
+import { reachAt, contactPoint, sweptReach, ballPath, interceptPlan, timeToReach, touchQuality, firstTouch } from './contact.js';
 import { formationPos } from './positions.js';
 import { roleFx } from '../data/constants.js';
 import { setPlanOf, cornerRoutine, setPieceEdge, directFkChance } from './setPlays.js';
@@ -197,6 +197,10 @@ export class LiveSim {
     let best = null, bd = 4.5;
     for (const o of this.players.values()) { if (o.side === r.side) continue; const d = this.dist(o, rx, ry); if (d < bd) { bd = d; best = o; } }
     if (best) { const ax = rx - this.X(best), ay = ry - this.Y(best), al = Math.hypot(ax, ay) || 1; const k = (4.5 - bd) / 4.5 * 1.5; vx += (ax / al) * k; vy += (ay / al) * k; }
+    // Près d'une ligne, le contrôle est orienté vers l'intérieur du terrain (on ne se pousse pas dehors).
+    if (ry < 6) vy += (6 - ry) / 6 * 1.6; else if (ry > W - 6) vy -= (ry - (W - 6)) / 6 * 1.6;
+    const toLine = dir > 0 ? L - rx : rx;
+    if (toLine < 6) vx -= dir * (6 - toLine) / 6 * 1.2;
     return Math.atan2(vy, vx);
   }
 
@@ -798,28 +802,56 @@ export class LiveSim {
     const dBall = Math.hypot(f.x - P.x, f.y - P.y);
     const aheadB = (P.x - h.x * L) * Math.cos(h.face) + (P.y - h.y * W) * Math.sin(h.face);
     const inStride = (h.speed || 0) > 1.5 && dBall < 4.2 && aheadB > -0.3 && P.z < 0.8;   // ballon poussé devant lui
-    // Geste armé (passe, frappe) : il est joué même si, en pivotant, le pied s'est un peu écarté
-    // du ballon (sinon le geste expirait sans partir et le joueur restait planté).
-    if (h.prep && dBall < 1.9 && P.z < 0.8) {
-      h.tx = h.x; h.ty = h.y; h.faceBall = false;
-      if (this.now >= h.prep.at) { const pk = h.prep.pick; h.prep = null; h.next = this.now + 0.4; this.execute(h, pk, out); }
-      else if (this.now > h.prep.until) h.prep = null;
-      return;
+    // Geste armé (passe, frappe, centre, dégagement) — étape 4b-2 : le ballon ne part que s'il est
+    // RÉELLEMENT dans la zone d'atteinte du pied à l'instant du contact. Ballon à portée : appui
+    // planté, le geste se déroule. Ballon sorti de la zone : le joueur va au ballon, le geste est
+    // suspendu (l'animation repart de l'armé, pour que le contact de l'image coïncide avec le vrai
+    // contact). Trop tard : le geste est abandonné et il redécide.
+    if (h.prep) {
+      const rr = P.z < 0.6 ? reachAt(this.posM(h), P, { parts: ['foot'] }) : null;
+      // Dans tous les cas il accompagne le ballon pour l'avoir devant le pied, dans l'axe du geste
+      // (un joueur lancé frappe dans sa foulée, il ne se plante pas en laissant filer le ballon).
+      // Hors d'atteinte, il anticipe davantage la trajectoire (sinon il ne rattrape jamais un ballon qui roule).
+      const a = h.faceTo ?? h.face, lead = rr ? 0.15 : 0.45;
+      h.tx = clamp((P.x + P.vx * lead - Math.cos(a) * 0.32) / L, 0, 1); h.ty = clamp((P.y + P.vy * lead - Math.sin(a) * 0.32) / W, 0, 1);
+      // Il ne s'oriente vers la cible qu'une fois le ballon au pied ; avant, il regarde le ballon
+      // (pivoter tôt en courant le ferait passer à côté de son ballon).
+      h.faceBall = !rr;
+      if (rr) {
+        if (h.prep.held) { h.prep.held = false; h.kick = h.kickMax; h.prep.at = this.now + h.kickMax * 0.55 * GS; }
+        if (this.now >= h.prep.at) { const pk = h.prep.pick; h.prep = null; h.next = this.now + 0.4; this.execute(h, pk, out); }
+        return;
+      }
+      if (this.now > h.prep.until + 0.6) {
+        h.prep = null; h.kick = 0; h.next = Math.min(h.next, this.now + 0.15);
+        if (this.diag) this.diag.miss(this.now, { pid: h.mp.id, x: P.x, y: P.y, reason: 'geste abandonné (ballon hors de portée)' });
+      } else {
+        if (this.now >= h.prep.at - 0.05 || h.prep.held) { h.prep.held = true; h.kick = h.kickMax; h.prep.at = this.now + h.kickMax * 0.55 * GS; }
+        return;
+      }
     }
-    if ((dBall > 0.9 && !inStride) || P.z > 0.8) { h.tx = P.x / L; h.ty = P.y / W; h.faceBall = true; return; }
+    // Ballon hors de la zone d'atteinte du pied (même géométrie que le contact) : il va au ballon,
+    // en s'arrêtant de façon à l'avoir devant le pied (pas sur lui).
+    const inReach = P.z < 0.6 && reachAt(this.posM(h), P, { parts: ['foot'] });
+    if ((!inReach && !inStride) || P.z > 0.8) {
+      // Il vise là où le ballon sera quand il l'atteindra (anticipation selon la distance), pas là où il est.
+      const lead = clamp(Math.hypot(P.x - h.x * L, P.y - h.y * W) / 6, 0.2, 0.8);
+      const bx = P.x + P.vx * lead, by = P.y + P.vy * lead, ux = bx - h.x * L, uy = by - h.y * W, ul = Math.hypot(ux, uy) || 1;
+      const back = Math.min(0.3, ul);
+      h.tx = clamp((bx - (ux / ul) * back) / L, 0, 1); h.ty = clamp((by - (uy / ul) * back) / W, 0, 1); h.faceBall = true; return;
+    }
     h.faceBall = false;
     // Entre deux touches, il court vers le ballon qu'il vient de pousser (il ne le dépasse pas).
-    const chaseTouch = inStride && dBall > 0.7 && !h.prep;
-    if (h.prep) {
-      // Appui planté : il ne bouge plus, le ballon part au contact.
-      h.tx = h.x; h.ty = h.y;
-      if (this.now > h.prep.until) h.prep = null;
-      else if (this.now >= h.prep.at) { const pk = h.prep.pick; h.prep = null; h.next = this.now + 0.4; this.execute(h, pk, out); }
-      return;
-    }
+    const chaseTouch = inStride && dBall > 0.7;
+    // Point de course « derrière le ballon, sur sa ligne » : le ballon arrive devant son pied au lieu
+    // qu'il coure à côté de lui. `lead` : avance prise sur la trajectoire (garde l'élan).
+    const behindBall = (lead) => {
+      const bs = Math.hypot(P.vx, P.vy), ux = bs > 0.5 ? P.vx / bs : Math.cos(h.face), uy = bs > 0.5 ? P.vy / bs : Math.sin(h.face);
+      h.tx = clamp((P.x + P.vx * lead - ux * 0.3) / L, 0, 1); h.ty = clamp((P.y + P.vy * lead - uy * 0.3) / W, 0, 1);
+    };
+    const relBall = Math.hypot(P.vx - (h.vx || 0), P.vy - (h.vy || 0));
     if (chaseTouch) {
-      // Il vise un peu au-delà du ballon pour garder son élan (pas de freinage à chaque touche).
-      h.tx = clamp((P.x + P.vx * 0.7) / L, 0, 1); h.ty = clamp((P.y + P.vy * 0.7) / W, 0, 1);
+      behindBall(0.5);
       if (h.carry && (this.dist(h, h.carry.x, h.carry.y) < 1.5 || this.now > h.carry.until)) { h.carry = null; h.next = Math.min(h.next, this.now); }
     } else if (h.carry) {
       h.tx = h.carry.x / L; h.ty = h.carry.y / W;
@@ -828,12 +860,15 @@ export class LiveSim {
     } else {
       // Sans consigne : il protège le ballon s'il est pressé, sinon il avance tranquillement.
       const dir = this.dir(h.side);
-      if (this.pressure(h) < 3) { h.tx = h.x; h.ty = h.y; }
-      else { h.tx = clamp(h.x + (dir * 3) / L, 0.02, 0.98); h.ty = h.y; }
+      if (relBall > 0.8 && Math.hypot(P.vx, P.vy) > 0.8) behindBall(0.35);   // le ballon roule encore : il le suit
+      else if (this.pressure(h) < 3) { h.tx = h.x; h.ty = h.y; }
+      else { h.tx = clamp(h.x + (dir * 3) / L, 0.02, 0.98); h.ty = clamp(h.y, 3 / W, 1 - 3 / W); }   // il ne longe pas la ligne
     }
     h.shieldK = this.pressure(h) < 2.5 ? 1 : 0;
     // Il ne frappe / passe que le ballon à portée de pied (sinon il attend la prochaine touche).
-    if (this.now >= h.next && this.now >= (h.minNext || 0) && dBall < 1.5) this.decide(h, out);
+    // Décider (choix de la passe, de la frappe) est mental : possible quand le ballon est à un pas ;
+    // le CONTACT, lui, n'a lieu que ballon dans la zone d'atteinte (voir le geste armé ci-dessus).
+    if (this.now >= h.next && this.now >= (h.minNext || 0) && (inReach || dBall < 1.5)) this.decide(h, out);
   }
 
   /**
@@ -1058,7 +1093,6 @@ export class LiveSim {
       h.kickLoft = pick.k === 'cross' || pick.k === 'clear' || (pick.k === 'pass' && pick.lofted);
       // Le ballon part à l'instant exact où le pied le touche dans l'animation (55 % du geste).
       h.prep = { pick, at: this.now + h.kick * 0.55 * GS, until: this.now + h.kick * 0.55 * GS + 0.5 };
-      P.vx *= 0.3; P.vy *= 0.3;   // dernier contact pour placer le ballon avant la frappe
       h.next = h.prep.until;
       return;
     }
@@ -1286,8 +1320,7 @@ export class LiveSim {
   /** Frappe le ballon vers (tx, ty) : au sol, ou en l'air. Retourne la durée du trajet. */
   kickBall(h, tx, ty, lofted, z = null) {
     const P = this.P;
-    const f = this.foot(h);
-    if (Math.hypot(f.x - P.x, f.y - P.y) < 0.4 && P.z < 0.5) { P.x = f.x; P.y = f.y; }
+    // Plus aucun recalage : le ballon part de là où il est réellement (étape 4b-2).
     const len = Math.hypot(tx - P.x, ty - P.y);
     if (h.throwIn > 0) P.z = 2.0;                       // touche : le ballon part des mains, au-dessus de la tête
     else if (!(h.kick > 0)) { h.kick = 0.32; h.kickMax = 0.32; h.kickPow = lofted ? 0.85 : 0.5; h.kickSide = !lofted; h.kickLoft = lofted; h.kickFoot = this.footSign(h) > 0 ? 'R' : 'L'; }
@@ -1314,8 +1347,6 @@ export class LiveSim {
     const gx = this.goalX(A.side), dir = this.dir(A.side);
     const tx = clamp(this.X(r) + dir * 1, gx - dir * 14, gx - dir * 4), ty = clamp(this.Y(r), W / 2 - 9, W / 2 + 9);
     const vy = ty - P.y, swing = this.rand() < 0.65 ? 1 : -1;
-    const f = this.foot(h);
-    if (Math.hypot(f.x - P.x, f.y - P.y) < 0.4) { P.x = f.x; P.y = f.y; }
     if (!(h.kick > 0)) { h.kick = 0.32; h.kickMax = 0.32; h.kickPow = 0.85; h.kickLoft = true; h.kickFoot = this.footSign(h) > 0 ? 'R' : 'L'; } h.face = Math.atan2(ty - P.y, tx - P.x);
     this.lastTouch = h.side;
     const len = Math.hypot(tx - P.x, ty - P.y);
@@ -1492,8 +1523,6 @@ export class LiveSim {
     else tgt = r2 < 0.35 ? { x: gx + gdir * 4, y: cy + side * r3 * GOAL_HALF, z: 4 + r1 * 2.5 } : { x: gx + gdir * 3, y: cy + side * (GOAL_HALF + 1.3 + r1 * 4), z: 0.3 + r2 * 1.6 };
     if (o === 'wide') { spin *= 0.3; knuckle = 0; }   // pas d'effet qui la ramènerait vers le cadre
     if (tech === 'chip') speed = Math.max(11, Math.hypot(tgt.x - P.x, tgt.y - P.y) / 1.5);
-    const f = this.foot(h);
-    if (kind !== 'header' && Math.hypot(f.x - P.x, f.y - P.y) < 0.4 && P.z < 0.5) { P.x = f.x; P.y = f.y; }
     if (kind === 'header') h.jump = 0.45; else if (!(h.kick > 0)) { h.kick = 0.32; h.kickMax = 0.32; h.kickPow = tech === 'drive' ? 1 : 0.8; h.kickSide = tech === 'finesse'; h.kickLoft = false; h.kickFoot = this.footSign(h) > 0 ? 'R' : 'L'; }
     h.lastTech = tech;
     h.face = Math.atan2(tgt.y - P.y, tgt.x - P.x);
@@ -1944,60 +1973,69 @@ export class LiveSim {
       Object.assign(P, { vx: (nx - P.x) / Math.max(dt, 1e-4), vy: (ny - P.y) / Math.max(dt, 1e-4), vz: 0, x: nx, y: ny, z: nz });
       glued = true;
     } else if (h) {
-      // Conduite de balle réelle : à l'arrêt ou en marchant, le ballon reste sous la semelle ;
-      // en course, le joueur le pousse devant lui à chaque touche, puis le ballon roule
-      // librement (il peut être chipé) jusqu'à ce qu'il le rattrape.
+      // Conduite de balle PHYSIQUE (étape 4b-2) : le ballon roule librement ; le porteur ne le
+      // touche que s'il est réellement dans la zone d'atteinte de son pied (contact.js), par une
+      // impulsion. À l'arrêt ou en marchant : petites touches pour le garder sous le pied ; en
+      // course : il le pousse devant lui. Hors d'atteinte : rien — c'est lui qui va au ballon.
       const sp = h.speed || 0;
-      const f0 = this.foot(h, 0.45);
-      const dB = Math.hypot(f0.x - P.x, f0.y - P.y);
-      const bsp = Math.hypot(P.vx, P.vy);
-      if (P.z < 0.8 && dB < 1.0 && !h.prep && bsp > 3.5 && sp < 1.8) {
-        // Premier contrôle : un ballon qui arrive vite est amorti (il ralentit en deux temps), il ne
-        // se « colle » pas au pied d'un coup.
-        P.vx *= 0.4; P.vy *= 0.4; h.ctrl = Math.max(h.ctrl || 0, 0.2); h.ctrlH = P.z;
-      } else if (P.z < 0.8 && (dB < 1.0 || (h.prep && dB < 1.7)) && (sp < 1.8 || h.prep)) {
-        glued = true;
-        const k = Math.min(1, dt * (h.prep ? 10 : 7));
-        const nx = P.x + (f0.x - P.x) * k, ny = P.y + (f0.y - P.y) * k;
-        P.vx = (nx - P.x) / Math.max(dt, 1e-4); P.vy = (ny - P.y) / Math.max(dt, 1e-4);
-        P.x = nx; P.y = ny; P.z = BR; P.vz = 0; P.spin = 0; P.top = 0;
-        P.rot.a += (Math.hypot(P.vx, P.vy) / BR) * dt; P.rot.b = Math.atan2(P.vy, P.vx);
-        // En marchant balle au pied : petites touches de l'intérieur, au rythme des pas.
-        if (sp > 0.4 && !h.prep && this.now > (h.nextTouch || 0)) {
-          h.touch = 0.14; h.touchMax = 0.14; h.touchFoot = Math.sin(h.phase || 0) >= 0 ? 'L' : 'R'; h.touchIn = true;
-          h.nextTouch = this.now + 0.45 + this.rand() * 0.2;
-        }
-      } else if (P.z < 0.6 && sp >= 1.8) {
-        // Le ballon arrive à hauteur du pied (ou il est encore dessous) : nouvelle touche.
+      const hm = this.posM(h);
+      const rr = P.z < 0.6 ? reachAt(hm, P, { parts: ['foot'] }) : null;
+      h._reach = rr;
+      const dri = eff(h.mp, 'dri');
+      if (rr && this.now > (h.nextTouch || 0)) {
         const fx = Math.cos(h.face), fy = Math.sin(h.face);
-        const ahead = (P.x - h.x * L) * fx + (P.y - h.y * W) * fy;      // distance devant lui
-        const lat = Math.abs(-(P.x - h.x * L) * fy + (P.y - h.y * W) * fx);
-        const bv = P.vx * fx + P.vy * fy;                                 // vitesse du ballon dans sa course
-        if (ahead < 0.85 && ahead > -0.7 && lat < 1.0 && bv < sp + 0.6 && this.now > (h.nextTouch || 0)) {
-          const dri = eff(h.mp, 'dri');
-          const tight = h.carry?.takeon || this.pressure(h) < 4;            // collé au pied en un-contre-un
-          // Au trot, des touches courtes (le ballon reste à un pas) ; lancé, il le pousse plus loin.
-          const nearLine = Math.min(P.x, L - P.x, P.y, W - P.y) < 8;   // près d'une ligne : touches courtes
-          const push = (tight || nearLine ? 0.6 : 0.6 + sp * 0.2 + this.rand() * 0.6) + (1 - dri / 100) * (tight || nearLine ? 0.4 : 1.0);
-          const err = (this.rand() - 0.5) * 0.3 * (1.2 - dri / 100);
-          let tx = h.carry ? h.carry.x - h.x * L : fx, ty = h.carry ? h.carry.y - h.y * W : fy;
-          const n = Math.hypot(tx, ty) || 1; tx /= n; ty /= n;
-          const a = Math.atan2(ty, tx) + err, v = sp + push;
-          P.vx = Math.cos(a) * v; P.vy = Math.sin(a) * v; P.vz = 0;
-          // Le long de la ligne, le joueur garde le ballon dans le terrain (il ne le pousse pas dehors).
-          const ny = P.y + P.vy * 0.7, nx = P.x + P.vx * 0.7;
-          if (ny < 0.8 || ny > W - 0.8) P.vy = (P.y < W / 2 ? 1 : -1) * Math.abs(P.vy) * 0.3;
-          if (nx < 0.8 || nx > L - 0.8) P.vx = (P.x < L / 2 ? 1 : -1) * Math.abs(P.vx) * 0.3;
-          // Touche avec le pied qui est devant dans la foulée (souvent l'intérieur ou l'extérieur du pied fort).
-          h.touch = 0.16; h.touchMax = 0.16; h.touchFoot = Math.sin(h.phase || 0) >= 0 ? 'L' : 'R'; h.touchIn = this.rand() < 0.55;
-          h.nextTouch = this.now + 0.25;
-          this.lastTouch = h.side;
+        if (sp < 1.8 || h.prep) {
+          // Garder le ballon : on vise le point de contact du pied (0,32 m devant lui) en suivant
+          // le déplacement du joueur. Pas de touche si le ballon y est déjà, immobile par rapport à lui.
+          // Le point visé reste dans le terrain : on ne garde pas le ballon sur la ligne.
+          const cp0 = contactPoint(hm, 'foot'), cp = { x: clamp(cp0.x, 1, L - 1), y: clamp(cp0.y, 1, W - 1) };
+          const ex = cp.x - P.x, ey = cp.y - P.y;
+          const rvx = P.vx - hm.vx, rvy = P.vy - hm.vy;
+          if (Math.hypot(ex, ey) > 0.1 || Math.hypot(rvx, rvy) > 0.5) {
+            const q = touchQuality({ tech: dri, stretch: rr.stretch, rel: Math.hypot(rvx, rvy), part: 'foot', pressure: this.pressure(h) });
+            const k = 2.2, e = (1 - q) * 0.9;
+            let vx = hm.vx + ex * k + (this.rand() - 0.5) * e, vy = hm.vy + ey * k + (this.rand() - 0.5) * e;
+            const m = Math.hypot(vx, vy), cap = sp + 2.2; if (m > cap) { vx *= cap / m; vy *= cap / m; }
+            P.vx = vx; P.vy = vy; P.vz = 0; P.spin = 0; P.top = 0; P.knuckle = 0;
+            if (!h.prep) { h.touch = 0.14; h.touchMax = 0.14; h.touchFoot = Math.sin(h.phase || 0) >= 0 ? 'L' : 'R'; h.touchIn = true; }
+            h.nextTouch = this.now + (Math.hypot(rvx, rvy) > 1.2 ? 0.2 : sp > 0.4 ? 0.3 : 0.45) + this.rand() * 0.15;
+            this.lastTouch = h.side;
+            this.diagContact(h, 'conduite', { x: P.x, y: P.y, z: P.z, speed: Math.hypot(rvx, rvy), part: 'foot', dist: rr.dist, stretch: rr.stretch, q });
+          }
+        } else {
+          // En course : le ballon arrive à son pied (il ne le dépasse pas) → nouvelle poussée.
+          const bv = P.vx * fx + P.vy * fy;                                 // vitesse du ballon dans sa course
+          if (bv < sp + 0.6) {
+            const tight = h.carry?.takeon || this.pressure(h) < 4;            // collé au pied en un-contre-un
+            // Au trot, des touches courtes (le ballon reste à un pas) ; lancé, il le pousse plus loin.
+            const nearLine = Math.min(P.x, L - P.x, P.y, W - P.y) < 8;   // près d'une ligne : touches courtes
+            // Force de la touche déduite de l'écart voulu entre le pied et le ballon (le ballon ralentit
+            // d'environ 1,4 m/s² sur l'herbe : écart max ≈ push² / 2,8). Collé au pied en un-contre-un
+            // (~0,15 m au-delà du pied), ~0,3 m au trot, ballon poussé loin seulement lancé dans l'espace.
+            const want = tight || nearLine ? 0.15 : sp > 5 ? 0.4 + (sp - 5) * 0.9 : 0.3;
+            const push = Math.sqrt(2.8 * want) * (0.85 + this.rand() * 0.3) + (1 - dri / 100) * 0.5;
+            // Un toucher en extension (pied tendu) est moins précis.
+            const err = (this.rand() - 0.5) * 0.3 * (1.2 - dri / 100) * (1 + rr.stretch);
+            let tx = h.carry ? h.carry.x - h.x * L : fx, ty = h.carry ? h.carry.y - h.y * W : fy;
+            const n = Math.hypot(tx, ty) || 1; tx /= n; ty /= n;
+            const a = Math.atan2(ty, tx) + err, v = sp + push;
+            P.vx = Math.cos(a) * v; P.vy = Math.sin(a) * v; P.vz = 0;
+            // Le long de la ligne, le joueur garde le ballon dans le terrain (il ne le pousse pas dehors).
+            const ny = P.y + P.vy * 1.2, nx = P.x + P.vx * 1.2;
+            if (ny < 0.8 || ny > W - 0.8) P.vy = (P.y < W / 2 ? 1 : -1) * Math.abs(P.vy) * 0.3;
+            if (nx < 0.8 || nx > L - 0.8) P.vx = (P.x < L / 2 ? 1 : -1) * Math.abs(P.vx) * 0.3;
+            // Touche avec le pied qui est devant dans la foulée (souvent l'intérieur ou l'extérieur du pied fort).
+            h.touch = 0.16; h.touchMax = 0.16; h.touchFoot = Math.sin(h.phase || 0) >= 0 ? 'L' : 'R'; h.touchIn = this.rand() < 0.55;
+            h.nextTouch = this.now + 0.25;
+            this.lastTouch = h.side;
+            this.diagContact(h, 'conduite', { x: P.x, y: P.y, z: P.z, speed: Math.abs(bv - sp), part: 'foot', dist: rr.dist, stretch: rr.stretch, q: dri / 100 });
+          }
         }
       }
       // Touche trop longue : le ballon lui échappe, il redevient libre.
-      if (!glued && Math.hypot(h.x * L - P.x, h.y * W - P.y) > 4.5) { this.releaseBall(h); this.pending = null; }
-      // Entre deux touches, un adversaire bien placé peut chiper le ballon.
-      else if (!glued && P.z < 0.6) {
+      if (Math.hypot(h.x * L - P.x, h.y * W - P.y) > 4.5) { this.releaseBall(h); this.pending = null; }
+      // Entre deux touches, un adversaire bien placé peut chiper le ballon (proximité : étape 4e).
+      else if (P.z < 0.6) {
         for (const o of this.players.values()) {
           if (o.side === h.side || o.fall > 0 || (o.cd || 0) > 0.3) continue;
           const fo = this.foot(o, 0.5);
@@ -2403,7 +2441,7 @@ export class LiveSim {
       // Orientation : vers la cible de son geste (armé), vers le ballon qui arrive (réception,
       // il ouvre le corps au lieu de lui tourner le dos), sinon dans le sens de sa course.
       let target, rate = 7;
-      if (p.prep && p.faceTo != null) { target = p.faceTo; rate = 12; }
+      if (p.prep && p.faceTo != null && !p.faceBall) { target = p.faceTo; rate = 12; }
       else if (p.faceBall) { target = Math.atan2(P.y - p.y * W, P.x - p.x * L); rate = 10; }
       else {
         // Sans ballon, on recule face au jeu (petits pas, pas de demi-tour) quand le ballon est devant soi.
@@ -2476,6 +2514,9 @@ export class LiveSim {
         const A = p.team, counter = this.tacticalMood?.(A)?.counter;
         if (!counter) cap = free > 12 ? (p.waitN ? 1.5 : 3.2) : free > 7 ? 4.6 : Infinity;
       }
+      // Ballon hors de portée de son pied : le porteur accélère pour le rejoindre (sinon un ballon
+      // poussé un peu trop fort lui échapperait au trot).
+      if (p === this.holder && !this.inHands && !p._reach) cap = Math.max(cap, Math.hypot(this.P.vx, this.P.vy) + 1.5);
       step(p, Math.min(cap, (6.2 + vit * 0.03) * (TR(p, 'fusee') ? 1.03 : 1) * (this.m.wx?.speed || 1) * (en > 70 ? 1 - (100 - en) * 0.002 : 0.94 - (70 - en) * 0.006) * withBall * (p.celeb > 0 ? 0.8 : 1)));
       // Effort réel : ce qu'il court (les sprints coûtent bien plus que le trot).
       if (p.mp && !p.celeb) { const v = p.speed || 0; p.mp.work = (p.mp.work || 0) + v * dt * (0.6 + (v / 6.5) ** 2 * 1.6); }
