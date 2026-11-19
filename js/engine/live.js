@@ -46,6 +46,9 @@ const spec = (mp, i, base) => base + (det20(mp, i) ? (det20(mp, i) * 5 - 50) * 0
 export /** Le joueur (de la simulation) a-t-il ce trait ? (Magicien, Maestro… : voir game/traits.js) */
 const TR = (pl, k) => !!pl?.mp?.p?.traits?.includes(k);
 
+/** Parties du corps qui peuvent prendre un ballon libre (la tête : duels aériens, à part). */
+const LOOSE_PARTS = ['foot', 'thigh', 'chest'];
+
 const TUNE = {   // calibré en TEMPS RÉEL : ~2,7 buts, ~23 tirs, ~20 fautes, ~80 % de passes, ~4,5 passes par possession
   clock: 1,        // secondes de match par seconde de jeu simulé (1 = temps réel)
   shotW: 0.9,        // attrait de la frappe face aux autres options
@@ -183,11 +186,11 @@ export class LiveSim {
   }
 
   /** Le ballon a-t-il traversé une zone d'atteinte de `p` pendant le dernier pas ? (test balayé) */
-  sweepContact(p) {
+  sweepContact(p, parts = null) {
     const b0 = this._sw0, P = this.P;
     if (!b0 || p._sx == null || p.fall > 0.3 || p.slide > 0.2) return null;
     const pm = this.posM(p);
-    return sweptReach({ x: p._sx, y: p._sy, face: pm.face }, pm, b0, P, { phy: pm.phy ?? p.mp?.p?.attrs?.phy });
+    return sweptReach({ x: p._sx, y: p._sy, face: pm.face }, pm, b0, P, { phy: p.mp?.p?.attrs?.phy, ...(parts ? { parts } : {}) });
   }
 
   /** Direction du premier toucher : vers l'avant, en s'écartant de l'adversaire le plus proche. */
@@ -227,30 +230,63 @@ export class LiveSim {
     return { q, d: hit.reach.dist, part };
   }
 
-  /** Contacts du pas (après le mouvement) : réception de la passe en cours. */
+  /**
+   * Il laisse venir le ballon : tant que le ballon est encore à portée en fin de pas et qu'il se
+   * rapproche du point de contact idéal, le toucher attend le pas suivant (sinon on toucherait
+   * toujours jambe tendue, au bord de la zone). Renvoie le contact à jouer maintenant, ou null.
+   */
+  letItCome(p, hit, parts = null) {
+    if (!hit || hit.reach.stretch <= 0.05) return hit;
+    const P = this.P, rm = this.posM(p);
+    const now = reachAt(rm, P, { phy: p.mp?.p?.attrs?.phy, ...(parts ? { parts } : {}) });
+    if (!now) return hit;                       // le ballon ressort de la zone : c'est maintenant ou jamais
+    const c = Math.cos(rm.face), sn = Math.sin(rm.face);
+    const cx = rm.x + c * 0.32, cy = rm.y + sn * 0.32;
+    const d0 = Math.hypot(P.x - cx, P.y - cy), d1 = Math.hypot(P.x + (P.vx - rm.vx) * 0.02 - cx, P.y + (P.vy - rm.vy) * 0.02 - cy);
+    if (d1 < d0 - 0.002) return null;           // encore en approche : on attendra le pas suivant
+    return { t: 1, reach: now, ball: { x: P.x, y: P.y, z: P.z } };
+  }
+
+  /** Contacts du pas (après le mouvement) : réception de la passe en cours, ou ballon libre. */
   contactStep(dt, out) {
     const pd = this.pending;
     if (pd && pd.to && this.players.has(pd.to.mp.id) && !(pd.to.gk && pd.aerial)) {
       const r = pd.to;
-      let hit = this.sweepContact(r);
-      // Il laisse venir le ballon : tant qu'il est encore à portée (fin du pas) et qu'il se rapproche
-      // du point de contact idéal, le toucher attend (sinon on toucherait toujours jambe tendue).
-      if (hit && hit.reach.stretch > 0.05) {
-        const now = reachAt(this.posM(r), this.P, { phy: r.mp?.p?.attrs?.phy });
-        if (now) {
-          const rm = this.posM(r), c = Math.cos(rm.face), sn = Math.sin(rm.face), P = this.P;
-          const cx = rm.x + c * 0.32, cy = rm.y + sn * 0.32;
-          const d0 = Math.hypot(P.x - cx, P.y - cy), d1 = Math.hypot(P.x + (P.vx - rm.vx) * 0.02 - cx, P.y + (P.vy - rm.vy) * 0.02 - cy);
-          if (d1 < d0 - 0.002) hit = null;   // encore en approche : on attendra le pas suivant
-          else hit = { t: 1, reach: now, ball: { x: P.x, y: P.y, z: P.z } };
-        }
-      }
+      const hit = this.letItCome(r, this.sweepContact(r));
       if (hit) {
         if (hit.reach.part === 'head') { this.header(r, pd, out); return; }
         this.controlTouch(r, hit, r.side === pd.from.side ? 'réception' : 'interception', dt);
         this.receive(r, pd, out);
       }
+    } else if (!pd && !this.holder && !(this.shot && this.now < this.shot.at)) this.loosePickup(dt, out);
+  }
+
+  /**
+   * Ballon libre (étape 4b-3) : le premier joueur dont la zone d'atteinte (pied, cuisse, poitrine)
+   * est RÉELLEMENT traversée par le ballon pendant le pas le touche — plus de ballon « aimanté »
+   * au plus proche. Le premier toucher dépend de sa technique : raté, le ballon repart libre.
+   * (Le gardien dans sa surface garde sa règle propre jusqu'à l'étape 4d.)
+   */
+  loosePickup(dt, out) {
+    const P = this.P;
+    if (P.y < -0.08 || P.y > W + 0.08 || P.x < -0.08 || P.x > L + 0.08) return;
+    let best = null;
+    for (const p of this.players.values()) {
+      if (p === this._kickBy && this.now - this._kickT < 0.45) continue;   // pas de reprise immédiate de sa propre frappe
+      if (this.now - (p._ltT ?? -9) < 0.25) continue;                       // deux touches : au moins un pas d'écart
+      if (p.gk && this.inOwnBox(p)) continue;
+      const hit = this.letItCome(p, this.sweepContact(p, LOOSE_PARTS), LOOSE_PARTS);
+      if (!hit) continue;
+      if (!best || hit.t < best.hit.t - 1e-9 || (Math.abs(hit.t - best.hit.t) <= 1e-9 && hit.reach.stretch < best.hit.reach.stretch)) best = { p, hit };
     }
+    if (!best) return;
+    const { p, hit } = best;
+    // Ballon qui sort et que l'équipe laisse filer : il s'écarte et le regarde sortir.
+    if (this._letGo?.[p.side] && (P.y < 4 || P.y > W - 4 || P.x < 4 || P.x > L - 4)) return;
+    p._ltT = this.now;
+    this.controlTouch(p, hit, 'récupération', dt);
+    const rel = Math.hypot(P.vx - (p.vx || 0), P.vy - (p.vy || 0));
+    if (reachAt(this.posM(p), P, { phy: p.mp?.p?.attrs?.phy }) || rel < 3.5) this.gain(p, out, false, true);
   }
 
   foot(p, d = 0.55) { return { x: p.x * L + Math.cos(p.face) * d, y: p.y * W + Math.sin(p.face) * d }; }
@@ -1828,7 +1864,12 @@ export class LiveSim {
       const cur = ch[side] && this.players.has(ch[side].mp.id) ? ch[side] : null;
       if (cur && cur !== best && !(cur.fall > 0.3)) { const rc = tReach(cur); if (rc.t < br.t * 1.25 + 0.25) { best = cur; br = rc; } }
       ch[side] = best;
-      if (best) { best.tx = clamp(br.bx / L, 0, 1); best.ty = clamp(br.by / W, 0, 1); best.role = 'chase'; }
+      // Il attaque le ballon qui roule : il vise un peu au-delà (dans le sens où il roule), sinon il
+      // freinerait en arrivant sur sa position et resterait collé derrière lui sans jamais le toucher.
+      if (best) {
+        const lead = sp > 1 ? Math.min(2.5, sp * 0.35) / sp : 0;
+        best.tx = clamp((br.bx + P.vx * lead) / L, 0, 1); best.ty = clamp((br.by + P.vy * lead) / W, 0, 1); best.role = 'chase';
+      }
       // Les autres ne viennent pas s'agglutiner : leur place reste à 7 m du ballon au moins
       // (ils offrent une solution ou couvrent derrière le chasseur).
       for (const p of this.list(side)) {
@@ -1839,8 +1880,13 @@ export class LiveSim {
         p.tx = clamp((br.bx + ux * 7) / L, 0.01, 0.99); p.ty = clamp((br.by + uy * 7) / W, 0.02, 0.98);
       }
     }
+    this._letGo = [letGo(0), letGo(1)];
+    // Gardien dans sa surface : prise de balle à la main (règle de proximité conservée jusqu'à
+    // l'étape 4d). Les joueurs de champ, eux, ne récupèrent le ballon que par un contact réel
+    // (loosePickup, après le mouvement).
     let first = null, fd = 9;
     for (const p of this.players.values()) {
+      if (!(p.gk && this.inOwnBox(p))) continue;
       if (p === this._kickBy && this.now - this._kickT < 0.45) continue;
       const f = this.foot(p, 0.4);
       const d = Math.hypot(f.x - P.x, f.y - P.y);
@@ -1848,8 +1894,7 @@ export class LiveSim {
     }
     if (first && fd < 1.0 && P.z < 1.2) {
       if (letGo(first.side) && (P.y < 4 || P.y > W - 4 || P.x < 4 || P.x > L - 4)) return; // il s'écarte et le regarde sortir
-      if (first.gk && this.inOwnBox(first)) { this.gkCatch(first, out); return; }
-      this.gain(first, out);
+      this.gkCatch(first, out);
     }
   }
 
