@@ -22,7 +22,7 @@
 import { SKILL_MOVES, movesFor } from '../game/stars.js';
 import { refereeProfile } from '../game/referee.js';
 import { createBall, stepBall, solveKick, predict, R as BR, GOAL_HALF, PITCH_L as L, PITCH_W as W } from '../ui/ballPhysics.js';
-import { reachAt, contactPoint, sweptReach, ballPath, interceptPlan, timeToReach, touchQuality, firstTouch } from './contact.js';
+import { reachAt, contactPoint, sweptReach, ballPath, interceptPlan, timeToReach, touchQuality, firstTouch, passError, receivePlan, sweptBody } from './contact.js';
 import { formationPos } from './positions.js';
 import { roleFx } from '../data/constants.js';
 import { setPlanOf, cornerRoutine, setPieceEdge, directFkChance } from './setPlays.js';
@@ -213,12 +213,13 @@ export class LiveSim {
    * toucher (qualité = technique × conditions réelles), puis le ballon termine le pas librement.
    * Aucun déplacement artificiel : si le toucher est mauvais, le ballon s'échappe.
    */
-  controlTouch(r, hit, kind, dt) {
+  controlTouch(r, hit, kind, dt, qForce = null) {
     const P = this.P, rm = this.posM(r), part = hit.reach.part;
     const tech = eff(r.mp, 'dri') * 0.55 + eff(r.mp, 'pas') * 0.25 + eff(r.mp, 'sf') * 0.2;
     const rel = Math.hypot(P.vx - rm.vx, P.vy - rm.vy, P.vz);
     const pressure = this.pressure(r);
-    const q = touchQuality({ tech, stretch: hit.reach.stretch, rel, part, pressure });
+    // qForce : contact subi sans réaction (le ballon rebondit sur lui, il ne l'amortit pas).
+    const q = qForce ?? touchQuality({ tech, stretch: hit.reach.stretch, rel, part, pressure });
     const ft = firstTouch({ incoming: { vx: P.vx, vy: P.vy, vz: P.vz }, pl: rm, dir: this.touchDir(r), push: pressure < 3 ? 1.1 : 1.9, q, rnd: [this.rand(), this.rand()] });
     const B = hit.ball;
     Object.assign(P, { x: B.x, y: B.y, z: Math.max(BR, B.z), vx: ft.vx, vy: ft.vy, vz: ft.vz, spin: 0, top: 0, knuckle: 0 });
@@ -247,9 +248,23 @@ export class LiveSim {
     return { t: 1, reach: now, ball: { x: P.x, y: P.y, z: P.z } };
   }
 
+  /**
+   * Après un premier toucher : le ballon reste-t-il jouable pour lui ? On regarde où seront le
+   * ballon et son pied dans 0,35 s (mouvement relatif) : à moins de ~1 m, il l'a sous contrôle.
+   */
+  keepsBall(p, dtLook = 0.35) {
+    const P = this.P, pm = this.posM(p);
+    if (P.z > 1.6) return false;
+    const c = Math.cos(pm.face), s = Math.sin(pm.face);
+    const fx = pm.x + pm.vx * dtLook + c * 0.32, fy = pm.y + pm.vy * dtLook + s * 0.32;
+    const bx = P.x + P.vx * dtLook, by = P.y + P.vy * dtLook;
+    return Math.hypot(bx - fx, by - fy) < 1.0 + BR;
+  }
+
   /** Contacts du pas (après le mouvement) : réception de la passe en cours, ou ballon libre. */
   contactStep(dt, out) {
     const pd = this.pending;
+    if (pd && pd.kind === 'pass' && this.players.has(pd.to.mp.id)) { this.passContact(pd, dt, out); return; }
     if (pd && pd.to && this.players.has(pd.to.mp.id) && !(pd.to.gk && pd.aerial)) {
       const r = pd.to;
       const hit = this.letItCome(r, this.sweepContact(r));
@@ -259,6 +274,52 @@ export class LiveSim {
         this.receive(r, pd, out);
       }
     } else if (!pd && !this.holder && !(this.shot && this.now < this.shot.at)) this.loosePickup(dt, out);
+  }
+
+  /**
+   * Passe en cours (étape 4c) : le destinataire ET tout adversaire dont la zone d'atteinte est
+   * réellement traversée par le ballon pendant le pas peuvent le toucher ; le premier contact (dans
+   * le pas) l'emporte. Personne ne reçoit le ballon parce que la passe « devait » rater.
+   * Un adversaire qui n'a pas encore réagi (temps de réaction) ne contrôle pas : le ballon rebondit
+   * sur lui (déviation). Le gardien dans sa surface : prise à la main (règle propre, étape 4d).
+   */
+  passContact(pd, dt, out) {
+    let best = null;
+    const P = this.P, b0 = this._sw0;
+    for (const p of this.players.values()) {
+      if (p !== pd.to && p.side === pd.from.side) continue;                 // les partenaires laissent filer vers le destinataire
+      if (p === this._kickBy && this.now - this._kickT < 0.45) continue;
+      let hit;
+      if (p !== pd.to && this.now - pd.t0 < this.reactT(p, pd.fromX, pd.fromY)) {
+        // Pas encore réagi : seul le corps immobile peut arrêter le ballon (pas de jambe tendue).
+        if (!b0 || p._sx == null || p.fall > 0.3 || p.slide > 0.2) continue;
+        const bh = sweptBody({ x: p._sx, y: p._sy }, { x: this.X(p), y: this.Y(p) }, b0, P);
+        if (!bh) continue;
+        hit = { t: bh.t, ball: bh.ball, reach: { part: bh.ball.z > 1.5 ? 'head' : bh.ball.z > 0.95 ? 'chest' : bh.ball.z > 0.45 ? 'thigh' : 'foot', dist: 0, stretch: 0 }, body: true };
+      } else hit = this.letItCome(p, this.sweepContact(p));
+      if (!hit) continue;
+      if (!best || hit.t < best.hit.t - 1e-9 || (Math.abs(hit.t - best.hit.t) <= 1e-9 && hit.reach.stretch < best.hit.reach.stretch)) best = { p, hit };
+    }
+    if (!best) return;
+    const { p, hit } = best, rec = pd.rec;
+    if (p === pd.to) {
+      if (hit.reach.part === 'head') {
+        if (rec) rec.outcome = 'tête';
+        p.team.stats.passesOk++; pd.from.mp.passesOk++;   // la passe lui parvient (qu'il la joue de la tête)
+        this.header(p, pd, out); return;
+      }
+      const t = this.controlTouch(p, hit, 'réception', dt);
+      if (rec) rec.contact = { pid: p.mp.id, side: p.side, part: t.part, dist: t.d, q: t.q, at: this.now - pd.t0 };
+      this.receive(p, pd, out);
+      return;
+    }
+    if (p.gk && this.inOwnBox(p)) { if (rec) { rec.contact = { pid: p.mp.id, side: p.side, part: 'mains', at: this.now - pd.t0 }; rec.outcome = 'interceptée'; } this.gkCatch(p, out); return; }
+    const reacted = !hit.body;
+    if (hit.reach.part === 'head' && reacted) { if (rec) { rec.contact = { pid: p.mp.id, side: p.side, part: 'head', at: this.now - pd.t0 }; rec.outcome = 'tête adverse'; } this.header(p, pd, out); return; }
+    const t = this.controlTouch(p, hit, reacted ? 'interception' : 'déviation', dt, reacted ? null : 0.05);
+    if (!reacted) pd._deflect = true;
+    if (rec) rec.contact = { pid: p.mp.id, side: p.side, part: t.part, dist: t.d, q: t.q, at: this.now - pd.t0, reacted };
+    this.receive(p, pd, out);
   }
 
   /**
@@ -285,8 +346,7 @@ export class LiveSim {
     if (this._letGo?.[p.side] && (P.y < 4 || P.y > W - 4 || P.x < 4 || P.x > L - 4)) return;
     p._ltT = this.now;
     this.controlTouch(p, hit, 'récupération', dt);
-    const rel = Math.hypot(P.vx - (p.vx || 0), P.vy - (p.vy || 0));
-    if (reachAt(this.posM(p), P, { phy: p.mp?.p?.attrs?.phy }) || rel < 3.5) this.gain(p, out, false, true);
+    if (this.keepsBall(p)) this.gain(p, out, false, true);
   }
 
   foot(p, d = 0.55) { return { x: p.x * L + Math.cos(p.face) * d, y: p.y * W + Math.sin(p.face) * d }; }
@@ -1125,7 +1185,7 @@ export class LiveSim {
       h.faceTo = Math.atan2(tgt.y - hy, tgt.x - hx);   // il s'oriente pendant l'armé (le ballon tourne avec lui)
       if (pick.k === 'shot') h.shotTech = this.shotTech(h);
       h.kick = big ? 0.32 : 0.24; h.kickMax = h.kick; h.kickPow = pick.k === 'shot' ? (h.shotTech === 'drive' ? 1 : 0.8) : big ? 0.85 : 0.5; h.kickSide = (pick.k === 'pass' && !big) || h.shotTech === 'finesse' || h.shotTech === 'curl';
-      h.kickFoot = this.footSign(h) > 0 ? 'R' : 'L';   // frappe et passe du pied fort
+      h.kickFoot = pick.k === 'shot' ? (this.footSign(h) > 0 ? 'R' : 'L') : this.chooseFoot(h);   // passe : du pied qui est du côté du ballon (tir : pied fort)
       h.kickLoft = pick.k === 'cross' || pick.k === 'clear' || (pick.k === 'pass' && pick.lofted);
       // Le ballon part à l'instant exact où le pied le touche dans l'animation (55 % du geste).
       h.prep = { pick, at: this.now + h.kick * 0.55 * GS, until: this.now + h.kick * 0.55 * GS + 0.5 };
@@ -1230,6 +1290,9 @@ export class LiveSim {
       const tb = (s * len) / vb + 0.15;
       const to = Math.max(0, d - 0.9) / 7.2 + 0.28;
       let c = sig((tb - to) * 3.2 - 0.6) * (0.55 + eff(o.mp, 'def') / 220) * TUNE.passRisk * (this.m.wx?.passRisk || 1) * (lofted ? (this.m.wx?.air || 1) : 1);
+      // Jugement du passeur : une passe qui frôle la jambe d'un adversaire tout proche finit
+      // dans ses pieds (elle « passe à travers » sa zone d'atteinte dès les premiers mètres).
+      if (s * len < (lofted ? 1.5 : 3) && d < 1.1) c = Math.max(c, 0.75);   // (une passe levée, à peine décollée, se contre aussi)
       if (o.gk) c *= Math.abs(ox - this.goalX(1 - A.side)) < 16 ? 0.8 : 0.2;
       // Traits : passeur (Maestro, Métronome, Centreur, Relanceur) et défenseur (Aspirateur, Tour, Joueur de tête).
       if (TR(h, 'maestro') || TR(h, 'metronome')) c *= lofted ? 0.9 : 0.78;
@@ -1311,28 +1374,93 @@ export class LiveSim {
       this.setRestart('freekick', 1 - A.side, this.X(o.r), this.Y(o.r));
       return;
     }
-    const ok = this.rand() < o.p;
-    let tx = o.tx, ty = o.ty, to = o.r;
-    // Passe ratée : soit coupée par un adversaire, soit mal dosée / mal ajustée (le ballon
-    // file dans le vide, parfois en touche), comme dans un vrai match.
-    // (une passe qui échoue alors qu'un adversaire coupait la trajectoire est surtout interceptée)
-    if (!ok && (!o.worst || this.rand() < (o.lofted ? 0.45 : 0.28))) {
-      const ang = Math.atan2(ty - P.y, tx - P.x) + (this.rand() - 0.5) * (o.lofted ? 1.0 : 0.8);
-      const len = Math.hypot(tx - P.x, ty - P.y) * (0.7 + this.rand() * 0.8);
-      const T = this.kickBall(h, P.x + Math.cos(ang) * len, P.y + Math.sin(ang) * len, o.lofted);
-      this.pending = null;
-      o.r.tx = (P.x + Math.cos(ang) * len * 0.8) / L; o.r.ty = clamp(P.y + Math.sin(ang) * len * 0.8, 0, W) / W;
-      void T;
-      return;
+    // Étape 4c : aucune issue n'est tirée d'avance. L'erreur d'exécution est calculée à l'instant
+    // du contact pied-ballon et dévie la frappe ; la trajectoire physique décide ensuite qui
+    // atteint le ballon (destinataire, défenseur qui coupe, ou personne).
+    const aim = { x: o.tx, y: o.ty };
+    const ex = this.passExec(h, aim, o.lofted, o.through);
+    const T = this.kickBall(h, ex.x, ex.y, o.lofted);
+    const to = o.r;
+    const pd = this.pending = { kind: 'pass', to, from: h, fromX: P.x, fromY: P.y, t0: this.now, T, through: o.through, lofted: o.lofted, aim, err: ex };
+    if (this.diag) {
+      pd.rec = { pid: h.mp.id, side: A.side, to: to.mp.id, aim, exec: { x: ex.x, y: ex.y }, from: { x: P.x, y: P.y }, dAng: ex.dAng * 57.3, dLen: ex.dLen, sAng: ex.sAng * 57.3, k: ex.k, weak: ex.weak, lofted: !!o.lofted, through: !!o.through, len: ex.len, pas: eff(h.mp, 'pas'), pressure: ex.pressure, speed: ex.speed, turn: ex.turn, awk: ex.awk, interceptors: [], outcome: null };
+      this.diag.pass(this.now, pd.rec);
     }
-    if (!ok && o.worst) { to = o.worst.o; tx = o.worst.x; ty = o.worst.y; }
-    const T = this.kickBall(h, tx, ty, o.lofted);
-    this.pending = { to, ok, from: h, t0: this.now, T, through: o.through };
-    if (this.diag) { const plan = interceptPlan(this.posM(to), ballPath(this.P, predict, { horizon: 3 }), { phy: to.mp?.p?.attrs?.phy }); if (plan) this.diag.plan(this.now, { pid: to.mp.id, side: to.side, x: plan.x, y: plan.y, z: plan.z, part: plan.part, eta: plan.t, margin: plan.margin }); }
-    to.tx = tx / L; to.ty = ty / W;
-    if (ok) m.lastPasser = h.mp;
-    if (ok && !o.lofted) this.planGiveGo(h, to, tx, ty);
-    if (o.lofted || o.through) emit(m, out, { type: o.lofted ? 'longpass' : 'pass', side: A.side, pid: h.mp.id, pid2: o.r.mp.id, x: tx / L, y: ty / W, zone: m.zone });
+    to.tx = clamp(aim.x / L, 0, 1); to.ty = clamp(aim.y / W, 0, 1);
+    m.lastPasser = h.mp;
+    if (!o.lofted) this.planGiveGo(h, to, aim.x, aim.y);
+    if (o.lofted || o.through) emit(m, out, { type: o.lofted ? 'longpass' : 'pass', side: A.side, pid: h.mp.id, pid2: o.r.mp.id, x: aim.x / L, y: aim.y / W, zone: m.zone });
+  }
+
+  /**
+   * Frappe réelle d'une passe (étape 4c) : à partir de la cible voulue, l'erreur technique du geste
+   * (contact.js · passError) selon la technique, le pied utilisé, l'équilibre, la vitesse, la
+   * pression, la distance et la difficulté. Renvoie le point réellement visé par la frappe.
+   */
+  passExec(h, aim, lofted, through) {
+    const P = this.P, hm = this.posM(h);
+    const dx = aim.x - P.x, dy = aim.y - P.y, len = Math.hypot(dx, dy) || 1, a = Math.atan2(dy, dx);
+    const sp = h.speed || 0, run = Math.atan2(h.vy || 0, h.vx || 0);
+    const turn = sp > 0.5 ? Math.abs(Math.atan2(Math.sin(a - run), Math.cos(a - run))) : 0;
+    const strong = this.footSign(h) > 0 ? 'R' : 'L';
+    const weak = !h.throwIn && !!h.kickFoot && h.kickFoot !== strong;
+    const rr = reachAt(hm, P, { parts: ['foot'] });
+    const pl = h.mp.p || {}, awk = !!h._awk; h._awk = false;
+    const e = passError({
+      pas: eff(h.mp, 'pas'), vis: eff(h.mp, 'vis'), sf: eff(h.mp, 'sf'), wf: pl.wf ?? 3, weak, cons: pl.cons ?? 10,
+      len, lofted, through, pressure: this.pressure(h), speed: sp, turn,
+      stretch: Math.min(1, (rr ? rr.stretch : 1) + (awk ? 0.35 : 0)), ballRel: Math.hypot(P.vx - hm.vx, P.vy - hm.vy),
+      rnd: [this.rand(), this.rand(), this.rand(), this.rand()],
+    });
+    const a2 = a + e.dAng, l2 = len * Math.max(0.4, 1 + e.dLen);
+    return { x: P.x + Math.cos(a2) * l2, y: P.y + Math.sin(a2) * l2, len, ...e, weak, awk, pressure: this.pressure(h), speed: sp, turn };
+  }
+
+  /**
+   * Pied utilisé pour un geste, choisi à l'armé selon le côté où se trouve le ballon : du côté
+   * de son pied faible, il le joue du pied faible s'il en est capable (≥ 3 étoiles), sinon il le
+   * joue maladroitement du bon pied (h._awk).
+   */
+  chooseFoot(h) {
+    const P = this.P, c = Math.cos(h.face || 0), s = Math.sin(h.face || 0);
+    const w = -(P.x - this.X(h)) * s + (P.y - this.Y(h)) * c;   // > 0 : ballon à sa gauche
+    const strong = this.footSign(h) > 0 ? 'R' : 'L', weakSide = strong === 'R' ? w > 0.12 : w < -0.12;
+    h._awk = false;
+    if (!weakSide) return strong;
+    if ((h.mp.p?.wf ?? 3) >= 3) return strong === 'R' ? 'L' : 'R';
+    h._awk = true; return strong;
+  }
+
+  /**
+   * Interceptions (étape 4c) : chaque adversaire qui a eu le temps de RÉAGIR au départ de la passe
+   * calcule, avec ses propres capacités (vitesse, accélération, demi-tour, saut), le premier point
+   * de la trajectoire prédite qu'il peut atteindre à temps. Les deux qui y arrivent le plus tôt —
+   * et pas nettement après le destinataire — s'y lancent. Rien n'est décidé ici : c'est le contact
+   * réel (passContact) qui tranche, et un défenseur peut arriver trop tard ou rater le ballon.
+   */
+  planInterceptors(pd, path, rPlan) {
+    const tr = rPlan && !rPlan.late ? rPlan.t : 99, el = this.now - pd.t0;
+    const cand = [];
+    for (const o of this.players.values()) {
+      if (o.side === pd.from.side || o.fall > 0.3 || o.slide > 0.2) continue;
+      if (o.gk && !this.inOwnBox(o)) continue;
+      const rt = this.reactT(o, pd.fromX, pd.fromY);
+      if (el < rt) continue;                                   // il n'a pas encore « lu » la passe
+      const ip = interceptPlan(this.posM(o), path, { ...this.reachOpts(o), react: 0.05, slack: 0.3 });
+      if (ip && ip.t < tr + 0.2) cand.push({ p: o, x: ip.x, y: ip.y, t: ip.t, margin: ip.margin, part: ip.part });
+    }
+    cand.sort((a, b) => a.t - b.t || a.p.mp.id - b.p.mp.id);
+    pd.cuts = cand.slice(0, 2);
+    if (pd.rec) for (const c of pd.cuts) if (!pd.rec.interceptors.some((x) => x.pid === c.p.mp.id)) pd.rec.interceptors.push({ pid: c.p.mp.id, eta: +(el + c.t).toFixed(2), margin: +c.margin.toFixed(2), x: c.x, y: c.y });
+    if (this.diag) for (const c of pd.cuts) this.diag.plan(this.now, { pid: c.p.mp.id, side: c.p.side, x: c.x, y: c.y, z: 0, part: c.part, eta: c.t, margin: c.margin, cut: true });
+  }
+
+  /** Temps de réaction d'un joueur au départ d'une passe adverse (lecture du jeu, orientation). */
+  reactT(p, fromX, fromY) {
+    let t = 0.38 - eff(p.mp, 'def') / 500 - eff(p.mp, 'vis') / 1000;
+    const toB = Math.atan2(fromY - this.Y(p), fromX - this.X(p));
+    if (Math.cos(toB - (p.face || 0)) < -0.2) t += 0.15;   // passe jouée dans son dos : il doit d'abord la voir
+    return Math.max(0.12, t);
   }
 
   /**
@@ -1792,9 +1920,12 @@ export class LiveSim {
       // après le mouvement (contactStep) : s'il arrive trop tard ou se place mal, il manque le ballon.
       if (!(r.gk && pd.aerial) && (!pd.planT || this.now >= pd.planT)) {
         pd.planT = this.now + 0.15;
-        const rm = this.posM(r), opt = this.reachOpts(r);
+        // Il a vu partir la passe (elle est pour lui) : le temps de réaction ne compte qu'au départ.
+        const rm = this.posM(r), opt = { ...this.reachOpts(r), react: Math.max(0, 0.18 - (this.now - pd.t0)), slack: 0.3 };
         const path = ballPath(P, predict, { horizon: 3, step: 0.05 });
-        let plan = interceptPlan(rm, path, opt);
+        // Comme un vrai receveur, il vise un point où il arrive avec un peu d'avance pour s'installer
+        // (sinon il arrive lancé au dernier instant et le ballon lui passe sous le pied).
+        let plan = receivePlan(rm, path, { ...opt, minMargin: 0.3 }) || interceptPlan(rm, path, opt);
         if (!plan) {
           // Hors de portée : il va au point de la trajectoire où son retard est le plus faible.
           let best = null;
@@ -1804,7 +1935,12 @@ export class LiveSim {
         pd.plan = plan;
         if (plan) { r.tx = clamp(plan.x / L, 0, 1); r.ty = clamp(plan.y / W, 0, 1); }
         if (this.diag && plan) this.diag.plan(this.now, { pid: r.mp.id, side: r.side, x: plan.x, y: plan.y, z: plan.z, part: plan.part, eta: plan.t, margin: plan.margin });
+        if (pd.kind === 'pass') this.planInterceptors(pd, path, plan);
       }
+      // Les défenseurs lancés vers la trajectoire gardent leur course (le replacement collectif,
+      // recalculé toutes les 0,3 s, ne les rappelle pas tant que la passe est en l'air).
+      if (pd.kind === 'pass' && pd.cuts) for (const c of pd.cuts) { if (!this.players.has(c.p.mp.id)) continue; c.p.tx = clamp(c.x / L, 0, 1); c.p.ty = clamp(c.y / W, 0, 1); c.p.role = 'chase'; }
+      if (pd.plan) { r.tx = clamp(pd.plan.x / L, 0, 1); r.ty = clamp(pd.plan.y / W, 0, 1); }
       for (const q of this.players.values()) q.faceBall = q === r && this.dist(r, P.x, P.y) < 9;
       // Sortie aérienne du gardien : il s'élance, bras tendus au-dessus de la tête, et capte haut.
       // (gardien : inchangé à ce stade — refonte physique à l'étape 4d)
@@ -1815,8 +1951,10 @@ export class LiveSim {
         if (d < 1.9 && P.z < 1.3) { this.receive(r, pd, out); return; }
       }
       // Raté : le ballon a filé (trajectoire dépassée) — il devient libre.
-      if (this.now > pd.t0 + pd.T + 1.2 || (pd.plan?.late && pd.plan.t < 0.1 && this.now > pd.t0 + 0.5)) {
+      const inReachNow = !!reachAt(this.posM(r), P, { phy: r.mp?.p?.attrs?.phy });   // le ballon arrive dans son pied : rien n'est perdu
+      if (!inReachNow && (this.now > pd.t0 + pd.T + 1.2 || (pd.plan?.late && pd.plan.t < 0.1 && this.now > pd.t0 + 0.5))) {
         if (this.diag) this.diag.miss(this.now, { pid: r.mp.id, side: r.side, x: P.x, y: P.y, reason: pd.plan?.late ? 'trop tard / hors de portée' : 'ballon manqué' });
+        if (pd.rec && !pd.rec.outcome) pd.rec.outcome = pd.plan?.late ? 'hors de portée du destinataire' : 'manquée par le destinataire';
         this.pending = null;
       }
       return;
@@ -1904,26 +2042,29 @@ export class LiveSim {
   }
 
   receive(r, pd, out) {
-    this.diagContact(r, 'réception');
-    const m = this.m;
-    if (pd.ok && r.side === pd.from.side) {
+    if (pd.kind !== 'pass') this.diagContact(r, 'réception');
+    const m = this.m, P = this.P;
+    // Le premier toucher a déjà eu lieu physiquement (controlTouch) : ici, seulement la possession.
+    // Passe RÉUSSIE = le destinataire touche le ballon (même s'il le contrôle mal ensuite).
+    if (r.side === pd.from.side && (pd.kind !== 'pass' || r === pd.to) && (pd.ok ?? true)) {
       r.team.stats.passesOk++; pd.from.mp.passesOk++;
       addRating(pd.from.mp, 0.012);
-    } else if (r.side !== pd.from.side) {
-      addRating(r.mp, 0.05);
-      if (!r.gk) emit(m, out, { type: 'interception', side: r.side, pid: r.mp.id, pid2: pd.from.mp.id, x: this.P.x / L, y: this.P.y / W, zone: m.zone });
     }
-    const P = this.P;
-    // Le premier toucher a déjà eu lieu physiquement (controlTouch) : ici, seulement la possession.
-    // Un toucher raté (ballon qui s'échappe au-delà de la zone d'atteinte) ne donne pas le ballon.
     r.faceBall = false;
     this.pending = null;
     if (r.gk && this.inOwnBox(r) && pd.aerial) { this.gkCatch(r, out); return; }
-    const rel = Math.hypot(P.vx - (r.vx || 0), P.vy - (r.vy || 0));
-    if (r.gk || reachAt(this.posM(r), P, { phy: r.mp?.p?.attrs?.phy }) || rel < 3.5) this.gain(r, out, false, true);
+    // Possession : il garde le ballon s'il pourra encore le jouer un instant plus tard (le toucher
+    // ne l'a pas fait filer hors de sa portée). Un ballon qui a rebondi sur lui sans qu'il ait réagi
+    // n'est pas contrôlé : il redevient libre.
+    const gained = r.gk || (!pd._deflect && this.keepsBall(r));
+    if (pd.rec) pd.rec.outcome = r.side === pd.from.side ? (gained ? 'reçue' : 'contrôle raté') : (gained ? 'interceptée' : 'déviée');
+    if (r.side !== pd.from.side && gained) {
+      addRating(r.mp, 0.05);
+      if (!r.gk) emit(m, out, { type: 'interception', side: r.side, pid: r.mp.id, pid2: pd.from.mp.id, x: P.x / L, y: P.y / W, zone: m.zone });
+    }
+    if (gained) this.gain(r, out, false, true);
   }
 
-  /** Tête : frappe dans la surface adverse, sinon remise / dégagement. */
   header(r, pd, out) {
     const m = this.m, P = this.P;
     r.jump = 0.45;

@@ -108,12 +108,14 @@ export function sweptReach(p0, p1, b0, b1, opts = {}) {
  * Temps pour qu'un joueur atteigne un point (m), avec un modèle cinématique simple et
  * déterministe : temps de réaction, accélération jusqu'à sa vitesse de pointe, demi-tour coûteux.
  */
-export function timeToReach(pl, x, y, { vmax = 8, acc = 5, react = 0.18 } = {}) {
-  const dx = x - pl.x, dy = y - pl.y, d = Math.hypot(dx, dy);
+export function timeToReach(pl, x, y, { vmax = 8, acc = 5, react = 0.18, slack = 0 } = {}) {
+  // slack : portée propre autour du point — pour présenter le pied, il suffit d'arriver à cette
+  // distance (un ballon qui passe à 20 cm du pied ne demande aucun déplacement).
+  const dx = x - pl.x, dy = y - pl.y, d0 = Math.hypot(dx, dy), d = Math.max(0, d0 - slack);
   if (d < 0.05) return 0;
   const v0 = ((pl.vx || 0) * dx + (pl.vy || 0) * dy) / d;          // vitesse déjà orientée vers le point
   const turn = Math.abs(Math.atan2(Math.sin(Math.atan2(dy, dx) - (pl.face || 0)), Math.cos(Math.atan2(dy, dx) - (pl.face || 0))));
-  const tTurn = turn > 1.6 ? 0.25 : turn > 0.8 ? 0.1 : 0;          // se retourner prend du temps
+  const tTurn = d < 1 ? 0 : turn > 1.6 ? 0.25 : turn > 0.8 ? 0.1 : 0;   // se retourner prend du temps (pas pour un pas de côté)
   const v = Math.max(0, Math.min(vmax, v0));
   const tAcc = (vmax - v) / acc, dAcc = v * tAcc + 0.5 * acc * tAcc * tAcc;
   const tRun = d <= dAcc ? (-v + Math.sqrt(v * v + 2 * acc * d)) / acc : tAcc + (d - dAcc) / vmax;
@@ -141,6 +143,30 @@ export function interceptPlan(pl, path, opts = {}) {
     if (margin >= (opts.minMargin ?? 0)) return { t: s.t, x, y, z: s.z, part, margin };
   }
   return null;
+}
+
+/**
+ * Point de RÉCEPTION choisi par le destinataire d'une passe : parmi les points de la trajectoire
+ * où il arrive avec au moins `minMargin` s d'avance, celui qui lui coûte le moins (course à faire
+ * + attente, 1 s d'attente ≈ `waitCost` m de course). Il ne court donc pas devant un ballon qui
+ * arrive dans son dos : il s'arrête et le laisse venir. Renvoie null si aucun point ne convient.
+ */
+export function receivePlan(pl, path, opts = {}) {
+  const minMargin = opts.minMargin ?? 0.3, waitCost = opts.waitCost ?? 3;
+  let best = null, bc = Infinity;
+  for (const s of path) {
+    const parts = partsForHeight(s.z, opts);
+    if (!parts.length) continue;
+    const part = parts.includes('foot') ? 'foot' : parts[0];
+    const P = PARTS[part];
+    const sp = Math.hypot(s.vx, s.vy) || 1;
+    const x = s.x - (s.vx / sp) * P.ahead, y = s.y - (s.vy / sp) * P.ahead;
+    const margin = s.t - timeToReach(pl, x, y, opts);
+    if (margin < minMargin) continue;
+    const cost = Math.hypot(x - pl.x, y - pl.y) + waitCost * s.t;
+    if (cost < bc) { bc = cost; best = { t: s.t, x, y, z: s.z, part, margin }; }
+  }
+  return best;
 }
 
 /** Échantillonne la trajectoire d'un ballon (fonction de prédiction fournie, ex. ballPhysics.predict). */
@@ -192,4 +218,64 @@ export function firstTouch({ incoming, pl, dir, push, q, rnd }) {
   const vy = (pl.vy || 0) + Math.sin(a) * v + incoming.vy * (1 - cushion);
   const vz = Math.max(0, (incoming.vz || 0) * (1 - cushion) * -0.4);
   return { vx, vy, vz, cushion, err };
+}
+
+/** Variable normale centrée réduite à partir de deux tirages uniformes (Box-Muller), bornée à ±3. */
+export function gauss(u1, u2) {
+  const n = Math.sqrt(-2 * Math.log(Math.max(1e-9, u1))) * Math.cos(2 * Math.PI * u2);
+  return Math.max(-3, Math.min(3, n));
+}
+
+/**
+ * Erreur d'EXÉCUTION d'une passe, calculée à l'instant du contact pied-ballon (étape 4c).
+ * Elle ne choisit aucun résultat : elle dévie la direction (rad) et le dosage (relatif) de la
+ * frappe ; c'est ensuite la trajectoire physique qui dit qui atteint le ballon.
+ *
+ * Entrées : technique (pas, vis, sf 0-100), pied faible (wf 1-5, weak = joué du mauvais pied),
+ * régularité (cons 1-20), distance visée (m), passe aérienne / dans la course, pression (distance
+ * de l'adversaire le plus proche, m), vitesse du passeur (m/s), écart entre sa course et la
+ * direction de la passe (rad), extension au contact (0-1), vitesse relative du ballon au contact.
+ * Écarts-types de base : ~1,1° pour un très bon passeur, ~2,5° pour un passeur moyen, ~4° pour
+ * un mauvais, avant les conditions (pression, déséquilibre, mauvais pied…).
+ */
+export function passError({ pas = 60, vis = 60, sf = 60, wf = 3, weak = false, cons = 10, len = 15, lofted = false, through = false,
+  pressure = 99, speed = 0, turn = 0, stretch = 0, ballRel = 0, rnd = [0.5, 0.5, 0.5, 0.5] } = {}) {
+  const skill = Math.max(0, Math.min(1, (pas * 0.75 + vis * 0.1 + sf * 0.15) / 100));
+  let k = 1;
+  // Pression : un adversaire au contact précipite le geste (le sang-froid atténue).
+  const pr = pressure < 1.5 ? 1.8 : pressure < 3 ? 1.35 : pressure < 5 ? 1.1 : 1;
+  k *= Math.pow(pr, 1 - sf / 200);
+  // Équilibre : passe en pleine course, et surtout passe à contre-sens de sa course.
+  if (speed > 4) k *= 1 + (speed - 4) * 0.1;
+  if (speed > 1.5) k *= 1 + (Math.min(Math.PI, Math.abs(turn)) / Math.PI) * 0.9 * Math.min(1, speed / 5);
+  // Pied faible (1 à 5 étoiles).
+  if (weak) k *= 1 + (5 - wf) * 0.17;
+  // Contact en extension, ballon qui arrive vite (passe en une touche).
+  k *= 1 + stretch * 0.8;
+  if (ballRel > 3) k *= 1 + Math.min(12, ballRel - 3) * 0.05;
+  // Régularité du joueur, difficulté du geste.
+  k *= 1 + (10 - cons) * 0.015;
+  if (lofted) k *= 1.45;
+  if (through) k *= 1.12;
+  const sAng = (0.014 + (1 - skill) * 0.055) * k;
+  const sLen = (0.035 + (1 - skill) * 0.07) * k * (lofted ? 1.4 : 1) * (len > 30 ? 1.15 : 1);
+  return { dAng: sAng * gauss(rnd[0], rnd[1]), dLen: sLen * gauss(rnd[2], rnd[3]), sAng, sLen, k };
+}
+
+/**
+ * Choc avec le CORPS immobile (sans réaction) : le ballon a-t-il traversé le volume du joueur
+ * (jambes, tronc : cylindre de rayon BODY.radius, hauteur BODY.height) pendant le pas ?
+ * Utilisé pour un joueur qui n'a pas encore réagi : il ne tend pas la jambe, le ballon ne le
+ * touche que s'il lui arrive dessus. Renvoie { t, ball } ou null.
+ */
+export function sweptBody(p0, p1, b0, b1) {
+  const d = Math.hypot(b1.x - b0.x, b1.y - b0.y) + Math.hypot(p1.x - p0.x, p1.y - p0.y);
+  const n = Math.max(1, Math.min(24, Math.ceil(d / 0.06)));
+  for (let i = 1; i <= n; i++) {
+    const t = i / n;
+    const bx = b0.x + (b1.x - b0.x) * t, by = b0.y + (b1.y - b0.y) * t, bz = (b0.z ?? BALL_R) + ((b1.z ?? BALL_R) - (b0.z ?? BALL_R)) * t;
+    const px = p0.x + (p1.x - p0.x) * t, py = p0.y + (p1.y - p0.y) * t;
+    if (bz - BALL_R < BODY.height && Math.hypot(bx - px, by - py) < BODY.radius * 0.8 + BALL_R) return { t, ball: { x: bx, y: by, z: bz } };
+  }
+  return null;
 }
