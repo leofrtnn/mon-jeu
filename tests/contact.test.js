@@ -156,3 +156,31 @@ test('tir : la frappe d\'un bon tireur est plus précise ; une tête l\'est moin
   assert.ok(s({ tb: 1.3 }) < s({}), 'spécialité');
   assert.ok(DIVE.T > DIVE.tPush);
 });
+
+import { TACKLE, tackleFoot, sweptTackleBall, legHits, shields, tackleQuality, bodyScore } from '../js/engine/contact.js';
+
+test('tacle : le pied suit le geste ; le ballon n\'est touché que s\'il passe réellement sous le pied', () => {
+  const k = { kind: 'stand', t0: 0, x0: 50, y0: 34, ux: 1, uy: 0 };
+  const f0 = tackleFoot(k, 0.2), f1 = tackleFoot(k, 0.25);
+  assert.ok(f1.active && f1.x > 51);
+  assert.ok(sweptTackleBall(f0, f1, { x: f1.x, y: 34, z: 0.11 }, { x: f1.x, y: 34, z: 0.11 }, TACKLE.stand.footR), 'ballon sous le pied');
+  assert.equal(sweptTackleBall(f0, f1, { x: f1.x, y: 34.6, z: 0.11 }, { x: f1.x, y: 34.6, z: 0.11 }, TACKLE.stand.footR), null, 'ballon 60 cm à côté : raté');
+  assert.equal(sweptTackleBall(f0, f1, { x: f1.x, y: 34, z: 1.2 }, { x: f1.x, y: 34, z: 1.2 }, TACKLE.stand.footR), null, 'ballon en l\'air : pas de tacle');
+  assert.ok(!tackleFoot(k, 0.5).active && tackleFoot(k, 0.6).done, 'après la fenêtre : engagé, puis fini');
+});
+
+test('tacle : la jambe peut toucher le joueur sans toucher le ballon ; le corps du porteur protège le ballon', () => {
+  const f = tackleFoot({ kind: 'slide', t0: 0, x0: 50, y0: 34, ux: 1, uy: 0 }, 0.4);
+  assert.ok(legHits(f, f.bx + 0.5, 34.1), 'jambe dans les jambes');
+  assert.ok(!legHits(f, f.bx + 0.5, 35.2));
+  assert.ok(shields(48, 34, 52, 34, 50, 34.1), 'porteur entre le défenseur et le ballon');
+  assert.ok(!shields(48, 34, 52, 34, 50, 35));
+});
+
+test('tacle et duel : qualités, timing, équilibre comptent ; la puissance ne garantit rien', () => {
+  const q = (o) => tackleQuality({ def: 70, phy: 65, ...o });
+  assert.ok(q({ def: 88 }) > q({}) && q({ timing: 0.2 }) < q({}) && q({ balance: 0.3 }) < q({}) && q({ slide: true }) < q({}));
+  const strong = { phy: 90, height: 192, weight: 88 }, light = { phy: 55, height: 170, weight: 65 };
+  assert.ok(bodyScore(strong) > bodyScore(light));
+  assert.ok(bodyScore({ ...light, push: 6, facing: 1, ahead: 1, rnd: 1.5 }) > bodyScore({ ...strong, facing: -1, rnd: -1 }), 'élan, placement, orientation et aléa peuvent renverser le duel');
+});

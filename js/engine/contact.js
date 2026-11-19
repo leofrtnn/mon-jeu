@@ -392,3 +392,67 @@ export function sweptLimb(body, hand, b0, b1, r = 0.22) {
   }
   return null;
 }
+
+/* ------------------------------------------------------------------------------------------
+ * TACLES ET DUELS AU SOL (étape 4e)
+ * ---------------------------------------------------------------------------------------- */
+
+/**
+ * Tacle : le défenseur s'engage dans une direction (ux, uy). Debout : il se fend (~0,55 m) et tend
+ * la jambe (pied jusqu'à ~0,75 m devant le corps). Glissé : il glisse au sol (~2,4 m), le pied
+ * devant. Le pied n'est « actif » (il peut toucher le ballon ou le joueur) que pendant la fenêtre
+ * [t0, t1] du geste ; après, il est engagé et se relève (glissé : au sol).
+ */
+export const TACKLE = {
+  stand: { dur: 0.55, t0: 0.1, t1: 0.36, lunge: 0.55, foot: 0.75, footR: 0.16 },
+  slide: { dur: 0.9, t0: 0.12, t1: 0.6, lunge: 2.4, foot: 0.85, footR: 0.2 },
+};
+/** Position du corps et du pied du défenseur à l'instant `now` d'un tacle `k` = { kind, t0, x0, y0, ux, uy, L }. */
+export function tackleFoot(k, now) {
+  const G = TACKLE[k.kind], t = now - k.t0;
+  const u = Math.max(0, Math.min(1, t / G.t1)), f = u * u * (3 - 2 * u);
+  const lunge = (k.L ?? G.lunge) * f;
+  const bx = k.x0 + k.ux * lunge, by = k.y0 + k.uy * lunge;
+  const reach = 0.3 + (G.foot - 0.3) * Math.min(1, u * 1.6);
+  return { bx, by, x: bx + k.ux * reach, y: by + k.uy * reach, z: 0.12, active: t >= G.t0 && t <= G.t1 + 0.04, done: t > G.dur, t };
+}
+/** Le ballon passe-t-il sous le pied du tacle pendant le pas ? (pied f0 → f1, ballon b0 → b1, ballon au sol) */
+export function sweptTackleBall(f0, f1, b0, b1, footR) {
+  if (Math.min(b0.z ?? BALL_R, b1.z ?? BALL_R) > 0.5) return null;
+  return sweptPoint({ ...f0, z: BALL_R }, { ...f1, z: BALL_R }, { ...b0, z: BALL_R }, { ...b1, z: BALL_R }, footR);
+}
+/** La jambe du tacle (corps → pied) touche-t-elle les jambes d'un joueur (cercle de rayon r autour de lui) ? */
+export function legHits(f, px, py, r = 0.28) {
+  const vx = f.x - f.bx, vy = f.y - f.by, l2 = vx * vx + vy * vy || 1;
+  const u = Math.max(0, Math.min(1, ((px - f.bx) * vx + (py - f.by) * vy) / l2));
+  return Math.hypot(px - (f.bx + vx * u), py - (f.by + vy * u)) < r;
+}
+/** Le corps d'un joueur (cercle) s'interpose-t-il entre A et B ? (protection du ballon) */
+export function shields(ax, ay, bx, by, px, py, r = 0.34) {
+  const vx = bx - ax, vy = by - ay, l2 = vx * vx + vy * vy || 1;
+  const u = ((px - ax) * vx + (py - ay) * vy) / l2;
+  if (u <= 0.05 || u >= 0.95) return false;
+  return Math.hypot(px - (ax + vx * u), py - (ay + vy * u)) < r;
+}
+/**
+ * Qualité d'un tacle au contact : technique défensive, puissance, timing (erreur de lecture),
+ * extension, équilibre (vitesse et direction de course par rapport au geste), glissé plus brutal
+ * mais moins précis.
+ */
+export function tackleQuality({ def = 60, phy = 60, timing = 0, stretch = 0, balance = 1, slide = false } = {}) {
+  let q = 0.25 + 0.6 * (def - 30) / 65 + (phy - 60) / 400;
+  q -= Math.min(1, Math.abs(timing) / 0.25) * 0.25;
+  q -= stretch * 0.25;
+  q -= (1 - Math.max(0, Math.min(1, balance))) * 0.25;
+  if (slide) q -= 0.08;
+  return Math.max(0, Math.min(1, q));
+}
+/**
+ * Duel de corps (épaule contre épaule) : force, taille, poids, élan (vitesse vers l'autre),
+ * orientation (de face il résiste mieux que pris de côté ou de dos), placement (déjà devant).
+ * Renvoie un score ; l'aléa est fourni par l'appelant — la puissance ne garantit pas la victoire.
+ */
+export function bodyScore({ phy = 60, height = 180, weight = 75, push = 0, facing = 1, ahead = 0, rnd = 0 } = {}) {
+  return phy / 100 * 0.55 + (height - 180) / 100 * 0.25 + (weight - 75) / 100 * 0.35 + Math.max(0, push) * 0.06
+    + Math.max(-1, Math.min(1, facing)) * 0.12 + ahead * 0.15 + rnd * 0.28;
+}

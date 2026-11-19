@@ -22,7 +22,7 @@
 import { SKILL_MOVES, movesFor } from '../game/stars.js';
 import { refereeProfile } from '../game/referee.js';
 import { createBall, stepBall, solveKick, predict, cloneBall, R as BR, GOAL_HALF, BAR, PITCH_L as L, PITCH_W as W } from '../ui/ballPhysics.js';
-import { reachAt, contactPoint, sweptReach, ballPath, interceptPlan, timeToReach, touchQuality, firstTouch, passError, receivePlan, sweptBody, gauss, DIVE, diveRange, diveFrac, diveTimeFor, diveHands, sweptPoint, sweptLimb, gkHandle, shotError } from './contact.js';
+import { reachAt, contactPoint, sweptReach, ballPath, interceptPlan, timeToReach, touchQuality, firstTouch, passError, receivePlan, sweptBody, gauss, DIVE, diveRange, diveFrac, diveTimeFor, diveHands, sweptPoint, sweptLimb, gkHandle, shotError, TACKLE, tackleFoot, sweptTackleBall, legHits, shields, tackleQuality, bodyScore } from './contact.js';
 import { formationPos } from './positions.js';
 import { roleFx } from '../data/constants.js';
 import { setPlanOf, cornerRoutine, setPieceEdge, directFkChance } from './setPlays.js';
@@ -493,6 +493,7 @@ export class LiveSim {
     for (const p of this.players.values()) { p._sx = p.x * L; p._sy = p.y * W; }
     this.move(dt);
     this.ballStep(dt, out);
+    if (!this.restart && !this.celebrate) this.contestStep(dt, out);   // tacles, ballons chipés (étape 4e)
     if (!this.restart && !this.holder && !this.celebrate) this.contactStep(dt, out);
     // Statistiques continues : possession, carte de chaleur, état du moteur.
     if (this.poss >= 0) m.teams[this.poss].stats.poss += dt;
@@ -992,6 +993,18 @@ export class LiveSim {
       h.tx = clamp((P.x + P.vx * lead - ux * 0.3) / L, 0, 1); h.ty = clamp((P.y + P.vy * lead - uy * 0.3) / W, 0, 1);
     };
     const relBall = Math.hypot(P.vx - (h.vx || 0), P.vy - (h.vy || 0));
+    // Dribble : le défenseur est-il éliminé (il est passé derrière le porteur, qui a toujours le ballon) ?
+    const to = h.carry?.takeon;
+    if (to && !to.done && this.players.has(to.def.mp.id)) {
+      const dir = this.dir(h.side), beaten = (this.X(h) - this.X(to.def)) * dir > 0.8 && this.dist(to.def, this.X(h), this.Y(h)) < 6;
+      if (beaten) {
+        to.done = true; const m = this.m;
+        h.team.stats.dribbles = (h.team.stats.dribbles || 0) + 1; addRating(h.mp, 0.06);
+        if (to.move && SKILL_MOVES[to.move]?.stars >= 3) emit(m, out, { type: 'skill', side: h.side, pid: h.mp.id, pid2: to.def.mp.id, move: to.move, x: P.x / L, y: P.y / W, zone: m.zone });
+        emit(m, out, { type: 'dribble', side: h.side, pid: h.mp.id, pid2: to.def.mp.id, x: P.x / L, y: P.y / W, zone: m.zone });
+        if (this.diag) this.diag.duel(this.now, { pid: h.mp.id, side: h.side, kind: 'dribble', vs: to.def.mp.id, feint: +to.feint.toFixed(2), result: 'défenseur éliminé' });
+      }
+    }
     if (chaseTouch) {
       behindBall(0.5);
       if (h.carry && (this.dist(h, h.carry.x, h.carry.y) < 1.5 || this.now > h.carry.until)) { h.carry = null; h.next = Math.min(h.next, this.now); }
@@ -1006,7 +1019,12 @@ export class LiveSim {
       else if (this.pressure(h) < 3) { h.tx = h.x; h.ty = h.y; }
       else { h.tx = clamp(h.x + (dir * 3) / L, 0.02, 0.98); h.ty = clamp(h.y, 3 / W, 1 - 3 / W); }   // il ne longe pas la ligne
     }
-    h.shieldK = this.pressure(h) < 2.5 ? 1 : 0;
+    h.shieldK = this.pressure(h) < 2.5 && (h.speed || 0) < 2 ? 1 : 0;
+    if (h.shieldK) {
+      let near = null, nd = 9;
+      for (const o of this.players.values()) if (o.side !== h.side) { const d = this.dist(o, this.X(h), this.Y(h)); if (d < nd) { nd = d; near = o; } }
+      h.shieldFace = near ? Math.atan2(this.Y(h) - this.Y(near), this.X(h) - this.X(near)) : null;
+    } else h.shieldFace = null;
     // Il ne frappe / passe que le ballon à portée de pied (sinon il attend la prochaine touche).
     // Décider (choix de la passe, de la frappe) est mental : possible quand le ballon est à un pas ;
     // le CONTACT, lui, n'a lieu que ballon dans la zone d'atteinte (voir le geste armé ci-dessus).
@@ -1018,35 +1036,37 @@ export class LiveSim {
    * ne doit jamais durer. Au-delà de 3 s, le duel se dénoue : le défenseur l'emporte (tacle),
    * ou le porteur se dégage d'une passe en retrait / d'un dégagement — selon leurs qualités.
    */
+  /**
+   * Ballon coincé (étape 4e) : plus aucune attribution artificielle. Au bout de 3 s sans que le
+   * ballon bouge, la sécurité RELANCE les vraies interactions : le porteur doit jouer tout de
+   * suite, les adversaires au contact s'engagent, les joueurs proches d'un ballon libre y vont.
+   * Si rien ne se débloque en 10 s (anomalie technique), l'arbitre arrête le jeu et redonne le
+   * ballon par une balle à terre à l'équipe qui l'a touché en dernier (Loi 8) — jamais au plus proche.
+   */
   duelWatch(dt, out) {
     const h = this.holder, P = this.P;
     const slow = Math.hypot(P.vx, P.vy) < 1.5 && (!h || (h.speed || 0) < 1.5);
     const opp = h && !this.inHands ? [...this.players.values()].find((o) => o.side !== h.side && Math.hypot(o.x * L - P.x, o.y * W - P.y) < 2.6) : null;
     const loose = !h && !this.pending && [...this.players.values()].filter((o) => Math.hypot(o.x * L - P.x, o.y * W - P.y) < 2.6).length >= 2;
-    if (slow && (opp || loose) && !this.shot) this._stall = (this._stall || 0) + dt; else this._stall = 0;
+    if (slow && (opp || loose) && !this.shot) this._stall = (this._stall || 0) + dt; else { this._stall = 0; this._stallMark = false; }
     if (this._stall < 3) return;
-    this._stall = 0;
-    if (loose) {
-      const c = [...this.players.values()].sort((a, b) => Math.hypot(a.x * L - P.x, a.y * W - P.y) - Math.hypot(b.x * L - P.x, b.y * W - P.y))[0];
-      if (c) this.gain(c, out);
-      return;
+    if (!this._stallMark) {
+      this._stallMark = true;
+      this.stallN = (this.stallN || 0) + 1;
+      if (this.diag) this.diag.duel(this.now, { kind: 'ballon coincé', pid: h?.mp.id ?? null, result: 'relance des interactions' });
     }
-    h.prep = null; h.carry = null; h.waitN = 0;
-    // Face au gardien : il se couche sur le ballon (ou le dégage) — l'attaquant a trop attendu.
-    if (opp.gk) { if (typeof this.gkCatch === 'function' && Math.abs(P.x - this.goalX(h.side)) < 16.5) this.gkCatch(opp, out); else this.gain(opp, out, true); return; }
-    const att = eff(h.mp, 'dri') * 0.6 + eff(h.mp, 'pas') * 0.4, def = eff(opp.mp, 'def') * 0.75 + eff(opp.mp, 'phy') * 0.25;
-    if (this.rand() < sig((def - att) / 14)) {
-      opp.slide = this.rand() < 0.3 ? 0.8 : 0.5; opp.face = Math.atan2((h.y - opp.y) * W, (h.x - opp.x) * L);
-      opp.team.stats.tackles++; opp.mp.tackles++;
-      emit(this.m, out, { type: 'tackle', side: opp.side, pid: opp.mp.id, pid2: h.mp.id, x: P.x / L, y: P.y / W, zone: this.m.zone });
-      h.cd = 2.6; h.bump = 0.6; h.bumpDir = Math.atan2((h.y - opp.y) * W, (h.x - opp.x) * L);   // le perdant est déséquilibré
-      this.gain(opp, out, true);
-      return;
+    if (h) { h.next = Math.min(h.next, this.now); h.minNext = 0; h.waitN = 9; h.prep = h.prep || null; }
+    for (const o of this.players.values()) {
+      if (Math.hypot(o.x * L - P.x, o.y * W - P.y) > 6) continue;
+      if (!h || o.side !== h.side) o._stallPush = this.now + 1;
+      if (!h && !o.gk) { o.tx = clamp(P.x / L, 0, 1); o.ty = clamp(P.y / W, 0, 1); }
     }
-    // Le porteur se dégage : passe vers le partenaire le plus libre (souvent en retrait), sinon dégagement.
-    const mates = this.list(h.side).filter((q) => q !== h).map((q) => ({ q, o: this.passOption(h, q) })).filter((x) => x.o).sort((a, b) => (b.o.p || 0) - (a.o.p || 0));
-    if (mates.length) { const o = mates[0].o; o.offside = false; h.kick = 0.24; h.kickMax = 0.24; h.kickFoot = this.footSign(h) > 0 ? 'R' : 'L'; this.doPass(h, o, out); }
-    else this.doClear(h, out);
+    if (this._stall >= 10) {
+      this._stall = 0; this._stallMark = false; this.stallDrop = (this.stallDrop || 0) + 1;
+      if (this.diag) this.diag.duel(this.now, { kind: 'ballon coincé', result: 'balle à terre (sécurité)' });
+      this.setRestart('freekick', this.lastTouch >= 0 ? this.lastTouch : 0, P.x, P.y, out);
+      if (this.restart) this.restart.drop = true;
+    }
   }
 
   /** Décision de la VAR : but validé (engagement) ou refusé (score corrigé, coup franc / six mètres). */
@@ -1253,8 +1273,19 @@ export class LiveSim {
     else if (pick.k === 'pass') this.doPass(h, pick, out);
     else if (pick.k === 'carry') { h.carry = { x: pick.x, y: pick.y, t0: this.now, until: this.now + (pick.escape ? 0.9 : 1.2 + this.rand() * 1.4), escape: !!pick.escape }; h.next = h.carry.until; h.minNext = this.now + 0.5; }
     else if (pick.k === 'takeon') {
-      // Le crochet est joué : réussi, le défenseur se jette dans le vide ; raté, il gagne le duel.
-      h.carry = { x: pick.x, y: pick.y, t0: this.now, until: this.now + 2.2, takeon: { def: pick.opp, win: this.rand() < pick.pWin, move: pick.move } };
+      // Étape 4e : le crochet n'a plus d'issue tirée d'avance. La FEINTE (corps, geste) prend le
+      // défenseur à contre-pied un instant — d'autant plus que le dribbleur est bon et le geste
+      // difficile, d'autant moins que le défenseur lit bien le jeu. Ensuite c'est une course au
+      // ballon : le défenseur peut encore l'atteindre (tacle), ou il est éliminé.
+      const def = pick.opp, stars = SKILL_MOVES[pick.move]?.stars || 1;
+      const feint = clamp(0.08 + (eff(h.mp, 'dri') - eff(def.mp, 'def')) / 220 + stars * 0.04 + (TR(h, 'magicien') ? 0.06 : 0) - eff(def.mp, 'vis') / 1000 + gauss(this.rand(), this.rand()) * 0.07, 0, 0.45);
+      def._feint = this.now + feint;
+      // Pris à contre-pied : son premier appui part du mauvais côté.
+      const side = Math.sign((pick.y - this.Y(h)) * Math.cos(h.face) - (pick.x - this.X(h)) * Math.sin(h.face)) || 1;
+      def.tx = clamp(def.x + (-Math.sin(h.face) * -side * 1.2) / L, 0, 1); def.ty = clamp(def.y + (Math.cos(h.face) * -side * 1.2) / W, 0, 1);
+      h.carry = { x: pick.x, y: pick.y, t0: this.now, until: this.now + 2.2, takeon: { def, move: pick.move, feint } };
+      if (pick.move === 'petitpont') def._nutmeg = this.now + 0.6;   // le ballon passe entre ses jambes (écartées)
+      if (pick.move === 'sombrero' && this.P.z < 0.3) { this.P.vz = 5.2; }
       h.next = h.carry.until;
       // Le geste se joue à l'approche du défenseur (animation) ; le jongle lève déjà le ballon.
       h.skill = pick.move; h.skillT = SKILL_DUR[pick.move] || 0.5; h.skillMax = h.skillT;
@@ -1850,95 +1881,185 @@ export class LiveSim {
 
   /* ---------------- Défense : duels ---------------- */
 
+  /**
+   * DÉFENSE SUR LE PORTEUR (étape 4e) — plus aucun tirage « à proximité ». Le défenseur au contact
+   * lit le duel (5 fois par seconde) : où sera le ballon dans un instant, le porteur le protège-t-il
+   * de son corps, le ballon est-il exposé (touche trop longue) ? S'il s'engage, son tacle (debout
+   * ou glissé) suit une vraie trajectoire de corps et de pied ; seul le CONTACT réel décide : pied
+   * sur le ballon (gagné, poussé, disputé), jambe sur le joueur (faute ou non), ou rien (raté).
+   */
   updateDefense(dt, out) {
     const h = this.holder;
     if (!h || this.inHands) return;
-    const m = this.m, D = m.teams[1 - h.side];
-    // Un seul duel à la fois sur le porteur (pas de rafale de tacles).
-    this.duelCd = (this.duelCd || 0) - dt;
-    if (this.duelCd > 0) return;
+    const m = this.m, D = m.teams[1 - h.side], P = this.P;
+    const press = LVL[D.tactics.pressing] || 0, tk = TK[D.tactics.tackling] || 0;
+    if ([...this.players.values()].some((o) => o._tk && o.side === D.side)) return;   // un engagement à la fois
+    const hm = this.posM(h), hfx = hm.x + Math.cos(hm.face) * 0.32, hfy = hm.y + Math.sin(hm.face) * 0.32;
+    const ownBox = Math.abs(P.x - this.goalX(h.side)) < 16.5 && Math.abs(P.y - W / 2) < 20.15;
     for (const o of this.list(D.side)) {
       if (o.gk && Math.abs(this.X(o) - this.goalX(h.side)) > 16) continue;
-      o.cd -= dt;
-      if (o.cd > 0 || o.fall > 0 || o.slide > 0) continue; // au sol ou en plein geste : pas de nouveau duel
-      const d = Math.hypot((o.x - h.x) * L, (o.y - h.y) * W);
-      if (d > ((h.speed || 0) < 1.2 ? 2.0 : 1.4)) continue;   // porteur arrêté : on peut aller le chercher d'un pas
-      if (o.role !== 'press' && o !== h.carry?.takeon?.def && d > 0.9) continue; // seul le presseur va au duel
-      const press = LVL[D.tactics.pressing] || 0;
-      // Par derrière : on tente rarement (et c'est plus souvent faute).
-      const hs = Math.hypot(h.vx || 0, h.vy || 0);
-      const behind = hs > 1.5 && (((o.x - h.x) * L * (h.vx || 0) + (o.y - h.y) * W * (h.vy || 0)) / hs) < -0.6;
-      if (behind && (h.speed || 0) > 1.2 && this.rand() < 0.7) { o.cd = 0.6; continue; }
-      this.duelCd = 0.9 + this.rand() * 0.5;
-      o.tk = this.rand() < 0.35 ? 'slide' : 'stand';
-      const to = h.carry?.takeon;
-      if (to && to.def === o) {
-        o.cd = 1.2;
-        if (to.win) {
-          // Geste réussi : le défenseur est éliminé (il se jette dans le vide, ou reste planté).
-          const P = this.P, mv = to.move;
-          const ang = Math.atan2(h.carry.y - P.y, h.carry.x - P.x);
-          if (mv === 'petitpont') { P.vx = Math.cos(ang) * 6.5; P.vy = Math.sin(ang) * 6.5; P.vz = 0; o.cd = 2.2; }        // entre les jambes
-          else if (mv === 'sombrero') { P.vx = Math.cos(ang) * 3.6; P.vy = Math.sin(ang) * 3.6; P.vz = 6.4; P.top = 0; P.spin = 0; o.jump = 0.45; o.cd = 2.2; } // par-dessus la tête
-          else if (mv === 'talon') { P.vx = Math.cos(ang) * 5; P.vy = Math.sin(ang) * 5; }
-          else o.slide = o.tk === 'slide' || this.rand() < 0.5 ? 0.9 : 0;
-          if (!o.slide) o.bump = 0.5; // planté sur place, déséquilibré
-          o.cd = Math.max(o.cd, 1.8); h.carry.takeon = null;
-          if (mv && SKILL_MOVES[mv]?.stars >= 3) emit(m, out, { type: 'skill', side: h.side, pid: h.mp.id, pid2: o.mp.id, move: mv, x: P.x / L, y: P.y / W, zone: m.zone });
-          h.team.stats.dribbles = (h.team.stats.dribbles || 0) + 1; addRating(h.mp, 0.06);
-          if (this.rand() < 0.5) emit(m, out, { type: 'dribble', side: h.side, pid: h.mp.id, pid2: o.mp.id, x: this.P.x / L, y: this.P.y / W, zone: m.zone });
-          continue;
-        }
-        // Raté : le défenseur lit l'action et récupère le ballon (ou commet une faute).
-        // Dans sa surface, le défenseur se retient aussi ici (sinon : un penalty par dribble raté).
-        const inOwnBox = Math.abs(this.P.x - this.goalX(h.side)) < 16.5 && Math.abs(this.P.y - W / 2) < 20.15;
-        if (this.rand() < TUNE.foulP * 0.5 * (m.profile.fouls || 1) * (inOwnBox ? 0.15 : 1)) { this.foul(h, o, out); return; }
-        o.slide = o.tk === 'slide' ? 0.8 : 0.55; h.fall = o.tk === 'slide' ? 1.4 : this.rand() < 0.3 ? 0.7 : 0; h.cd = 2.4;
-        D.stats.tackles++; o.mp.tackles++; addRating(o.mp, 0.06);
-        emit(m, out, { type: 'tackle', side: D.side, pid: o.mp.id, pid2: h.mp.id, x: this.P.x / L, y: this.P.y / W, zone: m.zone });
-        this.gain(o, out, true);
-        return;
-      }
-      o.cd = 0.55 + this.rand() * 0.5 - press * 0.1;
-      // Porteur arrêté (il protège le ballon) : le défenseur au contact va le chercher.
-      const still = (h.speed || 0) < 1.2 ? 1.8 : 1;
-      if (this.rand() > Math.min(0.95, (0.5 + press * 0.12) * TUNE.tackleRate * still)) continue;
-      // Tentative de tacle : faute, ballon récupéré, ou dribble réussi du porteur.
-      const tk = TK[D.tactics.tackling] || 0;
-      // Dans sa propre surface, un défenseur se retient (sinon c'est penalty).
-      const ownBox = Math.abs(this.P.x - this.goalX(h.side)) < 16.5 && Math.abs(this.P.y - W / 2) < 20.15;
-      const foulP = TUNE.foulP * this.ref.whistle * (m.profile.fouls || 1) * (1 + tk * 0.35) * (TR(o, 'rugueux') ? 1.35 : 1) * (TR(o, 'sangchaud') ? 1.2 : 1) * ((h.speed || 0) > 5 ? 1.3 : 1) * (ownBox ? 0.3 : 1) * (behind ? 2.2 : 1) * (h.prep ? 0.35 : 1) * ((h.speed || 0) < 1.2 ? 0.6 : 1);
-      o.face = Math.atan2((h.y - o.y) * W, (h.x - o.x) * L);
-      if (this.rand() < foulP) { this.foul(h, o, out); return; }
-      const att = eff(h.mp, 'dri') * 0.75 + eff(h.mp, 'phy') * 0.25;
-      const def = eff(o.mp, 'def') * 0.75 + eff(o.mp, 'phy') * 0.25;
-      if (this.rand() < sig((def - att) / 13 - 0.25 + (TR(o, 'roc') ? 0.45 : 0) + (TR(o, 'rugueux') ? 0.2 : 0) + (TR(o, 'guerrier') ? 0.15 : 0) - (TR(h, 'magicien') ? 0.4 : 0))) {
-        o.slide = o.tk === 'slide' ? 0.9 : 0.55; h.fall = o.tk === 'slide' ? 1.4 : this.rand() < 0.3 ? 0.7 : 0; h.cd = 2.4;
-        D.stats.tackles++; o.mp.tackles++; addRating(o.mp, 0.06);
-        emit(m, out, { type: 'tackle', side: D.side, pid: o.mp.id, pid2: h.mp.id, x: this.P.x / L, y: this.P.y / W, zone: m.zone });
-        // Souvent, le tacle ne fait que chasser le ballon : il roule (parfois en touche).
-        if (o.tk === 'slide' || this.rand() < 0.3) {
-          const P = this.P, nearT = Math.min(P.y, W - P.y) < 12;
-          // Près de la ligne de touche, le tacle envoie souvent le ballon dehors (touche).
-          let a = Math.atan2((h.y - o.y) * W, (h.x - o.x) * L) + (this.rand() - 0.5) * 1.6;
-          if (nearT && this.rand() < 0.55) a = (P.y < W / 2 ? -Math.PI / 2 : Math.PI / 2) + (this.rand() - 0.5) * 0.9;
-          const v = 3.5 + this.rand() * 4.5;
-          this.releaseBall(h); this.pending = null; this.lastTouch = D.side;
-          P.vx = Math.cos(a) * v; P.vy = Math.sin(a) * v; P.vz = this.rand() < 0.3 ? 2 : 0;
-          return;
-        }
-        this.gain(o, out, true);
-        return;
-      }
-      // Dribble réussi : le défenseur est éliminé un instant.
-      o.fall = 0.5; o.cd = 1.6;
-      h.team.stats.dribbles = (h.team.stats.dribbles || 0) + 1; addRating(h.mp, 0.05);
-      if (this.rand() < 0.3) emit(m, out, { type: 'dribble', side: h.side, pid: h.mp.id, pid2: o.mp.id, x: this.P.x / L, y: this.P.y / W, zone: m.zone });
+      if (o.fall > 0 || o.slide > 0 || (o._down || 0) > this.now || (o._feint || 0) > this.now) continue;   // au sol, engagé, ou pris à contre-pied
+      if ((o._tkCool || 0) > this.now) continue;   // il vient de tacler : il se replace avant de se réengager
+      if (this.now < (o._tkDecT || 0)) continue;
+      const d = this.dist(o, P.x, P.y);
+      if (d > 3.4) continue;
+      if (o.role !== 'press' && o !== h.carry?.takeon?.def && d > 1.3 && !((o._stallPush || 0) > this.now)) continue;
+      o._tkDecT = this.now + 0.2;
+      const look = 0.22, bx = P.x + P.vx * look, by = P.y + P.vy * look;
+      const ox = this.X(o), oy = this.Y(o), db = Math.hypot(bx - ox, by - oy);
+      const shield = shields(ox, oy, bx, by, this.X(h), this.Y(h));
+      const exposedD = Math.hypot(bx - hfx, by - hfy), exposed = exposedD > 0.75;   // ballon hors de portée du porteur
+      // Course perdue : le porteur file vers le but, le défenseur est à côté / derrière lui.
+      const gdx = this.goalX(h.side) - this.X(h), lost = (h.speed || 0) > 4 && ((this.X(o) - this.X(h)) * Math.sign(gdx)) < 0.3;
+      let kind = null;
+      if (!shield && db < 1.3) kind = 'stand';
+      else if (!shield && exposedD > 1.0 && db >= 1.3 && db < 3.0) kind = 'slide';
+      if (!kind) continue;
+      // Envie de s'engager : consignes, lecture, ballon exposé ; sinon il temporise (il reste devant).
+      const aggr = kind === 'slide'
+        ? clamp(0.005 + tk * 0.01 + (lost ? 0.08 : 0) + (TR(o, 'rugueux') ? 0.02 : 0) - (ownBox ? 0.01 : 0), 0, 0.2)
+        : clamp(0.06 + press * 0.04 + tk * 0.05 + (exposed ? 0.3 : 0) + (eff(o.mp, 'def') - 60) / 300
+          + (TR(o, 'rugueux') ? 0.06 : 0) + ((o._stallPush || 0) > this.now ? 0.5 : 0) - (ownBox ? 0.05 : 0), 0.02, 0.9);
+      if (this.rand() > aggr) continue;
+      this.startTackle(o, kind, bx, by, h);
+      return;
     }
   }
 
+  /** Engagement d'un tacle : direction visée (avec l'erreur de lecture du défenseur), fente / glissade. */
+  startTackle(o, kind, bx, by, h = null) {
+    const ox = this.X(o), oy = this.Y(o), G = TACKLE[kind];
+    const sk = (eff(o.mp, 'def') * 0.7 + eff(o.mp, 'vis') * 0.3) / 100;
+    const err = 0.06 + (1 - clamp(sk, 0, 1)) * 0.18;   // à 1 m, un défenseur pose le pied à ~10-20 cm près
+    const ex = gauss(this.rand(), this.rand()) * err, ey = gauss(this.rand(), this.rand()) * err;
+    const tx = bx + ex, ty = by + ey, dd = Math.hypot(tx - ox, ty - oy) || 1;
+    const Lg = kind === 'slide' ? clamp(dd - G.foot + 0.3, 0.8, G.lunge) : clamp(dd - G.foot, 0, G.lunge);
+    o._tk = { kind, t0: this.now, x0: ox, y0: oy, ux: (tx - ox) / dd, uy: (ty - oy) / dd, L: Lg, err: Math.hypot(ex, ey), v0: Math.hypot(o.vx || 0, o.vy || 0), vdir: Math.atan2(o.vy || 0, o.vx || 0), target: h, ball: false, man: false };
+    o.tk = kind; o.slide = G.dur; o.face = Math.atan2(o._tk.uy, o._tk.ux);
+    o._tkCool = this.now + G.dur + (kind === 'slide' ? 2.2 : 1.6);
+    o._tk.rec = this.diag ? { pid: o.mp.id, side: o.side, kind, vs: h?.mp.id ?? null, dist: +dd.toFixed(2), err: +o._tk.err.toFixed(2), result: 'raté' } : null;
+    if (o._tk.rec) this.diag.duel(this.now, o._tk.rec);
+  }
+  /** Mouvement du corps pendant le tacle (fente ou glissade), puis relevé. */
+  tackleStep(p, dt) {
+    const k = p._tk, f = tackleFoot(k, this.now);
+    if (f.done) { p._tk = null; p._down = this.now + (k.kind === 'slide' ? 0.45 : 0.12); p.vx = p.vy = 0; p.speed = 0; p.tx = p.x; p.ty = p.y; return; }
+    const x = clamp(f.bx, 0, L), y = clamp(f.by, 0, W);
+    p.vx = (x - this.X(p)) / Math.max(dt, 1e-4); p.vy = (y - this.Y(p)) / Math.max(dt, 1e-4);
+    p.x = x / L; p.y = y / W; p.tx = p.x; p.ty = p.y; p.speed = Math.hypot(p.vx, p.vy); p.acc = 0;
+  }
+
+  /**
+   * Contacts au sol pendant le pas (étape 4e), avec ou sans porteur :
+   *  - pied d'un tacle sur le ballon / jambe d'un tacle sur le joueur, dans l'ordre où ils arrivent ;
+   *  - défenseur qui « anticipe » une touche trop longue : le ballon, hors de portée du porteur,
+   *    traverse sa zone d'atteinte — il le joue (il ne le reçoit jamais par simple proximité).
+   */
+  contestStep(dt, out) {
+    const P = this.P, b0 = this._sw0;
+    if (!b0) return;
+    for (const o of this.players.values()) {
+      const k = o._tk;
+      if (!k || k.ball || k.man) continue;
+      const f0 = tackleFoot(k, this.now - dt), f1 = tackleFoot(k, this.now);
+      if (!f0.active && !f1.active) continue;
+      const hb = sweptTackleBall(f0, f1, b0, P, TACKLE[k.kind].footR);
+      let victim = null;
+      for (const q of this.players.values()) if (q.side !== o.side && !(q.fall > 0) && legHits(f1, this.X(q), this.Y(q))) { victim = q; break; }
+      if (hb) { k.ball = true; this.tackleBall(o, k, hb, dt, out); if (victim && k.kind === 'slide') { victim.fall = Math.max(victim.fall || 0, 1.0); victim.cd = 1.5; } return; }
+      if (victim) { k.man = true; this.tackleMan(o, k, victim, out); return; }
+    }
+    // Anticipation d'une mauvaise touche : ballon hors de portée du porteur, dans la zone d'un adversaire.
+    const h = this.holder;
+    // Ballon sous contrôle du porteur : dans la zone de son pied, ou dans ses pieds (même derrière lui,
+    // quand il protège) — personne ne peut le lui prendre « en passant ».
+    if (!h || this.inHands || h._reach || this.dist(h, P.x, P.y) < 0.6) return;
+    for (const o of this.players.values()) {
+      if (o.side === h.side || o._tk || o.fall > 0 || o.slide > 0 || (o._down || 0) > this.now || (o._nutmeg || 0) > this.now) continue;
+      if (o.gk && this.gkHandsOk(o)) continue;
+      if (this.dist(o, P.x, P.y) > 2.6) continue;
+      // Il doit avoir eu le temps de réagir à la touche du porteur (sinon le porteur la reprend avant).
+      if (this.now - (h._touchT ?? -9) < this.reactT(o, this.X(h), this.Y(h))) continue;
+      const hit = this.sweepContact(o, LOOSE_PARTS);
+      if (!hit || hit.reach.part === 'head') continue;
+      const t = this.controlTouch(o, hit, 'récupération', dt);
+      if (!this.keepsBall(h)) { this.releaseBall(h); this.pending = null; }
+      if (this.keepsBall(o)) {
+        emit(this.m, out, { type: 'interception', side: o.side, pid: o.mp.id, pid2: h.mp.id, x: P.x / L, y: P.y / W, zone: this.m.zone });
+        this.gain(o, out, true);
+      }
+      if (this.diag) this.diag.duel(this.now, { pid: o.mp.id, side: o.side, kind: 'ballon chipé', vs: h.mp.id, q: +t.q.toFixed(2), result: this.holder === o ? 'ballon gagné' : 'ballon touché', since: +(this.now - (h._touchT ?? -9)).toFixed(2), sinceGain: +(this.now - (h._gotT ?? -9)).toFixed(2), hd: +this.dist(h, P.x, P.y).toFixed(2), hsp: +(h.speed || 0).toFixed(1), prep: !!h.prep });
+      return;
+    }
+  }
+
+  /** Le pied du tacle a touché le ballon : lutte physique avec le porteur, puis effet sur le ballon. */
+  tackleBall(o, k, hb, dt, out) {
+    const P = this.P, h = this.holder && this.holder.side !== o.side ? this.holder : null, G = TACKLE[k.kind];
+    const f = tackleFoot(k, this.now);
+    const runDiff = Math.abs(Math.atan2(Math.sin(k.vdir - Math.atan2(k.uy, k.ux)), Math.cos(k.vdir - Math.atan2(k.uy, k.ux))));
+    const balance = k.v0 < 1 ? 1 : 1 - (runDiff / Math.PI) * Math.min(1, k.v0 / 5) - Math.max(0, k.v0 - 6) * 0.05;
+    const q = tackleQuality({ def: eff(o.mp, 'def') + (TR(o, 'roc') ? 8 : 0), phy: eff(o.mp, 'phy'), timing: k.err * 0.6, stretch: Math.min(1, f.t / G.t1) * 0.5, balance, slide: k.kind === 'slide' });
+    // Le porteur dispute-t-il le ballon au même instant (ballon dans sa zone d'atteinte) ?
+    let grip = 0;
+    if (h) {
+      const rr = reachAt(this.posM(h), P, { parts: ['foot'] });
+      if (rr) grip = clamp((eff(h.mp, 'dri') * 0.6 + eff(h.mp, 'phy') * 0.25 + eff(h.mp, 'sf') * 0.15) / 100 - rr.stretch * 0.3 + (h.shieldK ? 0.1 : 0) + (TR(h, 'magicien') ? 0.1 : 0), 0, 1);
+    }
+    const win = q - grip * 0.45 + gauss(this.rand(), this.rand()) * 0.18;
+    const B = hb.ball;
+    Object.assign(P, { x: B.x, y: B.y, z: BR });
+    let res;
+    if (win > 0.2) {
+      if (k.kind === 'stand' && win > 0.33) {
+        // Il impose son pied et garde le ballon : ramené devant lui.
+        const ax = this.X(o) - B.x, ay = this.Y(o) - B.y, al = Math.hypot(ax, ay) || 1;
+        P.vx = (o.vx || 0) * 0.5 + (ax / al) * 1.2; P.vy = (o.vy || 0) * 0.5 + (ay / al) * 1.2; res = 'ballon gagné';
+      } else {
+        const a = Math.atan2(k.uy, k.ux) + gauss(this.rand(), this.rand()) * (0.25 + (1 - q) * 0.5), v = k.kind === 'slide' ? 5 + q * 4 : 3 + q * 3;
+        P.vx = Math.cos(a) * v; P.vy = Math.sin(a) * v; res = 'ballon poussé';
+      }
+    } else if (win > -0.1) {
+      const a = this.rand() * Math.PI * 2, v = 2.5 + this.rand() * 3;
+      P.vx = Math.cos(a) * v; P.vy = Math.sin(a) * v; res = 'ballon disputé';
+    } else {
+      P.vx *= 0.85; P.vy *= 0.85; P.vx += (this.rand() - 0.5) * 1.2; P.vy += (this.rand() - 0.5) * 1.2; res = 'effleuré, le porteur garde';
+    }
+    P.vz = 0; P.spin = 0; P.top = 0;
+    stepBall(P, Math.max(0, (1 - hb.t) * dt));
+    this.lastTouch = o.side; this._lastToucher = o; this._deflect = res === 'effleuré, le porteur garde'; this._kickBy = o; this._kickT = this.now;
+    o.touch = 0.2;
+    if (h && !this.keepsBall(h)) { this.releaseBall(h); this.pending = null; h.cd = 1.2; }
+    if (this.holder !== h || !h) {
+      if (this.keepsBall(o)) this.gain(o, out, true);
+      const T = o.team;
+      T.stats.tackles++; o.mp.tackles++; addRating(o.mp, 0.06);
+      if (h) emit(this.m, out, { type: 'tackle', side: o.side, pid: o.mp.id, pid2: h.mp.id, x: P.x / L, y: P.y / W, zone: this.m.zone });
+    }
+    if (k.rec) Object.assign(k.rec, { result: this.holder === o ? 'ballon gagné' : this.holder === h && h ? 'le porteur garde' : res, q: +q.toFixed(2), grip: +grip.toFixed(2) });
+  }
+
+  /**
+   * La jambe du tacle a touché le joueur sans toucher le ballon. L'intensité du contact (vitesse,
+   * glissé, par derrière) est réelle ; l'arbitre la siffle ou laisse jouer selon sa sévérité.
+   */
+  tackleMan(o, k, v, out) {
+    const m = this.m, rel = Math.hypot((o.vx || 0) - (v.vx || 0), (o.vy || 0) - (v.vy || 0));
+    const vs = Math.hypot(v.vx || 0, v.vy || 0);
+    const behind = vs > 1.5 && (((this.X(o) - this.X(v)) * (v.vx || 0) + (this.Y(o) - this.Y(v)) * (v.vy || 0)) / vs) < -0.3;
+    const I = 0.35 + rel / 7 + (k.kind === 'slide' ? 0.5 : 0) + (behind ? 0.6 : 0) + (TR(o, 'rugueux') ? 0.15 : 0);
+    const whistle = I * this.ref.whistle * (m.profile.fouls || 1);
+    const foul = whistle > 0.72 + gauss(this.rand(), this.rand()) * 0.15;
+    if (k.rec) Object.assign(k.rec, { result: foul ? 'faute' : 'contact sans faute', intensity: +I.toFixed(2) });
+    if (foul) { this.foul(v, o, out, I); return; }
+    // Avantage / contact léger : il est déséquilibré, il ne tombe que si le choc est fort.
+    v.bump = 0.45; v.bumpDir = Math.atan2(this.Y(v) - this.Y(o), this.X(v) - this.X(o));
+    v.vx *= 0.5; v.vy *= 0.5;
+    if (I > 1.1) { v.fall = 0.7; v.cd = 1.2; }
+  }
+
   /** Faute : coup franc (ou penalty dans la surface), cartons, blessure éventuelle. */
-  foul(victim, offender, out) {
+  foul(victim, offender, out, sev = 0.9) {
     const m = this.m, A = victim.team, D = offender.team;
     D.stats.fouls++; offender.mp.fouls++;
     addRating(offender.mp, -0.06);
@@ -1952,6 +2073,7 @@ export class LiveSim {
     if (offender.mp.p?.traits?.includes('sangchaud')) yP *= 1.5;
     if (offender.mp.p?.traits?.includes('veteran')) yP *= 0.8;
     if ((offender.mp.calm || 0) > m.minute || (D.calmUntil || 0) > m.minute) yP *= 0.6; // consigne « calmez-vous » du banc
+    yP *= clamp((sev - 0.3) / 0.8, 0.4, 2);   // gravité réelle du contact (vitesse, glissé, par derrière)
     yP *= this.ref.strict * (m.profile.cards || 1) * (1 + (TK[D.tactics.tackling] || 0) * 0.18) * (D.cm ? D.cm.cards : 1) * captainCalm(D);
     if (this.rand() < 0.0022) sendOff(m, out, D, offender.mp, 'direct');
     else if (this.rand() < yP) {
@@ -2544,7 +2666,11 @@ export class LiveSim {
           // Garder le ballon : on vise le point de contact du pied (0,32 m devant lui) en suivant
           // le déplacement du joueur. Pas de touche si le ballon y est déjà, immobile par rapport à lui.
           // Le point visé reste dans le terrain : on ne garde pas le ballon sur la ligne.
-          const cp0 = contactPoint(hm, 'foot'), cp = { x: clamp(cp0.x, 1, L - 1), y: clamp(cp0.y, 1, W - 1) };
+          // Pressé de près : il se tourne dos à l'adversaire et garde le ballon de l'autre côté de son
+          // corps (protection) ; sinon devant son pied.
+          let cp0 = contactPoint(hm, 'foot');
+          if (h.shieldK && h.shieldFace != null) cp0 = { x: hm.x + Math.cos(h.shieldFace) * 0.36, y: hm.y + Math.sin(h.shieldFace) * 0.36 };
+          const cp = { x: clamp(cp0.x, 1, L - 1), y: clamp(cp0.y, 1, W - 1) };
           const ex = cp.x - P.x, ey = cp.y - P.y;
           const rvx = P.vx - hm.vx, rvy = P.vy - hm.vy;
           if (Math.hypot(ex, ey) > 0.1 || Math.hypot(rvx, rvy) > 0.5) {
@@ -2555,7 +2681,7 @@ export class LiveSim {
             P.vx = vx; P.vy = vy; P.vz = 0; P.spin = 0; P.top = 0; P.knuckle = 0;
             if (!h.prep) { h.touch = 0.14; h.touchMax = 0.14; h.touchFoot = Math.sin(h.phase || 0) >= 0 ? 'L' : 'R'; h.touchIn = true; }
             h.nextTouch = this.now + (Math.hypot(rvx, rvy) > 1.2 ? 0.2 : sp > 0.4 ? 0.3 : 0.45) + this.rand() * 0.15;
-            this.lastTouch = h.side; this._lastToucher = h; this._deflect = false;
+            this.lastTouch = h.side; this._lastToucher = h; this._deflect = false; h._touchT = this.now;
             this.diagContact(h, 'conduite', { x: P.x, y: P.y, z: P.z, speed: Math.hypot(rvx, rvy), part: 'foot', dist: rr.dist, stretch: rr.stretch, q });
           }
         } else {
@@ -2568,7 +2694,8 @@ export class LiveSim {
             // Force de la touche déduite de l'écart voulu entre le pied et le ballon (le ballon ralentit
             // d'environ 1,4 m/s² sur l'herbe : écart max ≈ push² / 2,8). Collé au pied en un-contre-un
             // (~0,15 m au-delà du pied), ~0,3 m au trot, ballon poussé loin seulement lancé dans l'espace.
-            const want = tight || nearLine ? 0.15 : sp > 5 ? 0.4 + (sp - 5) * 0.9 : 0.3;
+            const nut = h.carry?.takeon?.move === 'petitpont' && (h.carry.takeon.def._nutmeg || 0) > this.now;
+            const want = nut ? 2.5 : tight || nearLine ? 0.15 : sp > 5 ? 0.4 + (sp - 5) * 0.9 : 0.3;   // petit pont : poussé entre les jambes, assez loin derrière lui
             const push = Math.sqrt(2.8 * want) * (0.85 + this.rand() * 0.3) + (1 - dri / 100) * 0.5;
             // Un toucher en extension (pied tendu) est moins précis.
             const err = (this.rand() - 0.5) * 0.3 * (1.2 - dri / 100) * (1 + rr.stretch);
@@ -2583,26 +2710,15 @@ export class LiveSim {
             // Touche avec le pied qui est devant dans la foulée (souvent l'intérieur ou l'extérieur du pied fort).
             h.touch = 0.16; h.touchMax = 0.16; h.touchFoot = Math.sin(h.phase || 0) >= 0 ? 'L' : 'R'; h.touchIn = this.rand() < 0.55;
             h.nextTouch = this.now + 0.25;
-            this.lastTouch = h.side; this._lastToucher = h; this._deflect = false;
+            this.lastTouch = h.side; this._lastToucher = h; this._deflect = false; h._touchT = this.now;
             this.diagContact(h, 'conduite', { x: P.x, y: P.y, z: P.z, speed: Math.abs(bv - sp), part: 'foot', dist: rr.dist, stretch: rr.stretch, q: dri / 100 });
           }
         }
       }
       // Touche trop longue : le ballon lui échappe, il redevient libre.
       if (Math.hypot(h.x * L - P.x, h.y * W - P.y) > 4.5) { this.releaseBall(h); this.pending = null; }
-      // Entre deux touches, un adversaire bien placé peut chiper le ballon (proximité : étape 4e).
-      else if (P.z < 0.6) {
-        for (const o of this.players.values()) {
-          if (o.side === h.side || o.fall > 0 || (o.cd || 0) > 0.3) continue;
-          const fo = this.foot(o, 0.5);
-          if (Math.hypot(fo.x - P.x, fo.y - P.y) < 0.6 && this.rand() < dt * (0.6 + eff(o.mp, 'def') / 70)) {
-            o.touch = 0.2; o.cd = 0.8;
-            emit(this.m, [], { type: 'interception', side: o.side, pid: o.mp.id, pid2: h.mp.id, x: P.x / L, y: P.y / W, zone: this.m.zone });
-            this.gain(o, []);
-            break;
-          }
-        }
-      }
+      // (Ballon chipé : plus par proximité — un adversaire doit réellement atteindre le ballon,
+      // voir contestStep, étape 4e.)
     }
     if (!glued) stepBall(P, dt);
     // But : le ballon a physiquement franchi la ligne, dans le cadre (ballPhysics) — quel que soit
@@ -2948,7 +3064,9 @@ export class LiveSim {
 
   move(dt) {
     const step = (p, maxSp) => {
-      if (p._dive) { this.diveStep(p, dt); return; }   // plongeon : trajectoire du corps imposée par la physique du geste
+      if (p._dive) { this.diveStep(p, dt); return; }
+      if (p._tk) { this.tackleStep(p, dt); return; }   // tacle : fente / glissade imposée par le geste
+      if ((p._down || 0) > this.now) { p.vx *= 0.6; p.vy *= 0.6; p.speed = Math.hypot(p.vx, p.vy); p.x += p.vx * dt / L; p.y += p.vy * dt / W; return; }   // au sol / se relève   // plongeon : trajectoire du corps imposée par la physique du geste
       const dx = (p.tx - p.x) * L, dy = (p.ty - p.y) * W;
       const dist = Math.hypot(dx, dy);
       let want = dist < 0.15 ? 0 : Math.min(maxSp, Math.sqrt(2 * 6 * dist));
@@ -2973,6 +3091,7 @@ export class LiveSim {
       // il ouvre le corps au lieu de lui tourner le dos), sinon dans le sens de sa course.
       let target, rate = 7;
       if (p.prep && p.faceTo != null && !p.faceBall) { target = p.faceTo; rate = 12; }
+      else if (p === this.holder && p.shieldK && p.shieldFace != null && !p.faceBall) { target = p.shieldFace; rate = 6; }   // dos à l'adversaire : il protège le ballon
       else if (p.faceBall) { target = Math.atan2(P.y - p.y * W, P.x - p.x * L); rate = 10; }
       else {
         // Sans ballon, on recule face au jeu (petits pas, pas de demi-tour) quand le ballon est devant soi.
@@ -3077,6 +3196,22 @@ export class LiveSim {
           a.vx += ux * rv * ka; a.vy += uy * rv * ka;
           c.vx -= ux * rv * kc; c.vy -= uy * rv * kc;
           if (-rv > 3.5) { const kb = Math.min(0.9, -rv * 0.085); a.bump = Math.max(a.bump || 0, kb * ka * 2); c.bump = Math.max(c.bump || 0, kb * kc * 2); a.bumpDir = Math.atan2(-uy, -ux); c.bumpDir = Math.atan2(uy, ux); }
+        }
+        // Duel de corps (étape 4e) : deux adversaires qui se percutent près du ballon — force, taille,
+        // poids, élan, orientation, placement et une part d'aléa : le plus puissant ne gagne pas toujours.
+        if (a.side !== c.side && d < 0.85 && this.now > (a._duelT || 0) && this.now > (c._duelT || 0) && !a._tk && !c._tk && !a._dive && !c._dive) {
+          const P = this.P, ba = Math.hypot(a.x * L - P.x, a.y * W - P.y), bc = Math.hypot(c.x * L - P.x, c.y * W - P.y);
+          if (Math.min(ba, bc) < 2.5) {
+            a._duelT = c._duelT = this.now + 0.6;
+            const sc = (p, nx, ny, other, bd, bo) => bodyScore({ phy: eff(p.mp, 'phy') + (TR(p, 'roc') ? 6 : 0), height: p.mp.p?.height ?? 180, weight: p.mp.p?.weight ?? 75,
+              push: (p.vx || 0) * nx + (p.vy || 0) * ny, facing: Math.cos(Math.atan2(ny, nx) - (p.face || 0)), ahead: bd < bo ? 1 : 0, rnd: gauss(this.rand(), this.rand()) });
+            const sa = sc(a, ux, uy, c, ba, bc), sb = sc(c, -ux, -uy, a, bc, ba), diff = sa - sb;
+            const lose = diff > 0 ? c : a, win = diff > 0 ? a : c, mag = Math.abs(diff);
+            lose.bump = Math.max(lose.bump || 0, 0.3 + Math.min(0.4, mag)); lose.bumpDir = Math.atan2((lose.y - win.y) * W, (lose.x - win.x) * L);
+            lose.vx *= 0.55; lose.vy *= 0.55;
+            if (mag > 0.55 && (lose.speed || 0) > 3) { lose.fall = 0.7; lose.cd = 1.1; }
+            if (this.diag) this.diag.duel(this.now, { kind: 'duel de corps', pid: win.mp.id, side: win.side, vs: lose.mp.id, margin: +mag.toFixed(2), result: lose.fall > 0 ? 'adversaire au sol' : 'adversaire déséquilibré' });
+          }
         }
       }
     }
