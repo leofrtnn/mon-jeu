@@ -339,7 +339,7 @@ export function sweptPoint(h0, h1, b0, b1, r = DIVE.handR) {
  */
 export function gkHandle({ handling = 0.6, speed = 15, stretch = 0, z = 1, knuckle = 0, grip = 1, rnd = 0.5 } = {}) {
   let q = 0.3 + 0.65 * handling;
-  q -= Math.max(0, speed - 10) * 0.016;           // frappe appuyée
+  q -= Math.max(0, speed - 10) * 0.012;           // frappe appuyée (un bon gardien bloque une frappe à 80 km/h sur lui)
   q -= stretch * 0.38;                            // au bout des gants
   if (z < 0.25 || z > 2.1) q -= 0.08;             // ras du sol / sous la barre
   q -= Math.min(5, knuckle) * 0.025;              // ballon flottant

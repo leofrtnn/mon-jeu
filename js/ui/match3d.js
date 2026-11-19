@@ -2366,6 +2366,7 @@ export class Match3D {
         ring2: new THREE.MeshBasicMaterial({ color: '#7fd1ff', transparent: true, opacity: 0.2, depthWrite: false, side: THREE.DoubleSide }),
         path: new THREE.LineBasicMaterial({ color: '#9ad0ff' }), plan: new THREE.LineBasicMaterial({ color: '#ffd166' }),
         ok: new THREE.MeshBasicMaterial({ color: '#3ddc84', transparent: true, opacity: 0.7 }), bad: new THREE.MeshBasicMaterial({ color: '#ef476f', transparent: true, opacity: 0.7 }),
+        gkHand: new THREE.MeshBasicMaterial({ color: '#c77dff', transparent: true, opacity: 0.55, depthWrite: false }), gkCross: new THREE.MeshBasicMaterial({ color: '#c77dff', transparent: true, opacity: 0.9 }),
         aim: new THREE.LineBasicMaterial({ color: '#ffffff' }), exec: new THREE.LineBasicMaterial({ color: '#ff9f1c' }), cut: new THREE.LineBasicMaterial({ color: '#ef476f' }),
       };
     }
@@ -2395,6 +2396,19 @@ export class Match3D {
       const [x, z] = W3(pl.x, pl.y), s = 0.45;
       // ✕ jaune : point de réception prévu ; ✕ rouge : point de coupe prévu par un défenseur.
       G.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(x - s, 0.05, z - s), new THREE.Vector3(x + s, 0.05, z + s), new THREE.Vector3(x - s, 0.05, z + s), new THREE.Vector3(x + s, 0.05, z - s)]), pl.cut ? M.cut : M.plan));
+    }
+    // Gardien (étape 4d) : point de passage anticipé sur la ligne (losange violet) et, pendant un
+    // plongeon, la zone de ses mains (sphère violette, rayon réel de prise).
+    const LV = this.v.live;
+    if (LV) for (const g of LV.players.values()) {
+      if (!g.gk) continue;
+      const th = g._threat;
+      if (th) { const own = g.side === 0 ? 0 : L; const [x, z] = W3(own, th.y); const m = new THREE.Mesh(new THREE.OctahedronGeometry(0.18), M.gkCross); m.position.set(x, Math.max(0.15, th.z), z); G.add(m); }
+      if (g._dive) {
+        const d = g._dive, t = LV.now - d.t0, f = Math.min(1, Math.max(0, (t - 0.1) / 0.4)), ff = f * f * (3 - 2 * f), arm = 0.95 * Math.min(1, 0.45 + t / 0.22);
+        const hx = d.x0 + d.ux * (d.S * ff + arm), hy = d.y0 + d.uy * (d.S * ff + arm), hz = 0.9 + (d.h - 0.9) * Math.min(1, 0.25 + ff * 1.3);
+        const [x, z] = W3(hx, hy); const m = new THREE.Mesh(new THREE.SphereGeometry(0.3 + 0.11, 12, 10), M.gkHand); m.position.set(x, hz, z); G.add(m);
+      }
     }
     // Dernière passe : trait blanc = direction voulue (cible), trait orange = frappe réelle
     // (après l'erreur d'exécution au contact).
