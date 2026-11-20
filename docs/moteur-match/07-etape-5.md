@@ -193,3 +193,63 @@ suivi) restent immédiates. Mesure sur 16 matchs :
 | Contenir + second presseur (P2) | sauts −1,7 / min, pressing 3,88 → 3,96 m, tacles 31,5 → 28,0 | à séparer (contenir était lissé avant 5a, le second presseur non) |
 Le pressing (P4) et le gardien / arrêts de jeu (placement exact, déjà non lissés avant 5a) ne
 relèvent pas de cette règle.
+
+## 5a — Corrections validées et validation finale
+* **Glissement au retour** : en redescendant vers une intention lissée (P1-P3, priorité ≤ à celle
+  qu'on quitte, hors suivi), la cible repart du point courant et glisse ; préemptions, P4-P5 et
+  suivi restent immédiats.
+* **Repli** : hystérésis P3. **Contenir** : lissage de l'ancien placement calme (repart au-delà
+  de 3,2 m — 2 m si le but est menacé —, s'arrête à 1 m, 2,2 / 5 m/s), via des seuils propres à
+  l'intention (`jump`, `settle`). **Second presseur** : intention distincte, hystérésis P2.
+* Exceptions non lissées restantes en P2-P3 : **marquage** et **appel collectif** (justifiées
+  par la mesure, voir ci-dessus).
+
+### Effet séparé de contenir et du second presseur (16 matchs, retirer le lissage de l'un)
+| | Final (les deux lissés) | Contenir non lissé | Second presseur non lissé |
+|---|---|---|---|
+| Pressing (défenseur le plus proche) | 4,00 m | 4,04 m | 3,89 m |
+| Tacles réussis | 30,1 | 33,3 | 32,9 |
+| Sauts de cible | 13,6 / min | 14,8 / min | 14,9 / min |
+| Distance / joueur | 11,58 km | 12,24 km | 12,20 km |
+Lisser « contenir » ne coûte rien au pressing ; le second presseur non lissé serre un peu le
+porteur (−0,1 m). Les deux non lissés font ~3 tacles de plus et ~0,6 km de course en plus.
+Valeur initiale conservée (les deux lissés) ; à revoir avec l'allure (5b).
+
+### Résultats (mêmes graines ; `stats.mjs` tire ses 16 matchs sur 100-103, 200-203, 300-303, 400-403, les autres outils sur 100-115)
+| | Avant 5a | 5a (avant correction) | 5a final | Réel |
+|---|---|---|---|---|
+| Sauts de cible > 3 m | 16,6 / min | 19,4 | **13,6** | < 5 (objectif d'étape) |
+| Départ des appels (écart à la ligne) | −9,6 m | −11,9 m | −7,4 m | — |
+| Hors-jeu | 4,6 | 3,1 | **4,6** | 3,5-4,5 |
+| Marquage | 2,20 m | 2,46 m | **2,26 m** | — |
+| Pressing | 4,12 m | 4,11 m | 4,00 m | — |
+| Centres | 23,3 | 19,8 | 22,9 | 30-40 |
+| Dégagements | 34,2 | 28,0 | 34,9 | 35-45 |
+| Tirs / cadrés / contrés | 14,8 / 6,3 / 3,2 | 14,8 / 5,8 / 2,4 | 16,3 / 6,7 / 2,8 | 24-26 / 8,5-9 / 6-8 |
+| Buts / xG | 3,9 / 1,9 | 2,9 / 1,7 | 3,3 / 1,9 | 2,7-2,9 / 2,6-2,9 |
+| Tirs de la tête (stats.mjs) | 25,3 % | 21,2 % | 19,5 % | 12-16 % |
+| Tacles / fautes | 31,8 / 16,6 | 29,5 / 15,4 | 30,1 / 15,8 | 28-35 / 20-23 |
+| Allures marche / trot / course / sprint | 68 / 15 / 12 / 5 % | 65 / 18 / 12 / 5 % | 68 / 16 / 12 / 5 % | 60-70 / 20-25 / 7-10 / 3-5 |
+| Distance / joueur de champ | 11,87 km | 11,76 km | 11,58 km | 10-11,5 |
+Sauts restants (13,6 / min) : P4-P5 (porteur, ballon) 4,7 · réattribution des rôles toutes les
+0,3 s 4,4 · reprise après arrêt de jeu 1,3 · reprise sans intention 1,2 · préemption 0,9 ·
+suivi 0,8. L'objectif < 5 relève de la décision d'IA (stabilité des rôles) et de la cible du
+porteur, pas de l'arbitre.
+
+### Tirs de la tête (`header-report.mjs`, graines 100-115)
+| Par match | Avant 5a | 5a avant correction | 5a final |
+|---|---|---|---|
+| Tirs de la tête / du pied | 5,13 / 13,1 (28 %) | 4,06 / 11,3 (26 %) | 3,94 / 12,4 (24 %) |
+| Têtes : centre en jeu · corner · passe longue · second ballon | 2,44 · 0,94 · 0,44 · 1,31 | 2,50 · 0,25 · 0,25 · 1,06 | 2,31 · 0,94 · 0,31 · 0,38 |
+| Centres · têtes au but par centre | 26,3 · 0,093 | 20,8 · 0,120 | 22,0 · 0,105 |
+| Pied : second ballon / conduite · corner · passe au sol | 10,3 · 2,1 · 0,6 | 8,8 · 1,8 · 0,5 | 10,5 · 1,6 · 0,1 |
+La hausse à 28 % (mesure de la candidate) ne se confirme pas : 19,5 % (stats) / 24 % (100-115).
+Origine de la part élevée : (1) **trop peu de tirs du pied** (12-13 au lieu de ~20) — cause
+principale, anomalie connue ; (2) **choix de finition** : tout ballon au-dessus de 1,2 m à
+moins de 13 m, dans l'axe, est repris de la tête vers le but (règle de décision, à revoir avec
+l'IA) ; (3) le volume de centres n'est pas en cause (22 par match, sous le réel). Non corrigé.
+
+### Validation
+114 tests ✔ (dont 10 sur l'arbitre), interface ✔, contacts physiquement possibles 100 % ✔,
+déterminisme ✔ (avec et sans instrumentation), moteur rapide `b47d8708` ✔. Contacts et physique
+du ballon non modifiés.
