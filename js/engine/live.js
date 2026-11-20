@@ -24,6 +24,7 @@ import { refereeProfile } from '../game/referee.js';
 import { createBall, stepBall, solveKick, predict, cloneBall, R as BR, GOAL_HALF, BAR, PITCH_L as L, PITCH_W as W } from '../ui/ballPhysics.js';
 import { reachAt, contactPoint, sweptReach, ballPath, interceptPlan, timeToReach, touchQuality, firstTouch, passError, receivePlan, sweptBody, gauss, DIVE, diveRange, diveFrac, diveTimeFor, diveHands, sweptPoint, sweptLimb, gkHandle, shotError, TACKLE, tackleFoot, sweptTackleBall, legHits, shields, tackleQuality, bodyScore } from './contact.js';
 import { formationPos } from './positions.js';
+import { P as PRI, newArbiter, propose as proposeIntent, arbitrate } from './intent.js';
 import { roleFx } from '../data/constants.js';
 import { setPlanOf, cornerRoutine, setPieceEdge, directFkChance } from './setPlays.js';
 import { clamp } from '../core/rng.js';
@@ -133,13 +134,17 @@ export class LiveSim {
     this.sync();
     Object.assign(this, { now: s.now, sec: s.sec, poss: s.poss, lastTouch: s.lastTouch, celebrate: s.celebrate || 0, afterGoalSide: s.afterGoalSide, inHands: !!s.inHands, gainT: s.gainT, resumeHT: !!s.resumeHT });
     Object.assign(this.P, s.ball, { spin: 0, top: 0, inGoal: 0, hitPost: false });
+    this._own = true;
     for (const [id, o] of Object.entries(s.players || {})) { const p = this.players.get(+id); if (p) Object.assign(p, o, { carry: null, prep: null, kick: 0 }); }
+    this._own = false;
     this.holder = s.holder != null ? this.players.get(s.holder) || null : null;
     this.pending = null; this.shot = null;
     if (s.restart) {
       const taker = this.players.get(s.restart.taker) || this.list(s.restart.side).find((p) => !p.gk);
       this.restart = { ...s.restart, taker, t: 0 };
+      this._draftStamp = (this._draftStamp || 0) + 1;
       if (this.restart.kind === 'kickoff') this.kickoffTargets(); else this.restartPositions();
+      this.commitDrafts(); this.resolveIntents(0);
     } else this.restart = null;
   }
 
@@ -165,7 +170,109 @@ export class LiveSim {
     for (const [id, pl] of this.players) if (!seen.has(id)) { this.players.delete(id); if (this.holder === pl) this.holder = null; }
     this.tagPlayers();
   }
-  tagPlayers() { for (const pl of this.players.values()) { pl.cd = pl.cd || 0; pl.next = pl.next || 0; } }
+  tagPlayers() { for (const pl of this.players.values()) { pl.cd = pl.cd || 0; pl.next = pl.next || 0; this.guardTarget(pl); } }
+
+  /**
+   * Étape 5a : la cible de déplacement (tx, ty) n'a qu'UN propriétaire, l'arbitre des intentions.
+   * Toute autre écriture est une violation (comptée ; refusée en mode strict pour les tests).
+   * Les systèmes de placement écrivent un BROUILLON (ptx, pty) qui devient une proposition.
+   */
+  guardTarget(pl) {
+    if (pl._guarded) return;
+    const sim = this;
+    let tx = pl.tx ?? 0.5, ty = pl.ty ?? 0.5, ptx = tx, pty = ty;
+    const chk = () => { if (!sim._own) { sim.targetViolations = (sim.targetViolations || 0) + 1; if (globalThis.__STRICT_TARGET) throw new Error('écriture de cible hors arbitre'); return false; } return true; };
+    Object.defineProperty(pl, 'tx', { get: () => tx, set: (v) => { if (chk()) tx = v; }, enumerable: true, configurable: true });
+    Object.defineProperty(pl, 'ty', { get: () => ty, set: (v) => { if (chk()) ty = v; }, enumerable: true, configurable: true });
+    Object.defineProperty(pl, 'ptx', { get: () => ptx, set: (v) => { ptx = v; pl._draft = sim._draftStamp; }, enumerable: false, configurable: true });
+    Object.defineProperty(pl, 'pty', { get: () => pty, set: (v) => { pty = v; pl._draft = sim._draftStamp; }, enumerable: false, configurable: true });
+    pl._arb = newArbiter();
+    pl._guarded = true;
+  }
+  /** Écriture directe de la cible, réservée au moteur : geste en cours (P6), phases sans jeu. */
+  setT(p, x, y) { const o = this._own; this._own = true; p.tx = x; p.ty = y; this._own = o; }
+  /** Proposition d'intention (coordonnées en mètres). */
+  want(p, slot, id, pri, src, x, y, value = 0.5, extra = null) {
+    proposeIntent(p._arb, this.now, { slot, id, pri, src, x, y, value: clamp(value, 0, 1), ...(extra || {}) });
+  }
+  /** Arrêt de jeu : condition de fin explicite de toutes les intentions en cours (réévaluation complète). */
+  endIntents() { for (const p of this.players.values()) if (p._arb) { p._arb.slots.clear(); p._arb.cur = null; p._arb.prev = null; } }
+  /** Le joueur est-il en plein geste (P6, hors arbitrage) ? */
+  inGesture(p) { return !!(p._dive || p._tk || (p._down || 0) > this.now || p.fall > 0.3 || p.slide > 0.2 || p.hurt > 0 || (p._p6 && this.now < p._p6.until)); }
+
+  /**
+   * Arbitrage (étape 5a) : une seule intention retenue par joueur et par pas, puis écriture de la
+   * cible. Le geste en cours (P6) n'est pas arbitré ; sa fin déclenche une réévaluation immédiate.
+   */
+  resolveIntents(dt) {
+    const st = this.intentStats ||= { arbitrations: 0, players: 0, events: {}, byPri: {} };
+    for (const p of this.players.values()) {
+      const A = p._arb;
+      // Contrôle : un seul arbitrage par joueur et par pas de jeu (la mise en place d'un engagement,
+      // arbitrée hors pas avec dt = 0, n'en est pas un).
+      if (dt > 0) { if (p._arbAt === this.now) st.double = (st.double || 0) + 1; p._arbAt = this.now; }
+      p._idle = false;   // « à sa place » (lu par move() : petits pas en marchant), posé plus bas
+      if (this.inGesture(p)) {
+        A.inP6 = true;
+        if (p._p6 && this.now < p._p6.until) this.setT(p, p._p6.x / L, p._p6.y / W);
+        continue;
+      }
+      if (A.inP6) { A.inP6 = false; A.cur = null; A.prev = null; }   // fin du geste : réévaluation immédiate
+      const r = arbitrate(A, this.now, dt);
+      st.players++;
+      if (!r) continue;
+      st.arbitrations++;
+      if (r.event) { st.events[r.event] = (st.events[r.event] || 0) + 1; if (this.diag && r.cur) this.diag.intent(this.now, { pid: p.mp.id, side: p.side, event: r.event, id: r.cur.id, src: r.cur.src, pri: r.cur.pri, x: r.x, y: r.y }); }
+      if (r.x == null) continue;
+      st.byPri[r.cur.pri] = (st.byPri[r.cur.pri] || 0) + dt;
+      let x = r.x, y = r.y;
+      // À sa place (placement P1 ou soutien P2 atteint, hors suivi défensif), un joueur ne reste pas
+      // planté : quelques pas autour, en marchant (move() lit p._idle).
+      if (r.cur.pri <= PRI.SOUTIEN && A.settled && !r.cur.track && !this.restart && !p.gk) {
+        p._idle = true;
+        const ph = (p.mp?.id || 0) * 1.37;
+        x += Math.sin(this.now * 0.21 + ph) * 1.6; y += Math.cos(this.now * 0.17 + ph * 1.9) * 1.8;
+      }
+      p._intent = r.cur;
+      this.setT(p, clamp(x / L, 0.003, 0.997), clamp(y / W, 0.003, 0.997));
+    }
+  }
+
+  /** Les brouillons du placement collectif deviennent des propositions (priorité selon le rôle). */
+  commitDrafts() {
+    const own = this.poss;
+    for (const p of this.players.values()) {
+      if (p._draft !== this._draftStamp) continue;
+      const x = p.ptx * L, y = p.pty * W, role = p.role;
+      if (this.restart) {
+        if (p === this.restart.taker) this.want(p, 'placement', 'tireur', PRI.BALLON, 'tireur', x, y, 1, { ttl: 0.6 });
+        else this.want(p, 'placement', this.restart.kind === 'kickoff' ? 'engagement' : 'remise en jeu', PRI.PLACEMENT, this.restart.kind === 'kickoff' ? 'engagement' : 'remise en jeu', x, y, 0.5, { track: true });   // arrêt de jeu : place exacte (l'allure est réglée par move())
+        continue;
+      }
+      if (role === 'press') { const d = this.holder ? this.dist(p, this.X(this.holder), this.Y(this.holder)) : 10; this.want(p, 'placement', 'pressing', PRI.URGENCE, 'pressing', x, y, 1 - d / 15); continue; }
+      // Appel : une-deux (goRun, mission datée) ou appel collectif de l'attaquant (attente à la limite
+      // du hors-jeu « hold » puis départ dans le dos « run ») : une seule mission « appel » dont le point
+      // suit la ligne défensive sans lissage (le décalage de ±1 m autour du dernier défenseur compte).
+      const MISSION = { run: 'appel', hold: 'appel', mark: 'marquage', recover: 'repli', overlap: 'dédoublement', box: 'surface' };
+      if (MISSION[role]) {
+        const src = MISSION[role], gr = role === 'run' ? p.goRun : null, mk = p._markOf;
+        const id = gr ? `appel@${gr.until.toFixed(2)}` : role === 'mark' ? `marquage#${mk ?? '?'}` : src;
+        const side = p.side;
+        const end = gr ? () => !p.goRun || this.now > p.goRun.until || this.poss !== side
+          : role === 'mark' ? () => this.poss === side || p._markOf !== mk
+          : role === 'recover' ? () => this.poss === side
+          : () => this.poss !== side;
+        // Allure de suivi propre à la mission (le marqueur suit son attaquant, l'appel est franc).
+        this.want(p, 'placement', id, PRI.MISSION, src, x, y, 0.6, { end, glide: { run: 7 }[role] ?? 6, track: role === 'mark' || role === 'recover' || (src === 'appel' && !gr) });   // marquage, repli : réaction défensive, jamais lissée
+        continue;
+      }
+      if (role && role !== 'chase') { const src = { press2: 'second presseur', cover: 'couverture', contain: 'contenir', support: 'soutien' }[role] || 'soutien'; this.want(p, 'placement', src, PRI.SOUTIEN, src, x, y, 0.5, { glide: 3.5, track: role === 'contain' || role === 'press2' }); continue; }
+      // Placement de base : il se replace en marchant (vite si son but est menacé).
+      const ownG = this.goalX(1 - p.side), threatened = own !== p.side && own >= 0 && Math.abs(this.P.x - ownG) < 45;
+      // (Gardien : placement sur la bissectrice, validé à l'étape 4d — suivi exact, jamais lissé.)
+      this.want(p, 'placement', 'formation', PRI.PLACEMENT, 'formation', x, y, 0.5, { glide: threatened ? 5 : own === p.side ? 1.8 : 2.2, track: !!p.gk });
+    }
+  }
 
   list(side = null) { const a = [...this.players.values()]; return side == null ? a : a.filter((p) => p.side === side); }
   X(p) { return p.x * L; }
@@ -449,7 +556,7 @@ export class LiveSim {
 
   /** Pause (mi-temps, fin) : les joueurs marchent vers le centre / leur position. */
   idle(dt) {
-    for (const p of this.players.values()) { p.tx = p.x; p.ty = p.y; }
+    for (const p of this.players.values()) this.setT(p, p.x, p.y);
     this.move(dt);
     stepBall(this.P, dt);
   }
@@ -459,7 +566,7 @@ export class LiveSim {
     // Vérification VAR en cours : l'arbitre a la main à l'oreille, tout le monde attend.
     if (this.varT > 0) {
       this.varT -= dt;
-      for (const p of this.players.values()) { p.tx = p.x; p.ty = p.y; }
+      for (const p of this.players.values()) this.setT(p, p.x, p.y);
       this.move(dt); stepBall(P, dt);
       if (this.varT <= 0) this.varDecision(out);
       return;
@@ -487,6 +594,8 @@ export class LiveSim {
       if (!this.restart) this.updateLoose(dt, out);
       if (!this.restart) this.gkWatch(dt);
     }
+    // Étape 5a : une seule intention arbitrée par joueur, l'arbitre est le seul à écrire la cible.
+    this.resolveIntents(dt);
     // Instantané avant le mouvement : les contacts sont vérifiés sur le mouvement RÉEL du pas
     // (ballon et joueurs de l'instant t à t + dt), jamais par proximité approximative.
     this._sw0 = { x: P.x, y: P.y, z: P.z, vx: P.vx, vy: P.vy, vz: P.vz };
@@ -515,47 +624,14 @@ export class LiveSim {
    * largeur, selon la position du ballon), pressing, couverture, marquage, soutien, appels.
    */
   positioning() {
+    this._draftStamp = (this._draftStamp || 0) + 1;
+    for (const p of this.players.values()) { p.ptx = p.tx; p.pty = p.ty; p._draft = 0; }
     this._positioning();
-    this.steadyTargets();
+    this.commitDrafts();
   }
 
-  /**
-   * Placement calme : sans ballon, un joueur ne change pas de cible à chaque réévaluation
-   * (sinon il « panique » en zigzag). Petites corrections = glissement doux vers la nouvelle
-   * place ; il ne repart franchement que si sa place change vraiment (> 4 m) ou s'il a une
-   * mission urgente (presser, appel, dédoublement, attaque de la surface, marquage serré).
-   */
-  steadyTargets() {
-    if (globalThis.__X?.nosteady) return;
-    const urgent = new Set(['press', 'press2', 'run', 'overlap', 'box', 'recover', 'hold', 'mark', 'chase']);
-    for (const p of this.players.values()) {
-      if (p === this.holder || p === this.pending?.to || this.restart || p.gk || urgent.has(p.role)) { p._ax = p.tx; p._ay = p.ty; p._idle = false; continue; }
-      if (p._ax == null) { p._ax = p.tx; p._ay = p.ty; p._at = this.now; continue; }
-      const dx = (p.tx - p._ax) * L, dy = (p.ty - p._ay) * W, d = Math.hypot(dx, dy);
-      const span = Math.min(1, this.now - (p._at ?? this.now)); p._at = this.now;
-      if ((p.role && p.role !== p._role) || d > 30) { p._ax = p.tx; p._ay = p.ty; }
-      else {
-        // Sa place « mentale » glisse vers la place tactique à allure de trot : il se replace en
-        // trottinant au lieu de courir après une cible qui saute. Plus vite si son but est menacé.
-        const own = this.goalX(1 - p.side), threatened = this.poss !== p.side && this.poss >= 0 && Math.abs(this.P.x - own) < 45;
-        const vA = threatened ? 5 : this.poss === p.side ? 1.8 : 2.2;   // on se replace en marchant (vite)
-        // « À peu près à sa place » suffit : on ne se recale que si l'écart dépasse ~3 m, puis on
-        // s'arrête à 1 m (sinon 20 joueurs trottinent en permanence derrière une cible qui glisse).
-        if (d > (threatened ? 2 : 3.2)) p._mv = true; else if (d < 1) p._mv = false;
-        const k = !p._mv ? 0 : d > 1e-6 ? Math.min(1, (vA * span) / d) : 1;
-        p._ax += (p.tx - p._ax) * k; p._ay += (p.ty - p._ay) * k;
-        p.tx = p._ax; p.ty = p._ay;
-        // À sa place, un joueur ne reste pas planté : il marche, ajuste, se décale de quelques pas.
-        p._idle = !p._mv;
-        if (!p._mv) {
-          const ph = (p.mp?.id || 0) * 1.37;
-          p.tx = clamp(p.tx + (Math.sin(this.now * 0.21 + ph) * 1.6) / L, 0.01, 0.99);
-          p.ty = clamp(p.ty + (Math.cos(this.now * 0.17 + ph * 1.9) * 1.8) / W, 0.01, 0.99);
-        }
-      }
-      p._role = p.role;
-    }
-  }
+  // (Ancien « placement calme » steadyTargets : intégré à l'arbitre des intentions, étape 5a —
+  // hystérésis, glissement à allure de marche, petits pas autour de sa place.)
 
   _positioning() {
     const P = this.P, m = this.m;
@@ -590,8 +666,8 @@ export class LiveSim {
       const R = refs[p.side], k = mode[p.side], rbx = clamp(R.x / L, 0, 1), rby = clamp(R.y / W, 0, 1);
       const f1 = k > 0.02 ? formationPos(p.team, p.mp, rbx, rby, true, false) : null;
       const f0 = k < 0.98 ? formationPos(p.team, p.mp, rbx, rby, false, false) : null;
-      p.tx = f1 && f0 ? f0.x + (f1.x - f0.x) * k : (f1 || f0).x;
-      p.ty = f1 && f0 ? f0.y + (f1.y - f0.y) * k : (f1 || f0).y;
+      p.ptx = f1 && f0 ? f0.x + (f1.x - f0.x) * k : (f1 || f0).x;
+      p.pty = f1 && f0 ? f0.y + (f1.y - f0.y) * k : (f1 || f0).y;
       p.role = null;
     }
     if (this.restart) { this.restartPositions(); return; }
@@ -612,10 +688,10 @@ export class LiveSim {
       let bxv = ax / l1 + ax / l2, byv = a1y / l1 + a2y / l2; const bl = Math.hypot(bxv, byv) || 1; bxv /= bl; byv /= bl;
       const dx0 = Math.abs(own - P.x), tB = Math.abs(bxv) > 0.05 ? Math.max(0, (dx0 - dep) / Math.abs(bxv)) : 0;
       const gxT = P.x + bxv * tB, gyT = P.y + byv * tB;
-      p.tx = (dB < 1.5 ? own + sgn * dep : gxT) / L;
+      p.ptx = (dB < 1.5 ? own + sgn * dep : gxT) / L;
       const latMax = dep < 6 ? GOAL_HALF - 0.4 : 9;
-      p.ty = clamp(dB < 1.5 ? W / 2 : gyT, W / 2 - latMax, W / 2 + latMax) / W;
-      if (sgn * (p.tx * L - own) < 0.5) p.tx = (own + sgn * 0.5) / L;
+      p.pty = clamp(dB < 1.5 ? W / 2 : gyT, W / 2 - latMax, W / 2 + latMax) / W;
+      if (sgn * (p.ptx * L - own) < 0.5) p.ptx = (own + sgn * 0.5) / L;
     }
     if (poss < 0) return;
     const A = m.teams[poss], D = m.teams[1 - poss];
@@ -661,10 +737,10 @@ export class LiveSim {
     this._presser[D.side] = presser ? presser.p : null;
     if (presser && engage) {
       const p = presser.p;
-      p.tx = clamp(presser.ix + ux * 0.9, 0, L) / L; p.ty = clamp(presser.iy + uy * 0.9, 0, W) / W; p.role = 'press';
+      p.ptx = clamp(presser.ix + ux * 0.9, 0, L) / L; p.pty = clamp(presser.iy + uy * 0.9, 0, W) / W; p.role = 'press';
     } else if (presser) {
       const p = presser.p, gap = 7;
-      p.tx = clamp(rx + ux * gap, 0, L) / L; p.ty = clamp(ry + uy * gap, 0, W) / W; p.role = 'contain';
+      p.ptx = clamp(rx + ux * gap, 0, L) / L; p.pty = clamp(ry + uy * gap, 0, W) / W; p.role = 'contain';
     }
     const cover = loose ? null : cand.find((c) => c !== presser && c.goalSide && c.d < pressRange + 10);
     const hiPress = D.tactics.pressing === 'high' && engage;
@@ -675,19 +751,19 @@ export class LiveSim {
       const p = cover.p;
       if (justLost && cover.d < 16) {
         const side = (this.Y(p) > ry ? 1 : -1) * 1.6;
-        p.tx = clamp(rx + ux * 1.2, 0, L) / L; p.ty = clamp(ry + side, 0, W) / W; p.role = 'press2';
+        p.ptx = clamp(rx + ux * 1.2, 0, L) / L; p.pty = clamp(ry + side, 0, W) / W; p.role = 'press2';
       } else if (hiPress && h) {
         // Pressing haut : il coupe la passe vers le partenaire le plus proche du porteur.
         const mate = this.list(A.side).filter((q) => q !== h && !q.gk).sort((a, b) => this.dist(a, rx, ry) - this.dist(b, rx, ry))[0];
-        if (mate) { p.tx = (rx + (this.X(mate) - rx) * 0.6) / L; p.ty = (ry + (this.Y(mate) - ry) * 0.6) / W; p.role = 'press2'; }
-      } else { p.tx = (rx + ux * 7) / L; p.ty = (ry + uy * 7) / W; p.role = 'cover'; }
+        if (mate) { p.ptx = (rx + (this.X(mate) - rx) * 0.6) / L; p.pty = (ry + (this.Y(mate) - ry) * 0.6) / W; p.role = 'press2'; }
+      } else { p.ptx = (rx + ux * 7) / L; p.pty = (ry + uy * 7) / W; p.role = 'cover'; }
     }
     // Repli : dépassés, ils reviennent se placer entre le ballon et le but.
     for (const c of cand) {
       if (loose || c === presser || c === cover || c.goalSide || c.d < 3) continue;
       const k = Math.min(1, 10 / toG);
-      c.p.tx = clamp(rx + (ownGoalX - rx) * Math.max(k, 0.3), 1, L - 1) / L;
-      c.p.ty = clamp(c.p.ty * W + (W / 2 - c.p.ty * W) * 0.3, 2, W - 2) / W;
+      c.p.ptx = clamp(rx + (ownGoalX - rx) * Math.max(k, 0.3), 1, L - 1) / L;
+      c.p.pty = clamp(c.p.pty * W + (W / 2 - c.p.pty * W) * 0.3, 2, W - 2) / W;
       c.p.role = 'recover';
     }
     const defs = cand.filter((c) => !c.p.role).map((c) => ({ p: c.p, d: c.d }));
@@ -719,7 +795,7 @@ export class LiveSim {
           const reach = dG < 25 ? 24 : man ? 18 : 12;
           let best = null, bc = 1e9;
           for (const p of pool) {
-            const dz = Math.hypot(p.tx * L - ax, p.ty * W - ay), dn = Math.hypot(this.X(p) - ax, this.Y(p) - ay);
+            const dz = Math.hypot(p.ptx * L - ax, p.pty * W - ay), dn = Math.hypot(this.X(p) - ax, this.Y(p) - ay);
             if (Math.min(dz, dn) > reach) continue;
             const c = dz * (man ? 0.3 : 0.6) + dn * (man ? 0.7 : 0.4);
             if (c < bc) { bc = c; best = p; }
@@ -736,8 +812,8 @@ export class LiveSim {
           const g = Math.hypot(ownGoalX - ax, W / 2 - ay) || 1;
           const tight = (man ? 0.9 : 1.4) * (dG < 20 ? 0.75 : 1);
           const bx2 = this.P.x - ax, by2 = this.P.y - ay, bl = Math.hypot(bx2, by2) || 1;
-          best.tx = clamp(ax + ((ownGoalX - ax) / g) * tight + (bx2 / bl) * 0.5, 0.5, L - 0.5) / L;
-          best.ty = clamp(ay + ((W / 2 - ay) / g) * tight + (by2 / bl) * 0.5, 0.5, W - 0.5) / W;
+          best.ptx = clamp(ax + ((ownGoalX - ax) / g) * tight + (bx2 / bl) * 0.5, 0.5, L - 0.5) / L;
+          best.pty = clamp(ay + ((W / 2 - ay) / g) * tight + (by2 / bl) * 0.5, 0.5, W - 0.5) / W;
           best.role = 'mark';
         }
       }
@@ -748,14 +824,14 @@ export class LiveSim {
       const dirD = this.dir(D.side);
       for (const p of this.list(D.side)) {
         if (busy.has(p) || p.gk || p.role || !['MDC', 'MC', 'MG', 'MD'].includes(D.slots[p.mp.slot].pos)) continue;
-        if (p.tx * L * dirD > dLine + 12) p.tx = clamp((dLine + 12) * dirD, 1, L - 1) / L;
+        if (p.ptx * L * dirD > dLine + 12) p.ptx = clamp((dLine + 12) * dirD, 1, L - 1) / L;
       }
     }
     // Passe et va : le passeur poursuit sa course (une-deux possible : on le cherche dans la course).
     for (const p of attackers) {
       if (!p.goRun) continue;
       if (this.now > p.goRun.until || p.side !== poss) { p.goRun = null; continue; }
-      p.tx = p.goRun.x / L; p.ty = p.goRun.y / W; p.role = 'run';
+      p.ptx = p.goRun.x / L; p.pty = p.goRun.y / W; p.role = 'run';
     }
     // Attaque : chacun se rend disponible (loin des marqueurs, ligne de passe ouverte).
     if (h && !this.inHands) this.findSpace(A, h, busy);
@@ -770,8 +846,8 @@ export class LiveSim {
       this._sup[A.side] = supp.map((x) => x.p);
       supp.forEach(({ p }, i) => {
         const side = (i === 0 ? 1 : -1) * (ry < W / 2 ? 1 : -1);
-        p.tx = clamp(rx + dirA * (4 + i * 5), 2, L - 2) / L;
-        p.ty = clamp(ry + side * (11 + i * 3), 3, W - 3) / W;
+        p.ptx = clamp(rx + dirA * (4 + i * 5), 2, L - 2) / L;
+        p.pty = clamp(ry + side * (11 + i * 3), 3, W - 3) / W;
         p.role = 'support';
       });
       const lastDef = this.list(D.side).filter((p) => !p.gk).map((p) => this.X(p) * dirA).sort((a, b) => b - a)[1];
@@ -784,8 +860,8 @@ export class LiveSim {
       // Second appel en diagonale dans le couloir (rôle « appels » marqué), décalé dans le temps.
       const fwd2 = cands.slice(1).find((p) => (this.rfx(p).run || 0) >= 0.6);
       if (fwd2 && lastDef != null && (this.now + fwd2.mp.id * 3) % 9 > 4) {
-        fwd2.tx = clamp((lastDef + 5) * dirA, 2, L - 2) / L;
-        fwd2.ty = clamp(W / 2 + Math.sign(this.Y(fwd2) - W / 2 || 1) * 9, 3, W - 3) / W;
+        fwd2.ptx = clamp((lastDef + 5) * dirA, 2, L - 2) / L;
+        fwd2.pty = clamp(W / 2 + Math.sign(this.Y(fwd2) - W / 2 || 1) * 9, 3, W - 3) / W;
         fwd2.role = 'run';
       }
       if (fwd && lastDef != null && rx * dirA > (dirA > 0 ? L * 0.3 : -L * 0.7)) {
@@ -793,7 +869,7 @@ export class LiveSim {
         // Appel : il attend à la limite du hors-jeu puis part dans le dos (cycle de quelques secondes).
         // Appel parfois mal synchronisé (hors-jeu).
         const early = ((fwd.mp.id * 7 + Math.floor(this.now / 7)) % 3) === 0;
-        fwd.tx = clamp((lastDef + (runT < 3 ? (early ? 1.2 : -0.8) : 6)) * dirA, 2, L - 2) / L;
+        fwd.ptx = clamp((lastDef + (runT < 3 ? (early ? 1.2 : -0.8) : 6)) * dirA, 2, L - 2) / L;
         fwd.role = runT < 3 && !early ? 'hold' : 'run';
       }
       this.wideRuns(A, D, h, attackers, rx, ry);
@@ -819,9 +895,9 @@ export class LiveSim {
         .sort((a, b) => this.dist(a, rx, ry) - this.dist(b, rx, ry))[0];
       const fk = fb ? this.rkey(fb) : null;
       if (fb && fk !== 'lat_def' && this.dist(fb, rx, ry) < 30) {
-        fb.tx = clamp(capX(rx + dirA * 9), 2, L - 2) / L;
+        fb.ptx = clamp(capX(rx + dirA * 9), 2, L - 2) / L;
         // Latéral inversé : il passe à l'intérieur (demi-espace) au lieu de longer la ligne.
-        fb.ty = (fk === 'lat_inv' ? W / 2 + (ry < W / 2 ? -12 : 12) : ry < W / 2 ? 3.5 : W - 3.5) / W;
+        fb.pty = (fk === 'lat_inv' ? W / 2 + (ry < W / 2 ? -12 : 12) : ry < W / 2 ? 3.5 : W - 3.5) / W;
         fb.role = 'overlap';
       }
     }
@@ -843,7 +919,7 @@ export class LiveSim {
       for (const p of runners) { if (used.has(p)) continue; const d = this.dist(p, sp.x, sp.y); if (d < bd) { bd = d; best = p; } }
       if (!best) break;
       used.add(best);
-      best.tx = clamp(capX(sp.x), 2, L - 2) / L; best.ty = clamp(sp.y, 2, W - 2) / W;
+      best.ptx = clamp(capX(sp.x), 2, L - 2) / L; best.pty = clamp(sp.y, 2, W - 2) / W;
       best.role = 'box';
     }
   }
@@ -864,14 +940,14 @@ export class LiveSim {
     for (const p of this.list(A.side)) {
       if (busy.has(p) || p.gk) continue;
       const pos = A.slots[p.mp.slot].pos;
-      const y = p.ty * W;
+      const y = p.pty * W;
       const rk = this.rkey(p);
-      if (pos === 'DC') { p.ty = clamp(W / 2 + Math.sign(y - W / 2 || 1) * (hasHalf ? 17 : 13), 3, W - 3) / W; p.tx = (own + dir * (8 + depth * 0.25)) / L; }
-      else if ((pos === 'DG' || pos === 'DD') && rk === 'lat_inv') { p.ty = (W / 2 + Math.sign(y - W / 2 || 1) * 9) / W; p.tx = (own + dir * (22 + depth * 0.3)) / L; }   // rentre au milieu
-      else if (pos === 'DG' || pos === 'DD') { p.ty = (pos === 'DG' ? (A.side === 0 ? 4 : W - 4) : (A.side === 0 ? W - 4 : 4)) / W; p.tx = clamp(p.tx * L + dir * (rk === 'lat_def' ? 3 : 10), 2, L - 2) / L; }
-      else if (rk === 'demi_def') { p.tx = (own + dir * (7 + depth * 0.2)) / L; p.ty = 0.5; }       // entre les deux centraux
-      else if (pos === 'MDC' && !hasHalf) { p.tx = (own + dir * (14 + depth * 0.3)) / L; p.ty = 0.5; }
-      else if (rk === 'meneur' || rk === 'regista') { p.tx = (own + dir * (17 + depth * 0.35)) / L; p.ty = clamp(p.ty * W + (W / 2 - p.ty * W) * 0.4, 3, W - 3) / W; }   // décroche pour construire
+      if (pos === 'DC') { p.pty = clamp(W / 2 + Math.sign(y - W / 2 || 1) * (hasHalf ? 17 : 13), 3, W - 3) / W; p.ptx = (own + dir * (8 + depth * 0.25)) / L; }
+      else if ((pos === 'DG' || pos === 'DD') && rk === 'lat_inv') { p.pty = (W / 2 + Math.sign(y - W / 2 || 1) * 9) / W; p.ptx = (own + dir * (22 + depth * 0.3)) / L; }   // rentre au milieu
+      else if (pos === 'DG' || pos === 'DD') { p.pty = (pos === 'DG' ? (A.side === 0 ? 4 : W - 4) : (A.side === 0 ? W - 4 : 4)) / W; p.ptx = clamp(p.ptx * L + dir * (rk === 'lat_def' ? 3 : 10), 2, L - 2) / L; }
+      else if (rk === 'demi_def') { p.ptx = (own + dir * (7 + depth * 0.2)) / L; p.pty = 0.5; }       // entre les deux centraux
+      else if (pos === 'MDC' && !hasHalf) { p.ptx = (own + dir * (14 + depth * 0.3)) / L; p.pty = 0.5; }
+      else if (rk === 'meneur' || rk === 'regista') { p.ptx = (own + dir * (17 + depth * 0.35)) / L; p.pty = clamp(p.pty * W + (W / 2 - p.pty * W) * 0.4, 3, W - 3) / W; }   // décroche pour construire
     }
   }
 
@@ -881,10 +957,10 @@ export class LiveSim {
     const backs = this.list(D.side).filter((p) => !busy.has(p) && ['DC', 'DG', 'DD'].includes(D.slots[p.mp.slot].pos));
     if (backs.length < 2) return;
     // Hauteur commune : la moyenne de leurs positions de formation, sans dépasser le ballon.
-    let line = backs.reduce((a, p) => a + p.tx * L * dir, 0) / backs.length;
+    let line = backs.reduce((a, p) => a + p.ptx * L * dir, 0) / backs.length;
     if (D.tactics.offsideTrap === 'on') line += 2.5;          // la ligne monte d'un bloc
     line = Math.min(line, this.P.x * dir - (D.tactics.offsideTrap === 'on' ? 2.5 : 4));
-    for (const p of backs) p.tx = clamp(line * dir, 1, L - 1) / L;
+    for (const p of backs) p.ptx = clamp(line * dir, 1, L - 1) / L;
     return line;
   }
 
@@ -907,7 +983,7 @@ export class LiveSim {
     for (const p of this.list(A.side)) {
       if (busy.has(p) || p.gk || p === h || p.role) continue;
       const lineSeeker = gap && ['MO', 'MC', 'AG', 'AD', 'BU'].includes(A.slots[p.mp.slot]?.pos);
-      const bx = p.tx * L, by = p.ty * W;
+      const bx = p.ptx * L, by = p.pty * W;
       let best = null, bs = -1e9;
       for (let k = 0; k < 13; k++) {
         const ang = (k / 12) * Math.PI * 2, rr = k === 12 ? 0 : (k % 2 ? 4 : 8);
@@ -925,7 +1001,7 @@ export class LiveSim {
         if (lineSeeker && x * dir > gap[0] && x * dir < gap[1]) sc += 2.5;
         if (sc > bs) { bs = sc; best = { x, y }; }
       }
-      if (best) { p.tx = best.x / L; p.ty = best.y / W; }
+      if (best) { p.ptx = best.x / L; p.pty = best.y / W; }
     }
   }
 
@@ -956,7 +1032,7 @@ export class LiveSim {
       // (un joueur lancé frappe dans sa foulée, il ne se plante pas en laissant filer le ballon).
       // Hors d'atteinte, il anticipe davantage la trajectoire (sinon il ne rattrape jamais un ballon qui roule).
       const a = h.faceTo ?? h.face, lead = rr ? 0.15 : 0.45;
-      h.tx = clamp((P.x + P.vx * lead - Math.cos(a) * 0.32) / L, 0, 1); h.ty = clamp((P.y + P.vy * lead - Math.sin(a) * 0.32) / W, 0, 1);
+      this.wantHolder(h, P.x + P.vx * lead - Math.cos(a) * 0.32, P.y + P.vy * lead - Math.sin(a) * 0.32);
       // Il ne s'oriente vers la cible qu'une fois le ballon au pied ; avant, il regarde le ballon
       // (pivoter tôt en courant le ferait passer à côté de son ballon).
       h.faceBall = !rr;
@@ -981,7 +1057,7 @@ export class LiveSim {
       const lead = clamp(Math.hypot(P.x - h.x * L, P.y - h.y * W) / 6, 0.2, 0.8);
       const bx = P.x + P.vx * lead, by = P.y + P.vy * lead, ux = bx - h.x * L, uy = by - h.y * W, ul = Math.hypot(ux, uy) || 1;
       const back = Math.min(0.3, ul);
-      h.tx = clamp((bx - (ux / ul) * back) / L, 0, 1); h.ty = clamp((by - (uy / ul) * back) / W, 0, 1); h.faceBall = true; return;
+      this.wantHolder(h, bx - (ux / ul) * back, by - (uy / ul) * back); h.faceBall = true; return;
     }
     h.faceBall = false;
     // Entre deux touches, il court vers le ballon qu'il vient de pousser (il ne le dépasse pas).
@@ -990,7 +1066,7 @@ export class LiveSim {
     // qu'il coure à côté de lui. `lead` : avance prise sur la trajectoire (garde l'élan).
     const behindBall = (lead) => {
       const bs = Math.hypot(P.vx, P.vy), ux = bs > 0.5 ? P.vx / bs : Math.cos(h.face), uy = bs > 0.5 ? P.vy / bs : Math.sin(h.face);
-      h.tx = clamp((P.x + P.vx * lead - ux * 0.3) / L, 0, 1); h.ty = clamp((P.y + P.vy * lead - uy * 0.3) / W, 0, 1);
+      this.wantHolder(h, P.x + P.vx * lead - ux * 0.3, P.y + P.vy * lead - uy * 0.3);
     };
     const relBall = Math.hypot(P.vx - (h.vx || 0), P.vy - (h.vy || 0));
     // Dribble : le défenseur est-il éliminé (il est passé derrière le porteur, qui a toujours le ballon) ?
@@ -1009,15 +1085,15 @@ export class LiveSim {
       behindBall(0.5);
       if (h.carry && (this.dist(h, h.carry.x, h.carry.y) < 1.5 || this.now > h.carry.until)) { h.carry = null; h.next = Math.min(h.next, this.now); }
     } else if (h.carry) {
-      h.tx = h.carry.x / L; h.ty = h.carry.y / W;
+      this.wantHolder(h, h.carry.x, h.carry.y);
       const pressed = this.pressure(h) < 2.2;
       if (this.dist(h, h.carry.x, h.carry.y) < 1.5 || this.now > h.carry.until || (pressed && !h.carry.takeon && !h.carry.escape && this.now > h.carry.t0 + 0.9)) { h.carry = null; h.next = Math.min(h.next, this.now); }
     } else {
       // Sans consigne : il protège le ballon s'il est pressé, sinon il avance tranquillement.
       const dir = this.dir(h.side);
       if (relBall > 0.8 && Math.hypot(P.vx, P.vy) > 0.8) behindBall(0.35);   // le ballon roule encore : il le suit
-      else if (this.pressure(h) < 3) { h.tx = h.x; h.ty = h.y; }
-      else { h.tx = clamp(h.x + (dir * 3) / L, 0.02, 0.98); h.ty = clamp(h.y, 3 / W, 1 - 3 / W); }   // il ne longe pas la ligne
+      else if (this.pressure(h) < 3) this.wantHolder(h, this.X(h), this.Y(h));
+      else this.wantHolder(h, clamp(this.X(h) + dir * 3, 2, L - 2), clamp(this.Y(h), 3, W - 3));   // il ne longe pas la ligne
     }
     h.shieldK = this.pressure(h) < 2.5 && (h.speed || 0) < 2 ? 1 : 0;
     if (h.shieldK) {
@@ -1059,7 +1135,7 @@ export class LiveSim {
     for (const o of this.players.values()) {
       if (Math.hypot(o.x * L - P.x, o.y * W - P.y) > 6) continue;
       if (!h || o.side !== h.side) o._stallPush = this.now + 1;
-      if (!h && !o.gk) { o.tx = clamp(P.x / L, 0, 1); o.ty = clamp(P.y / W, 0, 1); }
+      if (!h && !o.gk) this.want(o, 'coincé', 'ballon coincé', PRI.URGENCE, 'ballon coincé', P.x, P.y, 0.5, { ttl: 0.12 });
     }
     if (this._stall >= 10) {
       this._stall = 0; this._stallMark = false; this.stallDrop = (this.stallDrop || 0) + 1;
@@ -1282,7 +1358,7 @@ export class LiveSim {
       def._feint = this.now + feint;
       // Pris à contre-pied : son premier appui part du mauvais côté.
       const side = Math.sign((pick.y - this.Y(h)) * Math.cos(h.face) - (pick.x - this.X(h)) * Math.sin(h.face)) || 1;
-      def.tx = clamp(def.x + (-Math.sin(h.face) * -side * 1.2) / L, 0, 1); def.ty = clamp(def.y + (Math.cos(h.face) * -side * 1.2) / W, 0, 1);
+      def._p6 = { x: this.X(def) + (-Math.sin(h.face) * -side * 1.2), y: this.Y(def) + (Math.cos(h.face) * -side * 1.2), until: def._feint };   // contre-pied : geste subi (P6)
       h.carry = { x: pick.x, y: pick.y, t0: this.now, until: this.now + 2.2, takeon: { def, move: pick.move, feint } };
       if (pick.move === 'petitpont') def._nutmeg = this.now + 0.6;   // le ballon passe entre ses jambes (écartées)
       if (pick.move === 'sombrero' && this.P.z < 0.3) { this.P.vz = 5.2; }
@@ -1463,7 +1539,7 @@ export class LiveSim {
       pd.rec = { pid: h.mp.id, side: A.side, to: to.mp.id, aim, exec: { x: ex.x, y: ex.y }, from: { x: P.x, y: P.y }, dAng: ex.dAng * 57.3, dLen: ex.dLen, sAng: ex.sAng * 57.3, k: ex.k, weak: ex.weak, lofted: !!o.lofted, through: !!o.through, len: ex.len, pas: eff(h.mp, 'pas'), pressure: ex.pressure, speed: ex.speed, turn: ex.turn, awk: ex.awk, interceptors: [], outcome: null };
       this.diag.pass(this.now, pd.rec);
     }
-    to.tx = clamp(aim.x / L, 0, 1); to.ty = clamp(aim.y / W, 0, 1);
+    this.want(to, 'reception', 'receveur', PRI.BALLON, 'receveur', aim.x, aim.y, 1, { ttl: 0.3, end: () => this.pending !== pd });   // fin : la passe est jouée, coupée ou perdue
     m.lastPasser = h.mp;
     if (!o.lofted) this.planGiveGo(h, to, aim.x, aim.y);
     if (o.lofted || o.through) emit(m, out, { type: o.lofted ? 'longpass' : 'pass', side: A.side, pid: h.mp.id, pid2: o.r.mp.id, x: aim.x / L, y: aim.y / W, zone: m.zone });
@@ -1631,7 +1707,7 @@ export class LiveSim {
       this.diag.path(this.now, ballPath(P, predict, { horizon: Math.min(3, T + 1), step: 0.1 }).map((q) => ({ x: q.x, y: q.y, z: q.z })), h.mp.id);
     }
     this._kickBy = h; this._kickT = this.now;
-    r.tx = tx / L; r.ty = ty / W;
+    this.want(r, 'reception', 'receveur', PRI.BALLON, 'receveur', tx, ty, 1, { ttl: 0.3, end: () => this.pending !== pd });
     m.lastPasser = h.mp;
     emit(m, out, { type: 'cross', side: A.side, pid: h.mp.id, pid2: r.mp.id, x: tx / L, y: ty / W, zone: 3 });
   }
@@ -1867,7 +1943,7 @@ export class LiveSim {
         p.celeb = p === hero ? 3.2 : 2.6;
         // Les coéquipiers serrent le buteur dans leurs bras (ou sautent autour de lui).
         if (p !== hero) p.celebType = p.mp.id % 3 ? 'hug' : 'jump';
-        p.tx = cx + (this.rand() - 0.5) * 0.05; p.ty = cyy + (this.rand() - 0.5) * 0.08;
+        this.setT(p, cx + (this.rand() - 0.5) * 0.05, cyy + (this.rand() - 0.5) * 0.08);
       }
     }
     this.holder = null; this.pending = null; this.shot = null; this.restart = null;
@@ -1950,10 +2026,10 @@ export class LiveSim {
   /** Mouvement du corps pendant le tacle (fente ou glissade), puis relevé. */
   tackleStep(p, dt) {
     const k = p._tk, f = tackleFoot(k, this.now);
-    if (f.done) { p._tk = null; p._down = this.now + (k.kind === 'slide' ? 0.45 : 0.12); p.vx = p.vy = 0; p.speed = 0; p.tx = p.x; p.ty = p.y; return; }
+    if (f.done) { p._tk = null; p._down = this.now + (k.kind === 'slide' ? 0.45 : 0.12); p.vx = p.vy = 0; p.speed = 0; this.setT(p, p.x, p.y); return; }
     const x = clamp(f.bx, 0, L), y = clamp(f.by, 0, W);
     p.vx = (x - this.X(p)) / Math.max(dt, 1e-4); p.vy = (y - this.Y(p)) / Math.max(dt, 1e-4);
-    p.x = x / L; p.y = y / W; p.tx = p.x; p.ty = p.y; p.speed = Math.hypot(p.vx, p.vy); p.acc = 0;
+    p.x = x / L; p.y = y / W; this.setT(p, p.x, p.y); p.speed = Math.hypot(p.vx, p.vy); p.acc = 0;
   }
 
   /**
@@ -2154,7 +2230,7 @@ export class LiveSim {
           plan = best ? { ...best, part: null, margin: -best.late, late: true } : null;
         }
         pd.plan = plan;
-        if (plan) { plan.abs = this.now + plan.t; r.tx = clamp(plan.x / L, 0, 1); r.ty = clamp(plan.y / W, 0, 1); }
+        if (plan) plan.abs = this.now + plan.t;
         if (this.diag && plan) this.diag.plan(this.now, { pid: r.mp.id, side: r.side, x: plan.x, y: plan.y, z: plan.z, part: plan.part, eta: plan.t, margin: plan.margin });
         if (pd.kind === 'pass') this.planInterceptors(pd, path, plan);
       }
@@ -2162,11 +2238,12 @@ export class LiveSim {
       // recalculé toutes les 0,3 s, ne les rappelle pas tant que la passe est en l'air).
       if (pd.kind === 'pass' && pd.cuts) for (const c of pd.cuts) {
         if (!this.players.has(c.p.mp.id)) continue;
-        c.p.tx = clamp(c.x / L, 0, 1); c.p.ty = clamp(c.y / W, 0, 1); c.p.role = 'chase';
+        this.want(c.p, 'coupe', c.challenge ? 'duel aérien' : c.attack ? 'attaque du centre' : 'coupe', PRI.URGENCE, c.challenge ? 'duel aérien' : c.attack ? 'attaque du centre' : 'coupe', c.x, c.y, 0.5 + (c.margin || 0), { ttl: 0.12, end: () => this.pending !== pd }); c.p.role = 'chase';
         if (c.part === 'head' && !c.jumped && c.abs - this.now < 0.28) { c.jumped = true; c.p.jump = 0.45; }   // il s'élève pour arriver au ballon au sommet du saut
       }
       if (pd.plan?.part === 'head' && !pd.plan.jumped && pd.plan.abs - this.now < 0.28) { pd.plan.jumped = true; r.jump = 0.45; }
-      if (pd.plan) { r.tx = clamp(pd.plan.x / L, 0, 1); r.ty = clamp(pd.plan.y / W, 0, 1); }
+      // Receveur : P5 s'il peut réellement jouer le ballon (point atteignable à temps), sinon P4.
+      if (pd.plan) { const ok = !pd.plan.late && pd.plan.margin >= 0; this.want(r, 'reception', 'receveur', ok ? PRI.BALLON : PRI.URGENCE, 'receveur', pd.plan.x, pd.plan.y, ok ? 1 : 0.5 + pd.plan.margin, { ttl: 0.12, end: () => this.pending !== pd }); }
       for (const q of this.players.values()) q.faceBall = q === r && this.dist(r, P.x, P.y) < 9;
       // Sortie aérienne du gardien : il s'élance, bras tendus au-dessus de la tête, et capte haut.
       // (gardien : inchangé à ce stade — refonte physique à l'étape 4d)
@@ -2232,7 +2309,7 @@ export class LiveSim {
       // freinerait en arrivant sur sa position et resterait collé derrière lui sans jamais le toucher.
       if (best) {
         const lead = sp > 1 ? Math.min(2.5, sp * 0.35) / sp : 0;
-        best.tx = clamp((br.bx + P.vx * lead) / L, 0, 1); best.ty = clamp((br.by + P.vy * lead) / W, 0, 1); best.role = 'chase';
+        this.want(best, 'poursuite', 'poursuite', PRI.URGENCE, 'poursuite', br.bx + P.vx * lead, br.by + P.vy * lead, 1 - br.t / 3, { ttl: 0.12 }); best.role = 'chase';
       }
       // Les autres ne viennent pas s'agglutiner : leur place reste à 7 m du ballon au moins
       // (ils offrent une solution ou couvrent derrière le chasseur).
@@ -2241,7 +2318,7 @@ export class LiveSim {
         const dx = p.tx * L - br?.bx, dy = p.ty * W - br?.by, d = Math.hypot(dx, dy);
         if (!(d < 7)) continue;
         const ux = d > 0.3 ? dx / d : (p.x * L - P.x) / Math.max(0.3, this.dist(p, P.x, P.y)), uy = d > 0.3 ? dy / d : (p.y * W - P.y) / Math.max(0.3, this.dist(p, P.x, P.y));
-        p.tx = clamp((br.bx + ux * 7) / L, 0.01, 0.99); p.ty = clamp((br.by + uy * 7) / W, 0.02, 0.98);
+        this.want(p, 'espacement', 'espacement', PRI.SOUTIEN, 'espacement', clamp(br.bx + ux * 7, 1, L - 1), clamp(br.by + uy * 7, 1.4, W - 1.4), 0.4, { ttl: 0.6, glide: 4 });
       }
     }
     this._letGo = [letGo(0), letGo(1)];
@@ -2457,7 +2534,7 @@ export class LiveSim {
       const sk = this.gkSkill(g), S = diveRange(sk.agil);
       if (Math.abs(dy) <= 1.15) {   // dans sa portée debout (bras tendus : contact.js · PARTS.hands)
         // À portée de mains : il se recale sur la trajectoire (pas chassé), saute si le ballon est haut.
-        g.tx = clamp(pt.x, 0, L) / L; g.ty = clamp(pt.y, W / 2 - GOAL_HALF - 1, W / 2 + GOAL_HALF + 1) / W; g.faceBall = true;
+        this.wantGk(g, clamp(pt.x, 0, L), clamp(pt.y, W / 2 - GOAL_HALF - 1, W / 2 + GOAL_HALF + 1)); g.faceBall = true;
         if (zc > 1.9 && !(g.jump > 0) && pt.t < 0.35) { g.jump = 0.45; g.claimHigh = 0.6; }
         if (T.rec && !T.rec.action) T.rec.action = 'debout';
         continue;
@@ -2467,14 +2544,16 @@ export class LiveSim {
       // temps, il se décale d'abord en pas chassés. Hors de portée : il plonge quand même s'il y croit.
       if (need === Infinity && Math.abs(dy) > S + DIVE.arm + 0.8) { this.gkHold(g); if (T.rec && !T.rec.action) T.rec.action = 'hors de portée'; continue; }
       if (need !== Infinity && pt.t > Math.max(need, DIVE.T * 0.85) + 0.06) {
-        g.tx = g.x; g.ty = clamp(this.Y(g) + Math.sign(dy) * Math.min(Math.abs(dy), 1.5), 1, W - 1) / W; g.faceBall = true;
+        this.wantGk(g, this.X(g), clamp(this.Y(g) + Math.sign(dy) * Math.min(Math.abs(dy), 1.5), 1, W - 1)); g.faceBall = true;
         continue;
       }
       this.startDive(g, Math.sign(dy) || 1, zc, S, T, Math.abs(dy), { x: dxp, y: dyp });
     }
   }
   /** Le gardien reste sur ses appuis (il lit la trajectoire). */
-  gkHold(g) { g.tx = g.x; g.ty = g.y; g.faceBall = true; }
+  gkHold(g) { this.wantGk(g, this.X(g), this.Y(g)); g.faceBall = true; }
+  wantGk(g, x, y) { this.want(g, 'gardien', 'gardien', PRI.BALLON, 'gardien', x, y, 1, { ttl: 0.12 }); }
+  wantHolder(h, x, y) { this.want(h, 'porteur', 'porteur', PRI.BALLON, 'porteur', clamp(x, 0, L), clamp(y, 0, W), 1, { ttl: 0.12, end: () => this.holder !== h }); }
   /** Distance d'un point au segment [A, B]. */
   distToSeg(px, py, ax, ay, bx, by) {
     const vx = bx - ax, vy = by - ay, l2 = vx * vx + vy * vy || 1;
@@ -2497,11 +2576,11 @@ export class LiveSim {
   /** Mouvement du corps pendant le plongeon, puis au sol avant de se relever. */
   diveStep(p, dt) {
     const d = p._dive, t = this.now - d.t0;
-    if (t > DIVE.dur) { p._dive = null; p._down = this.now + 0.35; p.vx = p.vy = 0; p.speed = 0; p.tx = p.x; p.ty = p.y; return; }
+    if (t > DIVE.dur) { p._dive = null; p._down = this.now + 0.35; p.vx = p.vy = 0; p.speed = 0; this.setT(p, p.x, p.y); return; }
     const f = diveFrac(t), x = d.x0 + d.ux * d.S * f, y = d.y0 + d.uy * d.S * f;
     p.vx = (x - d.px) / Math.max(dt, 1e-4); p.vy = (y - d.py) / Math.max(dt, 1e-4);
     d.px = x; d.py = y;
-    p.x = clamp(x, 0, L) / L; p.y = clamp(y, 0, W) / W; p.tx = p.x; p.ty = p.y;
+    p.x = clamp(x, 0, L) / L; p.y = clamp(y, 0, W) / W; this.setT(p, p.x, p.y);
     p.speed = Math.hypot(p.vx, p.vy); p.acc = 0;
   }
 
@@ -2756,6 +2835,7 @@ export class LiveSim {
     this.holder = null; this.pending = null; this.inHands = false;
     if (this.shot?.resolved) this.shot = null;   // un tir non encore constaté (sorti) le sera au pas suivant
     for (const p of this.players.values()) { p.carry = null; p._dive = null; p._threat = null; }
+    this.endIntents();
     let taker;
     const mates = this.list(side);
     if (kind === 'goalkick') taker = mates.find((p) => p.gk);
@@ -2809,7 +2889,7 @@ export class LiveSim {
     if (t) {
       const away = rs.kind === 'kickoff' ? 0 : 0.6;
       const tgtX = rs.kind === 'kickoff' ? rs.x - dir * 0.3 : rs.x - dir * away * (rs.kind === 'corner' ? -0.5 : 1);
-      t.tx = clamp(tgtX, -1, L + 1) / L; t.ty = clamp(rs.y, -1, W + 1) / W;
+      t.ptx = clamp(tgtX, -1, L + 1) / L; t.pty = clamp(rs.y, -1, W + 1) / W;
     }
     if (rs.kind === 'kickoff') { this.kickoffTargets(); return; }
     const nearBox = Math.abs(rs.x - gx) < 35;
@@ -2831,8 +2911,8 @@ export class LiveSim {
         spots = spots.map(([a, b]) => [a + shift[0], b + shift[1]]);
         const inBox = att.slice(0, nBox), rest = att.slice(nBox);
         const lurk = plan.corner.lurker || rs.routine === 'low' ? rest.sort((a, b) => eff(b.mp, 'tir') - eff(a.mp, 'tir')).shift() : null;
-        if (lurk) { lurk.tx = (gx - dir * 19) / L; lurk.ty = (W / 2 + (rs.y < W / 2 ? 4 : -4)) / W; rs.lurker = lurk; }
-        rest.forEach((p, i) => { p.tx = (gx - dir * (44 + (i % 2) * 6)) / L; p.ty = (W / 2 + (i - (rest.length - 1) / 2) * 12) / W; });
+        if (lurk) { lurk.ptx = (gx - dir * 19) / L; lurk.pty = (W / 2 + (rs.y < W / 2 ? 4 : -4)) / W; rs.lurker = lurk; }
+        rest.forEach((p, i) => { p.ptx = (gx - dir * (44 + (i % 2) * 6)) / L; p.pty = (W / 2 + (i - (rest.length - 1) / 2) * 12) / W; });
         att = inBox;
       }
       // En attendant le ballon, ça bouge : appels, feintes, on se décale pour perdre son marqueur.
@@ -2840,8 +2920,8 @@ export class LiveSim {
       // les vrais appels partent quand le tireur s'élance (updateRestart).
       const jig = (i) => (rs.kind === 'penalty' ? [0, 0] : [Math.sin(this.now * 0.35 + i * 1.7) * 0.4, Math.sin(this.now * 0.3 + i * 2.3) * 0.6]);
       att.forEach((p, i) => {
-        if (rs.kind === 'penalty') { p.tx = (gx - dir * (18.5 + (i % 3))) / L; p.ty = (W / 2 + ((i % 6) - 2.5) * 5) / W; return; }
-        if (i < spots.length) { const [jx, jy] = jig(i); p.tx = (gx - dir * (spots[i][0] + jx)) / L; p.ty = (W / 2 + spots[i][1] + jy) / W; }
+        if (rs.kind === 'penalty') { p.ptx = (gx - dir * (18.5 + (i % 3))) / L; p.pty = (W / 2 + ((i % 6) - 2.5) * 5) / W; return; }
+        if (i < spots.length) { const [jx, jy] = jig(i); p.ptx = (gx - dir * (spots[i][0] + jx)) / L; p.pty = (W / 2 + spots[i][1] + jy) / W; }
       });
       let defs = this.list(D.side).filter((p) => !p.gk);
       if (rs.kind === 'corner') {
@@ -2850,23 +2930,23 @@ export class LiveSim {
         const sY = rs.y < W / 2 ? -1 : 1;
         const fast = defs.slice().sort((a, b) => eff(b.mp, 'vit') - eff(a.mp, 'vit'));
         const up = fast.filter((p) => !['DC', 'DG', 'DD'].includes(p.mp.p.pos)).slice(0, dPlan.def.up);
-        up.forEach((p, i) => { p.tx = (gx - dir * (L / 2 - 2)) / L; p.ty = (W / 2 + (i ? 10 : -6)) / W; });
+        up.forEach((p, i) => { p.ptx = (gx - dir * (L / 2 - 2)) / L; p.pty = (W / 2 + (i ? 10 : -6)) / W; });
         defs = defs.filter((p) => !up.includes(p));
         const posts = defs.slice().sort((a, b) => eff(a.mp, 'phy') - eff(b.mp, 'phy')).slice(0, dPlan.def.posts);
-        posts.forEach((p, i) => { p.tx = (gx - dir * 0.6) / L; p.ty = (W / 2 + (i ? -sY : sY) * 3.4) / W; });
+        posts.forEach((p, i) => { p.ptx = (gx - dir * 0.6) / L; p.pty = (W / 2 + (i ? -sY : sY) * 3.4) / W; });
         defs = defs.filter((p) => !posts.includes(p)).sort((a, b) => eff(b.mp, 'phy') + eff(b.mp, 'def') - eff(a.mp, 'phy') - eff(a.mp, 'def'));
         const zones = [[5.5, 0], [5.5, -3.5 * sY], [5.5, 3.5 * sY], [8.5, -1.5], [8.5, 2.5], [11, 0], [13, -4], [13, 4]];
         const nZone = dPlan.def.marking === 'zonal' ? defs.length : dPlan.def.marking === 'man' ? 0 : Math.min(3, defs.length);
         defs.forEach((p, i) => {
-          if (i < nZone) { const [a, b] = zones[i % zones.length]; p.tx = (gx - dir * a) / L; p.ty = (W / 2 + b) / W; return; }
+          if (i < nZone) { const [a, b] = zones[i % zones.length]; p.ptx = (gx - dir * a) / L; p.pty = (W / 2 + b) / W; return; }
           const a = att[i - nZone] || (rs.lurker && i - nZone === att.length ? rs.lurker : null);
           // Marquage individuel : côté but et côté ballon, à un bras de distance (pas collé dessus).
-          if (a) { p.tx = a.tx - (dir * 1.2) / L; p.ty = a.ty + ((rs.y - a.ty * W) > 0 ? 0.5 : -0.5) / W; }
+          if (a) { p.ptx = a.ptx - (dir * 1.2) / L; p.pty = a.pty + ((rs.y - a.pty * W) > 0 ? 0.5 : -0.5) / W; }
         });
       } else defs.forEach((p, i) => {
-        if (rs.kind === 'penalty') { p.tx = (gx - dir * (18.5 + ((i + 1) % 3))) / L; p.ty = (W / 2 + ((i % 6) - 2.5) * 5 + 2) / W; return; }
+        if (rs.kind === 'penalty') { p.ptx = (gx - dir * (18.5 + ((i + 1) % 3))) / L; p.pty = (W / 2 + ((i % 6) - 2.5) * 5 + 2) / W; return; }
         const a = att[i];
-        if (a && i < spots.length) { p.tx = a.tx - (dir * 1.2) / L; p.ty = a.ty + ((rs.y - a.ty * W) > 0 ? 0.5 : -0.5) / W; }
+        if (a && i < spots.length) { p.ptx = a.ptx - (dir * 1.2) / L; p.pty = a.pty + ((rs.y - a.pty * W) > 0 ? 0.5 : -0.5) / W; }
       });
       // Corner joué à deux : un petit milieu vient se proposer à quelques mètres du tireur ;
       // un défenseur sort pour le gêner (règle des 9,15 m respectée plus bas).
@@ -2875,9 +2955,9 @@ export class LiveSim {
         const sp = rs.shortP;
         if (sp) {
           const inward = rs.y < W / 2 ? 1 : -1;
-          sp.tx = clamp(rs.x - dir * 5, 1, L - 1) / L; sp.ty = clamp(rs.y + inward * 8, 1, W - 1) / W;
+          sp.ptx = clamp(rs.x - dir * 5, 1, L - 1) / L; sp.pty = clamp(rs.y + inward * 8, 1, W - 1) / W;
           const d = defs[Math.min(spots.length, att.length)] || defs[defs.length - 1]; // un défenseur sans marquage
-          if (d) { d.tx = clamp(rs.x - dir * 9, 1, L - 1) / L; d.ty = clamp(rs.y + inward * 11, 1, W - 1) / W; }
+          if (d) { d.ptx = clamp(rs.x - dir * 9, 1, L - 1) / L; d.pty = clamp(rs.y + inward * 11, 1, W - 1) / W; }
         }
       }
     }
@@ -2892,7 +2972,7 @@ export class LiveSim {
         const ws = this.list(D.side).filter((p) => !p.gk).sort((a, b) => this.dist(a, wx, wy) - this.dist(b, wx, wy)).slice(0, n);
         ws.forEach((p, i) => {
           const off = (i - (n - 1) / 2) * 0.62 + 0.25;
-          p.tx = clamp(wx - uy * off, 0, L) / L; p.ty = clamp(wy + ux * off, 0, W) / W; p.wall = true;
+          p.ptx = clamp(wx - uy * off, 0, L) / L; p.pty = clamp(wy + ux * off, 0, W) / W; p.wall = true;
         });
       }
     }
@@ -2900,23 +2980,23 @@ export class LiveSim {
     for (const p of this.list(D.side)) {
       if (p.wall) continue;
       if (p.gk) continue;
-      const dx = p.tx * L - rs.x, dy = p.ty * W - rs.y, d = Math.hypot(dx, dy);
-      if (d < 9.2 && rs.kind !== 'penalty') { const k = 9.2 / Math.max(0.5, d); p.tx = (rs.x + dx * k) / L; p.ty = (rs.y + dy * k) / W; }
+      const dx = p.ptx * L - rs.x, dy = p.pty * W - rs.y, d = Math.hypot(dx, dy);
+      if (d < 9.2 && rs.kind !== 'penalty') { const k = 9.2 / Math.max(0.5, d); p.ptx = (rs.x + dx * k) / L; p.pty = (rs.y + dy * k) / W; }
     }
     // Devant le but : chaque joueur a SA place (au moins 1,3 m entre deux places), sinon ils se
     // marchent dessus et se bousculent en permanence en attendant le ballon.
     if (rs.kind === 'corner' || rs.kind === 'freekick') {
-      const ps = [...this.players.values()].filter((p) => p !== t && !p.wall && !p.gk && Math.abs(p.tx * L - gx) < 22);
+      const ps = [...this.players.values()].filter((p) => p !== t && !p.wall && !p.gk && Math.abs(p.ptx * L - gx) < 22);
       for (let it = 0; it < 4; it++) {
         for (let i = 0; i < ps.length; i++) for (let j = i + 1; j < ps.length; j++) {
           const a = ps[i], b = ps[j];
-          const dx = (b.tx - a.tx) * L, dy = (b.ty - a.ty) * W, d = Math.hypot(dx, dy), minD = a.side === b.side ? 2.2 : 1.15;
+          const dx = (b.ptx - a.ptx) * L, dy = (b.pty - a.pty) * W, d = Math.hypot(dx, dy), minD = a.side === b.side ? 2.2 : 1.15;
           if (d >= minD) continue;
           const ux = d > 1e-3 ? dx / d : 0, uy = d > 1e-3 ? dy / d : 1, push = (minD - d) / 2;
-          a.tx -= (ux * push) / L; a.ty -= (uy * push) / W; b.tx += (ux * push) / L; b.ty += (uy * push) / W;
+          a.ptx -= (ux * push) / L; a.pty -= (uy * push) / W; b.ptx += (ux * push) / L; b.pty += (uy * push) / W;
         }
       }
-      for (const p of ps) { p.tx = clamp(p.tx, 0.003, 0.997); p.ty = clamp(p.ty, 0.01, 0.99); }
+      for (const p of ps) { p.ptx = clamp(p.ptx, 0.003, 0.997); p.pty = clamp(p.pty, 0.01, 0.99); }
     }
   }
 
@@ -2939,7 +3019,10 @@ export class LiveSim {
       this.restart.fetch = { x0: P0.x, y0: P0.y, z0: Math.max(BR, P0.z), t: 0, T: clamp(dB / 18, 0.6, 2.2), h: clamp(dB * 0.12, 0.5, 6), wait: 0 };
     }
     this.poss = ev.side;
+    this.endIntents();
+    this._draftStamp = (this._draftStamp || 0) + 1;
     this.kickoffTargets();
+    this.commitDrafts(); this.resolveIntents(0);
     // Début de mi-temps : les joueurs sont entrés sur le terrain et ont pris place avant le coup
     // de sifflet (pas de tireur qui traverse la moitié de terrain pour venir au ballon).
     if (!this._goalKo) for (const p of this.players.values()) { p.x = p.tx; p.y = p.ty; p.vx = p.vy = 0; p.speed = 0; p.face = p.side === 0 ? 0 : Math.PI; }
@@ -2964,16 +3047,16 @@ export class LiveSim {
         const dx = x - L / 2, dy = y - W / 2, d = Math.hypot(dx, dy);
         if (d < 10.2) { const k = 10.2 / Math.max(0.5, d); x = L / 2 + dx * k; y = W / 2 + dy * k; if ((x - L / 2) * own < 1.5) x = L / 2 + own * 1.5; }
       }
-      p.tx = clamp(x, 1, L - 1) / L; p.ty = clamp(y, 1, W - 1) / W;
+      p.ptx = clamp(x, 1, L - 1) / L; p.pty = clamp(y, 1, W - 1) / W;
       if (p.side === rs.side && p !== rs.taker && !p.gk && ['BU', 'MO', 'AG', 'AD', 'MC'].includes(p.mp.p.pos)) {
         const dd = Math.hypot(x - L / 2, y - W / 2);
         if (!partner || dd < partner.d) partner = { p, d: dd };
       }
     }
     const t = rs.taker, own = -this.dir(rs.side);
-    if (t) { t.tx = (L / 2 + own * 0.35) / L; t.ty = 0.5; }
+    if (t) { t.ptx = (L / 2 + own * 0.35) / L; t.pty = 0.5; }
     // Partenaire à 5 m en retrait, en diagonale : c'est lui qui reçoit la première passe.
-    if (partner) { partner.p.tx = (L / 2 + own * 4) / L; partner.p.ty = (W / 2 + (partner.p.ty < 0.5 ? -3 : 3)) / W; rs.partner = partner.p; }
+    if (partner) { partner.p.ptx = (L / 2 + own * 4) / L; partner.p.pty = (W / 2 + (partner.p.pty < 0.5 ? -3 : 3)) / W; rs.partner = partner.p; }
   }
 
   updateRestart(dt, out) {
@@ -3133,7 +3216,7 @@ export class LiveSim {
     for (const p of this.players.values()) {
       const vit = p.mp?.p?.attrs?.vit ?? 60, en = p.mp?.energy ?? 100;
       const withBall = p === this.holder && !this.inHands ? (p.carry?.takeon ? 1.0 : 0.86) * ((p.turnGap || 0) > 1.2 ? 0.35 : (p.turnGap || 0) > 0.6 ? 0.7 : 1) : 1;
-      if (p.fall > 0.3 || p.slide > 0.2 || p.hurt > 0) { p.tx = p.x; p.ty = p.y; }
+      if (p.fall > 0.3 || p.slide > 0.2 || p.hurt > 0) this.setT(p, p.x, p.y);
       // Arrêt de jeu : on se replace en trottinant (on ne sprinte pas pour un coup franc).
       let cap = Infinity;
       if (this.restart?.hurry) cap = Infinity;   // l'arbitre presse : on court se replacer

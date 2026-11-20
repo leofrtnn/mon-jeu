@@ -28,7 +28,8 @@ test('match complet en direct : mi-temps, fin, score cohérent avec les buteurs'
   assert.equal(m.phase, 'ft');
   assert.ok(m.minute >= 90);
   assert.equal(m.goals.length, m.score[0] + m.score[1]);
-  for (const g of m.goals) assert.ok(m.teams[g.side].onPitch.concat(m.teams[g.side].out).some((mp) => mp && mp.name === g.name));
+  // Le buteur appartient à l'équipe qui marque ; but contre son camp : à l'équipe adverse.
+  for (const g of m.goals) { const T = m.teams[g.og ? 1 - g.side : g.side], name = g.og ? g.name.replace(/ \(csc\)$/, '') : g.name; assert.ok(T.onPitch.concat(T.out).some((mp) => mp && mp.name === name), g.name); }
   const s = m.teams.map((t) => t.stats);
   assert.ok(s[0].poss + s[1].poss > 0);
   assert.ok(s.every((x) => x.passes > 30 && x.passesOk <= x.passes));

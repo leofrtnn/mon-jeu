@@ -24,19 +24,21 @@ export class Diag {
     this.gks = [];             // interventions du gardien : trajectoire anticipée, réaction, geste, contact, résultat
     this.shots = [];           // tirs : point visé, erreur, cadré, intervention du gardien, issue
     this.aerials = [];
-    this.duels = [];           // tacles, ballons chipés, dribbles, duels de corps, ballons coincés         // duels aériens / têtes : joueurs, timing, contact, qualité, geste, résultat
+    this.duels = [];
+    this.intents = [];         // transitions d'intention (étape 5a) : joueur, évènement, intention retenue, priorité, point           // tacles, ballons chipés, dribbles, duels de corps, ballons coincés         // duels aériens / têtes : joueurs, timing, contact, qualité, geste, résultat
     this.misses = [];          // { t, pid, x, y, reason } : réceptions manquées (trop tard, mal placé)
     this.counts = { contacts: 0, physical: 0, nonPhysical: 0, misses: 0 };
   }
   _trim(now) {
     const lim = now - this.keep;
-    for (const k of this.keepPasses ? ['paths', 'plans', 'contacts', 'misses'] : ['paths', 'plans', 'contacts', 'misses', 'passes', 'gks', 'shots', 'aerials', 'duels']) { const a = this[k]; let i = 0; while (i < a.length && a[i].t < lim) i++; if (i) a.splice(0, i); }
+    for (const k of this.keepPasses ? ['paths', 'plans', 'contacts', 'misses'] : ['paths', 'plans', 'contacts', 'misses', 'passes', 'gks', 'shots', 'aerials', 'duels', 'intents']) { const a = this[k]; let i = 0; while (i < a.length && a[i].t < lim) i++; if (i) a.splice(0, i); }
   }
   path(now, pts, by) { this.paths.push({ t: now, pts, by }); this._trim(now); }
   plan(now, p) { this.plans.push({ t: now, ...p }); this._trim(now); }
   pass(now, rec) { rec.t = now; this.passes.push(rec); this.counts.passes = (this.counts.passes || 0) + 1; this._trim(now); }
   gk(now, rec) { rec.t = now; this.gks.push(rec); this._trim(now); }
   shot(now, rec) { rec.t = now; this.shots.push(rec); this._trim(now); }
+  intent(now, rec) { rec.t = now; this.intents.push(rec); if (this.intents.length > 4000) this.intents.splice(0, 1000); }
   duel(now, rec) { rec.t = now; this.duels.push(rec); this._trim(now); }
   aerial(now, rec) { rec.t = now; this.aerials.push(rec); this._trim(now); }
   miss(now, m) { this.misses.push({ t: now, ...m }); this.counts.misses++; this._trim(now); }
