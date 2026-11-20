@@ -372,3 +372,176 @@ que jusqu'à la première divergence ; on compare donc les distributions sur 16 
   variance par match (1 à 9).
 * Relève de l'IA (perception du hors-jeu par le passeur, synchronisation des appels) — à traiter
   avec les appels tactiques et la stabilité des rôles, pas dans 5c.
+
+## 5c — Modèle cinématique unique (`js/engine/body.js`) — rapport, non validé
+### Principe
+* **Un seul pas de vitesse** (`velocityStep`) pour le déplacement réel (`move()`) et pour la
+  prédiction. La vitesse voulue vers la cible est le minimum de trois valeurs : l'allure demandée,
+  le freinage voulu √(2·b·d) et 5,6 m/s à reculons. La vitesse ne change que de `acc`·dt en
+  accélération (`accelOf(vit)` = 4,4 + 0,013·vit) ou de 8,5·dt en freinage, avec un facteur
+  ×0,75 dans un virage serré lancé.
+* **Capacité** (`topSpeed`) : la vitesse de pointe dépend de l'attribut, du trait « fusée », de la
+  météo, de la fatigue et du ballon au pied. C'est la même formule que le mouvement, désormais
+  utilisée aussi par `reachOpts` (avant 5c : vitesse de pointe sans fatigue ni météo).
+* **Temps d'arrivée** (`timeTo`, `pursue`) : on simule ce même pas depuis l'état réel du joueur
+  (position, vitesse, orientation), au pas de 0,04 s, avec un passage interpolé.
+  * Il sert à la réception et à l'interception (`timeToReach`) et à la poursuite du ballon libre
+    (le chasseur poursuit la position prévue du ballon qui ralentit).
+  * L'ancienne formule fermée reste disponible (`timeToReachOld`) pour comparaison.
+  * La perception (`react`) s'ajoute toujours.
+* **Élagage exact** : un point au-delà de la distance atteignable par le modèle n'est pas simulé.
+  La simulation s'arrête aussi à l'instant utile du plan, et `receivePlan` cesse de chercher quand
+  l'attente seule coûte déjà plus que la meilleure option. Ces trois règles ne changent aucun
+  résultat.
+  * Coût de calcul : +39 % (16 matchs en 86 s contre 62 s).
+* **5c-1** (extraction seule) : empreinte de match identique à 5b (d70462a6).
+* **5c-2** (prédiction + virage) : nouvelle empreinte, 54a57a04.
+* `__X.noturn` et `__X.oldeta` (copie de mesure, non livrés) suppriment chacun l'un des deux
+  changements. Avec les deux, on retrouve d70462a6.
+
+### Nouvelle règle physique : vitesse en virage
+* **Défaut trouvé dans le mouvement réel, antérieur à 5c.** Un joueur lancé vers un point hors de
+  l'axe de sa course ne ralentissait pas : il passait à côté du point puis lui tournait autour.
+  Exemple : à 6 m/s, un point à 45° et 6 m demandait 2,98 s.
+* **Correction.** Pour rejoindre le point, il faut un virage de rayon R = d / (2 sin θ) ; la vitesse
+  y est limitée à √((acc + 1,5)·R), avec un plancher de 1 m/s. Si le point est derrière le joueur,
+  celui-ci freine. Le même cas prend maintenant 1,49 s.
+* La règle vaut pour le mouvement comme pour la prédiction. Elle ne touche ni les contacts ni le
+  ballon.
+* **Pas de coût de pivot à l'arrêt.** À l'arrêt, le modèle réel ne coûte aucun temps pour pivoter :
+  le joueur part en reculant puis se retourne. La prédiction le reproduit fidèlement, et le test de
+  `contact.test.js` porte désormais sur un joueur lancé. Ajouter un vrai coût de pivot serait une
+  amélioration physique possible : elle n'est pas faite.
+
+### Scénarios contrôlés (`tests/body.test.js`)
+* **Couverture** : 68 cas sur 4 profils (vitesse 40, 60 ou 85, et un profil vitesse 70 avec
+  énergie 55). Les scénarios :
+  * départ arrêté de 3 à 40 m, face au point ou dos au point ;
+  * course lancée à 6 m/s avec un virage de 45° à 180° ;
+  * arrivée avec une portée de 0,3 m ;
+  * poursuite d'un ballon qui ralentit.
+
+| | Erreur moyenne | Erreur max |
+|---|---|---|
+| Nouveau modèle | 0,046 s | 0,079 s |
+| Ancienne formule | 0,633 s | 1,449 s |
+
+* Biais (prédit − réel) de l'ancienne formule : −0,31 s au départ arrêté, −0,56 s pour un virage de
+  45°, −1,0 s à 90°, −1,4 s à 180°.
+* Nouveau modèle : −0,04 à −0,07 s.
+* L'ancienne formule était donc **systématiquement optimiste** : elle jugeait possibles des
+  réceptions et des interceptions qui ne l'étaient pas.
+
+### Temps d'arrivée en match (`eta-report.mjs`, 8 matchs, graines 100-107)
+| | 5b (ancienne formule) | 5c |
+|---|---|---|
+| Plans avec marge ≥ 0 | 172 815 | 128 366 |
+| Plans stables / modifiés / interrompus | 14,6 / 55,1 / 30,2 % | 20,4 / 45,6 / 34,0 % |
+| Réceptions stables : erreur p10 / p90 | 0,000 / +0,116 s | −0,082 / +0,008 s |
+| Réceptions stables : \|erreur\| < 0,1 s / < 0,2 s | 85 / 92 % | 84 / 94 % |
+| Interceptions stables : p10 / p90 | −0,190 / +0,329 s | −0,086 / +0,118 s |
+| Interceptions stables : \|erreur\| < 0,1 s / < 0,2 s | 64 / 73 % | 79 / 88 % |
+
+* Il y a moins de plans jugés faisables (−26 %), et ils sont plus stables.
+* L'erreur en match reste plus grande que dans les scénarios contrôlés, car en match :
+  * le joueur ne vise pas exactement le point du plan (pied en avance, ajustements) ;
+  * le plan est réévalué toutes les 0,15 s ;
+  * l'arrivée est mesurée à 0,3 m.
+
+### Défaut antérieur découvert pendant la campagne : matchs bloqués (`stall-report.mjs`)
+La campagne a révélé des matchs où le jeu s'arrête pendant de longues minutes. Il y a deux causes,
+toutes deux **antérieures à 5c** et présentes dans 5a et 5b.
+
+1. **`celebrate` reste négatif après un but annulé par la VAR.**
+   * À la fin de la célébration, s'il y a vérification VAR, le compteur n'est pas remis à 0.
+     Si le but est refusé, le jeu reprend avec `celebrate` ≈ −0,01.
+   * `ballStep`, `contestStep`, `contactStep` et `gkWatch` testent `!this.celebrate`, et une valeur
+     négative non nulle compte comme vraie. Jusqu'à la fin du match :
+     * aucune sortie n'est sifflée ;
+     * aucun tacle n'est possible ;
+     * le ballon libre ne peut plus être touché.
+   * Le match se fige dès que le ballon sort ou s'immobilise.
+2. **Zone morte sur les lignes.**
+   * Au-delà de 0,08 m après la ligne, le ballon n'est plus jouable (`updateLoose`,
+     `loosePickup`).
+   * Il n'est sorti qu'au-delà de 0,10 m.
+   * Un ballon qui s'arrête entre les deux (graine 101 en 5c : x = 105,09 m) n'est ni jouable ni
+     sorti.
+
+| Graines | 5b : matchs touchés | 5c : matchs touchés |
+|---|---|---|
+| 100-115 (`move-report` et les autres outils) | 107 (VAR) | 101 (zone morte), 110 et 115 (VAR) |
+| `stats.mjs` (100-103, 200-203, 300-303, 400-403) | 200, 202, 301 (VAR) | 101 (zone morte), 202 (VAR) |
+
+* Chaque match touché perd de 30 à 45 minutes de jeu réel.
+* Les moyennes de distance, d'allures, de tacles, de fautes et de hors-jeu des étapes précédentes
+  sont donc contaminées, 5b comprise. La part touchée dépend du hasard des trajectoires, pas du
+  modèle. 5c n'aggrave rien : les trajectoires divergent et les buts annulés tombent ailleurs.
+* Les deux corrections tiennent en une ligne chacune :
+  * remettre `celebrate` à 0 à la fin de la célébration ;
+  * aligner le seuil de jeu sur celui de la sortie.
+* Elles ne sont **pas appliquées** : elles changent la référence 5b et attendent une décision.
+* Essai en copie (zone morte alignée à 0,10 m) : la graine 101 se joue normalement jusqu'au bout.
+
+### Comparaison 5b → 5c (mêmes graines, mêmes outils, mêmes définitions)
+**Sur tous les matchs** (y compris les matchs bloqués) :
+
+| | 5b | 5c |
+|---|---|---|
+| Distance / joueur de champ / 90 min (`move-report`) | 12,07 km | 11,22 km |
+| Allures marche / trot / course / sprint | 62,9 / 18,4 / 12,8 / 5,8 % | 66,2 / 16,8 / 11,7 / 5,3 % |
+| Demande sprint → réel sprint ; demande à fond → réel sprint | 34 % ; 29 % | 33 % ; 26 % |
+| Pleine vitesse réelle (≥ 90 % de la capacité) | ~0,8 % | ~0,8 % |
+| Marquage (médiane) | 2,24 m | 2,13 m |
+| Marquage, `mark-report` 100-103 : distance / durée des épisodes / interrompus | 2,34 m / 1,66 s / 11,0 % | 2,24 m / 1,81 s / 9,0 % |
+| Pressing : défenseur le plus proche du porteur | 3,95 m | 3,68 m |
+| Appels collectifs, écart à la ligne au départ / à la fin / progrès | −7,87 / −2,96 / 3,60 m | −7,43 / −2,58 / 3,68 m |
+| Une-deux : progrès | 10,46 m | 10,55 m |
+| Appels par match / point atteint | 127 / 78 % | 122 / 79 % |
+| Ballon libre : délai avant le premier contact | 1,45 s | 1,57 s |
+| Sauts de cible > 3 m / joueur / min | 14,3 | 13,1 |
+| Tacles / fautes / hors-jeu (`stats.mjs`) | 33,5 / 18,6 / 6,3 | 30,4 / 16,2 / 4,9 |
+| Hors-jeu (`offside-report`, 100-115) : passes vers un hors-jeu / sifflés | 6,38 / 5,25 | 5,94 / 4,50 |
+
+**Sur les matchs sains seulement** (`stall-report`, au pas 1/96 s, hors matchs bloqués) :
+
+| | 5b | 5c |
+|---|---|---|
+| Graines 100-115 : distance en jeu effectif / match | 12,26 km (15 matchs) | 12,08 km (13 matchs) |
+| Graines 100-115 : tacles / fautes / hors-jeu | 42,6 / 18,6 / 5,3 | 45,8 / 21,7 / 4,3 |
+| Graines `stats` : distance en jeu effectif / match | 12,35 km (13 matchs) | 12,23 km (14 matchs) |
+| Graines `stats` : tacles / fautes / hors-jeu | 42,2 / 20,6 / 4,5 | 39,6 / 20,0 / 6,1 |
+
+### Lecture
+* **Distance.** La baisse brute de −7 % vient presque entièrement des matchs bloqués. Sur les
+  matchs sains, la baisse est de −1 à −1,5 % (12,26 → 12,08 et 12,35 → 12,23 km). C'est cohérent
+  avec la règle de virage : un joueur lancé ralentit pour tourner au lieu d'orbiter. L'intensité
+  5b est donc conservée, et non corrigée artificiellement.
+* **Tacles, fautes, hors-jeu.** Sur les matchs sains, les écarts changent de signe d'un jeu de
+  graines à l'autre (tacles +7 % puis −6 %, hors-jeu −19 % puis +35 %). Ils ne sont pas distincts
+  du bruit, et les écarts bruts sont dominés par les matchs bloqués. Aucun effet comportemental
+  n'est établi.
+* **Améliorations physiques.**
+  * Prédiction juste dans les scénarios contrôlés (moins de 0,08 s contre 1,45 s).
+  * Plans de réception et d'interception plus stables (+40 % de plans stables), erreur
+    d'interception divisée par trois environ.
+  * Plus d'orbite autour des cibles.
+  * Marquage et pressing un peu plus serrés (2,24 → 2,13 m ; 3,95 → 3,68 m).
+  * Appels inchangés (progrès 3,6 → 3,7 m).
+  * Sauts de cible en légère baisse (14,3 → 13,1 par minute).
+* **Régression mesurée.** Le ballon libre est touché un peu plus tard (1,45 → 1,57 s), car le
+  chasseur n'est plus choisi sur une estimation optimiste. Aucune autre régression
+  comportementale n'est établie.
+* **Hors champ, inchangés** : hors-jeu (IA du passeur), longs ballons, penaltys, choix
+  tête / contrôle / tir.
+* **Tirs de la tête.** Ils passent de 20,9 à 25,4 % dans `stats.mjs` (des 16 matchs, dont des
+  bloqués). Le choix tête / contrôle / tir reste documenté comme hors champ ; ce point est à
+  surveiller.
+* **Contrôles.**
+  * Moteur rapide b47d8708 inchangé.
+  * Contacts physiquement possibles à 100 % (`diag-report`).
+  * Déterminisme conservé (54a57a04 ×2, diagnostic neutre).
+  * Tests d'interface réussis.
+  * 118 tests unitaires réussis.
+* **En attente de décision** : correction des deux défauts de blocage, puis nouvelle mesure de 5b
+  et 5c sur la même base. 5d n'est pas commencée.
