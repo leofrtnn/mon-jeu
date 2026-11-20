@@ -134,3 +134,62 @@ strict : aucune écriture hors arbitre, aucun arbitrage en double), passes levé
 contacts physiquement possibles 100 % ✔, interface ✔, déterminisme ✔, moteur rapide inchangé
 (`b47d8708`). L'empreinte de référence du moteur en direct change (attendu : nouveau comportement).
 Outil : `node tools/bench/move-report.mjs [matchs] [graine]`.
+
+## 5a — Passe de diagnostic (avant 5b)
+Outils : `jump-report.mjs` (sauts de cible par cause), `run-replay.mjs` (appels image par image),
+`mark-report.mjs` (continuité du marquage). Champs de diagnostic ajoutés à l'arbitre, sans effet
+sur le jeu (empreinte inchangée).
+
+### 1. Sauts de cible (16 matchs, mesure identique avant / après : mêmes totaux que move-report)
+| Cause | Avant 5a | Après 5a |
+|---|---|---|
+| Changement de rôle du placement collectif (formation ↔ soutien, couverture, appel, repli…) | 8,2 (`_positioning`) + 0,8 (`steadyTargets`) | 8,8 |
+| Porteur, receveur, poursuite, coupe (P4-P5, non lissés) | 5,1 | 4,7 |
+| Suivi défensif non lissé (marquage, repli, contenir, second presseur, appel) | — | 1,5 |
+| Reprise sans intention en cours (après un geste, une fin sans relais) | — | 1,1 |
+| Préemption | — | 0,9 |
+| Fin d'intention (expiration ou condition) puis reprise | — | 0,9 |
+| Reprise après arrêt de jeu | 1,3 | 1,3 |
+| Remplacement à priorité égale | — | 0,1 |
+| **Total / joueur / minute** | **16,6** | **19,4** |
+L'objectif < 5 n'est pas atteignable par l'arbitre seul : la moitié des sauts vient de la
+réattribution des rôles toutes les 0,3 s (décision d'IA) et un quart du porteur et du ballon.
+
+### 2. Appels moins profonds — origine localisée
+Pendant l'appel, la dynamique est la même (progrès 3,5 m contre 3,4 ; vitesses, durée 1,5 s,
+intention « appel » retenue 97 %). Toute la différence est au **départ** : −11,9 m de la ligne
+contre −9,6. Cause : à la **fin d'un appel** (65 % : « plus choisi pour l'appel »), le passage
+P3 appel → P1 formation est un changement d'intention, et la cible saute à la place tactique
+(−16,9 m) ; avant 5a, la cible redescendait depuis le point d'appel à l'allure de marche
+(−0,7 → −6,8 m en 3 s). Le joueur recule donc franchement (−11,3 m après 3 s contre −6,0) et
+l'appel suivant part de plus loin.
+
+### 3. Marquage
+Continuité : intention « marquage » retenue 99,1 % du temps, 9 % des épisodes interrompus au
+moins une fois (espacement, repli, pressing, porteur : < 0,25 % chacun). L'écart vient (a) des
+attaquants marqués plus mobiles (35 % du temps à la marche contre 44 %) et (b) d'un retard plus
+grand sur la cible face à un attaquant qui marche (2,46 m contre 1,90) : même mécanisme que
+ci-dessus (attaquants qui reculent après chaque appel).
+
+### Correction candidate (non appliquée, à valider)
+Redescente vers une intention lissée (P1-P3, priorité ≤ à l'intention quittée) : la cible
+**repart de l'ancre courante et glisse** au lieu de sauter. Les montées (préemption, P4-P5,
+suivi) restent immédiates. Mesure sur 16 matchs :
+| | Avant 5a | 5a actuel | Candidate |
+|---|---|---|---|
+| Sauts de cible | 16,6 | 19,4 | **15,2** |
+| Départ des appels (écart à la ligne) | −9,6 m | −11,9 m | −6,5 m |
+| Hors-jeu / centres / dégagements | 4,6 / 23,3 / 34,2 | 3,1 / 19,8 / 28,0 | 4,9 / 24,2 / 33,9 |
+| Marquage / pressing | 2,20 / 4,12 m | 2,46 / 4,11 m | 2,24 / 4,06 m |
+| Allures marche / trot | 68 / 15 % | 65 / 18 % | 67 / 16 % |
+| Buts / tirs de la tête | 3,9 / 25 % | 2,9 / 21 % | 4,1 / 28 % |
+
+### Exceptions au lissage en P2-P3 (mesure par retrait, 8 matchs, sur la candidate)
+| Exception (non lissée) | Si on la retire | Avis |
+|---|---|---|
+| Marquage (P3) | marquage 2,36 → 2,65 m | justifiée |
+| Appel collectif (P3) | hors-jeu 4,9 → 3,8 (le décalage ±1 m autour de la ligne disparaît) | justifiée |
+| Repli (P3) | aucun effet mesurable | non justifiée → hystérésis proposée |
+| Contenir + second presseur (P2) | sauts −1,7 / min, pressing 3,88 → 3,96 m, tacles 31,5 → 28,0 | à séparer (contenir était lissé avant 5a, le second presseur non) |
+Le pressing (P4) et le gardien / arrêts de jeu (placement exact, déjà non lissés avant 5a) ne
+relèvent pas de cette règle.
