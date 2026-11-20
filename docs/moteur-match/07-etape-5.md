@@ -253,3 +253,68 @@ l'IA) ; (3) le volume de centres n'est pas en cause (22 par match, sous le réel
 114 tests ✔ (dont 10 sur l'arbitre), interface ✔, contacts physiquement possibles 100 % ✔,
 déterminisme ✔ (avec et sans instrumentation), moteur rapide `b47d8708` ✔. Contacts et physique
 du ballon non modifiés.
+
+## 5b — Allure demandée par l'intention (`paceOf`, `live.js`)
+### Principe
+* L'intention **demande** une allure : marche 1,3 m/s (petits pas autour de sa place 1,1) · trot 3,2 ·
+  course 5,0 · sprint 6,3 · à fond (capacité du joueur). La vitesse **atteinte** reste décidée par la
+  cinématique de `move()` : accélération (attribut vitesse), freinage, virages, fatigue, météo,
+  ballon au pied. Mesure : une demande « sprint » n'est atteinte que 34 % du temps (le reste :
+  phase d'accélération, virage, arrivée).
+* 5b-1 : les six familles de plafonds de `move()` regroupées à l'identique (`paceOld`, empreinte
+  de match inchangée) ; interrupteur `__X.pace0` pour comparer sur les mêmes matchs.
+* 5b-2 : plus de paliers de vitesse qui baissent instantanément avec la distance à la cible.
+  L'allure dépend de l'intention et de la situation (distance restante, but menacé, ballon proche) ;
+  elle **monte immédiatement**, ne **redescend** que si la demande plus basse dure 0,3 s ;
+  **arrivée** avec hystérésis (au pas sous 1 m, relance au-delà de 3 m).
+* **Freinage voulu** (cinématique) : un replacement calme décélère à 1,5 m/s² (on arrive en
+  marchant — c'est ce que faisaient implicitement les anciens paliers), pressé (but menacé)
+  2,5 m/s² ; missions (appel, repli, dédoublement, surface), pressing, marquage et urgences
+  gardent 6 m/s² comme avant.
+* Marquage : demande relative — l'allure de l'attaquant plus de quoi revenir.
+* Inchangés (hors champ de 5b) : arrêts de jeu, gardien, porteur (dont « rattraper son ballon »),
+  destinataire d'une passe. Second presseur : lissage conservé.
+
+### Essais écartés
+| Essai | Effet mesuré | Cause |
+|---|---|---|
+| Allure fixée à la distance de départ, freinage d'urgence seul | marche 59 %, 12,7 km, 771 passes, marquage 2,52 m | les anciens paliers servaient de freinage : arrivées lancées |
+| Allure réévaluée à chaque bascule « à sa place », arrivée sans hystérésis | 79 changements de demande / joueur / minute | cible qui glisse autour du seuil d'arrivée |
+| Freinage calme appliqué aussi aux missions | appels : progrès 3,34 m au lieu de 3,62 | l'appel ralentissait trop tôt |
+| Maintien 0,6 s | sprint 6,6 % | maintien trop long ; 0,3 s retenu (valeur initiale) |
+
+### Résultats (16 matchs, mêmes graines ; stats.mjs : 100-103, 200-203, 300-303, 400-403)
+| | 5a final | 5b | Réel / indicateur |
+|---|---|---|---|
+| Marquage (distance au joueur marqué) | 2,26 m | **2,24 m** | — |
+| Appels : départ / fin / progrès | −7,4 / −2,9 / 3,62 m | −7,9 / −3,0 / 3,60 m | — |
+| Pressing | 4,00 m | 3,95 m | — |
+| Allures marche / trot / course / sprint | 68,2 / 15,5 / 11,5 / 4,8 % | 62,9 / 18,4 / 12,8 / 5,8 % | 60-70 / 20-25 / 7-10 / 3-5 |
+| Distance / joueur de champ (1/96 s ; 0,05 s) | 11,58 ; 11,76 km | 12,07 ; 12,20 km | 10-11,5 |
+| Changements de demande d'allure | — | 29 / joueur / minute | — |
+| Sauts de cible | 13,6 / min | 14,3 / min | — |
+| Tacles / fautes / coups francs | 30,1 / 15,8 / 20,1 | 33,5 / 18,6 / 24,4 | 28-35 / 20-23 / 24-28 |
+| Interceptions / dribbles / possessions | 102 / 37 / 287 | 111 / 42 / 307 | — / 30-40 / 200-260 |
+| Hors-jeu | 4,6 | **6,3** | 3,5-4,5 |
+| Passes / réussies | 844 / 82,0 % | 851 / 81,8 % | 850-1000 / 80-84 % |
+| Buts / tirs / cadrés | 3,3 / 16,3 / 6,7 | 3,8 / 17,6 / 6,9 | 2,7-2,9 / 24-26 / 8,5-9 |
+| Tirs de la tête | 19,5 % | 20,9 % | 12-16 % |
+| Distance 22 joueurs (stats.mjs) | 223 km | 231 km | 215-235 |
+
+### Points ouverts
+* **Plus d'intensité** : sprint +1 point, +0,5 km par joueur. Origine mesurée : replacement quand
+  le but est menacé (sprint réel 1,11 % du temps contre 0,62 %) et repli (1,15 % contre 0,90 %) —
+  ces déplacements ne sont plus bridés par paliers à l'approche. Non compensé.
+* **Hors-jeu 6,3** (4,6) : les attaquants restent plus près de la ligne ; à relier aux appels
+  tactiques (synchronisation, IA) — non corrigé dans 5b.
+* Les demandes « sprint » / « à fond » sont atteintes 29-34 % du temps : courtes (pressing,
+  poursuite) ou interrompues avant la pleine vitesse. Ce sera l'objet de 5c (même modèle
+  cinématique pour le mouvement et le calcul du temps d'arrivée).
+
+### Hors champ de 5b (toujours documentés)
+Appels tactiques et stabilité des rôles (sauts de cible restants), longs ballons (~170), penaltys,
+choix tête / contrôle / frappe (tirs de la tête, manque de frappes du pied).
+
+### Validation
+114 tests ✔, interface ✔, contacts physiquement possibles 100 % ✔, déterminisme ✔, moteur rapide
+`b47d8708` ✔. Contacts et physique du ballon non modifiés.
