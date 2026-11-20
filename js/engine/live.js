@@ -3238,7 +3238,7 @@ export class LiveSim {
     const LV = PACE_LEVELS, it = p._intent, A = p._arb;
     const dd = Math.hypot((p.tx - p.x) * L, (p.ty - p.y) * W), dBall = this.dist(p, this.P.x, this.P.y);
     // Début d'un déplacement : nouvelle intention, ou départ d'une place atteinte (hystérésis de l'arbitre).
-    const key = (it ? it.slot + '/' + it.id : '-') + (A?.settled ? '·à sa place' : '');
+    const key = it ? it.slot + '/' + it.id : '-';
     const st = (p._pc ||= { key: null, dd0: 0, lvl: 'marche', low: null });
     if (st.key !== key) { st.key = key; st.dd0 = dd; }
     st.dd0 = Math.max(dd, Math.min(st.dd0, dd + 15));   // distance de référence : celle du départ (sauf si la cible s'éloigne)
@@ -3273,17 +3273,21 @@ export class LiveSim {
     else if (this.now - st.low >= PACE_HOLD) { st.lvl = lvl; st.low = null; }
     let v = LV[st.lvl];
     if (rel != null) v = Math.max(v, rel);
-    return { v, pace: st.lvl, why };
+    // Décélération voulue à l'approche : un déplacement calme ralentit tôt (on arrive en marchant),
+    // un replacement pressé un peu plus tard, une urgence (sprint, à fond, marquage) au dernier moment.
+    const brake = rel != null || st.lvl === 'sprint' || st.lvl === 'à fond' ? 6 : why === 'replacement, but menacé' ? 2.5 : 1.5;
+    return { v, pace: st.lvl, why, brake };
   }
 
   move(dt) {
-    const step = (p, maxSp) => {
+    const step = (p, maxSp, brake = 6) => {
       if (p._dive) { this.diveStep(p, dt); return; }
       if (p._tk) { this.tackleStep(p, dt); return; }   // tacle : fente / glissade imposée par le geste
       if ((p._down || 0) > this.now) { p.vx *= 0.6; p.vy *= 0.6; p.speed = Math.hypot(p.vx, p.vy); p.x += p.vx * dt / L; p.y += p.vy * dt / W; return; }   // au sol / se relève   // plongeon : trajectoire du corps imposée par la physique du geste
       const dx = (p.tx - p.x) * L, dy = (p.ty - p.y) * W;
       const dist = Math.hypot(dx, dy);
-      let want = dist < 0.15 ? 0 : Math.min(maxSp, Math.sqrt(2 * 6 * dist));
+      // Freinage à l'approche de la cible : décélération voulue (étape 5b) — calme 1,5 m/s², pressé 2,5, urgence 6.
+      let want = dist < 0.15 ? 0 : Math.min(maxSp, Math.sqrt(2 * brake * dist));
       if (dist > 0.01 && p.face != null && Math.cos(Math.atan2(dy, dx) - p.face) < -0.5) want = Math.min(want, 5.6); // à reculons
       const dvx = dist > 0.01 ? (dx / dist) * want : 0, dvy = dist > 0.01 ? (dy / dist) * want : 0;
       const ax = dvx - p.vx, ay = dvy - p.vy, am = Math.hypot(ax, ay);
@@ -3337,7 +3341,7 @@ export class LiveSim {
       if (p.fall > 0.3 || p.slide > 0.2 || p.hurt > 0) this.setT(p, p.x, p.y);
       // Arrêt de jeu : on se replace en trottinant (on ne sprinte pas pour un coup franc).
       const pr = (p._pace = this.paceOf(p)), cap = pr.v;   // allure demandée (étape 5b) ; la vitesse réelle dépend de la cinématique
-      step(p, Math.min(cap, (6.2 + vit * 0.03) * (TR(p, 'fusee') ? 1.03 : 1) * (this.m.wx?.speed || 1) * (en > 70 ? 1 - (100 - en) * 0.002 : 0.94 - (70 - en) * 0.006) * withBall * (p.celeb > 0 ? 0.8 : 1)));
+      step(p, Math.min(cap, (6.2 + vit * 0.03) * (TR(p, 'fusee') ? 1.03 : 1) * (this.m.wx?.speed || 1) * (en > 70 ? 1 - (100 - en) * 0.002 : 0.94 - (70 - en) * 0.006) * withBall * (p.celeb > 0 ? 0.8 : 1)), pr.brake);
       // Effort réel : ce qu'il court (les sprints coûtent bien plus que le trot).
       if (p.mp && !p.celeb) { const v = p.speed || 0; p.mp.work = (p.mp.work || 0) + v * dt * (0.6 + (v / 6.5) ** 2 * 1.6); }
       const gd = dt / GS;
