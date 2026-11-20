@@ -318,3 +318,57 @@ choix tête / contrôle / frappe (tirs de la tête, manque de frappes du pied).
 ### Validation
 114 tests ✔, interface ✔, contacts physiquement possibles 100 % ✔, déterminisme ✔, moteur rapide
 `b47d8708` ✔. Contacts et physique du ballon non modifiés.
+
+## 5b — Diagnostic avant 5c (sans modification du moteur)
+Outils : `intensity-report.mjs`, `offside-report.mjs` (`PACE0=1` rejoue exactement 5a dans le même
+code : comparaison sur les mêmes graines 100-115). Les matchs divergent dès les premières secondes
+(la moindre différence d'allure change la suite) : la comparaison action par action n'a de sens
+que jusqu'à la première divergence ; on compare donc les distributions sur 16 matchs.
+
+### 1. Intensité par type d'intention (km / joueur / 90 min ; sprint = > 5,5 m/s)
+| Intention | Temps | km 5a → 5b | Sprint (% du temps total) 5a → 5b | Demandes sprint / à fond 5a → 5b |
+|---|---|---|---|---|
+| Replacement | 80 % | 7,87 → **8,14** | 0,7 → **1,2** | 1,0 → 2,1 % (52 % non atteintes) |
+| Marquage | 4 % | 0,71 → 0,76 | 0,8 → 0,8 | — |
+| Autres (poursuite, coupe, receveur…) | 4 % | 0,66 → 0,73 | 0,7 → 0,8 | 3,1 → 3,6 % |
+| Pressing | 4 % | 0,70 → 0,72 | 0,6 → 0,7 | 2,8 → 2,9 % |
+| Repli | 2,5 % | 0,61 → 0,65 | 0,9 → 1,0 | 1,9 → 2,1 % |
+| Appel | 3 % | 0,58 → 0,60 | 0,6 → 0,8 | 1,6 → 1,9 % |
+| Porteur | 3 % | 0,45 → 0,48 | 0,4 → 0,4 | — |
+| **Total** | | **11,58 → 12,07** | **4,8 → 5,8** | |
+* Le **replacement** explique ~55 % de la hausse de distance et la moitié de la hausse du sprint.
+  Il marche moins (77,9 → 71,7 %) et trottine plus (12,4 → 16,2 %) : en approche, le freinage
+  calme (1,5 m/s²) laisse 2 à 3,5 m/s entre 1,5 et 4 m de la cible, là où l'ancien palier imposait
+  1,9 m/s ; et la demande sprint (but menacé, > 18 m) dure jusqu'à la levée de pied (0,3 s).
+* Pleine vitesse réelle (≥ 90 % de la capacité) : ~0,8 % du temps dans les deux cas ; le
+  « sprint » au sens > 5,5 m/s est surtout de la course rapide. La moitié des demandes de sprint
+  du replacement ne dépasse pas 5,5 m/s (déplacements trop courts pour accélérer).
+
+### 2. Hors-jeu (16 matchs, graines 100-115)
+| | 5a | 5b |
+|---|---|---|
+| Passes vers un joueur hors-jeu / sifflées | 4,44 / 3,56 | 6,38 / 5,25 |
+| Par rôle (sifflés) | appel 3,25 · attente 0,25 · une-deux 0,06 | appel 4,63 · attente 0,31 · autres 0,31 |
+| Par type de passe | en profondeur 3,25 · au sol 0,19 · levée 0,13 | en profondeur 4,63 · au sol 0,50 · levée 0,13 |
+| Phase de l'appel au choix de la passe | > 1,5 s 2,31 · 0,5-1,5 s 0,81 · < 0,5 s 0,38 | > 1,5 s 3,13 · 0,5-1,5 s 1,50 · < 0,5 s 0,31 |
+| Avance de l'attaquant au choix / au départ du ballon | 1,78 / 2,27 m | 1,77 / 2,21 m |
+| Délai choix → départ du ballon | 0,29 s | 0,29 s |
+| Vitesse de l'attaquant au choix / au départ | 3,9 / 3,4 m/s | 3,9 / 3,1 m/s |
+| Ligne défensive − ballon | 24,4 m | 22,4 m |
+| Temps passé en position de hors-jeu (rôle appel / attente) | 20,1 / 18,8 % | 19,3 / 20,3 % |
+| Options de passe évaluées vers un appel : hors-jeu | 18,4 % | 19,0 % |
+| Passes en profondeur / dont vers un hors-jeu | 40,0 / 12,8 % | 35,9 / 16,0 % |
+| Pression sur le passeur (adversaire le plus proche) | 1,56 m | 1,53 m |
+
+### 3. Attribution
+* **Pas les allures des attaquants** : le temps passé en position de hors-jeu, l'avance au moment
+  de la passe, le délai et la synchronisation appel / passeur sont identiques en 5a et 5b.
+* **Décision du passeur** : à exposition égale, il choisit plus souvent l'attaquant hors-jeu
+  (16 % des passes en profondeur contre 12,8 %). Le hors-jeu entre dans son choix par un facteur
+  de perception (`offsideSeen` 0,86) ; avec une défense plus serrée en 5b (marquage 2,24 m,
+  pressing 3,95 m, interceptions 102 → 111), les solutions régulières valent moins et l'appel
+  hors-jeu l'emporte plus souvent. Effet indirect de l'intensité défensive sur l'IA du passeur.
+* Écart significatif mais modéré : 57 → 84 hors-jeu sur 16 matchs (≈ 2,3 écarts types), forte
+  variance par match (1 à 9).
+* Relève de l'IA (perception du hors-jeu par le passeur, synchronisation des appels) — à traiter
+  avec les appels tactiques et la stabilité des rôles, pas dans 5c.
