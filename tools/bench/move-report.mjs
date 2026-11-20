@@ -42,7 +42,7 @@ if (process.env.WORKER) {
           q.key = key; A.byPri[it.pri] = (A.byPri[it.pri] || 0) + dt;
         }
         // Allure demandée (étape 5b) → allure réellement atteinte.
-        if (p._pace) { const rq = p._pace.pace, ac = sp < 2 ? 'marche' : sp < 4 ? 'trot' : sp < 5.5 ? 'course' : 'sprint'; A.req[rq + ' → ' + ac] = (A.req[rq + ' → ' + ac] || 0) + dt; if (q.rq && q.rq !== rq) A.paceSw++; q.rq = rq; }
+        if (p._pace) { const rq = p._pace.pace, ac = sp < 2 ? 'marche' : sp < 4 ? 'trot' : sp < 5.5 ? 'course' : 'sprint'; A.req[rq + ' → ' + ac] = (A.req[rq + ' → ' + ac] || 0) + dt; if (q.rq && q.rq !== rq) A.paceSw++; q.rq = rq; const wk = rq + ' · ' + (p._pace.why || '?'); A.why[wk] = (A.why[wk] || 0) + dt; }
         if (p.role === 'mark' && p._markOf != null && k % 24 === 0) { const a = sim.players.get(p._markOf); if (a) A.markD.push(sim.dist(p, sim.X(a), sim.Y(a))); }
         if (p.goRun && p.goRun !== q.run) { A.runs++; q.run = p.goRun; q.runOk = false; }
         if (p.goRun && !q.runOk && sim.dist(p, p.goRun.x, p.goRun.y) < 2) { A.runsOk++; q.runOk = true; }
@@ -76,5 +76,6 @@ if (process.env.WORKER) {
     console.log(`  allure demandée → allure réelle (part du temps de la demande) · changements de demande ${(A.paceSw / min).toFixed(1)} / joueur / minute :`);
     for (const rq of ['petits pas', 'marche', 'trot', 'course', 'sprint', 'à fond']) if (by[rq]) { const T = Object.values(by[rq]).reduce((a, b) => a + b, 0); console.log(`    ${rq.padEnd(10)} ${(100 * T / A.t).toFixed(1).padStart(5)} % du temps → ` + ['marche', 'trot', 'course', 'sprint'].map((ac) => `${ac} ${(100 * (by[rq][ac] || 0) / T).toFixed(0)} %`).join(' · ')); }
   }
+  if (Object.keys(A.why).length) console.log('  motifs des demandes (part du temps) :', Object.entries(A.why).sort((a, b) => b[1] - a[1]).slice(0, 14).map(([k, v]) => `${k} ${(100 * v / A.t).toFixed(1)} %`).join(' · '));
   console.log(`  ballon libre : ${(med(A.looseT)).toFixed(2)} s avant le premier contact (médiane)`);
 }

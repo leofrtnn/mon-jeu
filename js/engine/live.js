@@ -28,7 +28,7 @@ import { P as PRI, newArbiter, propose as proposeIntent, arbitrate } from './int
 /** Allures demandées (étape 5b) : vitesse visée par niveau (m/s). « à fond » = capacité du joueur. */
 const PACE_LEVELS = { 'petits pas': 1.1, marche: 1.3, trot: 3.2, course: 5.0, sprint: 6.3, 'à fond': Infinity };
 const PACE_ORDER = ['petits pas', 'marche', 'trot', 'course', 'sprint', 'à fond'];
-const PACE_HOLD = 0.6;   // une allure plus basse doit être demandée pendant 0,6 s avant d'être adoptée
+const PACE_HOLD = 0.3;   // une allure plus basse doit être demandée pendant 0,3 s avant d'être adoptée
 import { roleFx } from '../data/constants.js';
 import { setPlanOf, cornerRoutine, setPieceEdge, directFkChance } from './setPlays.js';
 import { clamp } from '../core/rng.js';
@@ -3240,12 +3240,13 @@ export class LiveSim {
     // Début d'un déplacement : nouvelle intention, ou départ d'une place atteinte (hystérésis de l'arbitre).
     const key = it ? it.slot + '/' + it.id : '-';
     const st = (p._pc ||= { key: null, dd0: 0, lvl: 'marche', low: null });
-    if (st.key !== key) { st.key = key; st.dd0 = dd; }
-    st.dd0 = Math.max(dd, Math.min(st.dd0, dd + 15));   // distance de référence : celle du départ (sauf si la cible s'éloigne)
-    const D = st.dd0, role = p.role, src = it?.src;
+    if (st.key !== key) st.key = key;
+    // Distance restante : le joueur peut lever le pied en approchant, mais la baisse d'allure doit être
+    // demandée PACE_HOLD s (pas de palier instantané) ; le dernier freinage relève de la cinématique.
+    const D = dd, role = p.role, src = it?.src;
     const own = this.goalX(1 - p.side);
     let lvl, why, rel = null;
-    if (p._idle && dd < 4) { lvl = 'petits pas'; why = 'à sa place'; }
+    if (p._idle && dd < 4) { lvl = 'marche'; why = 'à sa place (petits pas)'; }
     else if (it && it.pri >= PRI.URGENCE && role !== 'press') { lvl = 'à fond'; why = 'urgence ' + src; }   // poursuite, coupe, receveur, ballon coincé
     else if (role === 'press') { lvl = dBall < 6 ? 'à fond' : dBall < 15 ? 'sprint' : 'course'; why = 'pressing'; }
     else if (role === 'press2') { lvl = dBall < 8 ? 'sprint' : 'course'; why = 'second presseur'; }
@@ -3267,16 +3268,19 @@ export class LiveSim {
     }
     // Hystérésis : monte tout de suite, redescend seulement si la demande plus basse dure PACE_HOLD s.
     const rank = (k) => PACE_ORDER.indexOf(k);
-    if (dd < 1 && lvl !== 'petits pas') lvl = 'marche';   // arrivé
-    if (rank(lvl) >= rank(st.lvl) || dd < 1) { st.lvl = lvl; st.low = null; }
+    // Arrivée (hystérésis) : au pas sous 1 m, ne relance qu'au-delà de 3 m (ou nouvelle intention).
+    if (dd < 1) st.arrived = true; else if (dd > 3 || st.key0 !== key) st.arrived = false;
+    st.key0 = key;
+    if (st.arrived && rank(lvl) < rank('sprint')) { lvl = 'marche'; why = 'arrivé'; }
+    if (rank(lvl) >= rank(st.lvl) || (st.arrived && lvl === 'marche')) { st.lvl = lvl; st.low = null; }
     else if (st.low == null) st.low = this.now;
     else if (this.now - st.low >= PACE_HOLD) { st.lvl = lvl; st.low = null; }
-    let v = LV[st.lvl];
+    let v = why === 'à sa place (petits pas)' && st.lvl === 'marche' ? LV['petits pas'] : LV[st.lvl];
     if (rel != null) v = Math.max(v, rel);
     // Décélération voulue à l'approche : un déplacement calme ralentit tôt (on arrive en marchant),
     // un replacement pressé un peu plus tard, une urgence (sprint, à fond, marquage) au dernier moment.
     const brake = rel != null || st.lvl === 'sprint' || st.lvl === 'à fond' ? 6 : why === 'replacement, but menacé' ? 2.5 : 1.5;
-    return { v, pace: st.lvl, why, brake };
+    return { v, pace: st.lvl, why: st.lvl === lvl ? why : 'maintien (' + st.lvl + ')', brake };
   }
 
   move(dt) {
