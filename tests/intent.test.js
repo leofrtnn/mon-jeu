@@ -113,3 +113,28 @@ test('intentions en match : l\'arbitre est le seul propriétaire de la cible, un
     for (const p of sim.players.values()) if (p._intent && !sim.inGesture(p)) assert.ok(Number.isFinite(p.tx) && Number.isFinite(p.ty));
   } finally { globalThis.__STRICT_TARGET = false; }
 });
+
+test('intentions : fin d\'une urgence, retour à une intention lissée → la cible glisse depuis le point courant (pas de saut)', () => {
+  const st = newArbiter();
+  run(st, 0, 0.5, () => [prop({ x: 10, y: 10, glide: 2 })]);
+  // Urgence (poursuite) à 30 m : montée immédiate.
+  let r = run(st, 0.55, 1.5, () => [prop({ x: 10, y: 10, glide: 2 }), prop({ slot: 'poursuite', id: 'poursuite', pri: P.URGENCE, src: 'poursuite', x: 30, y: 10, ttl: 0.12 })]);
+  assert.equal(r.x, 30, 'urgence : saut immédiat');
+  // L'urgence expire : retour au placement, la cible repart de 30 m et glisse vers 10 m.
+  r = run(st, 1.55, 1.8, () => [prop({ x: 10, y: 10, glide: 2 })]);
+  assert.equal(r.cur.id, 'formation');
+  assert.ok(r.x > 28 && r.x < 30, `retour sans saut (${r.x})`);
+  // Mission → placement (P3 → P1) : même règle.
+  const st2 = newArbiter();
+  run(st2, 0, 0.5, () => [prop({ slot: 'placement', pri: P.MISSION, id: 'appel', src: 'appel', x: 50, y: 10 })]);
+  r = run(st2, 0.55, 0.6, () => [prop({ x: 20, y: 10, glide: 2 })]);
+  assert.ok(r.x > 49 && r.x <= 50, `fin d'appel : la cible ne saute pas à la place tactique (${r.x})`);
+});
+
+test('intentions : seuils propres à une intention (jump, settle)', () => {
+  const st = newArbiter();
+  run(st, 0, 0.5, () => [prop({ pri: P.SOUTIEN, id: 'contenir', src: 'contenir', x: 10, y: 10, jump: 3.2, settle: 1 })]);
+  const r = run(st, 0.55, 0.6, () => [prop({ pri: P.SOUTIEN, id: 'contenir', src: 'contenir', x: 12.5, y: 10, jump: 3.2, settle: 1 })]);
+  assert.equal(r.x, 10, '2,5 m < 3,2 m : à sa place, il ne repart pas (la valeur P2 par défaut serait 1,5 m)');
+});
+

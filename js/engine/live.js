@@ -263,10 +263,15 @@ export class LiveSim {
           : role === 'recover' ? () => this.poss === side
           : () => this.poss !== side;
         // Allure de suivi propre à la mission (le marqueur suit son attaquant, l'appel est franc).
-        this.want(p, 'placement', id, PRI.MISSION, src, x, y, 0.6, { end, glide: { run: 7 }[role] ?? 6, track: role === 'mark' || role === 'recover' || (src === 'appel' && !gr) });   // marquage, repli : réaction défensive, jamais lissée
+        this.want(p, 'placement', id, PRI.MISSION, src, x, y, 0.6, { end, glide: { run: 7 }[role] ?? 6, track: role === 'mark' || (src === 'appel' && !gr) });   // exceptions mesurées (étape 5a) : marquage et appel collectif non lissés ; repli : hystérésis P3
         continue;
       }
-      if (role && role !== 'chase') { const src = { press2: 'second presseur', cover: 'couverture', contain: 'contenir', support: 'soutien' }[role] || 'soutien'; this.want(p, 'placement', src, PRI.SOUTIEN, src, x, y, 0.5, { glide: 3.5, track: role === 'contain' || role === 'press2' }); continue; }
+      // Contenir : lissage de l'ancien placement calme (avant 5a) — repart au-delà de 3,2 m (2 m si
+      // son but est menacé), s'arrête à 1 m, glisse à 2,2 m/s (5 m/s si menacé).
+      if (role === 'contain') { const ownG = this.goalX(1 - p.side), thr = own !== p.side && own >= 0 && Math.abs(this.P.x - ownG) < 45; this.want(p, 'placement', 'contenir', PRI.SOUTIEN, 'contenir', x, y, 0.5, { glide: thr ? 5 : 2.2, jump: thr ? 2 : 3.2, settle: 1 }); continue; }
+      // Second presseur : intention distincte, hystérésis P2 (valeur initiale).
+      if (role === 'press2') { this.want(p, 'placement', 'second presseur', PRI.SOUTIEN, 'second presseur', x, y, 0.5, { glide: 3.5 }); continue; }
+      if (role && role !== 'chase') { const src = { cover: 'couverture', support: 'soutien' }[role] || 'soutien'; this.want(p, 'placement', src, PRI.SOUTIEN, src, x, y, 0.5, { glide: 3.5 }); continue; }
       // Placement de base : il se replace en marchant (vite si son but est menacé).
       const ownG = this.goalX(1 - p.side), threatened = own !== p.side && own >= 0 && Math.abs(this.P.x - ownG) < 45;
       // (Gardien : placement sur la bissectrice, validé à l'étape 4d — suivi exact, jamais lissé.)

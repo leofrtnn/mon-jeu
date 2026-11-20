@@ -5,7 +5,7 @@
  * d'un joueur. Les systèmes du moteur (placement collectif, porteur, receveur, coupe de passe,
  * poursuite du ballon, gardien…) ne font que PROPOSER une intention dans leur créneau.
  *
- * Proposition : { slot, id, pri, src, x, y (m), value (0..1), ttl (s), end?(): bool, glide?, track?, why }
+ * Proposition : { slot, id, pri, src, x, y (m), value (0..1), ttl (s), end?(): bool, glide?, jump?, settle?, track?, why }
  *  - track : intention qui SUIT un adversaire ou le porteur (marquage, contenir, second presseur, repli) :
  *            une réaction défensive, jamais lissée (point mis à jour à chaque proposition) ;
  *  - slot  : créneau de la source (une source qui révise sa proposition la remplace : pas de concurrence) ;
@@ -30,7 +30,9 @@
  *     le point s'éloigne de plus de JUMP[pri] m (3 m en P1, 1,5 m en P2-P3) ; elle glisse alors à
  *     l'allure `glide` (m/s) jusqu'à SETTLE[pri] m du point (1 m en P1, 0,4 m en P2-P3) ; au-delà de
  *     FAR m d'écart (grand déplacement du bloc), rattrapage accéléré (CATCH m/s par mètre au-delà).
- *     Un saut de cible n'a lieu qu'au changement d'intention.
+ *     Un saut de cible n'a lieu qu'à une MONTÉE d'intention (préemption, urgence, suivi) ; en
+ *     redescendant vers une intention lissée (P1-P3, priorité ≤), la cible repart du point courant
+ *     et glisse (pas de retour brutal à la place tactique après un appel, une poursuite…).
  * Ces seuils sont des valeurs initiales, à valider par les diagnostics.
  */
 
@@ -100,16 +102,22 @@ export function arbitrate(st, now, dt) {
   // 3. Point visé.
   const switched = !st.cur || chosen.id !== st.cur.id || chosen.slot !== st.cur.slot;
   if (switched) {
+    // Redescente vers une intention lissée (P1-P3, priorité ≤ à celle qu'on quitte, hors suivi) :
+    // la cible repart du point courant et glisse (règle 5) ; une montée (préemption, urgence,
+    // suivi) saute immédiatement au nouveau point.
+    const glideFrom = st.ax != null && st.cur && chosen.pri <= P.MISSION && !chosen.track && chosen.pri <= st.cur.pri;
     if (st.cur) { st.prev = [st.cur.id, ...(st.prev || [])].slice(0, 4); }
     st.cur = { slot: chosen.slot, id: chosen.id, pri: chosen.pri, since: now };
-    st.ax = chosen.x; st.ay = chosen.y; st.settled = false;
+    if (!glideFrom) { st.ax = chosen.x; st.ay = chosen.y; }
+    st.settled = false;
     if (!event) event = 'début';
   } else if (chosen.pri >= P.URGENCE || chosen.track || st.ax == null) { st.ax = chosen.x; st.ay = chosen.y; st.settled = false; }   // réaction : jamais lissée
   else {
     const d = Math.hypot(chosen.x - st.ax, chosen.y - st.ay);
     // Hystérésis : à sa place (« settled »), il ne repart que si le point s'éloigne de plus de
     // JUMP[pri] m ; une fois reparti, il glisse jusqu'à SETTLE[pri] m du point.
-    if (st.settled ? d > ARB.JUMP[chosen.pri] : d > ARB.SETTLE[chosen.pri]) {
+    const J = chosen.jump ?? ARB.JUMP[chosen.pri], Sd = chosen.settle ?? ARB.SETTLE[chosen.pri];   // seuils propres à l'intention, sinon ceux de sa priorité
+    if (st.settled ? d > J : d > Sd) {
       // Glissement continu (jamais de saut pour une même intention) à l'allure `glide` (il se replace
       // en marchant) ; au-delà de FAR m d'écart, rattrapage d'autant plus rapide que l'écart est grand.
       const v = (chosen.glide ?? 2.5) + Math.max(0, d - ARB.FAR) * ARB.CATCH;
