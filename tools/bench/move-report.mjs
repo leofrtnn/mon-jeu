@@ -8,7 +8,7 @@ import { cfgFor, createMatch, LiveSim, L, W } from './common.mjs';
 if (process.env.WORKER) {
   const [base, n] = process.env.WORKER.split(',').map(Number), dt = +(process.env.DT || 1 / 96);
   const A = { t: 0, ticks: 0, jumps: 0, rev: 0, back: 0, crab: 0, walk: 0, jog: 0, run: 0, sprint: 0, dist: 0, osc: 0, switches: 0, maxArb: 0, viol: 0,
-    pressD: [], pressT: [], markD: [], runs: 0, runsOk: 0, looseT: [], byPri: {}, events: {}, outfield: 0 };
+    pressD: [], pressT: [], markD: [], runs: 0, runsOk: 0, looseT: [], byPri: {}, events: {}, outfield: 0, req: {}, paceSw: 0, why: {} };
   for (let g = 0; g < n; g++) {
     const m = createMatch(await cfgFor(base + g)); const sim = new LiveSim(m);
     const prev = new Map(); let lostT = null, lostSide = -1, looseT0 = null, lastPoss = -1;
@@ -41,6 +41,8 @@ if (process.env.WORKER) {
           if (q.key && key !== q.key) { A.switches++; if (q.key2 === key && sim.now - q.kt < 1) A.osc++; q.key2 = q.key; q.kt = sim.now; }
           q.key = key; A.byPri[it.pri] = (A.byPri[it.pri] || 0) + dt;
         }
+        // Allure demandée (étape 5b) → allure réellement atteinte.
+        if (p._pace) { const rq = p._pace.pace, ac = sp < 2 ? 'marche' : sp < 4 ? 'trot' : sp < 5.5 ? 'course' : 'sprint'; A.req[rq + ' → ' + ac] = (A.req[rq + ' → ' + ac] || 0) + dt; if (q.rq && q.rq !== rq) A.paceSw++; q.rq = rq; }
         if (p.role === 'mark' && p._markOf != null && k % 24 === 0) { const a = sim.players.get(p._markOf); if (a) A.markD.push(sim.dist(p, sim.X(a), sim.Y(a))); }
         if (p.goRun && p.goRun !== q.run) { A.runs++; q.run = p.goRun; q.runOk = false; }
         if (p.goRun && !q.runOk && sim.dist(p, p.goRun.x, p.goRun.y) < 2) { A.runsOk++; q.runOk = true; }
@@ -69,5 +71,10 @@ if (process.env.WORKER) {
   console.log(`  pressing : défenseur le plus proche du porteur ${med(A.pressD).toFixed(2)} m (médiane) · mise sous pression après une perte ${med(A.pressT).toFixed(2)} s (médiane)`);
   console.log(`  marquage : distance au joueur marqué ${med(A.markD).toFixed(2)} m (médiane, n=${A.markD.length})`);
   console.log(`  appels : ${(A.runs / N).toFixed(0)} par match, point d'appel atteint ${(100 * A.runsOk / Math.max(1, A.runs)).toFixed(0)} %`);
+  if (Object.keys(A.req).length) {
+    const by = {}; for (const [k, v] of Object.entries(A.req)) { const [rq, ac] = k.split(' → '); (by[rq] ||= {})[ac] = v; }
+    console.log(`  allure demandée → allure réelle (part du temps de la demande) · changements de demande ${(A.paceSw / min).toFixed(1)} / joueur / minute :`);
+    for (const rq of ['petits pas', 'marche', 'trot', 'course', 'sprint', 'à fond']) if (by[rq]) { const T = Object.values(by[rq]).reduce((a, b) => a + b, 0); console.log(`    ${rq.padEnd(10)} ${(100 * T / A.t).toFixed(1).padStart(5)} % du temps → ` + ['marche', 'trot', 'course', 'sprint'].map((ac) => `${ac} ${(100 * (by[rq][ac] || 0) / T).toFixed(0)} %`).join(' · ')); }
+  }
   console.log(`  ballon libre : ${(med(A.looseT)).toFixed(2)} s avant le premier contact (médiane)`);
 }

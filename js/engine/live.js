@@ -25,6 +25,10 @@ import { createBall, stepBall, solveKick, predict, cloneBall, R as BR, GOAL_HALF
 import { reachAt, contactPoint, sweptReach, ballPath, interceptPlan, timeToReach, touchQuality, firstTouch, passError, receivePlan, sweptBody, gauss, DIVE, diveRange, diveFrac, diveTimeFor, diveHands, sweptPoint, sweptLimb, gkHandle, shotError, TACKLE, tackleFoot, sweptTackleBall, legHits, shields, tackleQuality, bodyScore } from './contact.js';
 import { formationPos } from './positions.js';
 import { P as PRI, newArbiter, propose as proposeIntent, arbitrate } from './intent.js';
+/** Allures demandées (étape 5b) : vitesse visée par niveau (m/s). « à fond » = capacité du joueur. */
+const PACE_LEVELS = { 'petits pas': 1.1, marche: 1.3, trot: 3.2, course: 5.0, sprint: 6.3, 'à fond': Infinity };
+const PACE_ORDER = ['petits pas', 'marche', 'trot', 'course', 'sprint', 'à fond'];
+const PACE_HOLD = 0.6;   // une allure plus basse doit être demandée pendant 0,6 s avant d'être adoptée
 import { roleFx } from '../data/constants.js';
 import { setPlanOf, cornerRoutine, setPieceEdge, directFkChance } from './setPlays.js';
 import { clamp } from '../core/rng.js';
@@ -3163,6 +3167,115 @@ export class LiveSim {
 
   /* ---------------- Déplacements ---------------- */
 
+  /**
+   * ALLURE DEMANDÉE (étape 5b) : vitesse maximale que le joueur VEUT atteindre, selon son intention
+   * et la situation. Ce n'est pas la vitesse réelle : move() l'atteint (ou non) par accélération,
+   * freinage, virages, fatigue et attributs. Renvoie { v (m/s), pace, why }.
+   * 5b-1 : regroupement à l'identique des anciens plafonds de move() (conservé : paceOld, pour comparaison).
+   */
+  paceOld(p) {
+    let cap = Infinity;
+    if (this.restart?.hurry) cap = Infinity;   // l'arbitre presse : on court se replacer
+    else if (this.restart && p !== this.restart.taker) { const dd = Math.hypot((p.tx - p.x) * L, (p.ty - p.y) * W); cap = dd > 25 ? 6.4 : dd > 10 ? 5 : 3.4; }
+    else if (this.restart) cap = Math.hypot((p.tx - p.x) * L, (p.ty - p.y) * W) > 12 ? 6.5 : 4.2;   // le tireur file vers le ballon
+    else if (!globalThis.__X?.nocap && p !== this.holder && p !== this.pending?.to && !['press', 'press2', 'run', 'overlap', 'box', 'recover', 'hold', 'chase'].includes(p.role) && !p.gk) {
+      // Allure selon l'urgence : on marche ou on trottine pour garder sa place, on accélère
+      // seulement si l'on est loin de sa place, près de l'action, ou si l'on défend un
+      // ballon qui file vers son but (on ne sprinte pas sans raison).
+      const dd = Math.hypot((p.tx - p.x) * L, (p.ty - p.y) * W);
+      const dBall = this.dist(p, this.P.x, this.P.y);
+      const own = this.goalX(1 - p.side), threatened = this.poss !== p.side && (Math.abs(this.P.x - own) < 52 || (this.P.vx * (own - this.P.x)) > 0);
+      // En possession : celui qui se projette devant le ballon ou se propose au porteur y va franchement.
+      const attacking = this.poss === p.side && (p.tx * L - this.P.x) * this.dir(p.side) > -2 && dBall < 40;
+      const near = dBall < 15 || attacking || p.role === 'support';
+      // Allures réelles (un joueur passe ~70 % du match à marcher ou trottiner) : marche < 2 m/s,
+      // trot 2-4 m/s, course 4-5,5 ; le sprint est réservé au repli quand le but est menacé.
+      const loose = !this.holder && !this.pending;
+      if (p._idle && dd < 4) cap = 1.1; else   // petits pas autour de sa place : on marche
+      cap = dd > 18 ? (threatened ? 6.2 : dBall > 30 ? 4.2 : 5) : dd > 9 ? (threatened && !loose ? 5.4 : near ? 4.4 : 3.6) : dd > 4 ? (threatened && !loose ? 4.2 : near ? 3.6 : 2.8) : dd > 1.5 ? 1.9 : 1.3;
+      if (p.role === 'mark' && dd > 1.2) {
+        // On suit son attaquant à SON allure : on sprinte s'il sprinte, on trottine s'il trottine.
+        const a = p._markOf != null ? this.players.get(p._markOf) : null, as = a ? a.speed || 0 : 3;
+        cap = Math.max(cap, as + (dd > 4 ? 3 : 1.5), dd > 6 ? 6 : 0);
+      }
+    } else if (!globalThis.__X?.nocap && p !== this.holder && p !== this.pending?.to && !p.gk && ['press', 'press2', 'run', 'recover', 'overlap', 'box', 'hold'].includes(p.role)) {
+      // Rôles « urgents » : on court franchement, mais le sprint maximal est réservé aux vrais
+      // moments décisifs (presser le porteur à bout portant, se replier quand le but est menacé,
+      // un appel pour lequel la passe part).
+      const dd = Math.hypot((p.tx - p.x) * L, (p.ty - p.y) * W), dBall = this.dist(p, this.P.x, this.P.y);
+      const own = this.goalX(1 - p.side), danger = Math.abs(this.P.x - own) < 35;
+      if (p.role === 'press') cap = dBall < 6 ? Infinity : dBall < 15 ? 6.4 : 5.4;
+      else if (p.role === 'press2') cap = dBall < 8 ? 6.2 : 5;
+      else if (p.role === 'recover') cap = danger ? Infinity : dd > 20 ? 6.2 : 5.2;
+      else if (p.role === 'run') cap = dd > 6 ? 6.6 : 5;
+      else cap = dd > 10 ? 6.2 : 5;
+    } else if (p === this.holder && !this.inHands && !p.carry?.takeon) {
+      // Porteur libre de tout marquage : il ne fonce pas, il marche ou trottine balle au pied en
+      // levant la tête (il n'accélère que pressé, en contre-attaque ou dans un espace à attaquer).
+      const free = this.pressure(p);
+      const A = p.team, counter = this.tacticalMood?.(A)?.counter;
+      if (!counter) cap = free > 12 ? (p.waitN ? 1.5 : 3.2) : free > 7 ? 4.6 : Infinity;
+    }
+    // Ballon hors de portée de son pied : le porteur accélère pour le rejoindre (sinon un ballon
+    // poussé un peu trop fort lui échapperait au trot).
+    if (p === this.holder && !this.inHands && !p._reach) cap = Math.max(cap, Math.hypot(this.P.vx, this.P.vy) + 1.5);
+    return { v: cap, pace: cap < 2 ? 'marche' : cap < 4 ? 'trot' : cap < 5.5 ? 'course' : 'sprint', why: 'plafonds' };
+  }
+
+  /**
+   * ALLURE DEMANDÉE (étape 5b-2). L'intention demande une allure parmi :
+   *   marche 1,3 m/s (petits pas autour de sa place 1,1) · trot 3,2 · course 5,0 · sprint 6,3 · à fond (capacité).
+   * Ce n'est qu'une DEMANDE : move() n'y arrive que par accélération, freinage (cinématique), virages,
+   * fatigue et attributs. Pas de palier qui baisse à mesure qu'on approche de sa cible : l'allure est
+   * décidée au début du déplacement (distance à parcourir, urgence, contexte), monte immédiatement si
+   * la situation l'exige, ne redescend qu'après PACE_HOLD s ; à l'arrivée (< 1 m) on repasse au pas.
+   * Hors champ de 5b (inchangés) : arrêts de jeu, gardien, porteur, destinataire d'une passe.
+   */
+  paceOf(p) {
+    if (globalThis.__X?.pace0) return this.paceOld(p);
+    // Cas inchangés : hors jeu (arrêts), gardien, porteur, destinataire d'une passe (à fond).
+    if (this.restart || p.gk || p === this.holder || p === this.pending?.to) return this.paceOld(p);
+    const LV = PACE_LEVELS, it = p._intent, A = p._arb;
+    const dd = Math.hypot((p.tx - p.x) * L, (p.ty - p.y) * W), dBall = this.dist(p, this.P.x, this.P.y);
+    // Début d'un déplacement : nouvelle intention, ou départ d'une place atteinte (hystérésis de l'arbitre).
+    const key = (it ? it.slot + '/' + it.id : '-') + (A?.settled ? '·à sa place' : '');
+    const st = (p._pc ||= { key: null, dd0: 0, lvl: 'marche', low: null });
+    if (st.key !== key) { st.key = key; st.dd0 = dd; }
+    st.dd0 = Math.max(dd, Math.min(st.dd0, dd + 15));   // distance de référence : celle du départ (sauf si la cible s'éloigne)
+    const D = st.dd0, role = p.role, src = it?.src;
+    const own = this.goalX(1 - p.side);
+    let lvl, why, rel = null;
+    if (p._idle && dd < 4) { lvl = 'petits pas'; why = 'à sa place'; }
+    else if (it && it.pri >= PRI.URGENCE && role !== 'press') { lvl = 'à fond'; why = 'urgence ' + src; }   // poursuite, coupe, receveur, ballon coincé
+    else if (role === 'press') { lvl = dBall < 6 ? 'à fond' : dBall < 15 ? 'sprint' : 'course'; why = 'pressing'; }
+    else if (role === 'press2') { lvl = dBall < 8 ? 'sprint' : 'course'; why = 'second presseur'; }
+    else if (role === 'recover') { lvl = Math.abs(this.P.x - own) < 35 ? 'à fond' : D > 20 ? 'sprint' : 'course'; why = 'repli'; }
+    else if (role === 'run') { lvl = D > 6 ? 'sprint' : 'course'; why = 'appel'; }
+    else if (role === 'hold' || role === 'overlap' || role === 'box') { lvl = D > 10 ? 'sprint' : 'course'; why = role === 'hold' ? 'attente de l\'appel' : role === 'overlap' ? 'dédoublement' : 'surface'; }
+    else {
+      // Placement, soutien, couverture, contenir, marquage : selon la distance À PARCOURIR et l'urgence.
+      const threatened = this.poss !== p.side && (Math.abs(this.P.x - own) < 52 || (this.P.vx * (own - this.P.x)) > 0);
+      const attacking = this.poss === p.side && (p.tx * L - this.P.x) * this.dir(p.side) > -2 && dBall < 40;
+      const near = dBall < 15 || attacking || role === 'support', loose = !this.holder && !this.pending;
+      lvl = D > 18 ? (threatened ? 'sprint' : 'course') : D > 9 ? (threatened && !loose ? 'course' : near ? 'course' : 'trot') : D > 4 ? (threatened && !loose ? 'course' : 'trot') : 'marche';
+      why = threatened ? 'replacement, but menacé' : 'replacement';
+      if (role === 'mark' && dd > 1.2) {
+        // Marquage : il suit son attaquant à SON allure (demande relative), plus de quoi revenir.
+        const a = p._markOf != null ? this.players.get(p._markOf) : null, as = a ? a.speed || 0 : 3;
+        rel = Math.max(as + (dd > 4 ? 3 : 1.5), dd > 6 ? 6 : 0); why = 'marquage (allure de l\'attaquant)';
+      }
+    }
+    // Hystérésis : monte tout de suite, redescend seulement si la demande plus basse dure PACE_HOLD s.
+    const rank = (k) => PACE_ORDER.indexOf(k);
+    if (dd < 1 && lvl !== 'petits pas') lvl = 'marche';   // arrivé
+    if (rank(lvl) >= rank(st.lvl) || dd < 1) { st.lvl = lvl; st.low = null; }
+    else if (st.low == null) st.low = this.now;
+    else if (this.now - st.low >= PACE_HOLD) { st.lvl = lvl; st.low = null; }
+    let v = LV[st.lvl];
+    if (rel != null) v = Math.max(v, rel);
+    return { v, pace: st.lvl, why };
+  }
+
   move(dt) {
     const step = (p, maxSp) => {
       if (p._dive) { this.diveStep(p, dt); return; }
@@ -3223,51 +3336,7 @@ export class LiveSim {
       const withBall = p === this.holder && !this.inHands ? (p.carry?.takeon ? 1.0 : 0.86) * ((p.turnGap || 0) > 1.2 ? 0.35 : (p.turnGap || 0) > 0.6 ? 0.7 : 1) : 1;
       if (p.fall > 0.3 || p.slide > 0.2 || p.hurt > 0) this.setT(p, p.x, p.y);
       // Arrêt de jeu : on se replace en trottinant (on ne sprinte pas pour un coup franc).
-      let cap = Infinity;
-      if (this.restart?.hurry) cap = Infinity;   // l'arbitre presse : on court se replacer
-      else if (this.restart && p !== this.restart.taker) { const dd = Math.hypot((p.tx - p.x) * L, (p.ty - p.y) * W); cap = dd > 25 ? 6.4 : dd > 10 ? 5 : 3.4; }
-      else if (this.restart) cap = Math.hypot((p.tx - p.x) * L, (p.ty - p.y) * W) > 12 ? 6.5 : 4.2;   // le tireur file vers le ballon
-      else if (!globalThis.__X?.nocap && p !== this.holder && p !== this.pending?.to && !['press', 'press2', 'run', 'overlap', 'box', 'recover', 'hold', 'chase'].includes(p.role) && !p.gk) {
-        // Allure selon l'urgence : on marche ou on trottine pour garder sa place, on accélère
-        // seulement si l'on est loin de sa place, près de l'action, ou si l'on défend un
-        // ballon qui file vers son but (on ne sprinte pas sans raison).
-        const dd = Math.hypot((p.tx - p.x) * L, (p.ty - p.y) * W);
-        const dBall = this.dist(p, this.P.x, this.P.y);
-        const own = this.goalX(1 - p.side), threatened = this.poss !== p.side && (Math.abs(this.P.x - own) < 52 || (this.P.vx * (own - this.P.x)) > 0);
-        // En possession : celui qui se projette devant le ballon ou se propose au porteur y va franchement.
-        const attacking = this.poss === p.side && (p.tx * L - this.P.x) * this.dir(p.side) > -2 && dBall < 40;
-        const near = dBall < 15 || attacking || p.role === 'support';
-        // Allures réelles (un joueur passe ~70 % du match à marcher ou trottiner) : marche < 2 m/s,
-        // trot 2-4 m/s, course 4-5,5 ; le sprint est réservé au repli quand le but est menacé.
-        const loose = !this.holder && !this.pending;
-        if (p._idle && dd < 4) cap = 1.1; else   // petits pas autour de sa place : on marche
-        cap = dd > 18 ? (threatened ? 6.2 : dBall > 30 ? 4.2 : 5) : dd > 9 ? (threatened && !loose ? 5.4 : near ? 4.4 : 3.6) : dd > 4 ? (threatened && !loose ? 4.2 : near ? 3.6 : 2.8) : dd > 1.5 ? 1.9 : 1.3;
-        if (p.role === 'mark' && dd > 1.2) {
-          // On suit son attaquant à SON allure : on sprinte s'il sprinte, on trottine s'il trottine.
-          const a = p._markOf != null ? this.players.get(p._markOf) : null, as = a ? a.speed || 0 : 3;
-          cap = Math.max(cap, as + (dd > 4 ? 3 : 1.5), dd > 6 ? 6 : 0);
-        }
-      } else if (!globalThis.__X?.nocap && p !== this.holder && p !== this.pending?.to && !p.gk && ['press', 'press2', 'run', 'recover', 'overlap', 'box', 'hold'].includes(p.role)) {
-        // Rôles « urgents » : on court franchement, mais le sprint maximal est réservé aux vrais
-        // moments décisifs (presser le porteur à bout portant, se replier quand le but est menacé,
-        // un appel pour lequel la passe part).
-        const dd = Math.hypot((p.tx - p.x) * L, (p.ty - p.y) * W), dBall = this.dist(p, this.P.x, this.P.y);
-        const own = this.goalX(1 - p.side), danger = Math.abs(this.P.x - own) < 35;
-        if (p.role === 'press') cap = dBall < 6 ? Infinity : dBall < 15 ? 6.4 : 5.4;
-        else if (p.role === 'press2') cap = dBall < 8 ? 6.2 : 5;
-        else if (p.role === 'recover') cap = danger ? Infinity : dd > 20 ? 6.2 : 5.2;
-        else if (p.role === 'run') cap = dd > 6 ? 6.6 : 5;
-        else cap = dd > 10 ? 6.2 : 5;
-      } else if (p === this.holder && !this.inHands && !p.carry?.takeon) {
-        // Porteur libre de tout marquage : il ne fonce pas, il marche ou trottine balle au pied en
-        // levant la tête (il n'accélère que pressé, en contre-attaque ou dans un espace à attaquer).
-        const free = this.pressure(p);
-        const A = p.team, counter = this.tacticalMood?.(A)?.counter;
-        if (!counter) cap = free > 12 ? (p.waitN ? 1.5 : 3.2) : free > 7 ? 4.6 : Infinity;
-      }
-      // Ballon hors de portée de son pied : le porteur accélère pour le rejoindre (sinon un ballon
-      // poussé un peu trop fort lui échapperait au trot).
-      if (p === this.holder && !this.inHands && !p._reach) cap = Math.max(cap, Math.hypot(this.P.vx, this.P.vy) + 1.5);
+      const pr = (p._pace = this.paceOf(p)), cap = pr.v;   // allure demandée (étape 5b) ; la vitesse réelle dépend de la cinématique
       step(p, Math.min(cap, (6.2 + vit * 0.03) * (TR(p, 'fusee') ? 1.03 : 1) * (this.m.wx?.speed || 1) * (en > 70 ? 1 - (100 - en) * 0.002 : 0.94 - (70 - en) * 0.006) * withBall * (p.celeb > 0 ? 0.8 : 1)));
       // Effort réel : ce qu'il court (les sprints coûtent bien plus que le trot).
       if (p.mp && !p.celeb) { const v = p.speed || 0; p.mp.work = (p.mp.work || 0) + v * dt * (0.6 + (v / 6.5) ** 2 * 1.6); }
