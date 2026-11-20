@@ -60,8 +60,9 @@ test('interception : ballon qui roule vers le joueur → point atteignable ; bal
   assert.equal(interceptPlan(pl(), ballPath(far, predict, { horizon: 1.5 })), null);
 });
 
-test('déplacement : se retourner coûte du temps', () => {
-  assert.ok(timeToReach(pl({ face: Math.PI }), 55, 34) > timeToReach(pl({ face: 0 }), 55, 34));
+test('déplacement : se retourner coûte du temps (joueur lancé ; à l\'arrêt, le modèle réel n\'a pas de coût de pivot — étape 5c)', () => {
+  const run = (o) => pl({ vx: 6, vy: 0, face: 0, ...o });
+  assert.ok(timeToReach(run(), 42, 34) > timeToReach(run(), 58, 34) + 0.8);
 });
 
 test('qualité du toucher : technique, étirement, vitesse et pression comptent', () => {

@@ -14,6 +14,7 @@
  */
 
 /** Rayon du ballon (m). */
+import { timeTo as bodyTimeTo } from './body.js';
 export const BALL_R = 0.11;
 
 /** Corps du joueur : rayon de la capsule de collision (épaules), et taille de référence. */
@@ -110,10 +111,17 @@ export function sweptReach(p0, p1, b0, b1, opts = {}) {
 }
 
 /**
- * Temps pour qu'un joueur atteigne un point (m), avec un modèle cinématique simple et
- * déterministe : temps de réaction, accélération jusqu'à sa vitesse de pointe, demi-tour coûteux.
+ * Temps pour qu'un joueur atteigne un point (m) — étape 5c : SIMULATION du modèle cinématique du
+ * déplacement réel (body.js : accélération selon l'attribut, freinage, virage lancé, à reculons,
+ * orientation), depuis son état réel (vitesse, orientation). `react` (perception) s'ajoute ;
+ * `slack` : portée propre autour du point (il suffit d'arriver à cette distance).
  */
-export function timeToReach(pl, x, y, { vmax = 8, acc = 5, react = 0.18, slack = 0 } = {}) {
+export function timeToReach(pl, x, y, { vmax = 8, acc = 5, react = 0.18, slack = 0, brake = 6, tMax = 4 } = {}) {
+  return bodyTimeTo(pl, x, y, { vmax, acc, react, slack, brake, tMax });
+}
+
+/** Ancienne estimation (formule fermée indépendante, avant 5c) — conservée pour comparaison. */
+export function timeToReachOld(pl, x, y, { vmax = 8, acc = 5, react = 0.18, slack = 0 } = {}) {
   // slack : portée propre autour du point — pour présenter le pied, il suffit d'arriver à cette
   // distance (un ballon qui passe à 20 cm du pied ne demande aucun déplacement).
   const dx = x - pl.x, dy = y - pl.y, d0 = Math.hypot(dx, dy), d = Math.max(0, d0 - slack);
@@ -143,7 +151,8 @@ export function interceptPlan(pl, path, opts = {}) {
     // Il présente le pied/le corps face au ballon : il se place un peu en amont de la trajectoire.
     const sp = Math.hypot(s.vx, s.vy) || 1;
     const x = s.x - (s.vx / sp) * P.ahead, y = s.y - (s.vy / sp) * P.ahead;
-    const tr = timeToReach(pl, x, y, opts);
+    // On ne simule que jusqu'à l'instant utile (au-delà, la marge est de toute façon insuffisante).
+    const tr = timeToReach(pl, x, y, { ...opts, tMax: Math.max(0.05, s.t - (opts.minMargin ?? 0) - (opts.react ?? 0.18) + 0.05) });
     const margin = s.t - tr;
     if (margin >= (opts.minMargin ?? 0)) return { t: s.t, x, y, z: s.z, part, margin };
   }
@@ -166,7 +175,8 @@ export function receivePlan(pl, path, opts = {}) {
     const P = PARTS[part];
     const sp = Math.hypot(s.vx, s.vy) || 1;
     const x = s.x - (s.vx / sp) * P.ahead, y = s.y - (s.vy / sp) * P.ahead;
-    const margin = s.t - timeToReach(pl, x, y, opts);
+    if (waitCost * s.t >= bc) break;   // l'attente seule coûte déjà plus que la meilleure option : plus rien ne peut gagner
+    const margin = s.t - timeToReach(pl, x, y, { ...opts, tMax: Math.max(0.05, s.t - minMargin - (opts.react ?? 0.18) + 0.05) });
     if (margin < minMargin) continue;
     // headCost : seul, on préfère laisser redescendre le ballon pour le contrôler plutôt que le jouer de la tête.
     const cost = Math.hypot(x - pl.x, y - pl.y) + waitCost * s.t + (part === 'head' ? (opts.headCost || 0) : 0);

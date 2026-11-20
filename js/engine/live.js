@@ -25,6 +25,7 @@ import { createBall, stepBall, solveKick, predict, cloneBall, R as BR, GOAL_HALF
 import { reachAt, contactPoint, sweptReach, ballPath, interceptPlan, timeToReach, touchQuality, firstTouch, passError, receivePlan, sweptBody, gauss, DIVE, diveRange, diveFrac, diveTimeFor, diveHands, sweptPoint, sweptLimb, gkHandle, shotError, TACKLE, tackleFoot, sweptTackleBall, legHits, shields, tackleQuality, bodyScore } from './contact.js';
 import { formationPos } from './positions.js';
 import { P as PRI, newArbiter, propose as proposeIntent, arbitrate } from './intent.js';
+import { velocityStep, accelOf, topSpeed, pursue as bodyPursue } from './body.js';
 /** Allures demandées (étape 5b) : vitesse visée par niveau (m/s). « à fond » = capacité du joueur. */
 const PACE_LEVELS = { 'petits pas': 1.1, marche: 1.3, trot: 3.2, course: 5.0, sprint: 6.3, 'à fond': Infinity };
 const PACE_ORDER = ['petits pas', 'marche', 'trot', 'course', 'sprint', 'à fond'];
@@ -300,8 +301,9 @@ export class LiveSim {
   }
   /** Capacités physiques d'un joueur pour la géométrie de contact (mêmes vitesses que move()). */
   reachOpts(p) {
+    // Étape 5c : mêmes capacités que le déplacement réel (fatigue, météo, trait compris).
     const vit = p.mp?.p?.attrs?.vit ?? 60;
-    return { phy: p.mp?.p?.attrs?.phy ?? 60, vmax: 6.2 + vit * 0.03, acc: 4.4 + vit * 0.013 };
+    return { phy: p.mp?.p?.attrs?.phy ?? 60, vmax: this.capacity(p), acc: accelOf(vit) };
   }
 
   /** Le ballon a-t-il traversé une zone d'atteinte de `p` pendant le dernier pas ? (test balayé) */
@@ -2292,15 +2294,16 @@ export class LiveSim {
     // Un seul joueur par équipe sur le ballon : celui qui l'atteint le plus tôt (sa vitesse, la
     // trajectoire du ballon), et on ne change pas de chasseur sans une vraie raison.
     const ch = (this._chaser ||= [null, null]);
+    // Temps pour atteindre le ballon qui roule (étape 5c) : simulation du modèle cinématique réel
+    // (body.js) qui poursuit la position prévue du ballon (ralentissement au sol).
+    const ballAt = (t) => {
+      const bv = Math.max(0, sp - 1.55 * t), dd = sp > 0.3 ? (sp * t - 0.78 * t * t) * (bv > 0 ? 1 : 0) + (bv <= 0 ? stop : 0) : 0;
+      return { x: P.x + (sp > 0.3 ? (P.vx / sp) * Math.min(dd, stop) : 0), y: P.y + (sp > 0.3 ? (P.vy / sp) * Math.min(dd, stop) : 0) };
+    };
     const tReach = (p) => {
-      const vmax = 6 + (p.mp?.p?.attrs?.vit ?? 60) * 0.03;
-      for (let t = 0; t <= 3; t += 0.15) {
-        const bv = Math.max(0, sp - 1.55 * t), dd = sp > 0.3 ? (sp * t - 0.78 * t * t) * (bv > 0 ? 1 : 0) + (bv <= 0 ? stop : 0) : 0;
-        const bx = P.x + (sp > 0.3 ? (P.vx / sp) * Math.min(dd, stop) : 0), by = P.y + (sp > 0.3 ? (P.vy / sp) * Math.min(dd, stop) : 0);
-        const d = Math.max(0, this.dist(p, bx, by) - 0.6);
-        if (d / vmax <= t + 0.15) return { t, bx, by };
-      }
-      return { t: 3 + this.dist(p, rx, ry) / vmax, bx: rx, by: ry };
+      const o = this.reachOpts(p), r = bodyPursue(this.posM(p), ballAt, { vmax: o.vmax, acc: o.acc, radius: 0.6, tMax: 3 });
+      if (r) return { t: r.t, bx: r.x, by: r.y };
+      return { t: 3 + this.dist(p, rx, ry) / o.vmax, bx: rx, by: ry };
     };
     for (const side of [0, 1]) {
       if (letGo(side)) { ch[side] = null; continue; }
@@ -3287,6 +3290,11 @@ export class LiveSim {
     return { v, pace: st.lvl, why: st.lvl === lvl ? why : 'maintien (' + st.lvl + ')', brake };
   }
 
+  /** Vitesse de pointe atteignable (modèle partagé, body.js) : attribut, trait, météo, fatigue, ballon au pied. */
+  capacity(p, withBall = 1) {
+    return topSpeed({ vit: p.mp?.p?.attrs?.vit ?? 60, energy: p.mp?.energy ?? 100, weather: this.m.wx?.speed || 1, fusee: TR(p, 'fusee'), withBall, celeb: p.celeb > 0 });
+  }
+
   move(dt) {
     const step = (p, maxSp, brake = 6) => {
       if (p._dive) { this.diveStep(p, dt); return; }
@@ -3294,21 +3302,10 @@ export class LiveSim {
       if ((p._down || 0) > this.now) { p.vx *= 0.6; p.vy *= 0.6; p.speed = Math.hypot(p.vx, p.vy); p.x += p.vx * dt / L; p.y += p.vy * dt / W; return; }   // au sol / se relève   // plongeon : trajectoire du corps imposée par la physique du geste
       const dx = (p.tx - p.x) * L, dy = (p.ty - p.y) * W;
       const dist = Math.hypot(dx, dy);
-      // Freinage à l'approche de la cible : décélération voulue (étape 5b) — calme 1,5 m/s², pressé 2,5, urgence 6.
-      let want = dist < 0.15 ? 0 : Math.min(maxSp, Math.sqrt(2 * brake * dist));
-      if (dist > 0.01 && p.face != null && Math.cos(Math.atan2(dy, dx) - p.face) < -0.5) want = Math.min(want, 5.6); // à reculons
-      const dvx = dist > 0.01 ? (dx / dist) * want : 0, dvy = dist > 0.01 ? (dy / dist) * want : 0;
-      const ax = dvx - p.vx, ay = dvy - p.vy, am = Math.hypot(ax, ay);
-      // Inertie : on accélère selon sa vitesse de pointe, on ne tourne pas sur place lancé
-      // (virage large ou appui pour freiner), on court moins vite à reculons.
-      const sp0 = p.speed || 0;
-      let lim = (want > sp0 ? 4.4 + (p.mp?.p?.attrs?.vit ?? 60) * 0.013 : 8.5) * dt;
-      if (sp0 > 3.5 && want > 0.5) {
-        const turn = Math.abs(Math.atan2(p.vx * dvy - p.vy * dvx, p.vx * dvx + p.vy * dvy));
-        if (turn > 1.3) lim *= 0.75;
-      }
+      // Pas de vitesse du modèle cinématique partagé (body.js, étape 5c) : allure demandée, freinage
+      // voulu à l'approche (5b), à reculons, inertie (accélération selon l'attribut vitesse), virage lancé.
       const before = p.speed || 0;
-      if (am > lim) { p.vx += (ax / am) * lim; p.vy += (ay / am) * lim; } else { p.vx = dvx; p.vy = dvy; }
+      velocityStep(p, dx, dy, maxSp, brake, accelOf(p.mp?.p?.attrs?.vit ?? 60), dt);
       p.x += (p.vx * dt) / L; p.y += (p.vy * dt) / W;
       p.speed = Math.hypot(p.vx, p.vy);
       p.acc = dt > 0 ? (p.speed - before) / dt : 0;
@@ -3349,7 +3346,7 @@ export class LiveSim {
       if (p.fall > 0.3 || p.slide > 0.2 || p.hurt > 0) this.setT(p, p.x, p.y);
       // Arrêt de jeu : on se replace en trottinant (on ne sprinte pas pour un coup franc).
       const pr = (p._pace = this.paceOf(p)), cap = pr.v;   // allure demandée (étape 5b) ; la vitesse réelle dépend de la cinématique
-      step(p, Math.min(cap, (6.2 + vit * 0.03) * (TR(p, 'fusee') ? 1.03 : 1) * (this.m.wx?.speed || 1) * (en > 70 ? 1 - (100 - en) * 0.002 : 0.94 - (70 - en) * 0.006) * withBall * (p.celeb > 0 ? 0.8 : 1)), pr.brake);
+      step(p, Math.min(cap, this.capacity(p, withBall)), pr.brake);
       // Effort réel : ce qu'il court (les sprints coûtent bien plus que le trot).
       if (p.mp && !p.celeb) { const v = p.speed || 0; p.mp.work = (p.mp.work || 0) + v * dt * (0.6 + (v / 6.5) ** 2 * 1.6); }
       const gd = dt / GS;
