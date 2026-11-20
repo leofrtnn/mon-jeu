@@ -76,12 +76,14 @@ export function propose(st, now, prop) {
  */
 export function arbitrate(st, now, dt) {
   // 1. Expiration (temps depuis la dernière proposition valide) et conditions de fin explicites.
+  st.dropped = null;   // (diagnostic : intentions abandonnées à ce pas et pourquoi)
   for (const [k, e] of st.slots) {
     if (e.next && now - (st.cur?.since ?? -Infinity) >= (e.next.id === st.prev?.[0] ? ARB.FLAP : ARB.DWELL)) { e.prop = e.next; e.next = null; }
     const ttl = e.prop.ttl ?? ARB.TTL[e.prop.pri] ?? 0.6;
-    if (now - e.last > ttl + 1e-9 || (e.prop.end && e.prop.end())) st.slots.delete(k);
+    const expired = now - e.last > ttl + 1e-9;
+    if (expired || (e.prop.end && e.prop.end())) { st.slots.delete(k); (st.dropped ||= []).push({ id: e.prop.id, src: e.prop.src, pri: e.prop.pri, why: expired ? 'expiration' : 'fin' }); }
   }
-  if (!st.slots.size) { const had = st.cur; st.cur = null; return had ? { x: null, y: null, cur: null, event: 'fin' } : null; }
+  if (!st.slots.size) { const had = st.cur; st.cur = null; st.event = had ? 'fin' : null; return had ? { x: null, y: null, cur: null, event: 'fin' } : null; }
   // 2. Candidats dans l'ordre fixe.
   const cands = [...st.slots.values()].map((e) => e.prop).sort((a, b) => (better(a, b) ? -1 : better(b, a) ? 1 : 0));
   const top = cands[0];
@@ -116,5 +118,6 @@ export function arbitrate(st, now, dt) {
       st.settled = false;
     } else st.settled = true;
   }
+  st.event = switched ? event : null;   // (diagnostic)
   return { x: st.ax, y: st.ay, cur: chosen, event: switched ? event : null };
 }
