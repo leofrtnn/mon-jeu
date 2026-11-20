@@ -3245,8 +3245,8 @@ export class LiveSim {
     // demandée PACE_HOLD s (pas de palier instantané) ; le dernier freinage relève de la cinématique.
     const D = dd, role = p.role, src = it?.src;
     const own = this.goalX(1 - p.side);
-    let lvl, why, rel = null;
-    if (p._idle && dd < 4) { lvl = 'marche'; why = 'à sa place (petits pas)'; }
+    let lvl, why, rel = null, fam = 'mission';
+    if (p._idle && dd < 4) { lvl = 'marche'; why = 'à sa place (petits pas)'; fam = 'placement'; }
     else if (it && it.pri >= PRI.URGENCE && role !== 'press') { lvl = 'à fond'; why = 'urgence ' + src; }   // poursuite, coupe, receveur, ballon coincé
     else if (role === 'press') { lvl = dBall < 6 ? 'à fond' : dBall < 15 ? 'sprint' : 'course'; why = 'pressing'; }
     else if (role === 'press2') { lvl = dBall < 8 ? 'sprint' : 'course'; why = 'second presseur'; }
@@ -3259,13 +3259,14 @@ export class LiveSim {
       const attacking = this.poss === p.side && (p.tx * L - this.P.x) * this.dir(p.side) > -2 && dBall < 40;
       const near = dBall < 15 || attacking || role === 'support', loose = !this.holder && !this.pending;
       lvl = D > 18 ? (threatened ? 'sprint' : 'course') : D > 9 ? (threatened && !loose ? 'course' : near ? 'course' : 'trot') : D > 4 ? (threatened && !loose ? 'course' : 'trot') : 'marche';
-      why = threatened ? 'replacement, but menacé' : 'replacement';
+      why = threatened ? 'replacement, but menacé' : 'replacement'; fam = 'placement'; st.threat = threatened;
       if (role === 'mark' && dd > 1.2) {
         // Marquage : il suit son attaquant à SON allure (demande relative), plus de quoi revenir.
         const a = p._markOf != null ? this.players.get(p._markOf) : null, as = a ? a.speed || 0 : 3;
         rel = Math.max(as + (dd > 4 ? 3 : 1.5), dd > 6 ? 6 : 0); why = 'marquage (allure de l\'attaquant)';
       }
     }
+    st.family = fam;
     // Hystérésis : monte tout de suite, redescend seulement si la demande plus basse dure PACE_HOLD s.
     const rank = (k) => PACE_ORDER.indexOf(k);
     // Arrivée (hystérésis) : au pas sous 1 m, ne relance qu'au-delà de 3 m (ou nouvelle intention).
@@ -3279,7 +3280,10 @@ export class LiveSim {
     if (rel != null) v = Math.max(v, rel);
     // Décélération voulue à l'approche : un déplacement calme ralentit tôt (on arrive en marchant),
     // un replacement pressé un peu plus tard, une urgence (sprint, à fond, marquage) au dernier moment.
-    const brake = rel != null || st.lvl === 'sprint' || st.lvl === 'à fond' ? 6 : why === 'replacement, but menacé' ? 2.5 : 1.5;
+    // Freinage calme réservé au placement et au soutien (on rejoint sa place) ; missions (appel, repli,
+    // dédoublement, surface), pressing, marquage et urgences gardent le freinage d'avant (6 m/s²).
+    const placing = st.family === 'placement';
+    const brake = !placing || rel != null || st.lvl === 'sprint' || st.lvl === 'à fond' ? 6 : st.threat ? 2.5 : 1.5;
     return { v, pace: st.lvl, why: st.lvl === lvl ? why : 'maintien (' + st.lvl + ')', brake };
   }
 
