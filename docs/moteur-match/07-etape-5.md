@@ -480,10 +480,13 @@ toutes deux **antérieures à 5c** et présentes dans 5a et 5b.
 * Les deux corrections tiennent en une ligne chacune :
   * remettre `celebrate` à 0 à la fin de la célébration ;
   * aligner le seuil de jeu sur celui de la sortie.
-* Elles ne sont **pas appliquées** : elles changent la référence 5b et attendent une décision.
+* Ces corrections ont depuis été appliquées : voir « 5c — Base corrigée » plus bas.
 * Essai en copie (zone morte alignée à 0,10 m) : la graine 101 se joue normalement jusqu'au bout.
 
-### Comparaison 5b → 5c (mêmes graines, mêmes outils, mêmes définitions)
+### Comparaison 5b → 5c AVANT correction (historique, contaminée par les matchs bloqués)
+Ces chiffres sont conservés pour mémoire. Ils ne doivent pas être mélangés avec ceux de la base
+corrigée ci-dessous.
+
 **Sur tous les matchs** (y compris les matchs bloqués) :
 
 | | 5b | 5c |
@@ -512,7 +515,7 @@ toutes deux **antérieures à 5c** et présentes dans 5a et 5b.
 | Graines `stats` : distance en jeu effectif / match | 12,35 km (13 matchs) | 12,23 km (14 matchs) |
 | Graines `stats` : tacles / fautes / hors-jeu | 42,2 / 20,6 / 4,5 | 39,6 / 20,0 / 6,1 |
 
-### Lecture
+### Lecture (avant correction, historique)
 * **Distance.** La baisse brute de −7 % vient presque entièrement des matchs bloqués. Sur les
   matchs sains, la baisse est de −1 à −1,5 % (12,26 → 12,08 et 12,35 → 12,23 km). C'est cohérent
   avec la règle de virage : un joueur lancé ralentit pour tourner au lieu d'orbiter. L'intensité
@@ -545,3 +548,161 @@ toutes deux **antérieures à 5c** et présentes dans 5a et 5b.
   * 118 tests unitaires réussis.
 * **En attente de décision** : correction des deux défauts de blocage, puis nouvelle mesure de 5b
   et 5c sur la même base. 5d n'est pas commencée.
+
+## 5c — Base corrigée : 5b corrigée (nouvelle référence) → 5c corrigée — rapport, non validé
+### Correctif minimal (`live.js`, avant validation de 5c)
+* **Célébration.** À la fin de la célébration, le compteur `celebrate` est remis à 0 dans tous les
+  cas : but validé, but annulé par la VAR ou but sans VAR. C'est l'unique état global décompté
+  avec `-= dt` et testé comme booléen. `varT` n'est testé que par `> 0`, et le compteur individuel
+  `p.celeb` est borné à 0. Aucun autre état de célébration ne peut bloquer le moteur.
+* **Lignes.** Un seul seuil, `OUT_M` = 0,10 m, s'applique à la jouabilité (`updateLoose`,
+  `loosePickup`) et à la sortie (`ballStep`). Il n'y a plus de zone morte, et la sortie n'est pas
+  avancée : le ballon reste jouable jusqu'à 0,10 m au-delà de la ligne.
+* Rien d'autre ne change : ni la physique du ballon, ni les contacts, ni les comportements.
+* **Tests** (`tests/rules.test.js`). Trois d'entre eux échouent si l'on retire le correctif.
+  * Ballon arrêté avant la ligne, sur la ligne, ou jusqu'à 0,10 m au-delà : il est joué.
+  * Au-delà de 0,10 m : sortie immédiate, et la remise (touche, six mètres ou corner) va au bon
+    camp selon le dernier toucheur.
+  * Ballon qui franchit la ligne à 3, 6, 8, 12, 15 ou 20 m/s : sifflé au premier pas au-delà de
+    0,10 m, jamais avant.
+  * But annulé, confirmé ou sans VAR : le compteur revient à 0, sans jamais devenir négatif. Le
+    score est correct et la reprise aussi (coup franc ou engagement).
+  * Après un but annulé, 10 minutes de jeu : les sorties sont sifflées, les tacles et les contacts
+    sur ballon libre ont lieu, et le ballon libre n'est jamais immobile plus de 5 s.
+* **Empreintes de match** (graine 5, 20 min). Le correctif change les deux versions, car un ballon
+  arrêté entre 0,08 et 0,10 m est maintenant joué.
+  * 5b : d70462a6 → 901a8739.
+  * 5c : 54a57a04 → 112bd1dc.
+  * Moteur rapide : b47d8708, inchangé.
+* **Référence 5b corrigée** : la 5b d'origine plus ces deux seules corrections, mesurée avec les
+  mêmes outils.
+
+### Matchs bloqués et temps de jeu réel (`stall-report`, pas 1/96 s, 28 matchs par version)
+Graines utilisées : 100-115, 200-203, 300-303 et 400-403.
+
+| | 5b corrigée | 5c corrigée |
+|---|---|---|
+| Matchs bloqués (ballon libre immobile > 5 s) | 0 / 28 | 0 / 28 |
+| Temps avec `celebrate` < 0 | 0 s | 0 s |
+| Jeu effectif, graines 100-115 : moyenne (min-max) | 64,7 min (58,3-74,3) | 66,8 min (61,2-72,5) |
+| Jeu effectif, graines `stats` : moyenne (min-max) | 64,0 min (58,9-71,7) | 65,5 min (60,0-73,6) |
+| Durée simulée par match | 99-102 min | 98-101 min |
+
+Jeu effectif par match (min), 5b corrigée → 5c corrigée :
+
+| Graine | 100 | 101 | 102 | 103 | 104 | 105 | 106 | 107 | 108 | 109 | 110 | 111 | 112 | 113 | 114 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 5b corrigée | 71,7 | 61,9 | 59,6 | 66,2 | 74,3 | 68,0 | 62,0 | 68,1 | 58,3 | 65,8 | 60,6 | 59,7 | 61,6 | 65,1 | 64,8 |
+| 5c corrigée | 71,0 | 61,7 | 62,4 | 63,6 | 71,0 | 69,7 | 67,7 | 67,9 | 63,2 | 71,8 | 66,2 | 61,2 | 63,3 | 69,2 | 72,5 |
+
+| Graine | 115 | 200 | 201 | 202 | 203 | 300 | 301 | 302 | 303 | 400 | 401 | 402 | 403 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 5b corrigée | 66,8 | 63,5 | 62,3 | 58,9 | 66,7 | 59,6 | 60,1 | 67,9 | 67,7 | 59,0 | 65,5 | 67,3 | 65,7 |
+| 5c corrigée | 66,7 | 69,4 | 65,5 | 63,7 | 66,6 | 65,6 | 62,8 | 73,6 | 68,5 | 60,0 | 64,5 | 68,6 | 60,7 |
+
+### Comparaison 5b corrigée → 5c corrigée
+Mêmes graines, mêmes outils, mêmes paramètres et mêmes définitions.
+
+| | 5b corrigée | 5c corrigée |
+|---|---|---|
+| Distance / joueur de champ / 90 min (`move-report`, 100-115) | 12,29 km | 12,07 km (−1,8 %) |
+| Distance en jeu effectif (`stall-report`, 28 matchs) | 12,38 km | 12,14 km (−2,0 %) |
+| Distance des 22 joueurs (`stats.mjs`) | 231,4 km | 229,9 km |
+| Allures marche / trot / course / sprint | 62,1 / 18,8 / 13,1 / 6,0 % | 63,2 / 18,4 / 12,7 / 5,7 % |
+| Demande sprint → réel sprint ; demande à fond → réel sprint | 34 % ; 29 % | 34 % ; 27 % |
+| Intensité : replacement / marquage / pressing / repli / appel (km/j/90) | 8,27 / 0,78 / 0,72 / 0,67 / 0,61 | 8,24 / 0,75 / 0,73 / 0,61 / 0,60 |
+| Marquage, médiane (`move-report`) | 2,24 m | 2,09 m |
+| Marquage, `mark-report` 100-103 : distance / durée des épisodes / interrompus | 2,30 m / 1,67 s / 10,9 % | 2,15 m / 1,59 s / 9,5 % |
+| Pressing : défenseur le plus proche du porteur | 3,95 m | 3,74 m |
+| Appels collectifs : écart à la ligne au départ / à la fin / progrès | −6,94 / −2,54 / 3,59 m | −6,60 / −1,80 / 3,59 m |
+| Une-deux : progrès | 10,52 m | 10,57 m |
+| Appels par match / point d'appel atteint | 124 / 78 % | 129 / 79 % |
+| Ballon libre : délai avant le premier contact (médiane) | 1,48 s | 1,52 s |
+| Sauts de cible > 3 m / joueur / min | 14,5 | 14,0 |
+| Tacles / fautes (`stats.mjs`) | 32,3 / 19,5 | 30,9 / 17,6 |
+| Tacles / fautes (`stall-report`, 28 matchs) | 43,8 / 19,2 | 42,8 / 18,1 |
+| Hors-jeu (`stats.mjs`) | 5,8 | 5,8 |
+| Hors-jeu (`offside-report`, 100-115) : passes vers un hors-jeu / sifflés | 6,00 / 4,63 | 6,00 / 5,00 |
+| Hors-jeu (`stall-report`, 28 matchs) | 4,96 | 4,75 |
+| Tirs / cadrés / buts (`stats.mjs`, pas 0,05 s) | 18,3 / 7,9 / 4,2 | 17,7 / 8,6 / 4,9 |
+| Tirs / buts (`stall-report`, pas 1/96 s, 28 matchs) | 20,2 / 3,9 | 16,9 / 3,3 |
+| Part des tirs de la tête (`stats.mjs`) | 25,3 % | 24,7 % |
+| Tirs de la tête / du pied par match (`header-report`, 100-115) | 5,13 / 11,13 | 3,81 / 11,94 |
+| Têtes sur corner / sur centre en jeu (`header-report`) | 0,94 / 3,38 | 0,38 / 2,69 |
+| Centres (`header-report`) | 25,8 | 22,1 |
+| Passes (`stall-report`, 28 matchs) | 841 | 879 |
+| Jeu effectif (`stats.mjs`) | 64,7 min | 65,1 min |
+
+**Temps d'arrivée en match** (`eta-report`, 8 matchs, graines 100-107) :
+
+| | 5b corrigée (ancienne formule) | 5c corrigée |
+|---|---|---|
+| Plans avec marge ≥ 0 | 178 235 | 144 741 (−19 %) |
+| Plans stables / modifiés / interrompus | 14,6 / 55,2 / 30,2 % | 19,4 / 46,2 / 34,4 % |
+| Réceptions stables : erreur p10 / p90 | 0,000 / +0,131 s | −0,076 / +0,010 s |
+| Réceptions stables : \|erreur\| < 0,1 s / < 0,2 s | 85 / 92 % | 84 / 94 % |
+| Interceptions stables : p10 / p90 | −0,047 / +0,404 s | −0,075 / +0,182 s |
+| Interceptions stables : \|erreur\| < 0,1 s / < 0,2 s | 64 / 74 % | 80 / 86 % |
+
+**Écarts mesurés sur 28 matchs** (`stall-report`) : l'écart de moyenne divisé par son erreur type
+donne z, et |z| ≈ 2 correspond à la limite de ce que le hasard des trajectoires explique.
+
+| | Écart 5c − 5b | z |
+|---|---|---|
+| Jeu effectif | +3,3 % | 2,0 |
+| Distance en jeu effectif | −2,0 % | −2,3 |
+| Tirs | −16 % | −2,1 |
+| Buts | −15 % | −1,4 |
+| Passes | +4,5 % | 1,6 |
+| Fautes | −6 % | −0,9 |
+| Tacles | −2 % | −0,4 |
+| Hors-jeu | −4 % | −0,3 |
+
+### Revalidation
+* **Scénarios contrôlés** (68 cas, `body.test.js`) : erreur moyenne 0,046 s, max 0,079 s, donc
+  toujours sous 0,1 s. L'ancienne formule donne 0,633 et 1,449 s. La poursuite d'un ballon qui
+  ralentit reste sous 0,1 s.
+* **Plans de réception et d'interception** : plus de plans stables (14,6 → 19,4 %). L'erreur en
+  match est centrée et resserrée, comme le montre le tableau ci-dessus.
+* **Mouvement réel et prédiction** : le même pas `velocityStep` sert aux deux. Le biais résiduel
+  est de −0,04 à −0,07 s dans les scénarios contrôlés.
+* **Contacts physiquement possibles à 100 %** (`diag-report`) : réception, conduite,
+  récupération, duel, déviation, interception et contre.
+* **Déterminisme** : 112bd1dc deux fois, diagnostic neutre, et la graine change bien le résultat.
+* **Tests** : moteur rapide b47d8708 inchangé ; 123 tests unitaires réussis (118 + 5 règles) ;
+  tests d'interface réussis.
+* Les outils sont conservés : `intensity-report`, `offside-report`, `stall-report` (qui donne
+  maintenant aussi le jeu effectif et la durée par match) et `PACE0=1`.
+
+### Lecture
+* **Blocages.** Aucun match bloqué sur les 28 graines, dans les deux versions. Le jeu effectif est
+  régulier, entre 58 et 74 minutes par match.
+* **Physique (améliorations).**
+  * Prédiction juste dans les scénarios contrôlés.
+  * Plans plus stables, avec une erreur d'interception divisée par deux environ (p90 +0,40 →
+    +0,18 s).
+  * Plus d'orbite autour des cibles.
+* **Intensité.** La distance baisse de 1,8 à 2 % (z ≈ −2, à la limite du bruit), et la part de
+  sprint passe de 6,0 à 5,7 %. C'est cohérent avec la règle de virage : un joueur lancé ralentit
+  pour tourner au lieu de tourner autour du point. L'intensité 5b est conservée, et aucune
+  compensation n'a été ajoutée.
+* **IA (inchangée, effets indirects).**
+  * Marquage et pressing un peu plus serrés (2,24 → 2,09 m ; 3,95 → 3,74 m).
+  * Appels inchangés (progrès 3,59 m) et un peu plus nombreux à atteindre la ligne (fin à −1,80 m
+    contre −2,54 m).
+  * Sauts de cible en légère baisse.
+* **Tacles, fautes et hors-jeu.** Les écarts restent dans le bruit (|z| < 1). Les fautes baissent
+  dans les trois mesures (−6 à −10 %), mais sans écart distinct du hasard. À surveiller.
+* **Régressions possibles, à examiner avant validation.**
+  * **Tirs.** −16 % au pas 1/96 s (20,2 → 16,9, z ≈ −2,1), mais seulement −3 % dans `stats.mjs`
+    au pas 0,05 s. La baisse porte surtout sur les têtes : 5,13 → 3,81 par match, dont celles sur
+    corner (0,94 → 0,38) et sur centre (3,38 → 2,69). Les centres baissent aussi (25,8 → 22,1).
+    Explication plausible, non démontrée : la prédiction n'étant plus optimiste, les attaquants ne
+    se jugent plus à temps pour des ballons aériens qu'ils n'auraient pas pu atteindre. Le choix
+    tête / contrôle / tir et les rebonds de ballon levé restent hors champ de 5c.
+  * **Jeu effectif.** +3,3 % (64,2 → 66,4 min, z ≈ 2,0). C'est cohérent avec moins de tirs, donc
+    moins de six mètres (17,3 → 14,8 dans `stats.mjs`).
+  * **Ballon libre.** Le premier contact arrive un peu plus tard (1,48 → 1,52 s, contre 1,45 →
+    1,57 s avant correction) : le chasseur n'est plus choisi sur une estimation optimiste.
+* **Non validé.** 5c n'est pas déclarée validée et 5d n'est pas commencée. La baisse des tirs,
+  surtout de la tête, est le point à trancher.
