@@ -898,3 +898,137 @@ nouvelles :
 
 Aucun paramètre de tir, de choix tête / contrôle / frappe ou de décision tactique n'a été modifié.
 5c n'est pas déclarée validée, et 5d n'est pas commencée.
+
+## 5d — Diagnostics et validation globale de l'étape 5 — rapport, non validé
+5c a été validée sur la base corrigée. 5d est une sous-étape de diagnostic : aucune modification de
+la physique, des contacts ni des décisions. Le moteur reste identique (empreinte de match
+112bd1dc), avec ou sans diagnostic branché.
+
+### Outils ajoutés
+* **Journal des intentions** (`live.js`, actif seulement quand le diagnostic est branché). À chaque
+  changement d'intention d'un joueur, on enregistre :
+  * l'évènement (début, préemption, retour, remplacement, fin) ;
+  * l'intention quittée et l'intention retenue (priorité, source, identifiant = motif), avec sa
+    valeur ;
+  * les propositions concurrentes arbitrées à ce pas (autres créneaux, priorité, valeur) ;
+  * les intentions abandonnées, et pourquoi (expiration ou condition de fin) ;
+  * l'allure demandée.
+* **Vue 3D** (`match3d.js`, Paramètres › Diagnostic physique, ou `?diag=1`). Chaque joueur a un
+  trait vers sa cible et un losange sur la cible. La couleur donne la priorité de l'intention :
+  * blanc : P1 placement ;
+  * bleu : P2 soutien ;
+  * vert : P3 mission ;
+  * orange : P4 urgence ;
+  * rouge : P5 ballon ;
+  * violet : geste en cours (P6).
+* **`intent-report.mjs`** : épisodes d'intention, durées, intentions éclair (< 0,3 s),
+  transitions, concurrence, abandons et allers-retours, d'après le journal.
+* **`intent-shots.cjs`** : captures 3D d'un match en direct avec le diagnostic des intentions.
+* Outils conservés : `move-report`, `jump-report`, `intensity-report`, `offside-report`,
+  `stall-report`, `aerial-report`, `shot-report`, `eta-report`, et `PACE0=1`.
+
+### Validation globale : départ de l'étape 5 → fin de 5c (mêmes graines, mêmes outils, pas 1/96 s)
+**Référence de départ** : le moteur au commit 5-0 (451b6f3, avant 5a), avec le seul correctif des
+matchs bloqués (célébration, seuil de ligne). Empreinte ef01b08f. `move-report` porte sur 16 matchs
+(100-115). Les autres outils portent sur les 28 graines de la campagne 5c.
+
+| | Départ (avant 5a, corrigé) | Fin de 5c | Objectif de l'étape 5 |
+|---|---|---|---|
+| Sauts de cible > 3 m / joueur / min | 16,9 | 14,0 | < 5 : **non atteint** |
+| Écritures concurrentes de la cible | 3,2 % des pas (mesure de départ) | 0 (arbitre seul propriétaire) | 0 : atteint |
+| Écart temps d'arrivée prédit / réel, scénarios contrôlés | 0,633 s moy., 1,449 s max (ancienne formule) | 0,046 s moy., 0,079 s max | < 0,1 s : atteint |
+| Interceptions en match à moins de 0,1 s | 64 % | 80 % | |
+| Demi-tours brusques / à reculons / en crabe | 0,00 / 0,5 % / 0,9 % | 0,00 / 0,6 % / 0,9 % | pas de hausse : tenu |
+| Matchs bloqués | 0 / 28 | 0 / 28 | |
+| Contacts physiquement possibles | 100 % | 100 % | |
+| Allures marche / trot / course / sprint (indicateur 60-70 / 20-25 / 7-10 / 3-5) | 67,7 / 15,4 / 11,8 / 5,0 % | 63,2 / 18,4 / 12,7 / 5,7 % | indicateur, pas une cible |
+| Distance / joueur de champ / 90 min (indicateur 10-11,5) | 12,10 km | 12,07 km | indicateur |
+| Distance en jeu effectif (28 matchs) | 12,15 km | 12,14 km | |
+| Pressing : défenseur le plus proche du porteur | 4,26 m | 3,74 m | |
+| Marquage (médiane) | 2,26 m | 2,09 m | |
+| Appels par match / point d'appel atteint | 117 / 79 % | 129 / 79 % | |
+| Ballon libre : délai avant le premier contact | 1,42 s | 1,52 s | |
+| Jeu effectif (28 matchs) | 66,0 min | 66,4 min | |
+| Tirs / têtes au but (28 matchs) | 17,9 / 5,39 | 16,9 / 4,57 | |
+| Séquences du porteur dans la surface | 27,6 | 22,9 | |
+| Tentatives de tête hors de portée physique | 11,4 | 2,9 | |
+| Tacles / fautes / hors-jeu (28 matchs) | 46,0 / 18,8 / 4,9 | 42,8 / 18,1 / 4,8 | |
+
+### Journal des intentions (fin de 5c, 16 matchs, 100-115)
+* **Changements d'intention.** 14,2 par joueur et par minute de jeu :
+  * fins 7,2 ;
+  * retours 5,4 ;
+  * débuts 1,4 ;
+  * préemptions 1,3 ;
+  * remplacements à priorité égale 0,08.
+* **Allers-retours A → B → A en moins d'1 s** : 0,60 par joueur et par minute.
+* **Concurrence.** 13 % des intentions retenues l'ont été face à une proposition d'un autre créneau.
+  Dans 0,8 % des cas elle était de même priorité, et jamais de priorité supérieure, ce qui confirme
+  la règle de préemption.
+* **Épisodes les plus fréquents** (par match, durée médiane) :
+  * formation (P1) : 6 167, 2,1 s ;
+  * couverture : 1 982, 1,2 s ;
+  * soutien : 1 837, 2,1 s ;
+  * repli : 1 157, 1,2 s ;
+  * pressing : 1 068, 1,2 s ;
+  * porteur : 1 006, 2,1 s ;
+  * marquage : 958, 1,5 s ;
+  * appel : 847, 2,1 s.
+* **Transitions dominantes** : la formation alterne avec le soutien, la couverture, l'appel, le
+  repli et le marquage (environ 550 à 1 550 de chaque par match).
+
+### Anomalies détectées (non corrigées)
+1. **Sauts de cible : objectif < 5 non atteint (14,0).** `jump-report` en donne les causes :
+   * 34 % : mise à jour d'une même urgence ou action sur le ballon (P4-P5). C'est une cible qui suit
+     le ballon ou un adversaire en mouvement, jamais lissée (règle 5 de l'arbitre).
+   * 33 % : changements de rôle dans le même créneau, quand le placement collectif est révisé.
+   * 10 % : reprises après un arrêt de jeu.
+   * 9 % : débuts d'intention ; 6 % : préemptions.
+
+   La mesure de départ comptait tout déplacement de cible de plus de 3 m. Une cible qui suit un
+   ballon en mouvement n'est pas un changement d'intention, mais elle est comptée. Le reste vient
+   surtout du placement collectif (étape 7).
+2. **Intentions « éclair » en urgence.** Part des épisodes de moins de 0,3 s :
+   * coupe de passe : 39 % ;
+   * poursuite : 31 % ;
+   * duel aérien : 24 % ;
+   * espacement : 12 %.
+
+   La coupe est recalculée toutes les 0,15 s avec les deux meilleurs défenseurs, qui entrent et
+   sortent de la liste. La poursuite et l'espacement expirent dès que la proposition n'est plus
+   renouvelée. Il s'agit de stabilité de l'IA de coupe et de poursuite, à traiter dans le chantier
+   IA.
+3. **Allures et distance au-dessus des indicateurs** (sprint 5,7 %, course 12,7 %, 12,1 km).
+   Inchangées depuis le départ. Ce ne sont pas des cibles : aucune compensation.
+4. **Ballon libre touché un peu plus tard** (1,42 → 1,52 s). C'est l'effet de la prédiction
+   réaliste du chasseur (5c).
+5. **Accès à la surface** (27,6 → 22,9 séquences) et **tacles** (−7 %) par rapport au départ. Ces
+   points sont déjà documentés et rangés dans le backlog IA : entrées en conduite, passes en
+   profondeur, ballons libres, et passeur qui ignore la portée du receveur.
+6. **Hérités, hors de l'étape 5** : rebond des passes levées 8 à 14 m au-delà de la cible (5-0),
+   longs ballons, perception du hors-jeu, penaltys, choix tête / contrôle / frappe.
+7. **Défauts de mesure corrigés au cours de l'étape** :
+   * matchs bloqués (VAR, zone morte) ;
+   * attribution « corner » de `header-report` ;
+   * pas de 0,05 s des outils `stats.mjs` et `header-report`, qui ne représente pas le jeu (1/96 s)
+     pour les situations aériennes.
+
+### Régressions
+* Aucune régression physique : contacts à 100 %, prédiction validée, pas de demi-tours, aucun match
+  bloqué.
+* Changements de comportement mesurés par rapport au départ de l'étape :
+  * pressing et marquage plus serrés ;
+  * plus d'appels ;
+  * moins de tentatives de tête irréalistes ;
+  * accès à la surface en baisse ;
+  * tacles en baisse ;
+  * ballon libre touché 0,1 s plus tard.
+* Aucune de ces évolutions n'a été compensée.
+
+### Contrôles
+* Déterminisme : 112bd1dc deux fois, et identique avec le diagnostic branché.
+* Moteur rapide : b47d8708.
+* Tests unitaires : 123 réussis. Tests d'interface : tous réussis.
+* Captures 3D : `intent-shots.cjs`.
+
+5d n'est pas déclarée validée. L'étape suivante attend l'examen de ce rapport.

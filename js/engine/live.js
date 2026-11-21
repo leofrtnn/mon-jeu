@@ -230,7 +230,16 @@ export class LiveSim {
       st.players++;
       if (!r) continue;
       st.arbitrations++;
-      if (r.event) { st.events[r.event] = (st.events[r.event] || 0) + 1; if (this.diag && r.cur) this.diag.intent(this.now, { pid: p.mp.id, side: p.side, event: r.event, id: r.cur.id, src: r.cur.src, pri: r.cur.pri, x: r.x, y: r.y }); }
+      if (r.event) {
+        st.events[r.event] = (st.events[r.event] || 0) + 1;
+        // Journal des intentions (étape 5d, diagnostic seulement) : intention quittée, retenue (identifiant = motif)
+        // Propositions concurrentes arbitrées à ce pas (autres créneaux), intentions abandonnées et pourquoi.
+        if (this.diag) {
+          const from = p._intent ? { id: p._intent.id, src: p._intent.src, pri: p._intent.pri } : null;
+          const rivals = r.cur ? [...A.slots.values()].map((e) => e.prop).filter((q) => q.slot !== r.cur.slot).map((q) => ({ id: q.id, src: q.src, pri: q.pri, value: +q.value.toFixed(2) })) : [];
+          this.diag.intent(this.now, { pid: p.mp.id, side: p.side, event: r.event, id: r.cur?.id ?? null, src: r.cur?.src ?? null, pri: r.cur?.pri ?? null, value: r.cur ? +r.cur.value.toFixed(2) : null, x: r.x, y: r.y, from, rivals, dropped: A.dropped || null, pace: p._pace?.pace ?? null });
+        }
+      }
       if (r.x == null) continue;
       st.byPri[r.cur.pri] = (st.byPri[r.cur.pri] || 0) + dt;
       let x = r.x, y = r.y;

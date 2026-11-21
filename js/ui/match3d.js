@@ -2385,6 +2385,26 @@ export class Match3D {
         ring.rotation.x = -Math.PI / 2; ring.position.set(wx, 0.03, wz); G.add(ring);
       }
     }
+    // Intentions (étape 5d) : trait du joueur vers sa cible de déplacement, couleur = priorité de
+    // l'intention retenue par l'arbitre (blanc P1 placement · bleu P2 soutien · vert P3 mission ·
+    // orange P4 urgence · rouge P5 ballon · violet geste en cours P6), petit losange sur la cible.
+    {
+      const PRI_COL = { 1: [0.92, 0.92, 0.92], 2: [0.3, 0.6, 1], 3: [0.24, 0.86, 0.52], 4: [1, 0.62, 0.1], 5: [0.94, 0.28, 0.44], 6: [0.78, 0.49, 1] };
+      const pos = [], col = [];
+      for (const p of this.v.players.values()) {
+        if (p.tx == null) continue;
+        const pri = p._dive || p._tk || p.slide > 0.2 || p.fall > 0.3 ? 6 : p._intent?.pri || 1;
+        const c = PRI_COL[pri];
+        const [ax, az] = W3(p.x * L, p.y * W), [bx, bz] = W3(p.tx * L, p.ty * W), s = 0.25;
+        pos.push(ax, 0.04, az, bx, 0.04, bz, bx - s, 0.04, bz, bx, 0.04, bz - s, bx, 0.04, bz - s, bx + s, 0.04, bz, bx + s, 0.04, bz, bx, 0.04, bz + s, bx, 0.04, bz + s, bx - s, 0.04, bz);
+        for (let i = 0; i < 10; i++) col.push(...c);
+      }
+      if (pos.length) {
+        const g = new THREE.BufferGeometry();
+        g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+        G.add(new THREE.LineSegments(g, M.intent ||= new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.85 })));
+      }
+    }
     // Dernière trajectoire prédite.
     const path = D.paths[D.paths.length - 1];
     if (path && now - path.t < 4) {
