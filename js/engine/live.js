@@ -27,6 +27,9 @@ import { formationPos } from './positions.js';
 import { P as PRI, newArbiter, propose as proposeIntent, arbitrate } from './intent.js';
 import { velocityStep, accelOf, topSpeed, pursue as bodyPursue } from './body.js';
 /** Allures demandées (étape 5b) : vitesse visée par niveau (m/s). « à fond » = capacité du joueur. */
+/** Sortie du ballon : centre au-delà de OUT_M (m) d'une ligne. Un seul seuil pour la sortie et pour la jouabilité. */
+export const OUT_M = 0.1;
+const outOfPlay = (P) => P.y < -OUT_M || P.y > W + OUT_M || P.x < -OUT_M || P.x > L + OUT_M;
 const PACE_LEVELS = { 'petits pas': 1.1, marche: 1.3, trot: 3.2, course: 5.0, sprint: 6.3, 'à fond': Infinity };
 const PACE_ORDER = ['petits pas', 'marche', 'trot', 'course', 'sprint', 'à fond'];
 const PACE_HOLD = 0.3;   // une allure plus basse doit être demandée pendant 0,3 s avant d'être adoptée
@@ -485,7 +488,7 @@ export class LiveSim {
    */
   loosePickup(dt, out) {
     const P = this.P;
-    if (P.y < -0.08 || P.y > W + 0.08 || P.x < -0.08 || P.x > L + 0.08) return;
+    if (outOfPlay(P)) return;   // même seuil que la sortie (OUT_M)
     let best = null;
     for (const p of this.players.values()) {
       if (p === this._kickBy && this.now - this._kickT < 0.45) continue;   // pas de reprise immédiate de sa propre frappe
@@ -586,6 +589,10 @@ export class LiveSim {
       this.celebrate -= dt;
       this.move(dt); stepBall(P, dt);
       if (this.celebrate <= 0) {
+        // Fin de la célébration : compteur remis à zéro (sinon, après un but refusé par la VAR, il
+        // restait négatif — « vrai » pour les tests !this.celebrate — et désactivait sorties, tacles
+        // et contacts du ballon libre jusqu'à la fin du match).
+        this.celebrate = 0;
         if (this.varPending) {
           this.varT = 4.2; m.stoppages += 1;
           emit(m, out, { type: 'var', side: this.varPending.side, pid: this.varPending.sc.id, outcome: 'check', reason: this.varPending.reason, x: 0.5, y: 0.5, zone: 3 });
@@ -2216,8 +2223,9 @@ export class LiveSim {
   updateLoose(dt, out) {
     const P = this.P;
     if (this.holder || this.shot?.live) return;
-    // Ballon sorti (même de peu) : personne ne le joue, c'est touche / corner / six mètres.
-    if (P.y < -0.08 || P.y > W + 0.08 || P.x < -0.08 || P.x > L + 0.08) return;
+    // Ballon sorti : personne ne le joue, c'est touche / corner / six mètres. Même seuil que la
+    // sortie (OUT_M) : plus de zone morte où le ballon n'est ni jouable ni sorti.
+    if (outOfPlay(P)) return;
     const pd = this.pending;
     if (pd) {
       const r = pd.to;
@@ -2829,9 +2837,9 @@ export class LiveSim {
     if (P.inGoal) { this.goal(out, P.inGoal > 0 ? 0 : 1); return; }
     // Sorties : touche, six mètres, corner.
     if (!this.restart && !this.celebrate) {
-      if (P.y < -0.1 || P.y > W + 0.1) {
+      if (P.y < -OUT_M || P.y > W + OUT_M) {
         this.setRestart('throw', 1 - this.lastTouch, clamp(P.x, 1, L - 1), P.y < 0 ? 0.2 : W - 0.2, out);
-      } else if (P.x < -0.1 || P.x > L + 0.1) {
+      } else if (P.x < -OUT_M || P.x > L + OUT_M) {
         const att = P.x > L ? 0 : 1; // équipe qui attaque ce but
         if (this.lastTouch === att) this.setRestart('goalkick', 1 - att, P.x > L ? L - 5.5 : 5.5, W / 2 + (P.y < W / 2 ? -8 : 8), out);
         else this.setRestart('corner', att, P.x > L ? L - 0.4 : 0.4, P.y < W / 2 ? 0.4 : W - 0.4, out);
