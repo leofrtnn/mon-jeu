@@ -1032,3 +1032,68 @@ matchs bloqués (célébration, seuil de ligne). Empreinte ef01b08f. `move-repor
 * Captures 3D : `intent-shots.cjs`.
 
 5d n'est pas déclarée validée. L'étape suivante attend l'examen de ce rapport.
+
+### 5d — Mesure de stabilité clarifiée (`stability-report.mjs`)
+La mesure de départ (« sauts de cible > 3 m », `move-report`) mélange trois phénomènes différents.
+L'outil la reprend **à l'identique** : joueurs de champ, jeu en cours, cible comparée au pas
+précédent, seuil de 3 m. Il ne retire aucun évènement : il classe chaque saut selon ce que
+l'arbitre a fait à ce pas.
+
+Le classement reprend la règle de `jump-report` :
+* **A. Changement réel d'intention arbitrée.** L'arbitre change l'intention retenue : début,
+  préemption par une priorité supérieure, remplacement à priorité égale, retour, ou fin d'une
+  intention et reprise d'une autre. Le cas C en est exclu.
+* **B. Actualisation à intention constante.** L'intention retenue ne change pas, mais son point
+  bouge de plus de 3 m. Trois cas :
+  * urgence ou action sur le ballon (P4-P5 : ballon, trajectoire, porteur en mouvement) ;
+  * suivi d'un adversaire (marquage, contenir, repli) ;
+  * glissement d'une intention lissée.
+* **C. Révision du placement collectif (étape 7).** L'intention change à l'intérieur du créneau du
+  placement d'équipe, sans qu'aucune intention soit abandonnée : le placement collectif réattribue
+  le rôle du joueur.
+* **D. Hors arbitrage.** Première comparaison après un arrêt de jeu (la cible d'avant l'arrêt), et
+  début ou fin d'un geste en cours (P6).
+
+Résultats de 5c (fin de l'étape 5), au pas de 1/96 s, sur deux jeux de 16 matchs :
+
+| Par joueur de champ et par minute de jeu | Graines 100-115 | Graines 500-515 |
+|---|---|---|
+| Volume mesuré | 21 352 minutes-joueur, 299 276 sauts | 21 355 minutes-joueur, 301 763 sauts |
+| **Sauts > 3 m, toutes causes (mesure de départ)** | **14,02** | **14,13** |
+| **A. Changements réels d'intention arbitrée** | **2,34** (49 935 ; 16,7 %) | **2,38** (50 809 ; 16,8 %) |
+| … début / préemption / fin → reprise / remplacement / retour | 1,22 / 0,83 / 0,24 / 0,02 / 0,01 | |
+| B. Actualisations à intention constante | 5,59 (39,9 %) | 5,69 (40,3 %) |
+| … urgence ou ballon P4-P5 / suivi d'un adversaire / glissement | 4,75 / 0,83 / 0,00 | |
+| C. Révisions du placement collectif | 4,65 (33,2 %) | 4,67 (33,0 %) |
+| … formation → soutien / couverture / appel / repli / marquage | 1,11 / 0,84 / 0,47 / 0,43 / 0,37 | 1,12 / 0,84 / 0,46 / 0,44 / 0,37 |
+| D. Hors arbitrage : après un arrêt de jeu / geste P6 | 1,36 / 0,08 | 1,39 (total) |
+| Changements d'intention de toute distance (A / C) | 16,56 (5,79 / 10,77) | 16,68 (5,92 / 10,75) |
+| Par joueur (≥ 5 min de jeu) : A, médiane / p90 / max | 2,39 / 3,50 / 4,51 (0 joueur sur 353 au-dessus de 5) | 2,51 / 3,56 / 5,78 (1 joueur sur 363 au-dessus de 5) |
+| Par joueur : A + C, médiane / p90 / max | 7,01 / 11,21 / 13,78 (265 joueurs sur 353 au-dessus de 5) | — |
+
+**Lecture.**
+* **Indicateur pertinent pour l'arbitrage.** Ce sont les sauts de cible causés par un changement
+  d'intention de l'arbitre (A) : **2,34 à 2,38 par joueur et par minute**, pour un objectif initial
+  de moins de 5, avec le même seuil de 3 m. L'objectif est respecté en moyenne et pour 715 joueurs
+  sur 716 ; un seul dépasse, à 5,78.
+* **Les actualisations à intention constante (B) ne sont pas des changements de décision.** Ce sont
+  des cibles qui suivent un objet mobile. La règle 5 de l'arbitre interdit de lisser une réaction
+  (P4-P5, suivi). Elles sont attendues, et ne mesurent pas l'instabilité de l'arbitrage.
+* **Les révisions du placement collectif (C) dépassent l'objectif si on les compte** : A + C fait
+  environ 7 par minute, au-dessus de 5. Ces changements viennent du placement d'équipe, qui
+  réattribue les rôles. L'arbitre ne fait que les accepter : même créneau, aucune concurrence, avec
+  ses délais de maintien et d'aller-retour. Cet écart relève de l'étape 7. Il est documenté et n'est
+  pas compensé.
+* **D** est un effet de mesure (comparaison à travers un arrêt de jeu) ou de geste. Il est sans
+  rapport avec l'arbitrage.
+* **Le seuil n'a pas été modifié.** `move-report` et `jump-report` sont inchangés, et le chiffre
+  global de 14 reste publié.
+* **Intentions d'urgence de moins de 0,3 s** : conservées dans les diagnostics (`intent-report`) et
+  dans le backlog IA. Elles concernent la coupe de passe (39 %), la poursuite (31 %) et le duel
+  aérien (24 %).
+
+**Contrôles.**
+* Le diagnostic ne change pas la simulation : 112bd1dc avec ou sans, deux fois.
+* Déterminisme conservé.
+* Moteur rapide : b47d8708.
+* `stability-report` n'utilise aucun hasard et ne branche pas le diagnostic.
