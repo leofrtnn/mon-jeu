@@ -705,4 +705,196 @@ donne z, et |z| ≈ 2 correspond à la limite de ce que le hasard des trajectoir
   * **Ballon libre.** Le premier contact arrive un peu plus tard (1,48 → 1,52 s, contre 1,45 →
     1,57 s avant correction) : le chasseur n'est plus choisi sur une estimation optimiste.
 * **Non validé.** 5c n'est pas déclarée validée et 5d n'est pas commencée. La baisse des tirs,
-  surtout de la tête, est le point à trancher.
+  surtout de la tête, est le point à trancher. Voir le diagnostic ci-dessous : à 1/96 s, cette
+  baisse est en grande partie un effet d'échantillon et de mesure.
+
+## 5c — Diagnostic des tirs (5b corrigée → 5c corrigée) — rapport, non validé
+Aucune modification du moteur dans cette partie : observation seulement. Deux outils ont été
+ajoutés et l'attribution de `header-report` a été corrigée (voir 1).
+* `aerial-report.mjs` : ballons aériens dans la surface, attaquants en position, tentatives, têtes
+  et renoncements. Il mesure aussi les fautes : tacles, contacts sur l'homme, vitesse relative,
+  intensité.
+* `shot-report.mjs` : décisions du porteur près du but (pression, xG estimé, choix), entrées dans
+  la surface et issue des passes vers la surface.
+
+Définition commune de la **vérité physique** dans ces outils : le modèle cinématique 5c (validé à
+moins de 0,08 s contre le mouvement réel) dit si un joueur peut amener sa tête (ou son pied) sur
+un point de la trajectoire prédite du ballon à temps. Le calcul part de son état réel au départ du
+ballon, avec une réaction de 0,18 s et une portée de 0,3 m. Les mêmes formules servent pour toutes
+les versions mesurées. Les deux outils ne changent rien au match : sur la graine 100, on retrouve
+exactement les tirs, fautes et temps de jeu de `stall-report`.
+
+Versions comparées (pas du jeu : 1/96 s, sauf mention) :
+* 5b corrigée ;
+* 5c corrigée ;
+* deux ablations de 5c (copie de mesure, non livrée) :
+  * « prédiction seule » : 5c sans la règle de virage ;
+  * « virage seul » : 5c avec l'ancienne prédiction.
+  * Les deux ablations réunies redonnent exactement 5b corrigée (901a8739).
+
+Graines :
+* les 28 de la campagne précédente (100-115, 200-203, 300-303, 400-403) ;
+* **56 graines nouvelles (500-555)** pour la réplication.
+
+### 1. Les deux mesures de tirs, et le pas de simulation
+* **Même définition.** `stats.mjs` et `stall-report` comptent tous deux `team.stats.shots` (même
+  événement, mêmes graines `stats`). Seul le pas diffère : 0,05 s dans `stats.mjs` et
+  `header-report`, 1/96 s dans `stall-report` et dans le jeu (`LIVE_STEP`).
+* **Le pas change le match.** Avec le même code et la même graine, le match n'est pas le même :
+  les trajectoires divergent. Le pas de 0,05 s ne sert qu'aux outils de mesure.
+* **L'écart venait surtout de l'échantillon 5b.** Sur les 28 graines d'origine, 5b corrigée donne
+  20,0 tirs à 1/96 s (erreur type ±1,3). Sur 56 graines nouvelles, elle en donne 18,1 (±0,8).
+
+| Tirs par match | 5b corrigée | 5c corrigée | Écart |
+|---|---|---|---|
+| 1/96 s, 28 graines d'origine | 20,0 ± 1,3 | 16,8 ± 0,9 | −16 % |
+| 1/96 s, 56 graines nouvelles | 18,1 ± 0,8 | 17,3 ± 0,9 | −4 % (dans le bruit) |
+| **1/96 s, les 84 matchs** | **18,7** | **17,1** | **−8,5 % (z ≈ −1,7)** |
+| 0,05 s, 28 graines (`aerial-report`) | 17,5 ± 1,1 | 16,4 ± 1,0 | −7 % |
+| 0,05 s, 16 graines `stats` (`stats.mjs`) | 18,3 | 17,7 | −3 % |
+| Ablations à 1/96 s, 28 graines d'origine | prédiction seule : 16,9 | virage seul : 17,4 | |
+
+* **Têtes au but.** Elles ne baissent qu'au pas de 0,05 s :
+  * 0,05 s : 4,93 → 3,93 (−20 %), avec la même tendance dans les deux ablations (4,32 et 4,18) ;
+  * 1/96 s, sur les 84 matchs : 5,04 → 4,95 (−2 %) ;
+  * 1/96 s, graines nouvelles : 4,96 → 5,14.
+  * La baisse des têtes rapportée jusqu'ici (`header-report`, `stats.mjs`) a été mesurée au pas de
+    0,05 s, qui n'est pas celui du jeu. Ces outils ne doivent pas servir à juger les situations
+    aériennes de 5c.
+* **Défaut de mesure trouvé dans `header-report`.**
+  * Il classait un tir « sur corner » s'il survenait dans les 8 s suivant l'*apparition* du corner.
+  * Or la mise en place d'un corner dure environ 32 s : 100 % des corners sont joués après 8 s.
+  * Le « 0,94 → 0,38 tête sur corner » n'était donc pas une mesure de corners.
+  * Corrigé : on compte maintenant à partir du moment où la remise est *jouée*. Le résultat
+    devient 0,63 → 0,75 tête sur corner (16 matchs, 0,05 s).
+
+### 2. Ventilation des situations aériennes (`aerial-report`, 1/96 s)
+| Par match | 5b corrigée (28 / 56 graines) | 5c corrigée (28 / 56 graines) |
+|---|---|---|
+| Corners | 9,86 / 8,36 | 7,43 / 8,73 |
+| Centres | 28,6 / 27,3 | 26,5 / 27,1 |
+| Ballons levés jouables de la tête dans la surface | 36,7 / 33,4 | 34,1 / 34,1 |
+| … avec au moins un attaquant en position | 23,1 / 20,5 | 20,8 / 21,7 |
+| Attaquants à moins de 25 m | 135 / 123 | 117 / 123 |
+| Attaquants en position (vérité physique) | 46,4 / 41,7 | 38,1 / 43,2 |
+| Jugés à portée par l'ancienne formule | 61,3 / 54,4 | 50,5 / 56,3 |
+| Tentatives de tête (plan de tête) | 48,1 / 42,0 | 29,4 / 34,4 |
+| … réalistes (en position) | 33,7 / 30,0 | 26,5 / 31,1 |
+| … **irréalistes (hors de portée physique)** | **14,4 / 12,0** | **2,9 / 3,3** |
+| Contacts tête-ballon des attaquants | 8,04 / 7,70 | 6,82 / 7,71 |
+| … d'attaquants hors de portée au départ du ballon | 1,57 / 1,25 | 0,57 / 0,66 |
+| … d'attaquants en position | 6,46 / 6,45 | 6,25 / 7,05 |
+| Têtes au but | 5,21 / 4,96 | 4,57 / 5,14 |
+
+**Renoncements** (attaquants proches qui ne touchent pas le ballon), par match, 56 graines
+nouvelles :
+
+| | 5b corrigée | 5c corrigée |
+|---|---|---|
+| Inatteignable, non envoyé | 50,8 | 56,5 |
+| Atteignable, mais mal évalué par l'estimation de la version | 0,09 | 0 |
+| Atteignable, non envoyé (règles de sélection : 20 m du but, 2 meilleurs, passes levées hors centre) | 4,9 | 4,2 |
+| Atteignable, envoyé pour un autre geste (laisser retomber, contrôle) | 6,1 | 7,3 |
+| Tête tentée, devancé par un autre joueur (atteignable) | 17,2 | 17,8 |
+| Tête tentée, devancé (inatteignable) | 7,5 | 1,8 |
+| Tête tentée, arrivé trop tard (atteignable) | 4,8 | 4,9 |
+| Tête tentée, arrivé trop tard (inatteignable) | 2,8 | 0,8 |
+| Ballon dans sa zone de tête, ne le joue pas | 1,7 | 1,6 |
+
+* **Hypothèse physique vérifiée.**
+  * L'ancienne formule jugeait à portée environ 30 % d'attaquants de plus que la vérité physique.
+  * En 5b, 12 à 14 tentatives de tête par match visaient des ballons hors de portée. Elles
+    donnaient 1,3 à 1,6 tête par match, obtenues par des attaquants qui ne pouvaient pas être
+    là : déplacement sans limite de virage, ou estimation optimiste.
+  * En 5c, ces tentatives tombent à environ 3 par match, et les têtes qu'elles donnent à environ
+    0,6.
+  * Les tentatives réalistes ne baissent pas sur les graines nouvelles (30,0 → 31,1), et leurs
+    contacts augmentent (6,27 → 6,77).
+* **Pas de prudence excessive.** Les attaquants atteignables que l'estimation 5c écarte à tort
+  sont 0 par match. Les ballons atteignables non joués relèvent des mêmes règles de sélection
+  qu'en 5b, à des niveaux proches.
+* **Taux par ballon jouable et par centre** (84 matchs, 1/96 s) :
+  * têtes au but par ballon jouable : 0,146 → 0,145 ;
+  * têtes au but par centre : 0,182 → 0,184.
+
+### 3. Tirs au pied et occasions (`shot-report`, 1/96 s)
+| | 5b corrigée (28 / 56) | 5c corrigée (28 / 56) |
+|---|---|---|
+| Tirs / 90 min de jeu effectif | 28,0 / 24,5 | 22,8 / 23,5 |
+| Décisions du porteur dans la surface / match | 25,6 / 24,3 | 19,5 / 19,1 |
+| … dont frappe | 17,8 / 13,8 % | 19,4 / 18,2 % |
+| … pression (adversaire le plus proche) / xG estimé de la frappe | 1,92 m / 0,159 | 1,91 m / 0,162 |
+| Décisions à 16-25 m / match ; dont frappe | 25,7 ; 41,5 % | 22,7 ; 40,7 % |
+| **Séquences du porteur dans la surface / match** | **29,9 / 27,3** | **22,9 / 22,2 (−20 %)** |
+| Entrées en conduite | 16,4 / 15,3 | 13,9 / 13,1 |
+| Entrées sur passe en profondeur | 1,25 / 1,20 | 0,79 / 0,55 |
+| Entrées sur ballon libre | 7,0 / 5,7 | 4,3 / 4,6 |
+
+* **Le choix de frapper n'a pas changé.** À situation égale, la part de frappes, la pression subie
+  et l'xG estimé sont les mêmes, voire un peu plus de frappes en 5c. Ce n'est ni une régression de
+  décision ni un effet du pressing au moment du tir.
+* **Ce qui baisse, c'est l'accès à la surface avec le ballon (−20 %, reproduit sur les deux jeux
+  de graines).** Les ablations (26,8 et 26,5 séquences) montrent que les deux composantes y
+  contribuent.
+* **Passes en profondeur vers la surface** (56 graines nouvelles), selon la portée réelle du
+  destinataire au départ du ballon :
+
+| Destinataire au départ | 5b : passes → partenaire / défenseur | 5c : passes → partenaire / défenseur |
+|---|---|---|
+| à portée (0,3 m) | 4,84 → 1,84 (38 %) / 2,57 (53 %) | 5,54 → 1,46 (26 %) / 3,41 (62 %) |
+| seulement jambe tendue (0,8 m) | 0,86 → 0,27 / 0,34 | 0,98 → 0,18 / 0,57 |
+| hors de portée | 2,23 → 0,21 / 0,82 | 2,73 → 0,09 / 0,84 |
+
+  * Le passeur (IA inchangée) vise 6 m devant l'appel, avec une estimation fixe du temps des
+    défenseurs. Il ne vérifie pas que le receveur peut atteindre le ballon : 28 à 30 % de ses
+    passes en profondeur sont hors de portée physique, en 5b comme en 5c.
+  * La portée de 0,3 m des plans n'écarte presque rien d'atteignable : 0,09 passe par match est
+    jugée hors de portée alors qu'elle était atteignable jambe tendue.
+  * Sur les passes atteignables, **les défenseurs l'emportent plus souvent en 5c**. C'est cohérent
+    avec la meilleure prédiction d'interception (interceptions à moins de 0,1 s du réel : 64 → 80 %).
+
+### 4. Mesures complémentaires
+* **Tirs rapportés au jeu effectif** (84 matchs) : 25,7 → 23,3 / 90 min (−9 %). Le jeu effectif
+  passe de 65,7 à 66,4 min.
+* **Tirs rapportés aux occasions aériennes** : inchangés (voir 2).
+* **Fautes.**
+  * Nombre par match : 19,6 → 18,7 (−5 %, 84 matchs).
+  * Ablations (28 graines) : virage seul 17,2 ; prédiction seule 20,5. **C'est la règle de virage
+    qui les fait baisser.**
+  * Contacts sur l'homme : autant qu'avant (24,5 / 26,0 → 24,8 / 25,3 par match), mais sifflés
+    moins souvent (78,5 / 76,3 % → 73,2 / 75,0 %).
+  * Ce qui change dans ces contacts :
+    * porteur moins rapide : 3,65 → 3,43 m/s ;
+    * contacts par derrière : 18,7 → 15,2 % ;
+    * tacles glissés : 29 → 23 % des contacts (18,3 → 13,6 tentés par match).
+  * Ce sont les termes de l'intensité du contact jugée par l'arbitre. La formule du coup de
+    sifflet est inchangée. Conséquence physique de la limite de vitesse en virage, aucune
+    correction.
+
+### 5. Conclusion du diagnostic
+1. **Artefacts de mesure.**
+   * La baisse des têtes au but n'existe qu'au pas de 0,05 s des outils. Au pas du jeu, sur 84
+     matchs : 5,04 → 4,95.
+   * La catégorie « tête sur corner » de `header-report` était fausse (corrigée).
+   * Le −16 % de tirs de la première campagne venait en bonne partie d'un échantillon 5b haut : sur
+     56 graines nouvelles, l'écart est de −4 %.
+2. **Conséquence physique réaliste.**
+   * Les tentatives de tête vers des ballons physiquement hors de portée passent de 12-14 à environ
+     3 par match.
+   * Les têtes obtenues depuis une position impossible passent de 1,3-1,6 à 0,6.
+   * Les tentatives réalistes et les têtes au but par ballon jouable sont conservées.
+   * Les fautes baissent parce que les contacts sont moins violents.
+3. **Changement de comportement à surveiller, non corrigé.**
+   * Le porteur arrive 20 % moins souvent dans la surface, ce qui donne −8,5 % de tirs sur 84
+     matchs (à la limite du bruit).
+   * La décision de tirer est intacte.
+   * La baisse vient de l'accès à la surface :
+     * passes en profondeur gagnées plus souvent par les défenseurs, grâce à une meilleure
+       prédiction ;
+     * moins d'entrées en conduite ;
+     * moins de ballons libres dans la surface.
+   * Le seul défaut identifié est hors du champ de 5c : le passeur choisit des passes en profondeur
+     sans vérifier la portée du receveur (IA du passeur, chantier hors-jeu / longs ballons).
+
+Aucun paramètre de tir, de choix tête / contrôle / frappe ou de décision tactique n'a été modifié.
+5c n'est pas déclarée validée, et 5d n'est pas commencée.

@@ -14,7 +14,10 @@ if (process.env.WORKER) {
     runLive(await cfgFor(base + g), {
       dt: 0.05,
       onStep(sim, m, evs) {
-        if (sim.restart && sim.restart !== lastRs) { lastRs = sim.restart; rsKind = sim.restart.kind; rsT = sim.now; }
+        // Origine coup de pied arrêté : tir dans les 8 s qui suivent la remise JOUÉE (et non son apparition :
+        // la mise en place d'un corner dure ~30 s, l'ancienne mesure ne voyait presque aucun tir sur corner).
+        if (sim.restart && sim.restart !== lastRs) { lastRs = sim.restart; rsKind = sim.restart.kind; rsT = -99; }
+        if (!sim.restart && lastRs && rsT < 0) rsT = sim.now;
         if (sim.pending && sim.pending !== lastPd) { lastPd = sim.pending; pdT = sim.now; pdKind = sim.pending.cross ? 'centre' : sim.pending.lofted ? 'passe levée' : 'passe au sol'; if (sim.pending.cross) add('centres'); }
         for (const e of evs) if (e.type === 'shot') {
           const k = e.kind === 'header' ? 'tête' : 'pied';
