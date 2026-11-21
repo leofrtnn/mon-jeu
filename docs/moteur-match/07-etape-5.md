@@ -1,4 +1,4 @@
-# Étape 5 — Déplacements : intention unique, allure, cinématique partagée
+# Étape 5 — Déplacements : intention unique, allure, cinématique partagée — VALIDÉE
 
 Découpage validé : 5-0 (protection des passes levées) · 5a (arbitrage des intentions) ·
 5b (allure dans l'intention) · 5c (modèle cinématique partagé mouvement / planification) ·
@@ -373,7 +373,7 @@ que jusqu'à la première divergence ; on compare donc les distributions sur 16 
 * Relève de l'IA (perception du hors-jeu par le passeur, synchronisation des appels) — à traiter
   avec les appels tactiques et la stabilité des rôles, pas dans 5c.
 
-## 5c — Modèle cinématique unique (`js/engine/body.js`) — rapport, non validé
+## 5c — Modèle cinématique unique (`js/engine/body.js`) — validé (voir la base corrigée)
 ### Principe
 * **Un seul pas de vitesse** (`velocityStep`) pour le déplacement réel (`move()`) et pour la
   prédiction. La vitesse voulue vers la cible est le minimum de trois valeurs : l'allure demandée,
@@ -549,7 +549,7 @@ corrigée ci-dessous.
 * **En attente de décision** : correction des deux défauts de blocage, puis nouvelle mesure de 5b
   et 5c sur la même base. 5d n'est pas commencée.
 
-## 5c — Base corrigée : 5b corrigée (nouvelle référence) → 5c corrigée — rapport, non validé
+## 5c — Base corrigée : 5b corrigée (nouvelle référence) → 5c corrigée — validé
 ### Correctif minimal (`live.js`, avant validation de 5c)
 * **Célébration.** À la fin de la célébration, le compteur `celebrate` est remis à 0 dans tous les
   cas : but validé, but annulé par la VAR ou but sans VAR. C'est l'unique état global décompté
@@ -708,7 +708,7 @@ donne z, et |z| ≈ 2 correspond à la limite de ce que le hasard des trajectoir
   surtout de la tête, est le point à trancher. Voir le diagnostic ci-dessous : à 1/96 s, cette
   baisse est en grande partie un effet d'échantillon et de mesure.
 
-## 5c — Diagnostic des tirs (5b corrigée → 5c corrigée) — rapport, non validé
+## 5c — Diagnostic des tirs (5b corrigée → 5c corrigée) — validé
 Aucune modification du moteur dans cette partie : observation seulement. Deux outils ont été
 ajoutés et l'attribution de `header-report` a été corrigée (voir 1).
 * `aerial-report.mjs` : ballons aériens dans la surface, attaquants en position, tentatives, têtes
@@ -899,7 +899,7 @@ nouvelles :
 Aucun paramètre de tir, de choix tête / contrôle / frappe ou de décision tactique n'a été modifié.
 5c n'est pas déclarée validée, et 5d n'est pas commencée.
 
-## 5d — Diagnostics et validation globale de l'étape 5 — rapport, non validé
+## 5d — Diagnostics et validation globale de l'étape 5 — validé
 5c a été validée sur la base corrigée. 5d est une sous-étape de diagnostic : aucune modification de
 la physique, des contacts ni des décisions. Le moteur reste identique (empreinte de match
 112bd1dc), avec ou sans diagnostic branché.
@@ -1097,3 +1097,38 @@ Résultats de 5c (fin de l'étape 5), au pas de 1/96 s, sur deux jeux de 16 matc
 * Déterminisme conservé.
 * Moteur rapide : b47d8708.
 * `stability-report` n'utilise aucun hasard et ne branche pas le diagnostic.
+
+## Clôture de l'étape 5 — validée
+* **Indicateur de référence de la stabilité de l'arbitrage** : la mesure A, c'est-à-dire les sauts
+  de cible de plus de 3 m causés par un changement d'intention décidé par l'arbitre. Elle vaut 2,34
+  à 2,38 par joueur et par minute, pour un objectif de moins de 5, avec le seuil initial de 3 m.
+* Le compteur global (14 par joueur et par minute) reste publié. Aucun saut n'est supprimé : chaque
+  évènement est classé selon son origine.
+* L'étape 5 est figée : ses comportements, sa cinématique et ses priorités d'intention ne seront pas
+  modifiés rétroactivement.
+* Garanties conservées :
+  * déterminisme ;
+  * match identique avec ou sans diagnostic ;
+  * empreinte du moteur rapide b47d8708 ;
+  * outils de mesure de l'étape.
+
+### Backlog transmis à l'étape 7 (IA d'équipe et intentions sans ballon)
+* Stabilité des rôles et des transitions du placement collectif (catégorie C : environ 4,7 sauts
+  par joueur et par minute). Transitions principales : formation → soutien, couverture, appel,
+  repli, marquage.
+* Intentions d'urgence trop brèves (moins de 0,3 s) : coupe de passe 39 %, poursuite 31 %, duel
+  aérien 24 %, espacement 12 %.
+* Accès à la surface en baisse :
+  * entrées en conduite ;
+  * passes en profondeur reçues ;
+  * ballons libres gagnés.
+* Passeur qui ignore la portée physique du receveur (28 à 30 % des passes en profondeur hors de
+  portée), à traiter avec la perception du hors-jeu, le choix des solutions et les longs ballons.
+* Autres points documentés :
+  * fautes en baisse, à cause de contacts moins violents ;
+  * allures et distance au-dessus des repères réels ;
+  * ballon libre touché 0,1 s plus tard ;
+  * rebond des passes levées (étape dédiée à l'exécution des passes) ;
+  * penaltys ;
+  * choix tête / contrôle / frappe.
+
