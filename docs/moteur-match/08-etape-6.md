@@ -218,3 +218,143 @@ et d'un tacle touché de la cuisse.
   sans contact. Ils restent hors du contrat 6a, et le déplacement les reprendra en 6d.
 * Les anciens indicateurs (`kick`, `ctrl`, `touch`, `jump`, `slide`…) pilotent toujours **tout**
   le rendu. Ils n'ont pas changé de statut en 6a : aucun geste n'est encore migré.
+
+## 6b — Frappes, passes, centres et contrôles — rapport, non validé
+### Principe
+* **Affichage différé.** L'écran montre la partie avec un différé constant `DELAY` = **0,15 s**
+  (`js/ui/animSync.js`).
+  * Un contact a lieu au temps moteur t. L'image du temps t − 0,15 s n'a pas encore été affichée :
+    le geste peut y commencer **avant** le contact. Le contact animé tombe alors exactement sur
+    l'image du contact physique.
+  * Le différé est supérieur à la plus longue anticipation nécessaire (0,15 s pour une frappe sans
+    armé). Démarrer l'animation au moment du contact, comme avant, la mettait toujours en retard.
+* **Couche d'affichage.**
+  * À chaque pas, la vue copie les champs d'affichage des joueurs et du ballon, sans jamais modifier
+    les objets du moteur.
+  * Elle construit des objets d'affichage à t_aff = now − 0,15 s, avec des positions interpolées
+    entre deux pas.
+  * Le rendu 3D (joueurs, ballon, caméra) lit ces objets.
+  * Les commentaires, les sons et l'interface restent au temps du moteur. Ils précèdent l'image de
+    0,15 s, comme avant 6b.
+* **Gestes migrés (pilotés par le contrat).**
+  * Familles : frappes, passes, passes levées, centres, dégagements, remises en jeu au pied (armés
+    ou non), contrôles, contacts subis, touches de conduite.
+  * Les champs de geste lus par le rendu (`kick`, `kickMax`, `kickFoot`, `kickPow`, `kickSide`,
+    `kickLoft`, `kickOut`, `touch`, `touchMax`, `touchFoot`, `touchIn`, `ctrl`, `ctrlH`) sont
+    **recalculés à partir du contrat** : contact, style du geste et issue.
+  * Les anciens indicateurs du moteur ne pilotent plus ces gestes.
+* **Anciens indicateurs.** Ils restent, avec le statut **non migrés**, pour les tacles, les têtes,
+  le gardien, la touche, les chutes, les célébrations et les gestes techniques.
+  * Un contrôle ou une touche rattachés à un tacle ou à un geste technique gardent l'ancien
+    indicateur.
+  * Au choix : `?anim=contrat` (défaut), `?anim=ancien` (même différé, anciens indicateurs, pour
+    comparer), ou `?anim=direct` (sans différé, comme avant 6b).
+* **Timing par famille.** Le contact animé coïncide exactement avec le contact physique :
+
+  | Famille | Avant le contact | Au contact | Après le contact |
+  |---|---|---|---|
+  | Frappe armée | armé de l'instant décidé par le moteur jusqu'à l'élan (tenu si la frappe est suspendue), puis fouetté sur la dernière fraction du geste | fraction 0,55 | accompagnement |
+  | Frappe sans armé | élan compressé dans les 0,15 s qui précèdent | fraction 0,55 | accompagnement |
+  | Touche de conduite | 0,112 s | sommet du geste | 0,112 s |
+  | Contrôle | le corps se présente 0,12 s avant | | amorti 0,24 s |
+  | Contact subi (sans réaction) | aucune anticipation | réaction | |
+
+  Les frappes armées gardent leur armé, mais le contact animé est maintenant exactement au contact
+  (auparavant de 0 à 1 pas avant).
+* **Contact visuel sur le squelette (cinématique inverse de la jambe).**
+  * Le moteur place le ballon n'importe où dans la zone d'atteinte, jusqu'à 0,8 m du point de
+    contact naturel. En conduite, il est souvent à 0,12-0,25 m du centre du joueur.
+  * Un geste joué à une position fixe par rapport au corps passait donc loin du ballon : à 0,35-0,6 m
+    au moment du contact, même pour les frappes déjà synchronisées en 6a.
+  * Correction : autour du contact (0,08 à 0,1 s avant, 0,04 à 0,05 s après), la jambe du geste est
+    amenée par cinématique inverse (hanche et genou, moindres carrés amortis sur le vrai squelette)
+    sur le point de la surface du ballon le plus proche du pied, à la position du ballon à l'instant
+    du contact (connue grâce au différé).
+  * Hors du pas du contact, le pied du geste est empêché de pénétrer le ballon affiché.
+* **Rien ne change dans le moteur** : physique, contacts, décisions, arbitrage et cinématique sont
+  intacts. Le contrat relève seulement en plus le style du geste (pied, puissance, intérieur ou
+  extérieur, ballon levé, durée de l'armé, hauteur du contrôle), déjà décidé par le moteur.
+
+### Mesures
+**Timing contrat → animation** (`tests/animsync.test.js`, sans navigateur) :
+* Pour toutes les frappes d'un match : phase 0,55 exactement au contact physique.
+* Animation commencée avant le contact, et au plus 0,15 s avant pour une frappe sans armé.
+* Ancien contact animé des frappes armées : entre 0 et 1 pas avant le contact (aucune régression).
+* Touches et contrôles : sommet exactement au contact.
+* Gestes annulés ou interrompus : plus aucune animation après la fin du geste (pas de frappe
+  fantôme).
+
+**Contact visuel sur le squelette 3D** (`anim-probe.cjs`).
+* Méthode :
+  * même match, mêmes gestes, mêmes instants, ancien rendu puis contrat, rejoués pas à pas (1/96 s)
+    autour de chaque contact avec le calcul de pose réel du rendu (pose, lissage, cinématique
+    inverse) ;
+  * 400 s de jeu, 271 gestes ;
+  * distance mesurée entre la partie du corps (bout du pied ; genou, poitrine ou tête pour un
+    contrôle) et la **surface** du ballon ;
+  * « au contact » = minimum dans ±1 pas autour du contact physique.
+
+| Famille | n | Distance au contact, ancien → contrat | Contact ≤ 3 cm, ancien → contrat | Rapprochement maximal à ≤ 1 pas du contact, ancien → contrat | Pied dans le ballon hors du contact > 2 cm, ancien → contrat |
+|---|---|---|---|---|---|
+| Touche de conduite | 187 | 0,453 → **0,007 m** | 4 → **80 %** | 8 → **63 %** | 4 → 5 % |
+| Contrôle | 49 | 0,558 → **0,025 m** | 0 → **63 %** | 22 → **35 %** | 4 → 0 % |
+| Passe (armée) | 23 | 0,347 → **−0,008 m** | 9 → **43 %** (le reste à moins de 4 cm, légèrement dans le ballon) | 17 → **96 %** | 4 → 4 % |
+| Remise en jeu au pied | 5 | 0,426 → −0,009 m | 0 → 20 % | 20 → **100 %** | 20 → 0 % |
+| Passe levée, dégagement, frappe, subi | 1 à 3 chacun | voir la sortie de l'outil | | | |
+
+### Lecture
+* **Le timing des familles migrées est exact.** Le contact animé coïncide avec le contact physique
+  par construction (tests), et l'animation commence bien avant le contact.
+* **Le contact visuel est obtenu dans la grande majorité des cas** : le pied est sur le ballon au
+  contact (médianes de 0,7 cm à 2,5 cm), contre 35 à 56 cm avant 6b.
+* **Écarts restants (non masqués) :**
+  * Contrôles et touches : le rapprochement maximal n'est à un pas du contact que dans 35 à 63 % des
+    cas. La distance reste quasi nulle sur plusieurs pas autour du contact : le ballon contrôlé reste
+    au pied.
+  * 5 % des touches de conduite ont le pied plus de 2 cm dans le ballon hors du contact. En conduite,
+    le moteur garde le ballon à 0,12-0,25 m du centre du joueur, sous son corps : la jambe d'appui et
+    la jambe de touche le frôlent. Cette géométrie relève du moteur (conduite), hors du champ de 6b.
+  * Ballons hauts ou lointains (dégagement, quelques frappes) : la cinématique inverse ne peut pas
+    toujours atteindre le ballon. Elle est limitée aux articulations de la jambe, sans saut ni
+    pivot du corps.
+  * Contrôles de la poitrine, de la cuisse ou de la tête : synchronisés dans le temps, mais sans
+    cinématique inverse. Le corps n'est pas déplacé vers le ballon.
+* **Anomalies de logique moteur révélées par 6a, non corrigées (consigne) :**
+  * passes annulées, ballon hors de portée : 22,5 par match ;
+  * frappes suspendues, puis réarmées : 301 par match ;
+  * touches sans lancer faute de partenaire : 24 % des touches ;
+  * ballon de conduite maintenu sous le corps du porteur (nouveau, vu sur le squelette).
+
+  Elles sont transmises à la logique moteur, pour une étape à décider.
+
+### Captures avant / après (`anim-shots.cjs`)
+* Méthode : même instant de jeu (l'image du contact physique), même joueur filmé de côté, ancien
+  rendu puis contrat.
+* Sur la touche de conduite et le contrôle, le pied est sur le ballon avec le contrat, alors qu'il
+  en est éloigné avec l'ancien rendu.
+* Sur l'exemple de passe, le pied s'approche du ballon sans le toucher franchement : c'est un des
+  cas résiduels mesurés ci-dessus (cinématique inverse limitée).
+* Les captures ne sont pas versionnées (taille). Elles se régénèrent avec
+  `node tools/bench/anim-shots.cjs`.
+
+### Non-régression
+* **Moteur** : match identique (112bd1dc), avec ou sans diagnostic.
+* **Déterminisme** sur trois graines : 5 → 112bd1dc, 104 → 2a6d7bc9, 300 → 8b411e7e.
+* **Moteur rapide** : b47d8708.
+* **Contacts** : physiquement possibles à 100 %.
+* **Contrat** : 100 % des contacts du diagnostic décrits, 0 contact sans geste (`gesture-report`,
+  4 matchs).
+* **Tests unitaires** : 128 réussis (126, plus 2 tests de synchronisation).
+* **Tests d'interface** : réussis.
+* **Match en ligne** entre deux managers : même match des deux côtés.
+* **Couche d'affichage** : sans effet sur le match (test, deux graines).
+* **Coût mobile** (`render-cost.cjs`, `AB6=1`) : même match, fenêtres de 15 s en alternant affichage
+  direct (avant 6b) et contrat (6b).
+
+  | Processeur | Direct | Contrat |
+  |---|---|---|
+  | Non ralenti | 240 et 216 ms par image | 236 et 202 ms par image |
+  | Ralenti ×4 | 335 ms par image | 326 ms par image |
+
+  Pas d'écart mesurable dans le bruit. L'enregistrement par pas, l'échantillonnage différé et la
+  cinématique inverse (1 à 3 joueurs par image) restent marginaux devant le rendu.

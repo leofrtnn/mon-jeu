@@ -662,6 +662,38 @@ export class Player3D {
   }
 
   /** Lissage des articulations : la pose calculée devient une cible vers laquelle on glisse. */
+  /**
+   * Cinématique inverse de la jambe (étape 6b) : amène le bout du pied `leg` (0 gauche, 1 droite) sur
+   * `target` (position monde) avec le poids `w` (0-1), en ajustant flexion / écartement de la hanche
+   * et flexion du genou (moindres carrés amortis sur le vrai squelette), à partir de la pose animée.
+   * Utilisé seulement autour d'un contact physique (le geste touche le ballon là où il est).
+   */
+  ikLeg(leg, target, w) {
+    if (!(w > 0)) return;
+    const Lg = this.legs[leg], V = (this._ikV ||= new THREE.Vector3()), toe = () => { this.root.updateMatrixWorld(true); return Lg.ankle.localToWorld(V.set(0.1, -0.05, 0)).clone(); };
+    const q0 = [Lg.hip.rotation.x, Lg.hip.rotation.z, Lg.knee.rotation.z];
+    const q = q0.slice(), set = (v) => { Lg.hip.rotation.x = v[0]; Lg.hip.rotation.z = v[1]; Lg.knee.rotation.z = v[2]; };
+    const lim = [[-0.9, 0.9], [-1.6, 1.9], [-2.4, 0]];
+    for (let it = 0; it < 8; it++) {
+      set(q); const p0 = toe(), e = [target.x - p0.x, target.y - p0.y, target.z - p0.z];
+      if (Math.hypot(...e) < 0.005) break;
+      const J = [];
+      for (let k = 0; k < 3; k++) { const qq = q.slice(); qq[k] += 0.01; set(qq); const p1 = toe(); J.push([(p1.x - p0.x) / 0.01, (p1.y - p0.y) / 0.01, (p1.z - p0.z) / 0.01]); }
+      // dq = Jᵀ (J Jᵀ + λ²I)⁻¹ e (moindres carrés amortis), en 3×3.
+      const A = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+      for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) { let sum = 0; for (let k = 0; k < 3; k++) sum += J[k][r] * J[k][c]; A[r][c] = sum + (r === c ? 0.0025 : 0); }
+      const det = A[0][0] * (A[1][1] * A[2][2] - A[1][2] * A[2][1]) - A[0][1] * (A[1][0] * A[2][2] - A[1][2] * A[2][0]) + A[0][2] * (A[1][0] * A[2][1] - A[1][1] * A[2][0]);
+      if (!(Math.abs(det) > 1e-12)) break;
+      const inv = [[(A[1][1] * A[2][2] - A[1][2] * A[2][1]) / det, (A[0][2] * A[2][1] - A[0][1] * A[2][2]) / det, (A[0][1] * A[1][2] - A[0][2] * A[1][1]) / det],
+        [(A[1][2] * A[2][0] - A[1][0] * A[2][2]) / det, (A[0][0] * A[2][2] - A[0][2] * A[2][0]) / det, (A[0][2] * A[1][0] - A[0][0] * A[1][2]) / det],
+        [(A[1][0] * A[2][1] - A[1][1] * A[2][0]) / det, (A[0][1] * A[2][0] - A[0][0] * A[2][1]) / det, (A[0][0] * A[1][1] - A[0][1] * A[1][0]) / det]];
+      const y = [0, 1, 2].map((r) => inv[r][0] * e[0] + inv[r][1] * e[1] + inv[r][2] * e[2]);
+      for (let k = 0; k < 3; k++) { let d = J[k][0] * y[0] + J[k][1] * y[1] + J[k][2] * y[2]; d = Math.max(-0.35, Math.min(0.35, d)); q[k] = Math.max(lim[k][0], Math.min(lim[k][1], q[k] + d)); }
+    }
+    set(q0.map((a, k) => a + (q[k] - a) * w));
+    this.root.updateMatrixWorld(true);
+  }
+
   smoothPose(dt) {
     const [lL, lR] = this.legs, [aL, aR] = this.arms;
     const objs = [lL.hip.rotation, lR.hip.rotation, lL.knee.rotation, lR.knee.rotation, aL.sh.rotation, aR.sh.rotation, aL.el.rotation, aR.el.rotation, this.body.rotation, this.headPivot.rotation, this.upper.rotation, lL.ankle.rotation, lR.ankle.rotation];
@@ -2609,11 +2641,103 @@ export class Match3D {
     return { tv: 'Caméra télé', director: 'Réalisation TV (plans automatiques)', close: 'Caméra rapprochée', pitchside: 'Bord du terrain', player: 'Derrière le porteur', tribune: 'Panoramique (haut de tribune)', high: 'Vue tactique', goal: 'Derrière le but' }[this.camMode];
   }
 
+  /**
+   * Sonde de contact VISUEL (étape 6b, outil de mesure) : pour chaque geste migré dont le contact a eu
+   * lieu dans [tFrom, tTo], rejoue l'affichage pas à pas (1/96 s) autour du contact avec le même calcul
+   * de pose que le rendu (pose + lissage), et mesure la distance entre la partie du corps qui touche
+   * (pied de frappe / de touche ; pied, genou, poitrine ou tête pour un contrôle) et la surface du ballon.
+   * Renvoie, par geste : distance minimale, instant de ce minimum − instant du contact physique, distance au contact.
+   */
+  probe6(mode, tFrom, tTo) {
+    const v = this.v, D6 = v.disp6, G = v.live?.gest; if (!D6 || !G) return [];
+    const flip = this.flip(), out = [], step = 1 / 96, V = new THREE.Vector3();
+    const KINDS = new Set(['passe', 'passe levée', 'frappe', 'centre', 'dégagement', 'remise en jeu au pied', 'contrôle', 'subi', 'touche de conduite']);
+    for (const g of G.gestures) {
+      if (!KINDS.has(g.kind) || g.tContact == null || g.tContact < tFrom || g.tContact > tTo) continue;
+      const e = this.players.get(g.pid); if (!e) continue;
+      const L3 = e.p3.legs, pts = (p) => {
+        const foot = (i) => L3[i].ankle.localToWorld(V.set(0.1, -0.05, 0)).clone(), knee = (i) => L3[i].knee.localToWorld(V.set(0, 0, 0)).clone();
+        if (g.kind === 'touche de conduite') return [foot(g.style?.touchFoot === 'L' ? 0 : 1)];
+        if (!['contrôle', 'subi'].includes(g.kind)) return [foot((g.style?.foot || p.kickFoot) === 'L' ? 0 : 1)];
+        const part = g.cPart;
+        if (part === 'cuisse') return [knee(0), knee(1)];
+        if (part === 'poitrine') return [e.p3.upper.localToWorld(V.set(0.12, 0.25, 0)).clone()];
+        if (part === 'tête') return [e.p3.headPivot.localToWorld(V.set(0.05, 0.1, 0)).clone()];
+        return [foot(0), foot(1)];
+      };
+      let best = null, atC = null, first = null, lastT = null, maxPen = 0;
+      e.p3._sm = null;   // lissage repris au début de la fenêtre, comme à l'écran
+      for (let t = g.tContact - 0.35; t <= g.tContact + 0.3; t += step) {
+        if (!D6.sample(mode, t)) break;
+        const p = D6.disp.get(g.pid); if (!p) break;
+        const [x, z] = this.toWorld(p.x, p.y, flip); e.p3.root.position.set(x, 0, z);
+        const B = D6.ballN, ballAng = Math.atan2((B.y - p.y) * W, (B.x - p.x) * L);
+        e.p3.pose(p, flip, { dt: step, ballAng }); e.p3.smoothPose(step); if (p._ik) this.applyIK(e, p, flip, B); e.p3.root.updateMatrixWorld(true);
+        const [bx, bz] = this.toWorld(B.x, B.y, flip), by = BALL_R + B.h * 26;
+        const d = Math.min(...pts(p).map((q) => Math.hypot(q.x - bx, q.y - by, q.z - bz))) - BALL_R;
+        if (!best || d < best.d) best = { d, t };
+        if (Math.abs(t - g.tContact) <= step + 1e-6) atC = atC == null ? d : Math.min(atC, d);   // distance au contact : minimum dans ±1 pas
+        if (d < -0.005) { const x = t - g.tContact; first = first ?? x; lastT = x; }   // pied DANS le ballon (contact visuel net)
+        if (Math.abs(t - g.tContact) > step + 1e-6) maxPen = Math.max(maxPen, -d);   // pénétration hors du pas du contact
+        if (this._probeSeries) { const R = e.p3.root.position; (this._probeSeries[g.id] ||= { kind: g.kind, part: g.cPart, rows: [] }).rows.push([+(t - g.tContact).toFixed(3), +d.toFixed(3), +(p._ik?.w || 0).toFixed(2), +Math.hypot(bx - R.x, bz - R.z).toFixed(2), +by.toFixed(2), p._ik?.at ? +Math.hypot(this.toWorld(p._ik.at.x / L, p._ik.at.y / W, flip)[0] - bx, this.toWorld(p._ik.at.x / L, p._ik.at.y / W, flip)[1] - bz).toFixed(3) : null]); }
+      }
+      if (best) out.push({ gid: g.id, kind: g.kind + (g.reflex && !['contrôle', 'subi', 'touche de conduite'].includes(g.kind) ? ' (sans armé)' : ''), part: g.cPart, minD: +best.d.toFixed(3), dtMin: +(best.t - g.tContact).toFixed(4), dAtC: +(atC ?? best.d).toFixed(3), touchFrom: first, touchTo: lastT, maxPen: +maxPen.toFixed(3) });
+    }
+    return out;
+  }
+
+  /**
+   * Étalonnage (étape 6b, outil) : pour un joueur immobile, balaye la phase u de chaque animation
+   * (frappe : variantes de capture × plat / cou-de-pied ; touche de conduite ; contrôle) et renvoie,
+   * pour chaque u, la position du bout du pied concerné dans le repère du joueur (avant, hauteur).
+   */
+  /**
+   * Cinématique inverse autour d'un contact (étape 6b) :
+   *  1. cible = point de la surface du ballon À L'INSTANT DU CONTACT le plus proche du pied animé
+   *     (le pied y arrive exactement au contact ; poids k.w) ;
+   *  2. hors du pas du contact, le pied du geste ne pénètre jamais le ballon affiché (il est ramené
+   *     à sa surface) : pas de toucher visuel avant ou après le contact physique.
+   */
+  applyIK(e, p, flip, VB) {
+    const k = p._ik; if (!k) return;
+    const V = (this._ikV2 ||= new THREE.Vector3()), P3 = e.p3;
+    const toeOf = (leg) => { P3.root.updateMatrixWorld(true); return P3.legs[leg].ankle.localToWorld(V.set(0.1, -0.05, 0)).clone(); };
+    const ballW = (b) => { const [x, z] = this.toWorld(b.x / L, b.y / W, flip); return new THREE.Vector3(x, BALL_R + Math.max(0, b.z - 0.11), z); };
+    const Cc = ballW(k.at || { x: VB.x * L, y: VB.y * W, z: 0.11 + VB.h * 26 });
+    let leg = k.leg;
+    if (leg == null) leg = toeOf(0).distanceTo(Cc) < toeOf(1).distanceTo(Cc) ? 0 : 1;   // contrôle du pied : jambe la plus proche
+    if (k.w > 0) {
+      const t0 = toeOf(leg), dir = t0.clone().sub(Cc); if (dir.lengthSq() < 1e-8) dir.set(-1, 0, 0);
+      P3.ikLeg(leg, Cc.clone().add(dir.normalize().multiplyScalar(BALL_R)), k.w);
+    }
+    if (Math.abs(k.dtc) > 1 / 96 + 1e-6) {
+      const Cn = ballW({ x: VB.x * L, y: VB.y * W, z: 0.11 + VB.h * 26 }), t1 = toeOf(leg), r = t1.distanceTo(Cn);
+      if (r < BALL_R) { const dir = t1.clone().sub(Cn); if (dir.lengthSq() < 1e-8) dir.set(-1, 0, 0); P3.ikLeg(leg, Cn.clone().add(dir.normalize().multiplyScalar(BALL_R + 0.006)), 1); }
+    }
+  }
+
+  calib6() {
+    const e = [...this.players.values()][0]; if (!e) return null;
+    const P3 = e.p3, V = new THREE.Vector3(), out = {};
+    const base = { face: 0, speed: 0, phase: 0, id: 0, x: 0.5, y: 0.5 };
+    const toe = (leg) => { P3.root.updateMatrixWorld(true); const w = P3.legs[leg].ankle.localToWorld(V.set(0.1, -0.05, 0)); const l = P3.root.worldToLocal(w.clone()); return l; };
+    const sweep = (name, mk, leg) => {
+      const rows = [];
+      P3.root.position.set(0, 0, 0); P3._sm = null;
+      for (let u = 0; u <= 1.0001; u += 0.02) { P3.pose({ ...base, ...mk(u) }, false, { dt: 0.016 }); P3._sm = null; const l = toe(leg); rows.push([+u.toFixed(2), +l.x.toFixed(3), +l.y.toFixed(3), +l.z.toFixed(3)]); }
+      out[name] = rows;
+    };
+    for (const [id, pow, side] of [[0, 0.5, true], [1, 0.5, true], [0, 0.85, false], [1, 0.85, false], [0, 1, false]]) sweep(`frappe id${id} puissance${pow}${side ? ' plat' : ''}`, (u) => ({ id, kick: 0.32 * (1 - u) || 1e-6, kickMax: 0.32, kickFoot: 'R', kickPow: pow, kickSide: side }), 1);
+    sweep('touche de conduite', (u) => ({ touch: 0.14 * (1 - u) || 1e-6, touchMax: 0.14, touchFoot: 'R', touchIn: true }), 1);
+    sweep('contrôle', (u) => ({ ctrl: 0.3 * (1 - u) || 1e-6, ctrlH: 0.11 }), 1);
+    return out;
+  }
+
   updateCamera(dt) {
-    const v = this.v;
+    const v = this.v, VP = v.dispPlayers || v.players, VB = v.dispBall || v.ball, VH = v.dispPlayers ? v.dispHolder : v.holder;   // (état d'affichage différé, étape 6b)
     // La caméra anticipe : elle regarde là où le ballon va (vitesse × 0,45 s).
-    const P = v.phys, lead = 0.45;
-    const lx = P ? (P.x + P.vx * lead) / L : v.ball.x, ly = P ? (P.y + P.vy * lead) / W : v.ball.y;
+    const P = v.dispPhys || v.phys, lead = 0.45;
+    const lx = P ? (P.x + P.vx * lead) / L : VB.x, ly = P ? (P.y + P.vy * lead) / W : VB.y;
     const [bx, bz] = this.toWorld(Math.max(-0.02, Math.min(1.02, lx)), Math.max(0, Math.min(1, ly)));
     let mode = this.camMode;
     const celebrating = v.banner && v.banner.text === 'BUT !';
@@ -2640,7 +2764,7 @@ export class Match3D {
       // Grosse occasion manquée : gros plan sur le joueur, mains sur la tête.
       if (!v.replaying && v.hl !== 'skip') {
         let miss = null;
-        for (const [id, p] of v.players) if ((p.headHands || 0) > 1.2) { miss = id; break; }
+        for (const [id, p] of VP) if ((p.headHands || 0) > 1.2) { miss = id; break; }
         if (miss != null && (this._missId !== miss || performance.now() - this._missAt < 1800)) {
           if (this._missId !== miss) { this._missId = miss; this._missAt = performance.now(); }
           const e = this.players.get(miss);
@@ -2703,7 +2827,7 @@ export class Match3D {
     else if (mode === 'tribune') { want.set(Math.max(-30, Math.min(30, bx * 0.6)), 34, 74); look.set(bx * 0.8, 0, bz * 0.25); this.camera.fov = 34; }  // tout en haut de la tribune principale
     else if (mode === 'player') {
       // Derrière le porteur (ou le ballon), à 9 m, dans le sens de son jeu.
-      const hp = v.holder != null ? v.players.get(v.holder) : null;
+      const hp = VH != null ? VP.get(VH) : null;
       const [hx, hz] = hp ? this.toWorld(hp.x, hp.y) : [bx, bz];
       const ang = hp ? (this.flip() ? hp.face + Math.PI : hp.face) : 0;
       want.set(hx - Math.cos(ang) * 9, 4.2, hz - Math.sin(ang) * 9);
@@ -3050,27 +3174,30 @@ export class Match3D {
     this.syncPlayers();
     tickCloth(performance.now() / 1000);
     const flip = this.flip();
-    const carrier = v.holder ?? (v.cur ? v.cur.carrier : null);
+    // Étape 6b : état d'affichage différé (objets d'affichage du contrat) s'il existe, sinon l'état du moteur.
+    const VP = v.dispPlayers || v.players, VB = v.dispBall || v.ball, VPH = v.dispPhys || v.phys;
+    const carrier = (v.dispPlayers ? v.dispHolder : v.holder) ?? (v.cur ? v.cur.carrier : null), VIH = v.dispPlayers ? v.dispInHands : v.inHands;
     const camP = this.camera.position;
     // Ultra : corps réalistes jusqu'à 85 m (toute la vue télé) ; Haute : 34 m (gros plans).
     const lodD2 = (this.gfx === 'ultra' ? (this.mh ? 85 : 40) : this.mh ? 34 : 30) ** 2;
     for (const [id, e] of this.players) {
-      const p = v.players.get(id);
+      const p = VP.get(id);
       const [x, z] = this.toWorld(p.x, p.y, flip);
       e.p3.root.position.set(x, 0, z);
       e.p3.setDetail((x - camP.x) ** 2 + (z - camP.z) ** 2 + camP.y ** 2 < lodD2);
-      const dB = Math.hypot((p.x - v.ball.x) * L, (p.y - v.ball.y) * W);
+      const dB = Math.hypot((p.x - VB.x) * L, (p.y - VB.y) * W);
       const isCar = id === carrier;
       // Adversaire au contact (duel) : de quel côté est-il ?
       let jostle = 0, grab = 0;
-      if (dB < 4 && !p.gk) for (const [id2, q] of v.players) {
+      if (dB < 4 && !p.gk) for (const [id2, q] of VP) {
         if (id2 === id || q.side === p.side) continue;
         const dx = (q.x - p.x) * L, dy = (q.y - p.y) * W;
         if (dx * dx + dy * dy < 1.69) { const rel = Math.atan2(dy, dx) - (p.face || 0); jostle = Math.sin(rel) > 0 ? 1 : -1; grab = Math.cos(rel) < 0.35 && (isCar || dB < 2) ? jostle : 0; break; }
       }
-      const ballAng = dB < 45 ? Math.atan2((v.ball.y - p.y) * W, (v.ball.x - p.x) * L) : null;
-      e.p3.pose(p, flip, { dt: dt || 0.016, ballAng, jostle, ballNear: p.gk && dB < 30, alert: dB < 14 && !isCar && !v.restart, restFar: dB > 28 && !isCar, shield: isCar && !v.inHands && (p.shieldK || 0) > 0, holding: isCar && v.inHands && p.gk });
+      const ballAng = dB < 45 ? Math.atan2((VB.y - p.y) * W, (VB.x - p.x) * L) : null;
+      e.p3.pose(p, flip, { dt: dt || 0.016, ballAng, jostle, ballNear: p.gk && dB < 30, alert: dB < 14 && !isCar && !v.restart, restFar: dB > 28 && !isCar, shield: isCar && !VIH && (p.shieldK || 0) > 0, holding: isCar && VIH && p.gk });
       e.p3.smoothPose(dt || 0.016);
+      if (p._ik) this.applyIK(e, p, flip, VB);   // (étape 6b : le pied touche le ballon là où il est, à l'instant du contact)
       if (e.cloth) this.updateCloth(e.cloth, p, grab, dt || 0.016);
       // Gestes au sol : après le lissage, le point le plus bas du corps est reposé sur la pelouse.
       if (p.fall > 0 || p.slide > 0 || p.hurt > 0 || p.place > 0 || p.block > 0 || (p.celeb > 0 && (p.celebType === 'knees' || p.celebType === 'slide') && ((p.speed || 0) <= 2 || (p.celebType === 'slide' && p.celeb < 2.4))) || (p.dive > 0 && p.dive < 0.3)) e.p3.groundContact();
@@ -3085,12 +3212,12 @@ export class Match3D {
       this.ref3d.root.position.set(rx, 0, rz);
       this.ref3d.pose(v.referee, flip);
     }
-    let [bx, bz] = this.toWorld(v.ball.x, v.ball.y, flip);
-    let hgt = v.ball.h * 26;
+    let [bx, bz] = this.toWorld(VB.x, VB.y, flip);
+    let hgt = VB.h * 26;
     // Ballon dans les mains : gardien (contre la poitrine) ou joueur qui fait la touche (au-dessus de la tête).
-    let handId = carrier != null && v.inHands ? carrier : null;
-    if (handId == null) for (const [id, p] of v.players) if (p.hold > 0) { handId = id; break; }
-    const handP = handId != null ? v.players.get(handId) : null;
+    let handId = carrier != null && VIH ? carrier : null;
+    if (handId == null) for (const [id, p] of VP) if (p.hold > 0) { handId = id; break; }
+    const handP = handId != null ? VP.get(handId) : null;
     let inHandsPos = null;
     if (handP) {
       // Le ballon est DANS les mains : on le place entre les deux mains du modèle (pose réelle :
@@ -3116,7 +3243,7 @@ export class Match3D {
     if (inHandsPos) this.ball.position.copy(inHandsPos);
     else this.ball.position.set(bx, BALL_R + hgt, bz);
     // Rotation réelle : le ballon roule sur lui-même dans le sens de sa course.
-    const P = v.phys;
+    const P = VPH;
     if (P) {
       const da = P.rot.a - (this._rotA ?? P.rot.a);
       this._rotA = P.rot.a;

@@ -1,0 +1,63 @@
+/**
+ * Synchronisation animation ↔ contact (étape 6b) — logique d'affichage, sans navigateur :
+ * - la couche d'affichage différé ne modifie pas le match (même empreinte avec ou sans) ;
+ * - gestes migrés : le contact animé tombe exactement à l'instant du contact physique
+ *   (frappe : phase 0,55 au contact ; touche de conduite / contrôle : sommet 0,5 au contact) ;
+ * - l'animation commence AVANT le contact, au plus DELAY avant (anticipation possible grâce au différé) ;
+ * - frappes armées (déjà synchronisées en 6a) : le contact animé est désormais exactement au contact
+ *   (au lieu de 0 à 1 pas avant) — aucune régression ;
+ * - gestes annulés ou interrompus : l'animation s'arrête à la fin du geste (pas de frappe fantôme).
+ */
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { cfgFor, createMatch, LiveSim, hash } from '../tools/bench/common.mjs';
+import { DisplayBuffer, DELAY, kickPhase, peakPhase } from '../js/ui/animSync.js';
+
+const dt = 1 / 96;
+async function play(seed, withDisplay, minutes = 5) {
+  const m = createMatch(await cfgFor(seed)), sim = new LiveSim(m);
+  sim.gest.all = true;
+  const view = { live: sim, players: sim.players, phys: sim.P };
+  const D = withDisplay ? new DisplayBuffer(view) : null;
+  const parts = [];
+  for (let k = 0; k < 96 * 60 * 20 && m.phase !== 'ft' && m.minute < minutes; k++) {
+    const evs = sim.step(dt); if (m.phase === 'ht') sim.resumeHT = true;
+    if (D) { D.record(); if (k % 2 === 0) D.sample('contrat'); }
+    for (const e of evs) parts.push(`${e.type}:${e.pid ?? ''}`);
+  }
+  for (const p of sim.players.values()) parts.push(`${p.x.toFixed(6)},${p.y.toFixed(6)}`);
+  return { sim, h: hash(parts.join('|')) };
+}
+
+test('la couche d\'affichage différé ne modifie pas le match', async () => {
+  for (const seed of [104, 211]) {
+    const a = await play(seed, false), b = await play(seed, true);
+    assert.equal(a.h, b.h, `graine ${seed}`);
+  }
+});
+
+test('gestes migrés : contact animé = contact physique, animation commencée avant (≤ DELAY)', async () => {
+  const { sim } = await play(103, false, 8);
+  const G = sim.gest.gestures.filter((g) => g.tContact != null);
+  const kicks = G.filter((g) => ['passe', 'passe levée', 'frappe', 'centre', 'dégagement', 'remise en jeu au pied'].includes(g.kind));
+  assert.ok(kicks.length > 40);
+  for (const g of kicks) {
+    const now = g.tContact + DELAY;   // l'image du contact est affichée DELAY plus tard
+    assert.ok(Math.abs(kickPhase(g, g.tContact, now) - 0.55) < 1e-9, `${g.kind} #${g.id} : phase au contact ${kickPhase(g, g.tContact, now)}`);
+    const before = kickPhase(g, g.tContact - 0.04, now);
+    assert.ok(before != null && before < 0.55, `${g.kind} #${g.id} : geste non commencé avant le contact`);
+    // début de l'animation : au plus DELAY avant le contact pour une frappe sans armé
+    if (g.reflex) assert.equal(kickPhase(g, g.tContact - DELAY - 1e-3, now), null);
+    // frappes armées : l'ancien contact animé était 0 à 1 pas avant le contact ; désormais exact.
+    if (!g.reflex) { const old = (g.t0re ?? g.t0) + 0.55 * g.anim.dur; assert.ok(g.tContact - old >= -1e-9 && g.tContact - old <= dt + 1e-9); }
+  }
+  for (const g of G.filter((x) => ['touche de conduite', 'contrôle'].includes(x.kind)).slice(0, 2000)) {
+    const lead = g.kind === 'contrôle' ? 0.12 : 0.112;
+    assert.equal(peakPhase(g.tContact, g.tContact, lead, 0.2), 0.5);
+    assert.ok(peakPhase(g.tContact, g.tContact - lead / 2, lead, 0.2) > 0 && lead <= DELAY);
+  }
+  // Annulés / interrompus : plus d'animation après la fin du geste.
+  for (const g of sim.gest.gestures.filter((x) => ['annulé', 'interrompu'].includes(x.outcome) && ['passe', 'centre', 'frappe'].includes(x.kind))) {
+    assert.equal(kickPhase(g, g.end + 0.01, g.end + 1), null, `#${g.id} : frappe fantôme après ${g.outcome}`);
+  }
+});

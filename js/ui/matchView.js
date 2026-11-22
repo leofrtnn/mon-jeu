@@ -16,6 +16,7 @@ import { toLocal, localRect } from './viewport.js';
 import { createBall, stepBall, solveKick, R as BALL_R, GOAL_HALF } from './ballPhysics.js';
 import { LiveSim } from '../engine/live.js';
 import { Diag } from '../engine/diag.js';
+import { DisplayBuffer } from './animSync.js';
 
 const DUR = {
   pass: 0.75, longpass: 1.15, dribble: 0.9, tackle: 0.55, interception: 0.55, header: 0.6, cross: 1.0, cornerkick: 1.1,
@@ -116,6 +117,13 @@ export class MatchView {
       let diagOn = !!opts.diag;
       try { diagOn = diagOn || /[?&]diag=1/.test(location.search); } catch { /* hors navigateur */ }
       if (diagOn) this.live.diag = new Diag();
+      // Étape 6b : affichage différé de DELAY (0,15 s) piloté par le contrat moteur → animation
+      // (gestes migrés). animMode : 'contrat' (défaut), 'ancien' (même différé, anciens indicateurs),
+      // 'direct' (sans différé, comme avant 6b). Le moteur n'est jamais modifié par l'affichage.
+      this.live.gest.keep = 2;
+      this.disp6 = new DisplayBuffer(this);
+      try { const m6 = /[?&]anim=(contrat|ancien|direct)/.exec(location.search); if (m6) opts.animMode = m6[1]; } catch { /* hors navigateur */ }
+      this.animMode = opts.animMode || 'contrat';
       this.TS = 1; // temps réel : x2 = un match de 45 minutes
       this.highlights = opts.highlights !== false; // temps forts : le reste est passé en avance rapide
       this.hl = 'show'; this.hlCalm = 0; this.hlGrace = 10;
@@ -542,10 +550,18 @@ export class MatchView {
 
   /* ---------------- Moteur en direct ---------------- */
 
+  /** Couche d'affichage différée (étape 6b) : objets d'affichage à l'instant now − DELAY. */
+  sampleDisplay() {
+    const ok = this.disp6 && this.animMode !== 'direct' && this.r3d && this.disp6.sample(this.animMode);
+    if (!ok) { this.dispPlayers = null; this.dispPhys = null; this.dispBall = null; return; }
+    this.dispPlayers = this.disp6.disp; this.dispPhys = this.disp6.ball; this.dispBall = this.disp6.ballN;
+    this.dispHolder = this.disp6.holder; this.dispInHands = this.disp6.inHands;
+  }
+
   /** Fait avancer la simulation en direct et affiche ses événements. */
   updateLive(dt, realDt) {
     // Ralenti du but en cours : la simulation est figée, on rejoue les images enregistrées.
-    if (this.replayLive) { this.playReplay(realDt); return; }
+    if (this.replayLive) { this.dispPlayers = null; this.disp6?.reset(); this.playReplay(realDt); return; }
     if (this.replayPlan && this.replayPlan.frames && (this.replayPlan.wait -= realDt) <= 0) { this.startReplay(); return; }
     // Temps forts : entre deux actions dangereuses, on avance vite (écran voilé : c'est une coupure).
     if (this.highlights && this.updateHighlights(realDt)) return;
@@ -571,9 +587,11 @@ export class MatchView {
       this.liveAcc -= LIVE_STEP;
       this.liveSteps = (this.liveSteps || 0) + 1;
       for (const ev of this.live.step(LIVE_STEP)) this.liveEvent(ev);
+      if (this.animMode !== 'direct') this.disp6?.record();
       if (this.paused) break; // mi-temps / fin : l'écran a mis en pause
     }
     this.recordFrame();
+    this.sampleDisplay();
     this.holder = this.live.holder ? this.live.holder.mp.id : null;
     this.inHands = this.live.inHands;
     // Remises en jeu annoncées à l'écran (après la bannière en cours, s'il y en a une).

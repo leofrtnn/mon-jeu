@@ -33,6 +33,8 @@
  *             perdu, plongeon battu…) | 'annulé' (armé abandonné avant le contact) | 'interrompu'
  *             (chute, tacle subi, nouveau geste) | 'subi'
  *   why       précision (raison d'annulation, d'interruption…)
+ *   style     présentation décidée par le moteur (pied, puissance, intérieur / extérieur, ballon levé,
+ *             durée de l'armé, hauteur du contrôle), relevée au début du geste et au contact
  *   reflex    vrai si le geste a été ouvert au contact (aucun armé décidé avant : contrôle, touche de
  *             conduite, frappe sans armé…) ; t0re, rearm / relaunch : armé suspendu ou geste relancé
  * CONTACT (`log.contacts`) : { id, pid, side, kind, part, t, step, frac, gid } — gid = geste rattaché.
@@ -54,6 +56,10 @@ const KICKS = new Set(['passe', 'passe levée', 'frappe', 'centre', 'dégagement
 const LONG = new Set(['tacle (fente)', 'tacle (glissé)', 'saut de tête', 'saut', 'plongeon', 'geste technique']);
 /** Contacts qui constituent l'exécution d'une frappe. */
 const KICK_CONTACT = new Set(['frappe', 'lancer']);
+
+/** Paramètres de présentation déjà décidés par le moteur au moment du geste (lecture seule). */
+const styleOf = (p) => ({ kickMax: p.kickMax, pow: p.kickPow, side: !!p.kickSide, loft: !!p.kickLoft, out: (p.kickOut || 0) > 0, foot: p.kickFoot,
+  touchMax: p.touchMax, touchFoot: p.touchFoot, touchIn: !!p.touchIn, h: p.ctrlH });
 
 export class GestureLog {
   /** keep : secondes d'historique gardées (0 = seulement le geste courant de chaque joueur) ; all : tout garder (outils). */
@@ -80,7 +86,7 @@ export class GestureLog {
     }
     if (cur && cur.end == null) this.finish(p, cur.contacts.length ? 'contact' : 'interrompu', 'nouveau geste : ' + kind);
     const g = { id: ++this.gid, pid: p.mp?.id ?? null, side: p.side, kind, part: part ?? PART_OF[kind] ?? null, foot: foot === 'L' ? 'G' : foot === 'R' ? 'D' : foot,
-      src, t0: this.now, tPlan, anim, contacts: [], tContact: null, end: null, outcome: null, why: null };
+      src, t0: this.now, tPlan, anim, contacts: [], tContact: null, end: null, outcome: null, why: null, style: styleOf(p) };
     p.act = g; this._push(this.gestures, g);
     return g;
   }
@@ -111,7 +117,7 @@ export class GestureLog {
       if (g) { g.t0 = t; g.reflex = true; }   // geste ouvert au contact (aucun armé décidé avant)
     }
     const c = { id: ++this.cid, pid: p.mp?.id ?? null, side: p.side, kind, part, t, step: this.sim._stepN || 0, frac, gid: g ? g.id : null, role };
-    if (g && role === 'principal') { g.contacts.push(c.id); if (g.tContact == null) { g.tContact = t; g.cPart = part; } }
+    if (g && role === 'principal') { g.contacts.push(c.id); if (g.tContact == null) { g.tContact = t; g.cPart = part; g.style = styleOf(p); } }
     else if (g) (g.aux ||= []).push(c.id);
     this._push(this.contacts, c);
     if (this.onContact) this.onContact(c, g);
