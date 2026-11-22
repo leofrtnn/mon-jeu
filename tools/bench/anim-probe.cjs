@@ -57,19 +57,27 @@ const serve = () => new Promise((resolve) => {
     await page.evaluate(() => { window.__view.hlWant = () => true; });
     await page.waitForTimeout(4000);   // chargement terminé, jeu lancé
     if (process.env.CALIB) { const c = await page.evaluate(() => window.__view.r3d.calib6()); console.log(JSON.stringify(c)); throw new Error('étalonnage terminé'); }
-    await page.evaluate(() => { window.__view.disp6.extra = 1.4; });
+    // Historique d'affichage élargi (outil seulement ; l'historique des gestes reste celui du jeu) : chaque relevé couvre tout le temps
+    // écoulé depuis le précédent, sans trou (couverture vérifiée ci-dessous).
+    await page.evaluate(() => { window.__view.disp6.extra = 6; });
     const res = { contrat: [], ancien: [] };
     let last = await page.evaluate(() => window.__view.live.now), start = last;
     while (last - start < SECS) {
       await page.waitForTimeout(2500);
       const r = await page.evaluate(() => {
-        const v = window.__view, now = v.live.now, tTo = now - 0.5, tFrom = Math.max(v._probeT || 0, tTo - 1.0);
-        if (tTo <= tFrom) return { now, c: [], a: [] };
+        const v = window.__view, now = v.live.now, tTo = now - 0.5, prev = v._probeT ?? null, tFrom = Math.max(prev || 0, tTo - 5.0);
+        if (tTo <= tFrom) return { now, c: [], a: [], cov: null };
         v._probeT = tTo;
         const c = v.r3d.probe6('contrat', tFrom, tTo), a = v.r3d.probe6('ancien', tFrom, tTo);
-        return { now, c, a };
+        // Couverture : gestes migrés avec contact depuis le relevé précédent, mesurés ou non (fenêtre limitée
+        // par l'historique d'affichage ; aucun tri sur le résultat du geste).
+        const K = new Set(['passe', 'passe levée', 'frappe', 'centre', 'dégagement', 'remise en jeu au pied', 'contrôle', 'subi', 'touche de conduite']);
+        const all = prev == null ? [] : v.live.gest.gestures.filter((g) => K.has(g.kind) && g.tContact != null && g.tContact > prev && g.tContact <= tTo);
+        const got = new Set(c.map((x) => x.gid));
+        return { now, c, a, cov: prev == null ? null : { n: all.length, miss: all.filter((g) => !got.has(g.id)).map((g) => ({ kind: g.kind, gap: g.tContact < tFrom })) } };
       });
       res.contrat.push(...r.c); res.ancien.push(...r.a); last = r.now;
+      if (r.cov) { (res.cov ||= { n: 0, miss: [] }).n += r.cov.n; res.cov.miss.push(...r.cov.miss); }
     }
     const q = (a, f) => { const s = [...a].sort((x, y) => x - y); return s.length ? s[Math.min(s.length - 1, Math.floor(f * s.length))] : NaN; };
     const dt = 1 / 96, pc = (a, f) => `${(100 * a.filter(f).length / Math.max(1, a.length)).toFixed(0)} %`;
@@ -92,6 +100,10 @@ const serve = () => new Promise((resolve) => {
         const pen = a.filter((x) => x.maxPen > 0.02);
         console.log(`      pénétration > 2 cm hors du contact : ${pen.length} (${pc(a, (x) => x.maxPen > 0.02)}) — ` + pen.map((x) => `${(x.maxPen * 100).toFixed(1)} cm à ${x.penT > 0 ? '+' : ''}${(x.penT * 1000).toFixed(0)} ms, ballon à ${x.dh} m`).join(' ; '));
       }
+    }
+    if (res.cov) {
+      const by = {}; for (const m of res.cov.miss) by[m.kind] = (by[m.kind] || 0) + 1;
+      console.log(`couverture : ${res.cov.n} gestes migrés avec contact entre le premier et le dernier relevé ; non mesurés ${res.cov.miss.length} (hors fenêtre de relevé ${res.cov.miss.filter((m) => m.gap).length}, autres ${res.cov.miss.filter((m) => !m.gap).length})` + (res.cov.miss.length ? ' — ' + Object.entries(by).map(([k, n]) => `${k} ${n}`).join(', ') : ''));
     }
     console.log(`(ancien = anciens indicateurs, même différé ; « au contact » : minimum dans ±1 pas = ±${(dt * 1000).toFixed(1)} ms)`);
     if (process.env.JSON) require('fs').writeFileSync(process.env.JSON, JSON.stringify(res));

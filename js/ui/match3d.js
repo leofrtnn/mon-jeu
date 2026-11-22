@@ -2688,7 +2688,7 @@ export class Match3D {
         }   // (minimum à ± une image de 60 i/s du contact)
         if (Math.abs(t - g.tContact) <= step + 1e-6) {
           if (atC == null || d < atC) atC = d;   // distance au contact : minimum dans ±1 pas
-          if (geo == null) { const [rx, rz] = this.toWorld(p.x, p.y, flip); geo = { h: +(B.h * 26).toFixed(2), dh: +Math.hypot(bx - rx, bz - rz).toFixed(2), reach: p._ik?.reach || null, yaw: +(p._ik?.yaw || 0).toFixed(2), side: +(p._ik?.side || 0).toFixed(2), lunge: +(p._ik?.lunge || 0).toFixed(2) }; }   // (distance au joueur : position du moteur)
+          if (geo == null) { const [rx, rz] = this.toWorld(p.x, p.y, flip); geo = { h: +(B.h * 26).toFixed(2), dh: +Math.hypot(bx - rx, bz - rz).toFixed(2), reach: p._ik?.reach || null, ikg: p._ik ? (p._ik.gid === g.id ? 'même' : 'autre') : 'aucun', yaw: +(p._ik?.yaw || 0).toFixed(2), side: +(p._ik?.side || 0).toFixed(2), lunge: +(p._ik?.lunge || 0).toFixed(2) }; }   // (distance au joueur : position du moteur)
         }
         if (d < -0.005) { const x = t - g.tContact; first = first ?? x; lastT = x; }   // pied DANS le ballon (contact visuel net)
         if (Math.abs(t - g.tContact) > step + 1e-6 && -d > maxPen) { maxPen = -d; penT = t - g.tContact; }   // pénétration hors du pas du contact
