@@ -59,8 +59,8 @@ const serve = () => new Promise((resolve) => {
     const cdp = await ctx.newCDPSession(page);
     await cdp.send('Emulation.setCPUThrottlingRate', { rate: SLOW });
     // AB=1 : même match, fenêtres successives avec l'enregistreur de gestes réel / muet / réel (isoler son coût).
-    // AB6=1 : même match, fenêtres successives affichage direct (avant 6b) / contrat (6b : différé + gestes migrés).
-    const windows = process.env.AB6 ? ['direct', 'contrat', 'direct', 'contrat'] : process.env.AB ? ['réel', 'muet', 'réel', 'muet'] : ['réel'];
+    // AB6=1 : même match, fenêtres successives affichage direct (avant 6b) / contrat (6b : différé + gestes migrés) ; REP=n paires (défaut 2).
+    const R = +(process.env.REP || 2), windows = process.env.AB6 ? Array.from({ length: 2 * R }, (_, i) => (i % 2 ? 'contrat' : 'direct')) : process.env.AB ? ['réel', 'muet', 'réel', 'muet'] : ['réel'];
     for (const mode of windows) {
     if (process.env.AB6) await page.evaluate((m) => { const v = window.__view; v.animMode = m; v.disp6.reset(); }, mode);
     else await page.evaluate((m) => { const L = window.__view.live; L._gestReal ||= L.gest; L.gest = m === 'muet' ? { begin() { return null; }, replan() {}, finish() {}, contact() { return null; }, note() {}, sweep() {} } : L._gestReal; }, mode);

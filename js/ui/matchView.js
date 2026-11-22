@@ -550,10 +550,30 @@ export class MatchView {
 
   /* ---------------- Moteur en direct ---------------- */
 
+  /**
+   * Présentation des évènements au rythme de l'image (étape 6b) : avec l'affichage différé, un
+   * évènement (commentaire, son, bannière, score) est diffusé quand l'image atteint son instant,
+   * pas au moment où le moteur le produit. Les évènements de structure (mi-temps, fin,
+   * prolongations) restent immédiats — la synchronisation en ligne s'appuie dessus — après avoir
+   * diffusé ceux qui attendaient.
+   */
+  liveEventAt(ev, t) {
+    const now = () => { if (this.avLog) this.avLog.push({ k: 'ev', type: ev.type, t, wall: performance.now(), tD: this.disp6?.tD ?? null }); this.liveEvent(ev); };
+    if (!this.disp6 || this.animMode === 'direct' || this.syncEvents === false) { this.flushEvents(Infinity); now(); return; }
+    if (['ht', 'ft', 'et', 'eht'].includes(ev.type)) { this.flushEvents(Infinity); now(); return; }
+    (this._evQ ||= []).push({ ev, t });
+  }
+  flushEvents(tMax) {
+    const Q = this._evQ; if (!Q || !Q.length) return;
+    while (Q.length && Q[0].t <= tMax + 1e-9) { const { ev, t } = Q.shift(); if (this.avLog) this.avLog.push({ k: 'ev', type: ev.type, t, wall: performance.now(), tD: this.disp6?.tD ?? null }); this.liveEvent(ev); }
+  }
+
   /** Couche d'affichage différée (étape 6b) : objets d'affichage à l'instant now − DELAY. */
   sampleDisplay() {
     const ok = this.disp6 && this.animMode !== 'direct' && this.r3d && this.disp6.sample(this.animMode);
-    if (!ok) { this.dispPlayers = null; this.dispPhys = null; this.dispBall = null; return; }
+    if (!ok) { this.flushEvents(Infinity); this.dispPlayers = null; this.dispPhys = null; this.dispBall = null; return; }
+    this.flushEvents(this.disp6.tD);
+    if (this.avLog) this.avLog.push({ k: 'img', tD: this.disp6.tD, wall: performance.now() });
     this.dispPlayers = this.disp6.disp; this.dispPhys = this.disp6.ball; this.dispBall = this.disp6.ballN;
     this.dispHolder = this.disp6.holder; this.dispInHands = this.disp6.inHands;
   }
@@ -586,7 +606,7 @@ export class MatchView {
       this.stalled = false;
       this.liveAcc -= LIVE_STEP;
       this.liveSteps = (this.liveSteps || 0) + 1;
-      for (const ev of this.live.step(LIVE_STEP)) this.liveEvent(ev);
+      for (const ev of this.live.step(LIVE_STEP)) this.liveEventAt(ev, this.live.now);
       if (this.animMode !== 'direct') this.disp6?.record();
       if (this.paused) break; // mi-temps / fin : l'écran a mis en pause
     }
@@ -699,6 +719,7 @@ export class MatchView {
       return false;
     }
     // Avance rapide forcée (jusqu'à la mi-temps, tests) : simulation au pas fixe, sans affichage.
+    this.flushEvents(Infinity); this.disp6?.reset();   // (étape 6b : pas d'image différée pendant l'avance rapide)
     const t0 = performance.now();
     while (!this.paused && performance.now() - t0 < (this.ffBudget || 14)) {
       let stall = false;

@@ -118,6 +118,14 @@ const serve = () => new Promise((resolve) => {
     await W.waitForSelector('.sheet [data-act=form]', { timeout: 30000 });
     const pausedAt = await Promise.all([H, W].map((p) => p.evaluate(() => window.__view.liveSteps)));
     assert.equal(pausedAt[0], pausedAt[1], 'pause au même instant');
+    // Présentation (étape 6b) : avec l'affichage différé, les deux managers voient la même image
+    // (même instant affiché, mêmes positions des joueurs et du ballon, mêmes évènements en attente).
+    const img = await Promise.all([H, W].map((p) => p.evaluate(() => {
+      const v = window.__view; if (!v.disp6 || !v.disp6.sample('contrat')) return { none: true };
+      const D = v.disp6, pos = [...D.disp.entries()].sort((a, b) => a[0] - b[0]).map(([id, q]) => `${id}:${q.x.toFixed(5)},${q.y.toFixed(5)},${(q.kick || 0).toFixed(3)},${(q.touch || 0).toFixed(3)},${(q.ctrl || 0).toFixed(3)}`).join('|');
+      return { tD: D.tD.toFixed(5), ball: `${D.ball.x.toFixed(4)},${D.ball.y.toFixed(4)},${D.ball.z.toFixed(4)}`, pos, queued: (v._evQ || []).map((e) => e.ev.type + '@' + e.t.toFixed(4)).join(',') };
+    })));
+    assert.deepEqual(img[0], img[1], 'même image différée et mêmes évènements en attente dans les deux onglets');
     // Changement de système pendant la pause (côté visiteur), puis reprise des deux côtés.
     await W.click('.sheet [data-act=form] >> nth=1');
     await W.keyboard.press('Escape');

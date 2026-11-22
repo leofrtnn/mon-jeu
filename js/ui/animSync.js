@@ -21,6 +21,8 @@ const LEAD_KICK_FREE = 0.15;              // frappe sans armé : élan compress�
 const TOUCH = { lead: 0.112, post: 0.112 }; // touche de conduite : contact au sommet du geste
 const CTRL = { lead: 0.12, post: 0.24 };   // contrôle : le corps se présente 0,12 s avant, amortit 0,24 s après
 /** Cinématique inverse (s) : montée du poids avant le contact, descente après. */
+/** Rotation d'affichage vers un ballon touché derrière ou sur le côté (touches, contrôles) : fenêtre plus large que la jambe. */
+const TURN = { rise: 0.22, fall: 0.18, free: Math.PI / 3, max: Math.PI * 0.75 };
 const IK = { kick: { rise: 0.1, fall: 0.05 }, touch: { rise: 0.08, fall: 0.04 }, ctrl: { rise: 0.1, fall: 0.05 } };
 const KICKS = new Set(['passe', 'passe levée', 'frappe', 'centre', 'dégagement', 'remise en jeu au pied']);
 const CTRLS = new Set(['contrôle', 'subi']);
@@ -143,10 +145,13 @@ export class DisplayBuffer {
       d._ik = null;
       // Cible : le ballon À L'INSTANT DU CONTACT (connu grâce au différé) — le pied et le ballon s'y rejoignent exactement au contact.
       // (présent pendant tout le geste : hors de la fenêtre de poids, il sert seulement à empêcher le pied d'entrer dans le ballon)
-      const ikOf = (g, rise, fall, leg) => { if (g.tContact == null || g.tContact > simNow) return { w: 0, leg, at: null, dtc: 1 }; const x = tD - g.tContact; let w = x < 0 ? 1 - Math.min(1, -x / rise) : 1 - Math.min(1, x / fall); w = Math.max(0, w); return { w: w * w * (3 - 2 * w), leg, at: this.ballAt(g.tContact), dtc: x }; };
-      if (kick) d._ik = ikOf(kick.g, IK.kick.rise, IK.kick.fall, (kick.g.style?.foot || d.kickFoot) === 'L' ? 0 : 1);
-      else if (touch) d._ik = ikOf(touch.g, IK.touch.rise, IK.touch.fall, touch.g.style?.touchFoot === 'L' ? 0 : 1);
-      else if (ctrl && (ctrl.g.cPart === 'pied' || ctrl.g.cPart == null) && ctrl.g.kind === 'contrôle') d._ik = ikOf(ctrl.g, IK.ctrl.rise, IK.ctrl.fall, null);
+      const ikOf = (g, rise, fall, leg) => { if (g.tContact == null || g.tContact > simNow) return { w: 0, leg, at: null, dtc: 1, gid: g.id }; const x = tD - g.tContact; let w = x < 0 ? 1 - Math.min(1, -x / rise) : 1 - Math.min(1, x / fall); w = Math.max(0, w); let wy = 1 - Math.min(1, Math.abs(x) / (x < 0 ? TURN.rise : TURN.fall)); wy = Math.max(0, wy); return { w: w * w * (3 - 2 * w), wy: wy * wy * (3 - 2 * wy), leg, at: this.ballAt(g.tContact), dtc: x, gid: g.id }; };
+      if (kick) { d._ik = ikOf(kick.g, IK.kick.rise, IK.kick.fall, (kick.g.style?.foot || d.kickFoot) === 'L' ? 0 : 1); d._ik.wy = 0; }   // (frappe : orientation du moteur)
+      else if (touch) { d._ik = ikOf(touch.g, IK.touch.rise, IK.touch.fall, null); d._ik.turn = TURN; }   // (la jambe la plus proche du ballon : le pied de touche du moteur suit la foulée)
+      else if (ctrl && ctrl.g.kind === 'contrôle') {
+        d._ik = ikOf(ctrl.g, IK.ctrl.rise, IK.ctrl.fall, null); d._ik.turn = TURN;
+        if (d._ik && ctrl.g.cPart && ctrl.g.cPart !== 'pied') d._ik.part = ctrl.g.cPart;   // cuisse, poitrine, tête : le corps se porte vers le ballon
+      }
     }
   }
 }

@@ -21,6 +21,10 @@ const COARSE = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)
 const K = COARSE ? 1.14 : 1.07; // (léger grossissement de lisibilité, comme dans les jeux de foot télévisés)
 const GK_ARM_Z = 0.45;   // bras du gardien en attente : mains basses, devant lui
 const BALL_R = 0.11 * (COARSE ? 1.45 : 1.15);
+/** Rotation d'affichage vers un ballon touché derrière (étape 6b) : seulement au-delà de cette distance horizontale (m). */
+const TURN_R = 0.35;
+/** Frappe : position latérale minimale du ballon du côté du pied de frappe, dans le repère du joueur (m). */
+const SIDE_OK = 0.04;
 
 function canvasTex(w, h, draw) {
   const c = document.createElement('canvas');
@@ -2657,7 +2661,7 @@ export class Match3D {
       const e = this.players.get(g.pid); if (!e) continue;
       const L3 = e.p3.legs, pts = (p) => {
         const foot = (i) => L3[i].ankle.localToWorld(V.set(0.1, -0.05, 0)).clone(), knee = (i) => L3[i].knee.localToWorld(V.set(0, 0, 0)).clone();
-        if (g.kind === 'touche de conduite') return [foot(g.style?.touchFoot === 'L' ? 0 : 1)];
+        if (g.kind === 'touche de conduite') return [foot(0), foot(1)];   // (la jambe la plus proche du ballon fait la touche)
         if (!['contrôle', 'subi'].includes(g.kind)) return [foot((g.style?.foot || p.kickFoot) === 'L' ? 0 : 1)];
         const part = g.cPart;
         if (part === 'cuisse') return [knee(0), knee(1)];
@@ -2665,23 +2669,32 @@ export class Match3D {
         if (part === 'tête') return [e.p3.headPivot.localToWorld(V.set(0.05, 0.1, 0)).clone()];
         return [foot(0), foot(1)];
       };
-      let best = null, atC = null, first = null, lastT = null, maxPen = 0;
+      let best = null, atC = null, first = null, lastT = null, maxPen = 0, geo = null, penT = null, dFr = null, cross = null;
       e.p3._sm = null;   // lissage repris au début de la fenêtre, comme à l'écran
       for (let t = g.tContact - 0.35; t <= g.tContact + 0.3; t += step) {
         if (!D6.sample(mode, t)) break;
         const p = D6.disp.get(g.pid); if (!p) break;
         const [x, z] = this.toWorld(p.x, p.y, flip); e.p3.root.position.set(x, 0, z);
         const B = D6.ballN, ballAng = Math.atan2((B.y - p.y) * W, (B.x - p.x) * L);
-        e.p3.pose(p, flip, { dt: step, ballAng }); e.p3.smoothPose(step); if (p._ik) this.applyIK(e, p, flip, B); e.p3.root.updateMatrixWorld(true);
+        e.p3.pose(p, flip, { dt: step, ballAng }); e.p3.smoothPose(step); if (p._ik) this.applyIK(e, p, flip, B); this.antiPen(e, p, flip, B); e.p3.root.updateMatrixWorld(true);
         const [bx, bz] = this.toWorld(B.x, B.y, flip), by = BALL_R + B.h * 26;
         const d = Math.min(...pts(p).map((q) => Math.hypot(q.x - bx, q.y - by, q.z - bz))) - BALL_R;
         if (!best || d < best.d) best = { d, t };
-        if (Math.abs(t - g.tContact) <= step + 1e-6) atC = atC == null ? d : Math.min(atC, d);   // distance au contact : minimum dans ±1 pas
+        if (Math.abs(t - g.tContact) <= 1 / 60 + 1e-6 && (dFr == null || d < dFr)) dFr = d;
+        if (Math.abs(t - g.tContact) <= step + 1e-6 && p._ik && p._ik.legUsed != null && cross == null) {
+          // Jambes croisées : le pied du geste est passé de l'autre côté du pied d'appui (repère du joueur).
+          const R = e.p3.root, k = p._ik.legUsed, z = (i) => R.worldToLocal(L3[i].ankle.localToWorld(V.set(0.1, -0.05, 0)).clone()).z;
+          cross = +(((k === 1 ? 1 : -1) * (z(k) - z(1 - k)))).toFixed(3);
+        }   // (minimum à ± une image de 60 i/s du contact)
+        if (Math.abs(t - g.tContact) <= step + 1e-6) {
+          if (atC == null || d < atC) atC = d;   // distance au contact : minimum dans ±1 pas
+          if (geo == null) { const [rx, rz] = this.toWorld(p.x, p.y, flip); geo = { h: +(B.h * 26).toFixed(2), dh: +Math.hypot(bx - rx, bz - rz).toFixed(2), reach: p._ik?.reach || null, yaw: +(p._ik?.yaw || 0).toFixed(2), side: +(p._ik?.side || 0).toFixed(2), lunge: +(p._ik?.lunge || 0).toFixed(2) }; }   // (distance au joueur : position du moteur)
+        }
         if (d < -0.005) { const x = t - g.tContact; first = first ?? x; lastT = x; }   // pied DANS le ballon (contact visuel net)
-        if (Math.abs(t - g.tContact) > step + 1e-6) maxPen = Math.max(maxPen, -d);   // pénétration hors du pas du contact
+        if (Math.abs(t - g.tContact) > step + 1e-6 && -d > maxPen) { maxPen = -d; penT = t - g.tContact; }   // pénétration hors du pas du contact
         if (this._probeSeries) { const R = e.p3.root.position; (this._probeSeries[g.id] ||= { kind: g.kind, part: g.cPart, rows: [] }).rows.push([+(t - g.tContact).toFixed(3), +d.toFixed(3), +(p._ik?.w || 0).toFixed(2), +Math.hypot(bx - R.x, bz - R.z).toFixed(2), +by.toFixed(2), p._ik?.at ? +Math.hypot(this.toWorld(p._ik.at.x / L, p._ik.at.y / W, flip)[0] - bx, this.toWorld(p._ik.at.x / L, p._ik.at.y / W, flip)[1] - bz).toFixed(3) : null]); }
       }
-      if (best) out.push({ gid: g.id, kind: g.kind + (g.reflex && !['contrôle', 'subi', 'touche de conduite'].includes(g.kind) ? ' (sans armé)' : ''), part: g.cPart, minD: +best.d.toFixed(3), dtMin: +(best.t - g.tContact).toFixed(4), dAtC: +(atC ?? best.d).toFixed(3), touchFrom: first, touchTo: lastT, maxPen: +maxPen.toFixed(3) });
+      if (best) out.push({ gid: g.id, kind: g.kind + (g.reflex && !['contrôle', 'subi', 'touche de conduite'].includes(g.kind) ? ' (sans armé)' : ''), part: g.cPart, minD: +best.d.toFixed(3), dtMin: +(best.t - g.tContact).toFixed(4), dAtC: +(atC ?? best.d).toFixed(3), dFrame: +(dFr ?? best.d).toFixed(3), cross, touchFrom: first, touchTo: lastT, maxPen: +maxPen.toFixed(3), penT: penT == null ? null : +penT.toFixed(3), ...(geo || {}), tC: g.tContact, pid: g.pid });
     }
     return out;
   }
@@ -2692,11 +2705,19 @@ export class Match3D {
    * pour chaque u, la position du bout du pied concerné dans le repère du joueur (avant, hauteur).
    */
   /**
-   * Cinématique inverse autour d'un contact (étape 6b) :
+   * Cinématique inverse autour d'un contact (étape 6b, rendu seulement) :
    *  1. cible = point de la surface du ballon À L'INSTANT DU CONTACT le plus proche du pied animé
-   *     (le pied y arrive exactement au contact ; poids k.w) ;
-   *  2. hors du pas du contact, le pied du geste ne pénètre jamais le ballon affiché (il est ramené
-   *     à sa surface) : pas de toucher visuel avant ou après le contact physique.
+   *     (poids k.w, maximal au contact) ; jambe : celle du moteur pour une frappe, la plus proche du
+   *     ballon pour une touche ou un contrôle ;
+   *  2. ballon hors de portée de la jambe : le corps se fend vers lui à l'affichage (jusqu'à 0,5 m,
+   *     même poids, autour du contact seulement) — la position du moteur n'est pas modifiée ;
+   *     au-delà, le cas reste « hors de portée » (pas de jambe forcée) ;
+   *  3. ballon touché derrière ou sur le côté (touches, contrôles ; ballon à plus de 0,35 m) : le corps
+   *     pivote vers lui à l'affichage autour du contact (au-delà de 60°, au plus 75° de pivot) ;
+   *  4. frappe du pied décidé par le moteur avec le ballon du côté de l'autre pied : décalage latéral
+   *     d'affichage (au plus 0,35 m) plutôt qu'une jambe croisée ; touche et contrôle : jambe choisie une
+   *     fois par geste (côté du ballon, ou celle qui l'atteint) ;
+   *  5. le ballon n'est pénétré par aucune jambe hors du pas du contact (antiPen).
    */
   applyIK(e, p, flip, VB) {
     const k = p._ik; if (!k) return;
@@ -2704,15 +2725,100 @@ export class Match3D {
     const toeOf = (leg) => { P3.root.updateMatrixWorld(true); return P3.legs[leg].ankle.localToWorld(V.set(0.1, -0.05, 0)).clone(); };
     const ballW = (b) => { const [x, z] = this.toWorld(b.x / L, b.y / W, flip); return new THREE.Vector3(x, BALL_R + Math.max(0, b.z - 0.11), z); };
     const Cc = ballW(k.at || { x: VB.x * L, y: VB.y * W, z: 0.11 + VB.h * 26 });
+    if (k.part && k.part !== 'pied') {
+      // Contrôle de la cuisse, de la poitrine ou de la tête : pas de jambe ; le corps se porte vers le
+      // ballon (horizontalement, au plus 0,5 m) pour que cette partie le touche au contact.
+      P3.root.updateMatrixWorld(true);
+      const pt = k.part === 'tête' ? P3.headPivot.localToWorld(V.set(0.05, 0.1, 0)).clone() : k.part === 'poitrine' ? P3.upper.localToWorld(V.set(0.12, 0.25, 0)).clone() : P3.legs[0].knee.localToWorld(V.set(0, 0, 0)).clone();
+      const gx = Cc.x - pt.x, gz = Cc.z - pt.z, gl = Math.hypot(gx, gz), need = gl - BALL_R * 0.9;
+      k.lunge = 0; k.reach = 'corps';
+      if (need > 0 && k.w > 0) { const sft = Math.min(0.5, need) * k.w, R = P3.root.position; R.x += (gx / gl) * sft; R.z += (gz / gl) * sft; k.lunge = sft; if (need > 0.5) k.reach = 'hors de portée'; }
+      return;
+    }
+    // Ballon touché derrière ou sur le côté (le moteur admet un contact dans toutes les directions) : à
+    // l'affichage, le corps pivote vers lui autour du contact (écart au-delà de 60°, pivot d'au plus 75°) — crochet
+    // ou pivot — puis revient à l'orientation du moteur ; la jambe ne frappe jamais vers l'arrière.
+    k.yaw = 0;
+    if (k.turn && k.wy > 0) {
+      const R = P3.root, ang = () => { R.updateMatrixWorld(true); const q = R.worldToLocal(V.copy(Cc)); return q.x * q.x + q.z * q.z > TURN_R * TURN_R ? Math.atan2(q.z, q.x) : 0; };   // (avant du joueur : +x local ; ballon collé au joueur : pas de pivot)
+      const a0 = ang(), ex = Math.abs(a0) - k.turn.free;
+      if (ex > 0) {
+        const th = Math.min(ex, k.turn.max - k.turn.free) * k.wy;
+        R.rotation.y += th; if (Math.abs(ang()) > Math.abs(a0)) R.rotation.y -= 2 * th;   // (sens qui ramène le ballon devant)
+        R.updateMatrixWorld(true); k.yaw = th;
+      }
+    }
     let leg = k.leg;
-    if (leg == null) leg = toeOf(0).distanceTo(Cc) < toeOf(1).distanceTo(Cc) ? 0 : 1;   // contrôle du pied : jambe la plus proche
-    if (k.w > 0) {
+    if (leg == null) {
+      // Touche, contrôle : jambe choisie une fois par geste (pas de changement de jambe en cours de geste) :
+      // celle du côté du ballon (repère du joueur) si elle l'atteint, sinon celle qui l'atteint le mieux
+      // (essai des deux jambes, pose remise ensuite) — ni jambe croisée, ni jambe tendue vers l'arrière.
+      if (e._ikLeg?.gid === k.gid) leg = e._ikLeg.leg;
+      else {
+        P3.root.updateMatrixWorld(true); const qz = P3.root.worldToLocal(V.copy(Cc)).z;
+        const side = Math.abs(qz) > 0.06 ? (qz > 0 ? 1 : 0) : toeOf(0).distanceTo(Cc) < toeOf(1).distanceTo(Cc) ? 0 : 1;
+        const err = (lg) => {
+          const Lg = P3.legs[lg], s0 = [Lg.hip.rotation.x, Lg.hip.rotation.z, Lg.knee.rotation.z];
+          const dir = toeOf(lg).sub(Cc); if (dir.lengthSq() < 1e-8) dir.set(-1, 0, 0);
+          P3.ikLeg(lg, Cc.clone().add(dir.normalize().multiplyScalar(BALL_R)), 1);
+          const r = Math.abs(toeOf(lg).distanceTo(Cc) - BALL_R);
+          Lg.hip.rotation.x = s0[0]; Lg.hip.rotation.z = s0[1]; Lg.knee.rotation.z = s0[2]; P3.root.updateMatrixWorld(true);
+          return r;
+        };
+        const e0 = err(side); leg = side;
+        if (e0 > 0.02) { const e1 = err(1 - side); if (e1 < e0 - 0.01) leg = 1 - side; }
+        if (k.gid != null) e._ikLeg = { gid: k.gid, leg };
+      }
+    }
+    k.legUsed = leg; k.side = 0;
+    if (k.leg != null && k.w > 0) {
+      // Frappe du pied décidé par le moteur, ballon du côté de l'autre pied : à l'affichage, le joueur se
+      // décale latéralement (au plus 0,35 m) pour que le ballon soit devant le pied de frappe, au lieu de
+      // croiser la jambe derrière la jambe d'appui.
+      const R = P3.root; R.updateMatrixWorld(true);
+      const q = R.worldToLocal(V.copy(Cc)), sg = leg === 1 ? 1 : -1, want = SIDE_OK * sg;
+      if (q.x > -0.1 && sg * q.z < SIDE_OK) {
+        const del = Math.max(-0.35, Math.min(0.35, q.z - want)) * k.w;
+        const ax = R.localToWorld(V.set(0, 0, 1)).sub(R.position); ax.y = 0; ax.normalize();
+        R.position.addScaledVector(ax, del); R.updateMatrixWorld(true); k.side = Math.abs(del);
+      }
+    }
+    P3.root.updateMatrixWorld(true);
+    if (P3._legLen == null) { const L3 = P3.legs[leg], s0 = L3.hip.rotation.clone(), k0 = L3.knee.rotation.z; L3.hip.rotation.set(0, 0, 0); L3.knee.rotation.z = 0; P3.root.updateMatrixWorld(true); P3._legLen = toeOf(leg).distanceTo(L3.hip.getWorldPosition(new THREE.Vector3())); L3.hip.rotation.copy(s0); L3.knee.rotation.z = k0; P3.root.updateMatrixWorld(true); }
+    const tooHigh = Cc.y - BALL_R > 0.75;
+    let hip = P3.legs[leg].hip.getWorldPosition(new THREE.Vector3()), need = Cc.distanceTo(hip) - BALL_R - P3._legLen * 0.85;
+    k.lunge = 0;
+    if (need > 0 && k.w > 0 && !tooHigh) {
+      // Fente : le corps se porte vers le ballon (horizontalement), au plus 0,5 m.
+      const R = P3.root.position, dx = Cc.x - R.x, dz = Cc.z - R.z, dl = Math.hypot(dx, dz) || 1, sft = Math.min(0.5, need) * k.w;
+      R.x += (dx / dl) * sft; R.z += (dz / dl) * sft; k.lunge = sft;
+      P3.root.updateMatrixWorld(true); hip = P3.legs[leg].hip.getWorldPosition(new THREE.Vector3());
+    }
+    const tooFar = Cc.distanceTo(hip) - BALL_R > P3._legLen * 0.97;
+    k.reach = tooFar ? 'hors de portée' : tooHigh ? 'ballon haut' : k.lunge > 0.005 ? 'fente' : 'ok';
+    if (k.w > 0 && !tooFar && !tooHigh) {
       const t0 = toeOf(leg), dir = t0.clone().sub(Cc); if (dir.lengthSq() < 1e-8) dir.set(-1, 0, 0);
       P3.ikLeg(leg, Cc.clone().add(dir.normalize().multiplyScalar(BALL_R)), k.w);
     }
-    if (Math.abs(k.dtc) > 1 / 96 + 1e-6) {
-      const Cn = ballW({ x: VB.x * L, y: VB.y * W, z: 0.11 + VB.h * 26 }), t1 = toeOf(leg), r = t1.distanceTo(Cn);
-      if (r < BALL_R) { const dir = t1.clone().sub(Cn); if (dir.lengthSq() < 1e-8) dir.set(-1, 0, 0); P3.ikLeg(leg, Cn.clone().add(dir.normalize().multiplyScalar(BALL_R + 0.006)), 1); }
+  }
+  /**
+   * Anti-pénétration (étape 6b, rendu seulement) : pour un joueur proche du ballon affiché, aucun
+   * bout de pied n'entre dans le ballon ; au pas d'un contact physique du joueur (k.dtc ≤ 1 pas), une
+   * pénétration de 8 mm est tolérée (contact).
+   */
+  antiPen(e, p, flip, VB) {
+    const [bx, bz] = this.toWorld(VB.x, VB.y, flip), by = BALL_R + VB.h * 26, R = e.p3.root.position;
+    if (Math.hypot(bx - R.x, bz - R.z) > 1.3 || by > 1.2) return;
+    const C = (this._apC ||= new THREE.Vector3()).set(bx, by, bz), V = (this._apV ||= new THREE.Vector3());
+    const atContact = p._ik && Math.abs(p._ik.dtc) <= 1 / 96 + 1e-6, rMin = atContact ? BALL_R - 0.008 : BALL_R;
+    for (const leg of [0, 1]) for (let pass = 0; pass < 3; pass++) {
+      e.p3.root.updateMatrixWorld(true);
+      const t = e.p3.legs[leg].ankle.localToWorld(V.set(0.1, -0.05, 0)), r = t.distanceTo(C);
+      if (r >= rMin) break;
+      // Sortie du ballon : radialement, puis (passes suivantes) en levant le pied au-dessus du ballon.
+      const dir = t.clone().sub(C); if (dir.lengthSq() < 1e-8) dir.set(-1, 0, 0);
+      if (pass > 0) dir.normalize().add(V.set(0, pass, 0));
+      e.p3.ikLeg(leg, C.clone().add(dir.normalize().multiplyScalar(rMin + 0.004)), 1);
     }
   }
 
@@ -3198,6 +3304,7 @@ export class Match3D {
       e.p3.pose(p, flip, { dt: dt || 0.016, ballAng, jostle, ballNear: p.gk && dB < 30, alert: dB < 14 && !isCar && !v.restart, restFar: dB > 28 && !isCar, shield: isCar && !VIH && (p.shieldK || 0) > 0, holding: isCar && VIH && p.gk });
       e.p3.smoothPose(dt || 0.016);
       if (p._ik) this.applyIK(e, p, flip, VB);   // (étape 6b : le pied touche le ballon là où il est, à l'instant du contact)
+      if (v.dispPlayers) this.antiPen(e, p, flip, VB);
       if (e.cloth) this.updateCloth(e.cloth, p, grab, dt || 0.016);
       // Gestes au sol : après le lissage, le point le plus bas du corps est reposé sur la pelouse.
       if (p.fall > 0 || p.slide > 0 || p.hurt > 0 || p.place > 0 || p.block > 0 || (p.celeb > 0 && (p.celebType === 'knees' || p.celebType === 'slide') && ((p.speed || 0) <= 2 || (p.celebType === 'slide' && p.celeb < 2.4))) || (p.dive > 0 && p.dive < 0.3)) e.p3.groundContact();

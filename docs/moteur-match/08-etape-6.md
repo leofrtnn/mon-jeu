@@ -234,8 +234,10 @@ et d'un tacle touché de la cuisse.
   * Elle construit des objets d'affichage à t_aff = now − 0,15 s, avec des positions interpolées
     entre deux pas.
   * Le rendu 3D (joueurs, ballon, caméra) lit ces objets.
-  * Les commentaires, les sons et l'interface restent au temps du moteur. Ils précèdent l'image de
-    0,15 s, comme avant 6b.
+  * Les évènements du match (sons, commentaires, bannières, score) sont mis en file et diffusés
+    quand l'image affichée atteint leur instant (diagnostic complémentaire ci-dessous). Les fins de
+    période (mi-temps, fin) restent immédiates, après avoir vidé la file. L'horloge affichée reste au
+    temps du moteur (0,15 s de jeu simulé d'avance sur l'image).
 * **Gestes migrés (pilotés par le contrat).**
   * Familles : frappes, passes, passes levées, centres, dégagements, remises en jeu au pied (armés
     ou non), contrôles, contacts subis, touches de conduite.
@@ -358,3 +360,180 @@ et d'un tacle touché de la cuisse.
 
   Pas d'écart mesurable dans le bruit. L'enregistrement par pas, l'échantillonnage différé et la
   cinématique inverse (1 à 3 joueurs par image) restent marginaux devant le rendu.
+
+## 6b — Diagnostic complémentaire (validation suspendue) — rapport, non validé
+Demandé avant toute validation de 6b : distributions complètes, classes de contact, ballons hauts ou
+lointains, décalage son / commentaires / image dû au différé, cohérence en ligne, captures des cas
+résiduels. Aucune anomalie n'est retirée des mesures : chaque geste migré mesuré figure dans une
+classe, y compris les cas défavorables. Toutes les corrections sont **dans le rendu seul** ; le moteur
+(physique, contacts, décisions, cinématique) n'est pas modifié.
+
+### Méthode (`anim-probe.cjs`, campagne finale)
+* Même match, 481 s de jeu, 380 gestes migrés, rejoués pas à pas (1/96 s) avec le calcul de pose
+  réel du rendu : ancien rendu (anciens indicateurs, même différé) puis contrat.
+* d = distance entre la partie du corps (bout du pied ; genou, poitrine ou tête pour un contrôle) et
+  la **surface** du ballon, minimum dans ±1 pas (±10,4 ms) autour du contact physique. Négatif = dans
+  le ballon.
+* Classes : **crédible** −1 cm ≤ d ≤ 3 cm ; **trop éloigné** d > 3 cm ; **pénétration** d < −1 cm.
+* Pénétration hors contact : pied plus de 2 cm dans le ballon à plus d'un pas du contact (fenêtre
+  −0,35 s à +0,3 s).
+* Mesure temporelle ajoutée : distance minimale à ± une image de 60 i/s (±16,7 ms) du contact.
+* Portée : ok / fente (le corps se porte vers le ballon) / corps (contrôle cuisse, poitrine, tête) /
+  hors de portée de la jambe / ballon haut (> 0,75 m).
+* Jambes croisées : au contact, le pied du geste est passé de plus de 5, 10 ou 15 cm de l'autre côté
+  du pied d'appui (repère du joueur).
+
+### Distributions (contrat ; ancien rendu entre parenthèses pour la médiane)
+| Famille | n | d médiane | p90 | p95 | ≤ 1 / 2 / 3 / 4 cm | Crédible | Trop éloigné | Pénétration au contact | À ± 1 image : ≤ 1 / 3 cm |
+|---|---|---|---|---|---|---|---|---|---|
+| Touche de conduite | 265 | 0,001 m (0,300) | 0,010 | 0,015 | 91 / 96 / 98 / 98 % | **98 %** | 2 % | 0 % | 91 / 98 % |
+| Contrôle | 63 | 0,021 m (0,530) | 0,051 | 0,165 | 30 / 44 / 67 / 86 % | 63 % | 33 % | 3 % | 81 / **90 %** |
+| Passe (armée) | 33 | −0,004 m (0,213) | −0,004 | 0,000 | 97 / 100 / 100 / 100 % | **100 %** | 0 % | 0 % | 97 / 100 % |
+| Dégagement | 5 | −0,003 m (0,625) | | | 80 / 100 % | 100 % | 0 % | 0 % | |
+| Remise en jeu au pied | 5 | −0,004 m | | | 80 / 100 % | 100 % | 0 % | 0 % | |
+| Passe levée | 3 | −0,004 m (0,596) | | | 100 % | 100 % | 0 % | 0 % | |
+| Centre | 2 | 0,032 m (0,733) | | | 50 % | 50 % | 50 % | 0 % | |
+| Frappe | 1 | −0,004 m | | | 100 % | 100 % | | | |
+| Contact subi | 3 | 0,042 m (0,139) | | | 33 % | 33 % | 67 % | 0 % | 67 / 67 % |
+
+**Pénétration hors contact** : 0 % pour les touches de conduite (0 / 265), les passes et toutes les
+frappes ; 2 contrôles sur 63 (genou 3,3 cm à +223 ms ; genou 9,1 cm à +25 ms sur un contrôle de la
+cuisse d'un ballon à 0,64 m de haut) ; 1 contact subi (3,0 cm à +233 ms). L'anti-pénétration ne
+traite que les pieds ; le genou d'un contrôle de la cuisse n'est pas couvert.
+
+**Les 5 % de touches à plus de 2 cm dans le ballon hors du contact** (demande 2) : ce n'était pas la
+géométrie de la conduite, mais l'anti-pénétration qui n'aboutissait pas en un seul essai de la
+cinématique inverse (ballon entre les pieds, sortie radiale impossible). Elle essaie maintenant jusqu'à
+trois fois, en levant le pied au-dessus du ballon : 0 cas sur 265.
+
+### Contrôles : l'écart restant est temporel, pas spatial
+* Les contrôles « trop éloignés » sont à 3-5 cm au pas du contact, mais le pied rejoint le ballon
+  10 à 15 ms plus tard (distance minimale ≈ 0) : le ballon arrive à environ 10 m/s, soit 1 cm par
+  milliseconde.
+* À ± une image de 60 i/s du contact, 90 % des contrôles sont à 3 cm ou moins. L'écart est plus court
+  qu'une image affichée.
+* Restent hors de cette tolérance : les contrôles de ballons hauts ou lointains (ci-dessous).
+
+### Ballons hauts et lointains (demande 3)
+* **Ballons lointains au sol** : le moteur admet un contact jusqu'à 1,1-1,3 m du centre du joueur ;
+  la jambe 3D en atteint environ 0,95 m.
+  * À l'affichage, le corps se porte vers le ballon autour du contact (« fente », au plus 0,5 m),
+    sans modifier la position du moteur. Au-delà, le cas reste classé « hors de portée » : la jambe
+    n'est pas forcée.
+  * Fente : 48 touches (ballon médian à 0,92 m, d médiane 0,1 cm), 28 contrôles, 4 passes.
+  * Hors de portée restants : 0 touche (contre 22 avant la rotation d'affichage), 3 contrôles.
+* **Ballons derrière ou sur le côté** (cause principale des touches trop éloignées) : le moteur
+  admet un contact dans toutes les directions ; 26 % des touches et 25 % des contrôles ont le ballon
+  à plus de 60° de l'orientation du corps, souvent derrière lui. La jambe ne peut pas frapper vers
+  l'arrière.
+  * Représentation : le corps pivote vers le ballon autour du contact (0,22 s avant, 0,18 s après),
+    au-delà de 60° d'écart, de 75° au plus, puis revient à l'orientation du moteur. C'est un crochet.
+  * Pas de pivot pour un ballon collé au joueur (moins de 0,35 m) : il se joue de l'intérieur, de
+    l'extérieur ou du talon.
+  * Pivot médian 45° (touches) et 48° (contrôles) ; d médiane avec pivot −0,2 cm et 0,9 cm.
+* **Ballons hauts** (contrôle de la poitrine, de la cuisse, de la tête) :
+  * pas de jambe forcée vers un ballon haut ; le corps se porte vers le ballon (au plus 0,5 m) pour
+    que la partie du corps prévue par le moteur le touche ;
+  * 3 contrôles « corps » (ballon à 0,48 m de haut, d médiane −2,4 cm : la partie du corps entre
+    légèrement dans le ballon) ;
+  * 3 contrôles hors de portée (ballon médian à 0,64 m de haut et 0,72 m du joueur, d médiane
+    16,5 cm). Il leur faudrait une autre représentation (saut, extension de la jambe en l'air), que
+    le squelette actuel n'a pas : cas restants, rares (5 % des contrôles), à traiter avec les gestes
+    aériens (6c, têtes et sauts).
+* **Jambes croisées** :
+  * Frappes : le pied de frappe est décidé par le moteur. Le ballon est parfois du côté de l'autre
+    pied ; la jambe croisait alors derrière la jambe d'appui (25 % des passes, visible sur les
+    captures). Représentation : décalage latéral d'affichage du joueur (au plus 0,35 m, médiane
+    17 cm) pour que le ballon soit devant le pied de frappe. Passes : croisement > 10 cm 0 %.
+  * Touches et contrôles : la jambe est choisie une fois par geste (pas de changement de jambe en
+    cours de geste) : celle du côté du ballon si elle l'atteint, sinon celle qui l'atteint le mieux.
+    Croisement > 10 cm : 8 à 14 % avant, 5 % des touches et 2 % des contrôles après. Les cas
+    restants sont des touches de l'intérieur du pied à travers le corps (captures).
+
+### Son, commentaires et image (demande 4) (`av-sync.cjs`)
+* **Avant** : les évènements (sons de frappe, sifflets, commentaires, bannières, score) partaient au
+  temps du moteur, donc **0,15 s avant l'image** qui les montre, plus jusqu'à une image d'attente.
+* **Correction (rendu)** : les évènements sont mis en file et diffusés quand l'image affichée atteint
+  leur instant. Mi-temps et fin restent immédiates, après avoir vidé la file. Avance rapide, ralentis
+  et reprise vident la file.
+* Mesure : même match, deux fenêtres. Rendu logiciel sans GPU, 4 à 5 images par seconde : la
+  granularité d'image domine la mesure.
+
+  | | Avance de l'évènement sur l'image, temps de jeu (médiane [p5, p95]) | Avance en temps réel (médiane) |
+  |---|---|---|
+  | Avant (11 évènements) | +212 ms [+160, +244] | +197 ms |
+  | Après (6 évènements) | −48 ms [−110, −6] | **0 ms** [0, 1] |
+
+  Après correction, l'évènement est diffusé avec l'image qui le montre (même image, 0 ms en temps
+  réel). Au plus une image plus tard en temps de jeu (≤ 16,7 ms à 60 i/s, ici une image logicielle).
+* L'horloge reste au temps du moteur : 0,15 s de jeu simulé d'avance, sans effet visible.
+
+### Cohérence en ligne (demande 4)
+* Indépendamment du résultat identique de la simulation : à la pause commune, les deux onglets ont
+  **la même image différée** (même instant affiché, mêmes positions de joueurs et du ballon, mêmes
+  phases de geste) et **les mêmes évènements en attente** dans la file. Vérification ajoutée à
+  `tests/duel.e2e.cjs` ; réussie.
+* Le différé et la file dépendent seulement du temps du moteur, identique des deux côtés.
+
+### Captures (demande 5) (`anim-shots.cjs`)
+* `RES=1` : cas résiduels classés par la sonde, y compris défavorables (trop éloigné, hors de portée,
+  jambes croisées, pivot), une image au contact.
+* `SEQ=1` : séquence de 13 images de −240 à +240 ms autour d'un contact avec pivot, caméra fixe de
+  côté puis caméra de jeu.
+* Constats :
+  * touche « hors de portée » (ballon à 1,25 m, d 25 cm) : le pied est clairement loin du ballon.
+    Cas défavorable, rare (moins de 1 % des touches) ;
+  * touche « trop éloignée » de la sonde avec la semelle posée sur le ballon : la sonde ne mesure
+    que le bout du pied, elle est pessimiste dans ce cas ;
+  * contrôles à 3-4 cm : visuellement au contact ;
+  * passe et touche à jambes croisées : croisement devant la jambe d'appui, plausible ;
+  * séquence de pivot : en gros plan, le buste tourne d'environ 90° en 120 ms puis revient. Cela se
+    lit comme un crochet rapide, mais se remarque au ralenti. À la caméra de jeu, le joueur fait une
+    trentaine de pixels et le pivot est à peine perceptible.
+
+### Corrections apportées (rendu seul)
+1. Touches : jambe choisie une fois par geste (côté du ballon, sinon celle qui l'atteint).
+2. Fente d'affichage jusqu'à 0,5 m ; fente de la partie du corps pour les contrôles cuisse,
+   poitrine, tête.
+3. Pivot d'affichage vers un ballon derrière ou sur le côté (touches, contrôles).
+4. Décalage latéral d'affichage des frappes (ballon du côté de l'autre pied).
+5. Anti-pénétration en trois essais (radial, puis en levant le pied).
+6. Évènements (sons, commentaires, score) au rythme de l'image.
+
+### Non-régression
+* **Moteur** : match identique (112bd1dc), avec ou sans diagnostic.
+* **Déterminisme** : 5 → 112bd1dc, 104 → 2a6d7bc9, 300 → 8b411e7e.
+* **Moteur rapide** : b47d8708.
+* **Contacts** : physiquement possibles à 100 %.
+* **Tests unitaires** : 128 réussis. **Tests d'interface** : réussis.
+* **Match en ligne** : même match des deux côtés, et même image différée avec les mêmes évènements en
+  attente à la pause commune.
+* **Coût mobile** (`render-cost.cjs`, `AB6=1 REP=4`) : même match, 8 fenêtres de 15 s en alternant
+  affichage direct (référence 6a) et contrat. Moyenne des durées d'image par fenêtre :
+
+  | Processeur | Direct (6a) | Contrat (6b) |
+  |---|---|---|
+  | Non ralenti | 256, 224, 235, 217 ms (moyenne 233) | 238, 245, 232, 281 ms (moyenne 249) |
+  | Ralenti ×4 | 412, 387, 491, 326 ms (moyenne 404) | 343, 416, 436, 376 ms (moyenne 393) |
+
+  Écart dans le bruit d'une fenêtre à l'autre (±20 %, selon les phases de jeu), sans tendance
+  systématique. Rendu logiciel headless : la mesure compare deux versions, elle ne prédit pas un vrai
+  téléphone. Le pivot, le décalage latéral et le choix de jambe ne coûtent une cinématique inverse
+  supplémentaire qu'à la première image d'une touche ou d'un contrôle.
+
+### Décision proposée
+* **Écarts jugés visuellement négligeables**, à accepter explicitement :
+  * contrôles à 3-5 cm au pas du contact, rejoints moins d'une image plus tard ;
+  * touches dont la semelle est posée sur le ballon, que la sonde compte trop éloignées ;
+  * croisements résiduels (5 % des touches, 2 % des contrôles), croisement devant la jambe d'appui,
+    plausible ;
+  * 3 pénétrations hors contact (genou d'un contrôle de la cuisse, contact subi), brèves ;
+  * son et commentaires au plus une image après l'image du geste ; horloge 0,15 s en avance.
+* **Écarts perceptibles qui restent** (rares ou visibles seulement en gros plan) :
+  * moins de 1 % des touches et 5 % des contrôles hors de portée (ballon haut ou très loin) : pied
+    loin du ballon. La représentation adaptée (saut, jambe en l'air) relève des gestes aériens (6c) ;
+  * pivot d'affichage rapide (jusqu'à 75° en environ 0,2 s) sur 26 % des touches : à peine
+    perceptible à la caméra de jeu, visible en gros plan ou au ralenti. C'est la représentation
+    d'une anomalie moteur (contact admis derrière le joueur), transmise au backlog de l'étape 7.
+* Proposition : valider 6b avec ces réserves, ou demander une correction du pivot (fenêtre plus
+  longue) avant 6c. **6c n'est pas commencée.**
