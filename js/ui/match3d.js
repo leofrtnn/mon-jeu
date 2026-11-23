@@ -1322,7 +1322,9 @@ export class Player3D {
     if (p.dive > 0) {
       const t = 1 - p.dive / 0.75;
       const k = t < 0.45 ? Math.sin((t / 0.45) * Math.PI / 2) : 1 - Math.max(0, (t - 0.8) / 0.2) * 0.25;
-      const dir = (flip ? -1 : 1) * (p.diveDir || 1);
+      // (6c-B) Côté du plongeon : le moteur le donne le long de la ligne de but (axe y du terrain) ; dans le repère
+      // du gardien il dépend de son orientation (face au jeu dans un sens ou dans l'autre).
+      const dir = (flip ? -1 : 1) * (p.diveDir || 1) * (Math.cos(p.face || 0) < 0 ? -1 : 1);
       const hgt = p.diveH ?? 0.5;
       this.body.rotation.x = dir * 1.45 * k;
       this.body.position.y = (0.25 + 0.9 * hgt) * Math.sin(Math.min(1, t / 0.6) * Math.PI) * K;
@@ -2977,7 +2979,7 @@ export class Match3D {
         }
       }
       const t0 = g.kind === 'plongeon' ? Math.min(g.t0 - 0.05, T - 0.45) : T - 0.45, t1 = g.kind === 'plongeon' ? Math.max(g.t0 + 1.0, T + 0.3) : T + 0.35;
-      let atC = null, dFr = null, best = null, minAll = null, minAllT = null, otherC = null, geo = null, jumpIn = null, prevBall = null, prevHeld = false;
+      let atC = null, dFr = null, best = null, minAll = null, minAllT = null, otherC = null, geo = null, jumpIn = null, jumpOut = null, prevBall = null, prevHeld = false;
       const held = { n: 0, gapMax: 0, penMin: 0, slideMax: 0, both: 0, prevLocal: null, firstT: null };
       P3._sm = null;
       const end = kick ? T + 0.35 : contact && res === 'capté' ? Math.max(t1, T + 1.0) : t1;
@@ -2994,7 +2996,7 @@ export class Match3D {
         let C;
         if (isH) C = (mode === 'contrat' && e._heldPos ? e._heldPos.clone() : this.heldBallPos(e, p, flip)) || null;
         if (!C) { const [bx, bz] = this.toWorld(B.x, B.y, flip); C = new THREE.Vector3(bx, BALL_R + B.h * 26, bz); if (mode === 'contrat') this.puntBlend(C, flip); }
-        if (prevBall && isH !== prevHeld) { const j = C.distanceTo(prevBall); if (jumpIn == null || j > jumpIn.d) jumpIn = { d: +j.toFixed(3), at: +(t - T).toFixed(3), to: isH ? 'tenu' : 'lâché' }; }
+        if (prevBall && isH !== prevHeld) { const j = C.distanceTo(prevBall), r = { d: +j.toFixed(3), at: +(t - T).toFixed(3), to: isH ? 'tenu' : 'lâché' }; if (isH) { if (jumpIn == null || j > jumpIn.d) jumpIn = r; } else if (jumpOut == null || j > jumpOut.d) jumpOut = r; }
         prevBall = C.clone(); prevHeld = isH;
         const hd = [0, 1].map((i) => { const q = P3.surfNearest('hand' + i, C); return q ? q.distanceTo(C) - BALL_R : Infinity; }), dh = Math.min(...hd);
         if (kick && contact) {   // relance au pied : bout du pied le plus proche du ballon (comme la sonde 6b)
@@ -3012,7 +3014,7 @@ export class Match3D {
             if (geo == null) geo = { h: +(C.y).toFixed(2), dh: +Math.hypot(C.x - x, C.z - z).toFixed(2), dive: +(p.dive || 0).toFixed(2), jump: +(p.jump || 0).toFixed(2), block: +(p.block || 0).toFixed(2), claim: +(p.claimHigh || 0).toFixed(2) };
           }
         }
-        if (isH && t >= T && !kick) {
+        if (isH && t >= T && !kick && !(mode === 'contrat' && p._rel)) {   // (hors lâcher d'une relance au pied)
           held.n++; held.firstT ??= t - T;
           held.gapMax = Math.max(held.gapMax, dh); held.penMin = Math.min(held.penMin, Math.min(...hd));
           if (Math.max(...hd) <= 0.03) held.both++;
@@ -3024,7 +3026,7 @@ export class Match3D {
       if (this._probeLOD && P3.mhGroup) P3.showMH(lod0);
       out.push({ gid: g.id, kind: g.kind + (g.reflex ? ' (réflexe)' : ''), src: g.src, contact, part: g.cPart || g.part, outcome: g.outcome, res, ratio: ratio == null ? null : +ratio.toFixed(2), turn: turn == null ? null : +turn.toFixed(0),
         dAtC: atC == null ? null : +atC.toFixed(3), dFrame: dFr == null ? null : +dFr.toFixed(3), minD: best ? +best.d.toFixed(3) : null, dtMin: best ? +(best.t - T).toFixed(4) : null,
-        minAll: minAll == null || !isFinite(minAll) ? null : +minAll.toFixed(3), minAllT: minAllT == null ? null : +minAllT.toFixed(3), otherC: otherC ? { d: +otherC.d.toFixed(3), part: otherC.part } : null, jump: jumpIn,
+        minAll: minAll == null || !isFinite(minAll) ? null : +minAll.toFixed(3), minAllT: minAllT == null ? null : +minAllT.toFixed(3), otherC: otherC ? { d: +otherC.d.toFixed(3), part: otherC.part } : null, jump: jumpIn, jumpOut,
         held: held.n ? { n: held.n, from: +held.firstT.toFixed(3), gapMax: +held.gapMax.toFixed(3), penMin: +held.penMin.toFixed(3), both: +(held.both / held.n).toFixed(2), slideMax: +held.slideMax.toFixed(3) } : null,
         lod: P3.mhGroup && P3.mhGroup.visible ? 'mh' : 'simple', ...(geo || {}), T, pid: g.pid });
     }
@@ -3401,16 +3403,17 @@ export class Match3D {
   gkTest(cases) {
     const e = [...this.players.values()].find((x) => x.p3 && this.v.players.get(x.id)?.gk) || [...this.players.values()][0]; if (!e) return null;
     const P3 = e.p3, out = [];
-    for (const [lat, h, fwd, res, dive, mh] of cases) {
+    for (const [lat, h, fwd0, res, dive, mh, face = 0] of cases) {
       if (P3.mhGroup) P3.showMH(!!mh);
-      const bx = 52.5 + fwd, by = 34 + lat, VB = { x: bx / L, y: by / W, h: Math.max(0, h - 0.11) / 26 };
+      const fwd = fwd0 * (Math.cos(face) < 0 ? -1 : 1), bx = 52.5 + fwd, by = 34 + lat, VB = { x: bx / L, y: by / W, h: Math.max(0, h - 0.11) / 26 };
       const sg = lat >= 0 ? 1 : -1, py = dive ? (34 + lat - sg * 0.85) / W : 0.5;
-      const p = { face: 0, speed: 0, phase: 0, id: 0, x: 0.5, y: py, gk: true, dive: dive ? 0.45 : 0, diveDir: sg, diveH: Math.min(1, h / 2.2) };
+      const p = { face, speed: 0, phase: 0, id: 0, x: 0.5, y: py, gk: true, dive: dive ? 0.45 : 0, diveDir: sg, diveH: Math.min(1, h / 2.2) };
       p._gk = { w: 1, dtc: 0, res, vin: { x: -20, y: 0, z: 0 }, at: { x: bx, y: by, z: h }, gid: 1, kind: dive ? 'plongeon' : 'mains' };
       const [x, z] = this.toWorld(0.5, py, false); P3.root.position.set(x, 0, z); P3.root.rotation.y = 0; P3._sm = null; e._hold = null;
       P3.pose(p, false, { dt: 0.016, ballAng: Math.atan2(lat, fwd), ballNear: true }); P3._sm = null;
       if (p.dive > 0 && p.dive < 0.3) P3.groundContact();
-      this.applyGK(e, p, false, VB, false); P3.root.updateMatrixWorld(true);
+      const hands0 = [0, 1].map((i) => { const [cx0, cz0] = this.toWorld(VB.x, VB.y, false), q = P3.surfNearest('hand' + i, new THREE.Vector3(cx0, Math.max(BALL_R, h), cz0)); return q ? +(q.distanceTo(new THREE.Vector3(cx0, Math.max(BALL_R, h), cz0)) - BALL_R).toFixed(2) : null; });
+      if (!this._gkNoIK) this.applyGK(e, p, false, VB, false); P3.root.updateMatrixWorld(true);
       const [cx, cz] = this.toWorld(VB.x, VB.y, false), C = new THREE.Vector3(cx, Math.max(BALL_R, h), cz);
       const hd = [0, 1].map((i) => { const q = P3.surfNearest('hand' + i, C); return q ? +(q.distanceTo(C) - BALL_R).toFixed(3) : null; });
       let other = null; for (const [nm, q] of this.bodySurf(P3, C)) { if (nm.startsWith('main') || nm.startsWith('pied')) continue; const dd = q.distanceTo(C) - BALL_R; if (other == null || dd < other.d) other = { d: +dd.toFixed(3), part: nm }; }
@@ -3426,7 +3429,8 @@ export class Match3D {
         let oc = null; for (const [nm, qq] of this.bodySurf(P3, Ch)) { if (nm.startsWith('main') || nm.startsWith('pied')) continue; const dd = qq.distanceTo(Ch) - BALL_R; if (oc == null || dd < oc.d) oc = { d: +dd.toFixed(3), part: nm }; }
         held = { mains: hh, autre: oc, h: +Ch.y.toFixed(2) };
       }
-      out.push({ lat, h, fwd, res, dive, mh: !!mh, gants: hd, autre: other, corps: root.toArray().map((v) => +v.toFixed(2)), tenu: held });
+      const dbg = { pid: e.id, sx: P3.legs[0].hip.parent === P3.body ? 1 : 0, bodyRx: +P3.body.rotation.x.toFixed(2), handsLocal: P3.arms.map((a) => P3.root.worldToLocal(a.hand.getWorldPosition(new THREE.Vector3())).toArray().map((v) => +v.toFixed(2))), ballLocal: P3.root.worldToLocal(C.clone()).toArray().map((v) => +v.toFixed(2)) };
+      out.push({ lat, h, fwd, res, dive, mh: !!mh, face, dbg, sansIK: hands0, gants: hd, autre: other, corps: root.toArray().map((v) => +v.toFixed(2)), tenu: held });
     }
     return out;
   }

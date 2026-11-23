@@ -86,3 +86,27 @@ test('gestes aériens (6c-A) : coup de tête animé (phase 0,5) au contact, saut
   }
   assert.ok(nC > 0 && nN > 0, `gestes avec (${nC}) et sans contact (${nN})`);
 });
+
+test('gardien (6c-B) : résultat lu dans l\'enregistrement (capté / repoussé / dévié), fenêtre autour du contact, relance ballon en main', () => {
+  // Enregistrement synthétique : ballon qui arrive à 20 m/s sur le gardien (pid 1), contact à t = 1.
+  const mk = (after, held) => {
+    const view = { live: { now: 2, gest: { gestures: [] } }, players: new Map(), phys: {} };
+    const D = new DisplayBuffer(view);
+    for (let i = 0; i <= 192; i++) {
+      const t = i / 96, x = t <= 1 ? 20 * (1 - t) : after(t - 1);
+      D.snaps.push({ t, ps: new Map(), holder: held && t >= 1 ? 1 : null, inHands: held && t >= 1, b: { x: x.x ?? x, y: x.y ?? 0, z: 1, vx: 0, vy: 0, vz: 0 } });
+    }
+    return D;
+  };
+  const g = { id: 7, pid: 1, kind: 'mains', tContact: 1, part: 'mains' };
+  const caught = mk(() => 0, true).gkContact([g], 0.95, 2);
+  assert.equal(caught.res, 'capté');
+  const parried = mk((u) => 6 * u, false).gkContact([g], 0.95, 2);       // repart vers le terrain, ralenti
+  assert.equal(parried.res, 'repoussé');
+  const tipped = mk((u) => ({ x: -18 * u, y: 3 * u }), false).gkContact([g], 0.95, 2);   // garde vitesse et direction
+  assert.equal(tipped.res, 'dévié');
+  // Hors de la fenêtre (plus de 0,14 s avant le contact) : pas de mains au ballon.
+  assert.equal(mk(() => 0, true).gkContact([g], 0.8, 2), null);
+  // Geste sans contact (plongeon battu) : jamais de résultat de contact.
+  assert.equal(mk(() => 0, false).gkContact([{ ...g, kind: 'plongeon', tContact: null }], 0.95, 2), null);
+});
