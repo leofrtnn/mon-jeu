@@ -2842,6 +2842,22 @@ export class Match3D {
       e._heldPos = C; return;
     }
     e._hold = null; e._heldPos = null;
+    if (p.dive > 0) {
+      // Plongeon : le moteur fait glisser le gardien et place ses mains à 0,95 m au-delà du corps ; la pose couche le
+      // corps sur le côté (gants à ~2,3 m de l'origine). Le corps affiché est recalé pour que les gants soient là
+      // où le moteur place les mains. Contact connu : le gardien s'oriente pour plonger vers le point de contact
+      // (ballon arrivant de face ou de biais), avec le poids de la fenêtre du contact.
+      const R = P3.root; R.updateMatrixWorld(true);
+      if (k && k.at && k.w > 0) {
+        const [cx, cz] = this.toWorld(k.at.x / L, k.at.y / W, flip), q = R.worldToLocal(new THREE.Vector3(cx, 0, cz)), sd = p.diveSide ?? 1;
+        const a = Math.atan2(q.z, q.x) - sd * Math.PI / 2, aw = Math.atan2(Math.sin(a), Math.cos(a));
+        R.rotation.y += aw * k.w; R.updateMatrixWorld(true);
+      }
+      const hs = P3.arms.map((a) => R.worldToLocal(a.hand.getWorldPosition(new THREE.Vector3())));
+      const hz = (hs[0].z + hs[1].z) / 2, hx = (hs[0].x + hs[1].x) / 2, sd = Math.sign(hz) || 1, reach = 0.95 * Math.min(1, Math.abs(hz) / 0.95);
+      const off = new THREE.Vector3(0.1 - hx, 0, sd * reach - hz).applyQuaternion(R.quaternion);
+      R.position.add(off); R.updateMatrixWorld(true);
+    }
     if (!k) return;
     const [bx, bz] = this.toWorld(VB.x, VB.y, flip), Cb = new THREE.Vector3(bx, BALL_R + VB.h * 26, bz);
     if (k.avoid) {
@@ -3401,6 +3417,18 @@ export class Match3D {
    * résultat, plongeon 0/1, modèle réaliste 0/1], le ballon arrive de face ; renvoie la distance des gants au ballon
    * au contact, l'écart des deux mains, la pénétration d'une autre partie du corps ; ballon tenu (après 0,5 s).
    */
+  /** Banc (outil) : côté des gants dans le repère du gardien pour un plongeon de côté donné, sans cinématique inverse. */
+  diveSideTest() {
+    const e = [...this.players.values()][0], P3 = e.p3, out = [];
+    for (const side of [1, -1]) for (const face of [0, 1.2, Math.PI]) {
+      const p = { face, speed: 0, phase: 0, id: 0, x: 0.5, y: 0.5, gk: true, dive: 0.4, diveSide: side, diveH: 0.4 };
+      const [x, z] = this.toWorld(0.5, 0.5, false); P3.root.position.set(x, 0, z); P3._sm = null;
+      P3.pose(p, false, { dt: 0.016, ballNear: true }); P3.root.updateMatrixWorld(true);
+      const hz = P3.arms.map((a) => +P3.root.worldToLocal(a.hand.getWorldPosition(new THREE.Vector3())).z.toFixed(2));
+      out.push({ side, face: +face.toFixed(2), handsLocalZ: hz });
+    }
+    return out;
+  }
   gkTest(cases) {
     const e = [...this.players.values()].find((x) => x.p3 && this.v.players.get(x.id)?.gk) || [...this.players.values()][0]; if (!e) return null;
     const P3 = e.p3, out = [];
