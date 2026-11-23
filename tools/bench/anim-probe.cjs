@@ -63,16 +63,17 @@ const serve = () => new Promise((resolve) => {
     await page.waitForFunction(() => !!window.__view?.r3d?.probeAir, null, { timeout: 120000 });   // (vue 3D prête)
     await page.evaluate(() => { window.__freezeNow = false; });   // (horloge rendue au jeu une fois le match lancé)
     if (process.env.HEADTEST) { const cases = []; const HP = process.env.HEADTEST === 'poitrine' ? 'poitrine' : null, HH = HP ? [1.0, 1.25, 1.47] : [1.5, 1.75, 2.1]; for (const mh of [0, 1]) for (const h of HH) for (const a of [0, 45, 90, 135, 180]) cases.push([a / 57.3, 0.5, h, mh, HP]); const r = await page.evaluate((c) => window.__view.r3d.headTest(c), cases); for (const x of r) console.log(JSON.stringify(x)); throw new Error('banc d\'essai terminé'); }
+    if (process.env.GKTEST) { const cases = []; for (const mh of [0, 1]) for (const [lat, h, fwd, dive] of [[0, 1.0, 0.6, 0], [0.4, 0.5, 0.6, 0], [-0.5, 1.6, 0.5, 0], [0, 2.1, 0.4, 0], [1.6, 0.6, 0.3, 1], [-2.0, 1.4, 0.3, 1], [2.4, 0.3, 0.2, 1]]) for (const res of ['capté', 'repoussé', 'dévié']) cases.push([lat, h, fwd, res, dive, mh]); const r = await page.evaluate((c) => window.__view.r3d.gkTest(c), cases); for (const x of r) console.log(JSON.stringify(x)); throw new Error('banc d\'essai terminé'); }
     if (process.env.CALIB) { const c = await page.evaluate(() => window.__view.r3d.calib6()); console.log(JSON.stringify(c)); throw new Error('étalonnage terminé'); }
     // Historique d'affichage élargi (outil seulement ; l'historique des gestes reste celui du jeu) : chaque relevé couvre tout le temps
     // écoulé depuis le précédent, sans trou (couverture vérifiée ci-dessous).
-    const SPEED = +(process.env.SPEED || 0), WIN = SPEED ? 32 : 5, AIRONLY = !!process.env.AIR;   // AIR=1 : gestes aériens seulement (6c-A)
+    const SPEED = +(process.env.SPEED || 0), WIN = SPEED ? 32 : 5, GKONLY = !!process.env.GK, AIRONLY = !!process.env.AIR || GKONLY;   // GK=1 : gestes du gardien seulement (6c-B)   // AIR=1 : gestes aériens seulement (6c-A)
     await page.evaluate(([x]) => { window.__view.disp6.extra = x + 1; }, [WIN]);
     // SPEED=n : la simulation avance n fois plus vite (au plus 1 s de jeu par image) pour couvrir un match
     // entier ; l'affichage n'a pas à être fluide, la sonde rejoue elle-même chaque geste pas à pas.
     if (process.env.LOD) await page.evaluate((l) => { window.__view.r3d._probeLOD = l; }, process.env.LOD);   // LOD=mh|simple : modèle mesuré
     if (SPEED) await page.evaluate((k) => { const v = window.__view; v.TS = k; v.opts.replays = false; v.replayPlan = null; }, SPEED);   // (ralentis coupés : à très faible cadence d'image, un ralenti sans assez d'images fige le match — défaut d'interface signalé, hors 6c)
-    const res = { contrat: [], ancien: [], airC: [], airA: [] };
+    const res = { contrat: [], ancien: [], airC: [], airA: [], gkC: [], gkA: [] };
     let last = await page.evaluate(() => window.__view.live.now), start = last;
     while (last - start < SECS) {
       await page.waitForTimeout(2500);
@@ -80,7 +81,7 @@ const serve = () => new Promise((resolve) => {
       for (const sel of ['.sheet [data-act=talk] >> nth=1', '.sheet [data-act=resume]', '.sheet [data-act=ok]']) if (await page.isVisible(sel.split(' >> ')[0]).catch(() => false)) await page.click(sel).catch(() => {});
       if (SPEED) await page.evaluate((k) => { const v = window.__view; if (!v.paused) v.TS = k; }, SPEED);
       if (await page.evaluate(() => window.__view.m.phase === 'ft' || window.__view.m.phase === 'done').catch(() => false)) break;
-      const r = await page.evaluate(([WIN, AIRONLY]) => {
+      const r = await page.evaluate(([WIN, AIRONLY, GKONLY]) => {
         const v = window.__view, now = v.live.now, tTo = now - 0.5, prev = v._probeT ?? null, tFrom = Math.max(prev || 0, tTo - WIN);
         if (tTo <= tFrom) return { now, c: [], a: [], ac: [], aa: [], cov: null, acov: null };
         v._probeT = tTo;
@@ -91,14 +92,19 @@ const serve = () => new Promise((resolve) => {
         const all = prev == null ? [] : v.live.gest.gestures.filter((g) => K.has(g.kind) && g.tContact != null && g.tContact > prev && g.tContact <= tTo);
         const got = new Set(c.map((x) => x.gid)); if (AIRONLY) all.length = 0;
         // Gestes aériens (6c-A) : avec ou sans contact, joueurs de champ ; même comptage de couverture.
-        const ac = v.r3d.probeAir('contrat', tFrom, tTo), aa = v.r3d.probeAir('ancien', tFrom, tTo);
+        const ac = GKONLY ? [] : v.r3d.probeAir('contrat', tFrom, tTo), aa = GKONLY ? [] : v.r3d.probeAir('ancien', tFrom, tTo);
+        // Gardien (6c-B) : tous ses gestes (plongeons, sauts « mains », mains, relances au pied), avec ou sans contact.
+        const GKK = new Set(['plongeon', 'saut', 'mains', 'dégagement', 'passe', 'passe levée']), Tg = (g) => g.tContact ?? (g.kind === 'plongeon' ? g.t0 + 0.4 : (g.tPlan ?? g.t0 + 0.36));
+        const gc = GKONLY ? v.r3d.probeGK('contrat', tFrom, tTo) : [], ga = GKONLY ? v.r3d.probeGK('ancien', tFrom, tTo) : [];
+        const allG = prev == null || !GKONLY ? [] : v.live.gest.gestures.filter((g) => GKK.has(g.kind) && v.players.get(g.pid)?.gk && !(g.kind === 'saut' && g.part !== 'mains') && Tg(g) > prev && Tg(g) <= tTo);
+        const gotG = new Set(gc.map((x) => x.gid)), gcov = prev == null || !GKONLY ? null : { n: allG.length, miss: allG.filter((g) => !gotG.has(g.id)).map((g) => ({ kind: g.kind, gap: Tg(g) < tFrom })) };
         const AK = new Set(['saut de tête', 'tête', 'saut']), Tof = (g) => g.tContact ?? g.tPlan ?? (g.t0re ?? g.t0) + 0.36, isA = (g) => AK.has(g.kind) || (g.kind === 'contrôle' && ['tête', 'poitrine', 'cuisse'].includes(g.cPart) && g.tContact != null);
         const allA = prev == null ? [] : v.live.gest.gestures.filter((g) => isA(g) && g.part !== 'mains' && !v.players.get(g.pid)?.gk && Tof(g) > prev && Tof(g) <= tTo);
         const gotA = new Set(ac.map((x) => x.gid)); const skippedA = ac.filter((x) => x.skipped); for (let i = ac.length - 1; i >= 0; i--) if (ac[i].skipped) ac.splice(i, 1); for (let i = aa.length - 1; i >= 0; i--) if (aa[i].skipped) aa.splice(i, 1);
         const acov = prev == null ? null : { n: allA.length, skipped: skippedA.length, miss: allA.filter((g) => !gotA.has(g.id)).map((g) => ({ kind: g.kind, gap: Tof(g) < tFrom })) };
-        return { now, c, a, ac, aa, acov, cov: prev == null ? null : { n: all.length, miss: all.filter((g) => !got.has(g.id)).map((g) => ({ kind: g.kind, gap: g.tContact < tFrom })) } };
-      }, [WIN, AIRONLY]);
-      res.contrat.push(...r.c); res.ancien.push(...r.a); res.airC.push(...(r.ac || [])); res.airA.push(...(r.aa || [])); last = r.now;
+        return { now, c, a, ac, aa, gc, ga, gcov, acov, cov: prev == null ? null : { n: all.length, miss: all.filter((g) => !got.has(g.id)).map((g) => ({ kind: g.kind, gap: g.tContact < tFrom })) } };
+      }, [WIN, AIRONLY, GKONLY]);
+      res.contrat.push(...r.c); res.ancien.push(...r.a); res.airC.push(...(r.ac || [])); res.airA.push(...(r.aa || [])); res.gkC.push(...(r.gc || [])); res.gkA.push(...(r.ga || [])); if (r.gcov) { (res.gcov ||= { n: 0, miss: [] }).n += r.gcov.n; res.gcov.miss.push(...r.gcov.miss); } last = r.now;
       if (process.env.PROGRESS) console.error(`t=${r.now.toFixed(0)} aériens ${res.airC.length} ` + await page.evaluate(() => { const v = window.__view; return JSON.stringify({ paused: v.paused, phase: v.m.phase, TS: v.TS, stalled: v.stalled, replay: !!v.replaying, banner: v.banner?.text, sheet: [...document.querySelectorAll('.sheet [data-act]')].map((b) => b.dataset.act).slice(0, 8), fast: v.fast, hl: v.hl, acc: v.liveAcc, slow: v.slowmo, spd: v.speed, ls: v.liveSpeed?.(0.016), rp: !!v.replayPlan, rl: !!v.replayLive, steps: v.liveSteps, ko: v.koWait, cur: v.cur?.type }); }).catch((e) => e.message));
       if (r.acov) { (res.acov ||= { n: 0, miss: [], skipped: 0 }).n += r.acov.n; res.acov.skipped += r.acov.skipped || 0; res.acov.miss.push(...r.acov.miss); }
       if (r.cov) { (res.cov ||= { n: 0, miss: [] }).n += r.cov.n; res.cov.miss.push(...r.cov.miss); }

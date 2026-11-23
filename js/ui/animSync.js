@@ -39,6 +39,15 @@ const CTRLS = new Set(['contrôle', 'subi']);
 /** Familles migrées en 6b (le rendu ne lit plus les anciens indicateurs pour elles). */
 export const MIGRATED = new Set([...KICKS, ...CTRLS, 'touche de conduite', ...AIR]);
 const clamp01 = (x) => Math.max(0, Math.min(1, x));
+/** Gardien (6c-B) : gestes à contact des mains ; fenêtre de cinématique inverse des bras autour du contact (s). */
+export const GK = new Set(['plongeon', 'saut', 'mains']);
+const GKW = { rise: 0.14, fall: 0.16, hold: 0.45, block: 0.4, blockLead: 0.12 };
+/**
+ * Relance du gardien ballon en main (6c-B) : le moteur frappe le ballon là où il le tient (≈ 1,05 m de haut,
+ * sans armé). À l'affichage : le ballon est lâché dans les 0,15 s avant le contact et frappé à hauteur de
+ * genou (PUNT.z), puis rejoint la trajectoire du moteur en PUNT.blend s.
+ */
+export const PUNT = { z: 0.6, lead: 0.15, blend: 0.12 };
 
 /** Phase (0-1) de l'animation de frappe à l'instant d'affichage `t`, ou null hors du geste. */
 export function kickPhase(g, t, simNow) {
@@ -141,10 +150,40 @@ export class DisplayBuffer {
     const a = S[i], b = S[Math.min(S.length - 1, i + 1)], k = b.t > a.t ? clamp01((t - a.t) / (b.t - a.t)) : 0;
     return { x: a.b.x + (b.b.x - a.b.x) * k, y: a.b.y + (b.b.y - a.b.y) * k, z: a.b.z + (b.b.z - a.b.z) * k };
   }
+  /** Ballon tenu par `pid` à l'instant t du moteur (d'après l'enregistrement) ? */
+  heldAt(pid, t) {
+    const S = this.snaps; if (!S.length) return false;
+    let i = S.length - 1; while (i > 0 && S[i].t > t) i--;
+    const s = S[Math.min(S.length - 1, i + 1)];
+    return s.holder === pid && !!s.inHands;
+  }
+  /**
+   * Gardien (6c-B) : contact des mains d'après le contrat. Résultat lu dans l'enregistrement (l'affichage
+   * a 0,15 s d'avance) : capté (ballon tenu juste après), dévié (le ballon garde l'essentiel de sa vitesse
+   * et de sa direction) ou repoussé. Renvoie null hors de la fenêtre du contact.
+   */
+  gkContact(gs, tD, simNow) {
+    for (let j = gs.length - 1; j >= 0; j--) {
+      const g = gs[j];
+      if (!GK.has(g.kind) || (g.kind === 'saut' && g.part !== 'mains') || g.tContact == null || g.tContact > simNow) continue;
+      const x = tD - g.tContact; if (x < -GKW.rise || x > GKW.hold) continue;
+      const tC = g.tContact, a0 = this.ballAt(tC - 0.03), a1 = this.ballAt(tC - 0.005);
+      const vin = { x: (a1.x - a0.x) / 0.025, y: (a1.y - a0.y) / 0.025, z: (a1.z - a0.z) / 0.025 };
+      let res = 'capté';
+      if (!this.heldAt(g.pid, Math.min(simNow, tC + 0.03))) {
+        const b0 = this.ballAt(Math.min(simNow, tC + 0.02)), b1 = this.ballAt(Math.min(simNow, tC + 0.05)), dt = Math.max(1e-3, Math.min(simNow, tC + 0.05) - Math.min(simNow, tC + 0.02));
+        const vo = { x: (b1.x - b0.x) / dt, y: (b1.y - b0.y) / dt, z: (b1.z - b0.z) / dt };
+        const ni = Math.hypot(vin.x, vin.y, vin.z), no = Math.hypot(vo.x, vo.y, vo.z), cos = ni && no ? (vin.x * vo.x + vin.y * vo.y + vin.z * vo.z) / (ni * no) : -1;
+        res = ni && no / ni > 0.6 && cos > Math.cos(35 * Math.PI / 180) ? 'dévié' : 'repoussé';
+      }
+      return { g, x, res, vin, at: this.ballAt(tC) };
+    }
+    return null;
+  }
   /** Gestes migrés : champs de geste recalculés depuis le contrat (anciens indicateurs ignorés). */
   applyContract(tD, simNow) {
     const G = this.v.live.gest;
-    const by = new Map();
+    const by = new Map(); this.rel = null;
     for (const g of G.gestures) { if (g.t0 > tD + DELAY + 0.05) continue; let a = by.get(g.pid); if (!a) by.set(g.pid, (a = [])); a.push(g); }
     for (const [id, d] of this.disp) {
       if (d === this.v.players.get(id)) continue;
@@ -190,7 +229,38 @@ export class DisplayBuffer {
         d._air = { gid: g.id, u: air.u, contact: known, part: known ? (g.cPart || 'tête') : 'tête', ctrl: !!air.ctrl, at: T != null ? this.ballAt(Math.min(T, simNow)) : null };
       } else if (!d.gk) { d.jump = 0; d._air = null; }
       else d._air = null;
-      if (kick) { d._ik = ikOf(kick.g, IK.kick.rise, IK.kick.fall, (kick.g.style?.foot || d.kickFoot) === 'L' ? 0 : 1); d._ik.wy = 0; }   // (frappe : orientation du moteur)
+      // Gardien (6c-B) : mains au ballon au contact réel ; parade debout calée sur le contact (et non lancée
+      // après lui) ; plongeon ou sortie sans contact : les gants ne touchent jamais le ballon.
+      if (d.gk) {
+        d._gk = null;
+        const c = this.gkContact(gs, tD, simNow);
+        if (c) {
+          const x = c.x; let w = x < 0 ? 1 - Math.min(1, -x / GKW.rise) : c.res === 'capté' ? 1 : 1 - Math.min(1, x / GKW.fall); w = Math.max(0, w);
+          d._gk = { w: w * w * (3 - 2 * w), dtc: x, res: c.res, vin: c.vin, at: c.at, gid: c.g.id, kind: c.g.kind, part: c.g.cPart, tC: c.g.tContact };
+          const standing = c.g.kind === 'mains' && !(d.dive > 0);
+          if (standing && c.res !== 'capté' && (c.at?.z ?? 0) <= 1.7) { const u = (tD - (c.g.tContact - GKW.blockLead)) / GKW.block; d.block = u >= 0 && u < 1 ? GKW.block * (1 - u) : 0; }
+          else if (standing) d.block = 0;
+          if (standing && (c.at?.z ?? 0) > 1.7 && !(d.jump > 0 && gs.some((g) => g.kind === 'saut' && g.part === 'mains' && g.end == null))) {
+            // Ballon haut touché debout : petit saut calé sur le contact (montée compressée dans les 0,15 s avant).
+            const u = jumpPhase({ reflex: true, tContact: c.g.tContact }, tD, simNow); d.jump = u != null ? 0.45 * (1 - u) || 1e-6 : 0; d.claimHigh = u != null ? 0.5 : 0;
+          }
+        } else {
+          // Hors contact : la parade debout et le petit saut lancés par le moteur APRÈS le contact sont remplacés par
+          // ceux calés ci-dessus ; un geste sans contact (plongeon battu, sortie manquée) garde sa pose, mains à distance.
+          const late = gs.some((g) => g.kind === 'mains' && g.tContact != null && g.tContact <= simNow && tD - g.tContact > -GKW.rise && tD - g.tContact < 0.6);
+          if (late) { d.block = 0; if (!gs.some((g) => g.kind === 'saut' && g.part === 'mains' && tD - g.t0 < 1)) { d.jump = 0; d.claimHigh = 0; } }
+          const nc = gs.find((g) => (g.kind === 'plongeon' || (g.kind === 'saut' && g.part === 'mains')) && g.tContact == null && g.t0 <= tD + 0.02 && (g.end == null || tD < g.end + 0.4));
+          if (nc) d._gk = { avoid: true, gid: nc.id, kind: nc.kind };
+        }
+      }
+      d._rel = null;
+      if (d.gk) for (let j = gs.length - 1; j >= 0; j--) {
+        const g = gs[j]; if (!KICKS.has(g.kind) || g.tContact == null || g.tContact > simNow) continue;
+        if (tD < g.tContact - PUNT.lead || tD > g.tContact + PUNT.blend) break;
+        if (this.heldAt(g.pid, g.tContact - 0.012)) { const ph = this.ballAt(g.tContact); d._rel = this.rel = { gid: g.id, pid: g.pid, tC: g.tContact, phys: ph, at: { x: ph.x, y: ph.y, z: Math.min(ph.z, PUNT.z) } }; }
+        break;
+      }
+      if (kick) { d._ik = ikOf(kick.g, IK.kick.rise, IK.kick.fall, (kick.g.style?.foot || d.kickFoot) === 'L' ? 0 : 1); d._ik.wy = 0; if (d._rel && d._rel.gid === kick.g.id && d._ik.at) d._ik.at = { ...d._rel.at }; }   // (frappe : orientation du moteur)
       else if (touch) { d._ik = ikOf(touch.g, IK.touch.rise, IK.touch.fall, null); d._ik.turn = TURN; }   // (la jambe la plus proche du ballon : le pied de touche du moteur suit la foulée)
       else if (air && !air.ctrl && air.g.tContact != null && air.g.tContact <= simNow) {
         // Contact de la tête (ou d'une autre partie du corps) pendant un saut : le corps se porte vers le ballon au contact.
