@@ -635,7 +635,7 @@ migrés seulement. Moteur inchangé (112bd1dc, b47d8708).
   6b ; non-régression complète (112bd1dc, b47d8708, déterminisme, tests, match en ligne).
 
 
-## 6c-A — Têtes, sauts de tête et contrôles aériens — rapport, non validé
+## 6c-A — Têtes, sauts de tête et contrôles aériens — validée
 ### Principe (rendu seul)
 * **Gestes migrés** : saut de tête, tête (sans saut préalable), saut (mur, duel aérien perdu) des
   joueurs de champ, et contrôles hauts (poitrine, cuisse, tête). Le saut du gardien (partie « mains »)
@@ -888,3 +888,12 @@ moteur rapide b47d8708) ; 129 tests unitaires, tests d'interface et test du matc
 sont pas identiques au geste près : 626 / 621 gestes) ; coût d'affichage : pas d'écart mesurable dans
 le bruit de mesure (images de 170 à 260 ms dans les deux versions en rendu logiciel sans GPU).
 
+
+**Décision (utilisateur)** : 6c-A validée après la correction ciblée. Réserves conservées : quelques
+contacts de tête par le côté ou l'arrière (ballons arrivant de côté ou de derrière) ; quelques sauts de
+tête à 3,4-4,2 cm ; séquences rapprochées tête puis contrôle de poitrine ; contrôles de la cuisse. Seuils
+inchangés. DI-1 suivi séparément.
+
+## 6c-B — Gardien — rapport, non validé
+
+*(Rapport en cours de mesure.)*
