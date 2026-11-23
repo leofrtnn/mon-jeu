@@ -153,6 +153,24 @@ export class DisplayBuffer {
     const a = S[i], b = S[Math.min(S.length - 1, i + 1)], k = b.t > a.t ? clamp01((t - a.t) / (b.t - a.t)) : 0;
     return { x: a.b.x + (b.b.x - a.b.x) * k, y: a.b.y + (b.b.y - a.b.y) * k, z: a.b.z + (b.b.z - a.b.z) * k };
   }
+  /** Position (m) du joueur `pid` à l'instant t du moteur, d'après l'enregistrement. */
+  posAt(pid, t) {
+    const S = this.snaps; if (!S.length) return null;
+    let i = S.length - 1; while (i > 0 && S[i].t > t) i--;
+    const q = S[i].ps.get(pid); return q ? { x: q.x * 105, y: q.y * 68, face: q.face || 0 } : null;
+  }
+  /**
+   * Plongeon (6c-B) : côté du plongeon DANS LE REPÈRE DU GARDIEN (+1 : sa gauche, −1 : sa droite), lu sur son
+   * déplacement réel (le moteur le fait glisser vers le point d'interception, souvent en diagonale) ; null si
+   * le déplacement n'est pas encore lisible.
+   */
+  diveSide(g, simNow) {
+    const a = this.posAt(g.pid, g.t0), b = this.posAt(g.pid, Math.min(simNow, g.t0 + 0.45));
+    if (!a || !b) return null;
+    const dx = b.x - a.x, dy = b.y - a.y; if (Math.hypot(dx, dy) < 0.12) return null;
+    const lat = -Math.sin(a.face) * dx + Math.cos(a.face) * dy;
+    return lat >= 0 ? 1 : -1;
+  }
   /** Ballon tenu par `pid` à l'instant t du moteur (d'après l'enregistrement) ? */
   heldAt(pid, t) {
     const S = this.snaps; if (!S.length) return false;
@@ -235,13 +253,22 @@ export class DisplayBuffer {
       // Gardien (6c-B) : mains au ballon au contact réel ; parade debout calée sur le contact (et non lancée
       // après lui) ; plongeon ou sortie sans contact : les gants ne touchent jamais le ballon.
       if (d.gk) {
-        d._gk = null;
+        d._gk = null; d.diveSide = null;
+        if (d.dive > 0) { const gd = gs.findLast?.((g) => g.kind === 'plongeon' && g.t0 <= tD + 0.02) ?? [...gs].reverse().find((g) => g.kind === 'plongeon' && g.t0 <= tD + 0.02); if (gd) d.diveSide = this.diveSide(gd, simNow); }
         const c = this.gkContact(gs, tD, simNow);
         if (c) {
           const x = c.x; let w = x < 0 ? 1 - Math.min(1, -x / GKW.rise) : c.res === 'capté' ? 1 : 1 - Math.min(1, x / GKW.fall); w = Math.max(0, w);
           d._gk = { w: w * w * (3 - 2 * w), dtc: x, res: c.res, vin: c.vin, at: c.at, gid: c.g.id, kind: c.g.kind, part: c.g.cPart, tC: c.g.tContact };
           const standing = c.g.kind === 'mains' && !(d.dive > 0);
-          if (standing && c.res !== 'capté' && (c.at?.z ?? 0) <= 1.7) { const u = (tD - (c.g.tContact - GKW.blockLead)) / GKW.block; d.block = u >= 0 && u < 1 ? GKW.block * (1 - u) : 0; }
+          // Ballon bas touché debout à plus d'un mètre : plongeon court vers lui, calé sur le contact (corps au sol
+          // au moment du contact ; pose du plongeon à sa phase de pleine extension).
+          const me = this.posAt(c.g.pid, c.g.tContact);
+          if (standing && me && (c.at?.z ?? 9) < 0.7 && Math.hypot(c.at.x - me.x, c.at.y - me.y) > 1.0) {
+            const t = 0.45 + (tD - c.g.tContact) / 0.5;
+            if (t > 0 && t < 1) { d.dive = 0.75 * (1 - t); d.diveH = Math.min(1, c.at.z / 2.2); const lat = -Math.sin(me.face) * (c.at.x - me.x) + Math.cos(me.face) * (c.at.y - me.y); d.diveSide = lat >= 0 ? 1 : -1; d.block = 0; d._gk.shortDive = true; }
+          }
+          if (d._gk.shortDive) { /* (plongeon court : pas de parade debout) */ }
+          else if (standing && c.res !== 'capté' && (c.at?.z ?? 0) <= 1.7) { const u = (tD - (c.g.tContact - GKW.blockLead)) / GKW.block; d.block = u >= 0 && u < 1 ? GKW.block * (1 - u) : 0; }
           else if (standing) d.block = 0;
           if (standing && (c.at?.z ?? 0) > 1.7 && !(d.jump > 0 && gs.some((g) => g.kind === 'saut' && g.part === 'mains' && g.end == null))) {
             // Ballon haut touché debout : petit saut calé sur le contact (montée compressée dans les 0,15 s avant).

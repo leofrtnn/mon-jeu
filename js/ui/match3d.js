@@ -1322,9 +1322,10 @@ export class Player3D {
     if (p.dive > 0) {
       const t = 1 - p.dive / 0.75;
       const k = t < 0.45 ? Math.sin((t / 0.45) * Math.PI / 2) : 1 - Math.max(0, (t - 0.8) / 0.2) * 0.25;
-      // (6c-B) Côté du plongeon : le moteur le donne le long de la ligne de but (axe y du terrain) ; dans le repère
-      // du gardien il dépend de son orientation (face au jeu dans un sens ou dans l'autre).
-      const dir = (flip ? -1 : 1) * (p.diveDir || 1) * (Math.cos(p.face || 0) < 0 ? -1 : 1);
+      // (6c-B) Côté du plongeon dans le repère du gardien : lu sur son déplacement réel (contrat, `diveSide`) ; à
+      // défaut, côté le long de la ligne de but ramené à son orientation. (Vue retournée à la mi-temps : simple
+      // rotation de 180°, sans effet sur ce côté.)
+      const dir = p.diveSide ?? (p.diveDir || 1) * (Math.cos(p.face || 0) < 0 ? -1 : 1);
       const hgt = p.diveH ?? 0.5;
       this.body.rotation.x = dir * 1.45 * k;
       this.body.position.y = (0.25 + 0.9 * hgt) * Math.sin(Math.min(1, t / 0.6) * Math.PI) * K;
@@ -3011,7 +3012,7 @@ export class Match3D {
           if (Math.abs(t - T) <= 1 / 60 + 1e-6 && (dFr == null || dh < dFr)) dFr = dh;
           if (Math.abs(t - T) <= step + 1e-6) {
             for (const [nm, q] of this.bodySurf(P3, C)) { if (nm.startsWith('main') || nm.startsWith('pied')) continue; const dd = q.distanceTo(C) - BALL_R; if (otherC == null || dd < otherC.d) otherC = { d: dd, part: nm }; }
-            if (geo == null) geo = { h: +(C.y).toFixed(2), dh: +Math.hypot(C.x - x, C.z - z).toFixed(2), dive: +(p.dive || 0).toFixed(2), jump: +(p.jump || 0).toFixed(2), block: +(p.block || 0).toFixed(2), claim: +(p.claimHigh || 0).toFixed(2) };
+            if (geo == null) { const bl = P3.root.worldToLocal(C.clone()), hl = P3.arms.map((a) => P3.root.worldToLocal(a.hand.getWorldPosition(new THREE.Vector3())).toArray().map((v) => +v.toFixed(2))); geo = { h: +(C.y).toFixed(2), dh: +Math.hypot(C.x - x, C.z - z).toFixed(2), dive: +(p.dive || 0).toFixed(2), jump: +(p.jump || 0).toFixed(2), block: +(p.block || 0).toFixed(2), claim: +(p.claimHigh || 0).toFixed(2), face: +(p.face || 0).toFixed(2), diveDir: p.diveDir ?? null, ballLoc: bl.toArray().map((v) => +v.toFixed(2)), handsLoc: hl, gkw: p._gk ? +(p._gk.w || 0).toFixed(2) : null, gkres: p._gk?.res || null, flip }; }
           }
         }
         if (isH && t >= T && !kick && !(mode === 'contrat' && p._rel)) {   // (hors lâcher d'une relance au pied)
