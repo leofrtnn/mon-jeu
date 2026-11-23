@@ -813,8 +813,10 @@ le moteur ni les seuils.
   il présentait le sommet du crâne au ballon.
 
 **Pose retenue** (`applyAir`, `applyIK`, `js/ui/match3d.js`) :
-* l'inclinaison du corps de l'animation de saut est réduite avec l'amplitude du saut (comme la hauteur
-  et le repli des jambes déjà) ;
+* pour les têtes, l'inclinaison du corps de l'animation de saut est réduite avec l'amplitude du saut
+  (comme la hauteur et le repli des jambes déjà). Les contrôles hauts la gardent : sans elle, le premier
+  de deux touchers de poitrine rapprochés (17 ms) restait à 4 cm du ballon (médiane, 22 cas), relevé par
+  la mesure puis vérifié en rejouant le même match avec et sans ce changement ;
 * après le pivot vers le ballon, la tête est réorientée vers le ballon depuis l'orientation réelle du
   corps (au plus 1,1 rad, comme la pose d'origine) ;
 * ballon bas : la tête descend d'abord par la flexion des genoux (au plus 30 cm), le buste ne se
@@ -841,4 +843,33 @@ code avant (commit 1eac56d) puis après, mêmes critères ; comparaison geste pa
 même instant). Les matchs divergent après la mi-temps (choix d'interface de la causerie) : seuls les
 gestes appariés sont comparés ; aucun n'est exclu des mesures de chaque passe.
 
-*(Résultats comparatifs : mesure en cours, complétés au commit suivant.)*
+**Résultats** (mêmes gestes avant/après, appariés par joueur et instant ; 376 gestes appariés sur 398 ;
+mêmes seuils : crédible −1 à +3 cm, trop éloigné > 3 cm, pénétration < −1 cm ; « autre partie dans le
+ballon » : poitrine ou genou à plus de 1 cm dans le ballon au contact) :
+
+| Famille (n appariés) | | crédible | trop éloigné | pénétration | autre partie dans le ballon |
+|---|---|---|---|---|---|
+| Tête sans saut (66) | avant | 94 % | 6 % | 0 % | **26** (médiane −6,1 cm, max −13,4) |
+| | après | 95 % | 5 % | 0 % | **1** (−1,7 cm) |
+| Saut de tête, tête (52) | avant | 92 % | 6 % | 2 % | 6 (médiane −2,3, max −9,7) |
+| | après | 88 % | 12 % | 0 % | 0 |
+| Saut de tête sans contact (74) | avant | faux contacts 2 | | | |
+| | après | faux contacts 0 | | | |
+| Contrôle haut, poitrine (116) | avant | 78 % | 4 % | 17 % | 0 |
+| | après | 84 % | 7 % | 9 % | 0 |
+| Contrôle haut, cuisse (66) | avant | 70 % | 26 % | 5 % | 0 |
+| | après | 70 % | 26 % | 5 % | 0 |
+
+Zone de la tête au contact (passe de la version d'origine refaite avec la mesure de zone, 247 gestes
+appariés ; la passe a divergé plus tôt que la première) :
+* tête sans saut (49) : avant arrière 29, côté 15, front 4, dessus 1 → après **front 48**, arrière 1 ;
+* saut de tête (31) : avant arrière 22, côté 5, dessus 3, front 1 → après front 16, côté 11, arrière 4.
+
+Réserves :
+* sauts de tête : 3 cas nouvellement à 3,4-4,2 cm (4 cas améliorés, dont un à −4,7 cm ramené à −0,4) ;
+  4 contacts encore par l'arrière de la tête et 11 par le côté (ballon nettement sur le côté ou derrière
+  le joueur, que le moteur admet) ;
+* contrôles de la poitrine : les cas « tête puis poitrine du même joueur à moins de 50 ms » (10)
+  n'affichent qu'une pose, celle de la tête ; 4 restent trop éloignés de la poitrine ;
+* contrôles de la cuisse : inchangés (réserve déjà documentée).
+
