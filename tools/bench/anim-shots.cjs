@@ -67,7 +67,7 @@ const serve = () => new Promise((resolve) => {
     await page.waitForTimeout(8000);
     const want = ['touche de conduite', 'contrôle', 'passe', 'passe levée', 'centre', 'frappe', 'dégagement', 'subi'];
     const done = new Map(); let shots = 0;
-    const RES = !!(process.env.RES || process.env.SEQ), SEQ = !!process.env.SEQ, AIR = !!process.env.AIR;
+    const RES = !!(process.env.RES || process.env.SEQ), SEQ = !!process.env.SEQ, GK = !!process.env.GK, AIR = !!process.env.AIR || GK;   // GK=1 : gestes du gardien (6c-B) ; OFFS=0,0.4 : instants capturés autour du contact (s)
     if (AIR) await page.evaluate((k) => { const v = window.__view; v.TS = k ? 20 : 6; v.opts.replays = false; v.replayPlan = null; }, !!process.env.KEYS);   // (gestes aériens rares : jeu accéléré entre deux captures)
     if (RES) await page.evaluate((x) => { window.__view.disp6.extra = x; }, process.env.KEYS ? 32 : AIR ? 5 : 1.4);
     for (let tries = 0; tries < (AIR ? 600 : RES ? 200 : 80) && shots < PAIRS; tries++) {
@@ -75,7 +75,16 @@ const serve = () => new Promise((resolve) => {
       const pick = await page.evaluate((args) => {
         const [want, done, RES, SEQ, AIR] = args, v = window.__view, G = v.live.gest, now = v.live.now;
         let g = null, why = null;
-        if (AIR) {
+        if (args[6]) {
+          // Gardien (6c-B) : gestes du gardien, classés par famille et résultat ; KEYS=pid:T pour des gestes précis.
+          v.TS = 20;
+          const pr = v.r3d.probeGK('contrat', Math.max(v._airT || 0, now - 30), now - 1.2); v._airT = now - 1.2;
+          const cat = (x) => /dégagement|passe/.test(x.kind) ? 'relance_' + x.kind.replace(/ \(réflexe\)/, '').replace(/ /g, '_') : (x.kind.startsWith('plongeon') ? 'plongeon' : x.kind.startsWith('saut') ? 'sortie' : 'mains') + '_' + (x.contact ? (x.res || '?') : 'sans_contact');
+          const KEYS = (args[5] || '').split(',').filter(Boolean).map((k) => k.split(':').map(Number));
+          v._keysDone ||= new Set();
+          const r = KEYS.length ? pr.find((x) => KEYS.some(([pid, T]) => x.pid === pid && Math.abs(x.T - T) < 0.01) && !v._keysDone.has(x.gid) && (v._keysDone.add(x.gid), true)) : pr.find((x) => (done[cat(x)] || 0) < 2 && !v._keysDone.has(x.gid) && (v._keysDone.add(x.gid), true));
+          if (r) { g = G.gestures.find((x) => x.id === r.gid); g._T = r.T; why = cat(r) + ` (gants ${r.dAtC != null ? (r.dAtC * 100).toFixed(1) + ' cm' : '—'}, approche min ${r.minAll != null ? (r.minAll * 100).toFixed(1) + ' cm' : '—'}, pid ${r.pid}, T ${r.T.toFixed(3)})`; g._cat = cat(r); }
+        } else if (AIR) {
           v.TS = args[5] ? 20 : 6;
           const pr = v.r3d.probeAir('contrat', Math.max(v._airT || 0, now - (args[5] ? 30 : 4)), now - 0.6); v._airT = now - 0.6;   // (gestes ciblés : jeu accéléré, fenêtre de 30 s)
           const cat = (x) => x.contact ? (x.dAtC > 0.03 ? 'aerien_trop_eloigne' : x.dAtC < -0.01 ? 'aerien_penetration' : x.kind.startsWith('contrôle') ? 'controle_' + (x.part || '') : 'tete_' + (x.kind.includes('réflexe') ? ((x.lean || 0) > 0.25 ? 'reflexe_pose' : 'reflexe') : 'saut')) : (x.minAll < 0.1 || x.avoid > 0.005 ? 'tete_perdue_ballon_proche' : 'tete_perdue');
@@ -105,7 +114,7 @@ const serve = () => new Promise((resolve) => {
         };
         v._shot = { tC: (g._T ?? g.tContact) + (why && /penetration_hors/.test(why) ? +(why.match(/à (-?\d+) ms/) || [0, 0])[1] / 1000 : 0), kind: g.kind + (g.reflex && ['passe', 'passe levée', 'centre', 'frappe', 'dégagement'].includes(g.kind) ? ' sans armé' : ''), id: g.id, why, cat: why ? why.split(' ')[0] : null };
         return v._shot;
-      }, [want, Object.fromEntries(done), RES, SEQ, AIR, process.env.KEYS || '']);
+      }, [want, Object.fromEntries(done), RES, SEQ, AIR, process.env.KEYS || '', GK]);
       if (!pick) continue;
       if (SEQ) {
         // Séquence : même geste, instants successifs ; caméra de côté figée sur sa position au contact, puis caméra de jeu.
@@ -126,12 +135,16 @@ const serve = () => new Promise((resolve) => {
         await page.evaluate(() => { const v = window.__view; v.TS = v.TS0; v.r3d.updateCamera = v._cam0; v.sampleDisplay = v._samp0; v._camSide = null; });
         shots++; continue;
       }
+      const OFFS = (process.env.OFFS || '0').split(',').map(Number);
+      for (const off of OFFS) {
+      await page.evaluate((o) => { const v = window.__view; v._shot.tC0 ??= v._shot.tC; v._shot.tC = v._shot.tC0 + o; }, off);
       for (const mode of (RES && !AIR) || process.env.KEYS ? ['contrat'] : ['ancien', 'contrat']) {
         await page.evaluate((m) => { const v = window.__view; v.sampleDisplay = function () { const ok = this.disp6.sample(m, this._shot.tC); if (!ok) return; this.dispPlayers = this.disp6.disp; this.dispPhys = this.disp6.ball; this.dispBall = this.disp6.ballN; this.dispHolder = this.disp6.holder; this.dispInHands = this.disp6.inHands; }; v.liveAcc = 0; }, mode);
         await page.waitForTimeout(700);
-        const f = path.join(OUT, `${String(shots + 1).padStart(2, '0')}-${pick.kind.replace(/ /g, '_')}-${AIR ? pick.cat + "-" + mode : pick.cat || mode}.png`);
+        const f = path.join(OUT, `${String(shots + 1).padStart(2, '0')}-${pick.kind.replace(/ /g, '_')}-${AIR ? pick.cat + "-" + mode : pick.cat || mode}${OFFS.length > 1 ? '-' + (off >= 0 ? '+' : '') + Math.round(off * 1000) + 'ms' : ''}.png`);
         await page.screenshot({ path: f, clip: { x: 0, y: 0, width: 1280 * 0.7, height: 720 } });
         console.log(f + (pick.why ? ' — ' + pick.why : ''));
+      }
       }
       await page.evaluate(() => { const v = window.__view; v.TS = v.TS0; v.r3d.updateCamera = v._cam0; v.sampleDisplay = v._samp0; });
       const key = pick.cat || pick.kind.split(' sans')[0]; done.set(key, (done.get(key) || 0) + 1); shots++;
