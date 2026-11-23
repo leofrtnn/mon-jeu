@@ -2838,7 +2838,7 @@ export class Match3D {
       const lat = up.localToWorld(new THREE.Vector3(0, 0, 1)).sub(up.localToWorld(new THREE.Vector3(0, 0, 0))).normalize();
       const fwd = up.localToWorld(new THREE.Vector3(1, 0, 0)).sub(up.localToWorld(new THREE.Vector3(0, 0, 0))).normalize();
       const off = (sg) => C.clone().addScaledVector(lat, sg * BALL_R * 0.92).addScaledVector(fwd, BALL_R * 0.38);
-      this.gkHands(e, C, [off(1), off(-1)], wH, true);
+      this.gkHands(e, C, [off(1), off(-1)], wH, p.dive > 0);
       e._heldPos = C; return;
     }
     e._hold = null; e._heldPos = null;
@@ -2857,6 +2857,12 @@ export class Match3D {
       const hz = (hs[0].z + hs[1].z) / 2, hx = (hs[0].x + hs[1].x) / 2, sd = Math.sign(hz) || 1, reach = 0.95 * Math.min(1, Math.abs(hz) / 0.95);
       const off = new THREE.Vector3(0.1 - hx, 0, sd * reach - hz).applyQuaternion(R.quaternion);
       R.position.add(off); R.updateMatrixWorld(true);
+      // Contact connu : les gants sont amenés au point de contact (horizontalement, au plus 1 m, poids de la fenêtre).
+      if (k && k.at && k.w > 0) {
+        const [cx, cz] = this.toWorld(k.at.x / L, k.at.y / W, flip), hm = P3.arms.map((a) => a.hand.getWorldPosition(new THREE.Vector3())).reduce((a, b) => a.add(b)).multiplyScalar(0.5);
+        let mx = cx - hm.x, mz = cz - hm.z; const ml = Math.hypot(mx, mz); if (ml > 1) { mx /= ml; mz /= ml; }
+        R.position.x += mx * k.w; R.position.z += mz * k.w; R.updateMatrixWorld(true);
+      }
     }
     if (!k) return;
     const [bx, bz] = this.toWorld(VB.x, VB.y, flip), Cb = new THREE.Vector3(bx, BALL_R + VB.h * 26, bz);
