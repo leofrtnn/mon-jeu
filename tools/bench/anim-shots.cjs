@@ -4,6 +4,8 @@
  * différé) et une fois avec le contrat (gestes synchronisés + cinématique inverse au contact).
  * Usage : node tools/bench/anim-shots.cjs [dossier=./captures-6b] [paires=6]
  *   RES=1 : cas résiduels défavorables classés par la sonde (une image au contact, contrat seulement) ;
+ *   AIR=1 : gestes aériens (6c-A) — avec RES : cas classés par la sonde aérienne (tête, tête perdue,
+ *           contrôles hauts, cas défavorables), avant / après ; avec SEQ : séquence autour d'un coup de tête ;
  *   SEQ=1 : séquences autour du contact (−0,24 s à +0,24 s, toutes les 0,04 s) des gestes avec pivot
  *           d'affichage, caméra fixe de côté puis caméra de jeu (télé).
  */
@@ -61,14 +63,21 @@ const serve = () => new Promise((resolve) => {
     await page.waitForTimeout(8000);
     const want = ['touche de conduite', 'contrôle', 'passe', 'passe levée', 'centre', 'frappe', 'dégagement', 'subi'];
     const done = new Map(); let shots = 0;
-    const RES = !!(process.env.RES || process.env.SEQ), SEQ = !!process.env.SEQ;
-    if (RES) await page.evaluate(() => { window.__view.disp6.extra = 1.4; });
-    for (let tries = 0; tries < (RES ? 200 : 80) && shots < PAIRS; tries++) {
+    const RES = !!(process.env.RES || process.env.SEQ), SEQ = !!process.env.SEQ, AIR = !!process.env.AIR;
+    if (AIR) await page.evaluate(() => { const v = window.__view; v.TS = 6; v.opts.replays = false; v.replayPlan = null; });   // (gestes aériens rares : jeu accéléré entre deux captures)
+    if (RES) await page.evaluate((x) => { window.__view.disp6.extra = x; }, AIR ? 5 : 1.4);
+    for (let tries = 0; tries < (AIR ? 600 : RES ? 200 : 80) && shots < PAIRS; tries++) {
       await page.waitForTimeout(1200);
       const pick = await page.evaluate((args) => {
-        const [want, done, RES, SEQ] = args, v = window.__view, G = v.live.gest, now = v.live.now;
+        const [want, done, RES, SEQ, AIR] = args, v = window.__view, G = v.live.gest, now = v.live.now;
         let g = null, why = null;
-        if (RES) {
+        if (AIR) {
+          v.TS = 6;
+          const pr = v.r3d.probeAir('contrat', (v._airT || now - 4), now - 0.6); v._airT = now - 0.6;
+          const cat = (x) => x.contact ? (x.dAtC > 0.03 ? 'aerien_trop_eloigne' : x.dAtC < -0.01 ? 'aerien_penetration' : x.kind.startsWith('contrôle') ? 'controle_' + (x.part || '') : 'tete_' + (x.kind.includes('réflexe') ? 'reflexe' : 'saut')) : (x.minAll < 0.1 || x.avoid > 0.005 ? 'tete_perdue_ballon_proche' : 'tete_perdue');
+          const r = pr.find((x) => (SEQ ? x.contact && x.kind === 'saut de tête' && x.dAtC <= 0.03 : (done[cat(x)] || 0) < 1) && !(v._usedG ||= new Set()).has(x.gid));
+          if (r) { v._usedG.add(r.gid); g = G.gestures.find((x) => x.id === r.gid); why = cat(r) + (r.contact ? ` (d ${(r.dAtC * 100).toFixed(1)} cm, ballon à ${r.h} m de haut, à ${r.dh} m, amplitude du saut ${r.amp}, ${r.reach})` : ` (distance minimale ${(r.minAll * 100).toFixed(1)} cm, ${r.minAllPart}, écartement ${(r.avoid * 100).toFixed(0)} cm, ${r.src})`); if (g) g._T = r.T; }
+        } else if (RES) {
           // Cas résiduels : la sonde du rendu classe les gestes récents ; on garde les cas défavorables.
           const pr = v.r3d.probe6('contrat', now - 1.1, now - 0.45);
           const cat = (x) => x.reach === 'hors de portée' ? 'hors_de_portee' : x.reach === 'ballon haut' ? 'ballon_haut' : x.maxPen > 0.02 ? 'penetration_hors_contact' : x.cross != null && x.cross < -0.1 ? 'jambes_croisees' : x.dAtC > 0.03 ? 'trop_eloigne' : x.dAtC < -0.01 ? 'penetration_au_contact' : x.yaw > 0.5 ? 'pivot_vers_le_ballon' : x.reach === 'corps' ? 'controle_du_corps' : null;
@@ -78,7 +87,7 @@ const serve = () => new Promise((resolve) => {
         } else g = [...G.gestures].reverse().find((x) => want.includes(x.kind) && x.tContact != null && x.tContact > now - 1.1 && x.tContact < now - 0.45 && (done[x.kind] || 0) < 1);
         if (!g) return null;
         const e = v.r3d.players.get(g.pid); if (!e) return null;
-        v.TS0 = v.TS; v.TS = 0;   // simulation figée
+        v.TS0 = AIR ? 6 : v.TS; v.TS = 0; v._shotAir = AIR;   // simulation figée
         v._cam0 = v.r3d.updateCamera; v._samp0 = v.sampleDisplay;
         // Caméra de côté : perpendiculaire à l'axe joueur → ballon, du côté opposé au joueur le plus proche (pas d'occultation).
         v.r3d.updateCamera = function () {
@@ -86,11 +95,11 @@ const serve = () => new Promise((resolve) => {
           const mx = (q.x + bx) / 2, mz = (q.z + bz) / 2; let nx = -(bz - q.z), nz = bx - q.x; const nl = Math.hypot(nx, nz) || 1; nx /= nl; nz /= nl;
           let side = 1, best = Infinity;
           for (const [id2, e2] of this.players) { if (e2 === e) continue; const r = e2.p3.root.position, d = Math.hypot(r.x - mx, r.z - mz); if (d < best) { best = d; side = ((r.x - mx) * nx + (r.z - mz) * nz) > 0 ? -1 : 1; } }
-          this.camera.position.set(mx + nx * side * 2.8, 1.1, mz + nz * side * 2.8); this.camera.lookAt(mx, 0.45, mz); this.camera.fov = 34; this.camera.updateProjectionMatrix();
+          const hi = v._shotAir ? 1 : 0; this.camera.position.set(mx + nx * side * (2.8 + hi), 1.1 + 0.6 * hi, mz + nz * side * (2.8 + hi)); this.camera.lookAt(mx, 0.45 + 1.0 * hi, mz); this.camera.fov = 34; this.camera.updateProjectionMatrix();
         };
-        v._shot = { tC: g.tContact + (why && /penetration_hors/.test(why) ? +(why.match(/à (-?\d+) ms/) || [0, 0])[1] / 1000 : 0), kind: g.kind + (g.reflex && ['passe', 'passe levée', 'centre', 'frappe', 'dégagement'].includes(g.kind) ? ' sans armé' : ''), id: g.id, why, cat: why ? why.split(' ')[0] : null };
+        v._shot = { tC: (g._T ?? g.tContact) + (why && /penetration_hors/.test(why) ? +(why.match(/à (-?\d+) ms/) || [0, 0])[1] / 1000 : 0), kind: g.kind + (g.reflex && ['passe', 'passe levée', 'centre', 'frappe', 'dégagement'].includes(g.kind) ? ' sans armé' : ''), id: g.id, why, cat: why ? why.split(' ')[0] : null };
         return v._shot;
-      }, [want, Object.fromEntries(done), RES, SEQ]);
+      }, [want, Object.fromEntries(done), RES, SEQ, AIR]);
       if (!pick) continue;
       if (SEQ) {
         // Séquence : même geste, instants successifs ; caméra de côté figée sur sa position au contact, puis caméra de jeu.
@@ -111,10 +120,10 @@ const serve = () => new Promise((resolve) => {
         await page.evaluate(() => { const v = window.__view; v.TS = v.TS0; v.r3d.updateCamera = v._cam0; v.sampleDisplay = v._samp0; v._camSide = null; });
         shots++; continue;
       }
-      for (const mode of RES ? ['contrat'] : ['ancien', 'contrat']) {
+      for (const mode of RES && !AIR ? ['contrat'] : ['ancien', 'contrat']) {
         await page.evaluate((m) => { const v = window.__view; v.sampleDisplay = function () { const ok = this.disp6.sample(m, this._shot.tC); if (!ok) return; this.dispPlayers = this.disp6.disp; this.dispPhys = this.disp6.ball; this.dispBall = this.disp6.ballN; this.dispHolder = this.disp6.holder; this.dispInHands = this.disp6.inHands; }; v.liveAcc = 0; }, mode);
         await page.waitForTimeout(700);
-        const f = path.join(OUT, `${String(shots + 1).padStart(2, '0')}-${pick.kind.replace(/ /g, '_')}-${pick.cat || mode}.png`);
+        const f = path.join(OUT, `${String(shots + 1).padStart(2, '0')}-${pick.kind.replace(/ /g, '_')}-${AIR ? pick.cat + "-" + mode : pick.cat || mode}.png`);
         await page.screenshot({ path: f, clip: { x: 0, y: 0, width: 1280 * 0.7, height: 720 } });
         console.log(f + (pick.why ? ' — ' + pick.why : ''));
       }

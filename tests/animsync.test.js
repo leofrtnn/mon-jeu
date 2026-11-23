@@ -11,7 +11,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { cfgFor, createMatch, LiveSim, hash } from '../tools/bench/common.mjs';
-import { DisplayBuffer, DELAY, kickPhase, peakPhase } from '../js/ui/animSync.js';
+import { DisplayBuffer, DELAY, kickPhase, peakPhase, jumpPhase, JUMP } from '../js/ui/animSync.js';
 
 const dt = 1 / 96;
 async function play(seed, withDisplay, minutes = 5) {
@@ -60,4 +60,29 @@ test('gestes migrés : contact animé = contact physique, animation commencée a
   for (const g of sim.gest.gestures.filter((x) => ['annulé', 'interrompu'].includes(x.outcome) && ['passe', 'centre', 'frappe'].includes(x.kind))) {
     assert.equal(kickPhase(g, g.end + 0.01, g.end + 1), null, `#${g.id} : frappe fantôme après ${g.outcome}`);
   }
+});
+
+test('gestes aériens (6c-A) : coup de tête animé (phase 0,5) au contact, saut sans contact calé sur le contact prévu', async () => {
+  const { sim } = await play(5, false, 25);
+  const G = sim.gest.gestures.filter((g) => ['saut de tête', 'tête', 'saut'].includes(g.kind) && g.part !== 'mains');
+  assert.ok(G.length >= 5, `assez de gestes aériens (${G.length})`);
+  let nC = 0, nN = 0;
+  for (const g of G) {
+    const end = 99999;
+    if (g.tContact != null) {
+      nC++;
+      const u = jumpPhase(g, g.tContact, end);
+      assert.ok(Math.abs(u - JUMP.uc) < 1e-6, `${g.kind} ${g.id} : phase ${u} au contact`);
+      // Début du geste affiché : avant le contact, au plus 0,36 s avant (saut préparé) ou 0,15 s (réflexe).
+      const lead = g.reflex ? JUMP.lead : JUMP.uc * JUMP.dur;
+      assert.equal(jumpPhase(g, g.tContact - lead - 0.01, end), null);
+      assert.ok(jumpPhase(g, g.tContact - lead + 0.01, end) != null);
+      assert.ok(lead <= DELAY + JUMP.uc * JUMP.dur);
+    } else if (!g.reflex) {
+      nN++;
+      const T = g.tPlan ?? (g.t0re ?? g.t0) + JUMP.uc * JUMP.dur;
+      if (g.outcome !== 'interrompu') assert.ok(Math.abs(jumpPhase(g, T, end) - JUMP.uc) < 1e-6, `saut sans contact ${g.id} : sommet au contact prévu`);
+    }
+  }
+  assert.ok(nC > 0 && nN > 0, `gestes avec (${nC}) et sans contact (${nN})`);
 });

@@ -33,6 +33,7 @@ const serve = () => new Promise((resolve) => {
   await ctx.addInitScript(() => { try { localStorage.setItem('cdp-tuto', JSON.stringify({ done: true })); } catch {} });
   await ctx.route(/wikipedia\.org|wikimedia\.org|flagcdn/, (r) => r.abort());
   const page = await ctx.newPage();
+  page.on('pageerror', (e) => console.error('ERREUR PAGE :', e.message, (e.stack || '').split('\n').slice(0, 3).join(' | ')));
   try {
     await page.goto(`http://localhost:${srv.address().port}/?backend=local`);
     await page.click('[data-act=amode][data-v=signup]');
@@ -59,24 +60,40 @@ const serve = () => new Promise((resolve) => {
     if (process.env.CALIB) { const c = await page.evaluate(() => window.__view.r3d.calib6()); console.log(JSON.stringify(c)); throw new Error('étalonnage terminé'); }
     // Historique d'affichage élargi (outil seulement ; l'historique des gestes reste celui du jeu) : chaque relevé couvre tout le temps
     // écoulé depuis le précédent, sans trou (couverture vérifiée ci-dessous).
-    await page.evaluate(() => { window.__view.disp6.extra = 6; });
-    const res = { contrat: [], ancien: [] };
+    const SPEED = +(process.env.SPEED || 0), WIN = SPEED ? 32 : 5, AIRONLY = !!process.env.AIR;   // AIR=1 : gestes aériens seulement (6c-A)
+    await page.evaluate(([x]) => { window.__view.disp6.extra = x + 1; }, [WIN]);
+    // SPEED=n : la simulation avance n fois plus vite (au plus 1 s de jeu par image) pour couvrir un match
+    // entier ; l'affichage n'a pas à être fluide, la sonde rejoue elle-même chaque geste pas à pas.
+    if (SPEED) await page.evaluate((k) => { const v = window.__view; v.TS = k; v.opts.replays = false; v.replayPlan = null; }, SPEED);   // (ralentis coupés : à très faible cadence d'image, un ralenti sans assez d'images fige le match — défaut d'interface signalé, hors 6c)
+    const res = { contrat: [], ancien: [], airC: [], airA: [] };
     let last = await page.evaluate(() => window.__view.live.now), start = last;
     while (last - start < SECS) {
       await page.waitForTimeout(2500);
-      const r = await page.evaluate(() => {
-        const v = window.__view, now = v.live.now, tTo = now - 0.5, prev = v._probeT ?? null, tFrom = Math.max(prev || 0, tTo - 5.0);
-        if (tTo <= tFrom) return { now, c: [], a: [], cov: null };
+      // Mi-temps : causerie et reprise (sans effet sur la mesure) ; fin du match : arrêt.
+      for (const sel of ['.sheet [data-act=talk] >> nth=1', '.sheet [data-act=resume]', '.sheet [data-act=ok]']) if (await page.isVisible(sel.split(' >> ')[0]).catch(() => false)) await page.click(sel).catch(() => {});
+      if (SPEED) await page.evaluate((k) => { const v = window.__view; if (!v.paused) v.TS = k; }, SPEED);
+      if (await page.evaluate(() => window.__view.m.phase === 'ft' || window.__view.m.phase === 'done').catch(() => false)) break;
+      const r = await page.evaluate(([WIN, AIRONLY]) => {
+        const v = window.__view, now = v.live.now, tTo = now - 0.5, prev = v._probeT ?? null, tFrom = Math.max(prev || 0, tTo - WIN);
+        if (tTo <= tFrom) return { now, c: [], a: [], ac: [], aa: [], cov: null, acov: null };
         v._probeT = tTo;
-        const c = v.r3d.probe6('contrat', tFrom, tTo), a = v.r3d.probe6('ancien', tFrom, tTo);
+        const c = AIRONLY ? [] : v.r3d.probe6('contrat', tFrom, tTo), a = AIRONLY ? [] : v.r3d.probe6('ancien', tFrom, tTo);
         // Couverture : gestes migrés avec contact depuis le relevé précédent, mesurés ou non (fenêtre limitée
         // par l'historique d'affichage ; aucun tri sur le résultat du geste).
         const K = new Set(['passe', 'passe levée', 'frappe', 'centre', 'dégagement', 'remise en jeu au pied', 'contrôle', 'subi', 'touche de conduite']);
         const all = prev == null ? [] : v.live.gest.gestures.filter((g) => K.has(g.kind) && g.tContact != null && g.tContact > prev && g.tContact <= tTo);
-        const got = new Set(c.map((x) => x.gid));
-        return { now, c, a, cov: prev == null ? null : { n: all.length, miss: all.filter((g) => !got.has(g.id)).map((g) => ({ kind: g.kind, gap: g.tContact < tFrom })) } };
-      });
-      res.contrat.push(...r.c); res.ancien.push(...r.a); last = r.now;
+        const got = new Set(c.map((x) => x.gid)); if (AIRONLY) all.length = 0;
+        // Gestes aériens (6c-A) : avec ou sans contact, joueurs de champ ; même comptage de couverture.
+        const ac = v.r3d.probeAir('contrat', tFrom, tTo), aa = v.r3d.probeAir('ancien', tFrom, tTo);
+        const AK = new Set(['saut de tête', 'tête', 'saut']), Tof = (g) => g.tContact ?? g.tPlan ?? (g.t0re ?? g.t0) + 0.36, isA = (g) => AK.has(g.kind) || (g.kind === 'contrôle' && ['tête', 'poitrine', 'cuisse'].includes(g.cPart) && g.tContact != null);
+        const allA = prev == null ? [] : v.live.gest.gestures.filter((g) => isA(g) && g.part !== 'mains' && !v.players.get(g.pid)?.gk && Tof(g) > prev && Tof(g) <= tTo);
+        const gotA = new Set(ac.map((x) => x.gid));
+        const acov = prev == null ? null : { n: allA.length, miss: allA.filter((g) => !gotA.has(g.id)).map((g) => ({ kind: g.kind, gap: Tof(g) < tFrom })) };
+        return { now, c, a, ac, aa, acov, cov: prev == null ? null : { n: all.length, miss: all.filter((g) => !got.has(g.id)).map((g) => ({ kind: g.kind, gap: g.tContact < tFrom })) } };
+      }, [WIN, AIRONLY]);
+      res.contrat.push(...r.c); res.ancien.push(...r.a); res.airC.push(...(r.ac || [])); res.airA.push(...(r.aa || [])); last = r.now;
+      if (process.env.PROGRESS) console.error(`t=${r.now.toFixed(0)} aériens ${res.airC.length} ` + await page.evaluate(() => { const v = window.__view; return JSON.stringify({ paused: v.paused, phase: v.m.phase, TS: v.TS, stalled: v.stalled, replay: !!v.replaying, banner: v.banner?.text, sheet: [...document.querySelectorAll('.sheet [data-act]')].map((b) => b.dataset.act).slice(0, 8), fast: v.fast, hl: v.hl, acc: v.liveAcc, slow: v.slowmo, spd: v.speed, ls: v.liveSpeed?.(0.016), rp: !!v.replayPlan, rl: !!v.replayLive, steps: v.liveSteps, ko: v.koWait, cur: v.cur?.type }); }).catch((e) => e.message));
+      if (r.acov) { (res.acov ||= { n: 0, miss: [] }).n += r.acov.n; res.acov.miss.push(...r.acov.miss); }
       if (r.cov) { (res.cov ||= { n: 0, miss: [] }).n += r.cov.n; res.cov.miss.push(...r.cov.miss); }
     }
     const q = (a, f) => { const s = [...a].sort((x, y) => x - y); return s.length ? s[Math.min(s.length - 1, Math.floor(f * s.length))] : NaN; };
@@ -104,6 +121,32 @@ const serve = () => new Promise((resolve) => {
     if (res.cov) {
       const by = {}; for (const m of res.cov.miss) by[m.kind] = (by[m.kind] || 0) + 1;
       console.log(`couverture : ${res.cov.n} gestes migrés avec contact entre le premier et le dernier relevé ; non mesurés ${res.cov.miss.length} (hors fenêtre de relevé ${res.cov.miss.filter((m) => m.gap).length}, autres ${res.cov.miss.filter((m) => !m.gap).length})` + (res.cov.miss.length ? ' — ' + Object.entries(by).map(([k, n]) => `${k} ${n}`).join(', ') : ''));
+    }
+    // ——— Gestes aériens (6c-A) ———
+    if (res.airC.length || res.acov) {
+      console.log(`\ngestes aériens (6c-A) : ${res.airC.length} gestes (joueurs de champ ; saut du gardien exclu, 6c-B)`);
+      if (res.acov) console.log(`couverture aérienne : ${res.acov.n} gestes ; non mesurés ${res.acov.miss.length}` + (res.acov.miss.length ? ' — ' + JSON.stringify(res.acov.miss) : ''));
+      const fam = (x) => x.kind + (x.contact ? ` · contact ${x.part || '?'}` : ' · sans contact');
+      const fams = [...new Set(res.airC.map(fam))].sort();
+      const cm = (x) => (x * 100).toFixed(1);
+      for (const f of fams) for (const mode of ['ancien', 'contrat']) {
+        const a = (mode === 'contrat' ? res.airC : res.airA).filter((x) => fam(x) === f); if (!a.length) continue;
+        if (a[0].contact) {
+          const d = a.map((x) => x.dAtC), fr = a.map((x) => x.dFrame), tp = a.filter((x) => mode === 'ancien' || (x.amp ?? 1) >= 0.3).map((x) => x.topT);
+          console.log(`  ${f.padEnd(40)} ${mode.padEnd(8)} n=${String(a.length).padStart(3)} · d médiane ${cm(q(d, 0.5))} p90 ${cm(q(d, 0.9))} p95 ${cm(q(d, 0.95))} cm · |d| ≤ 1/2/3/4 cm : ${pc(d, (x) => Math.abs(x) <= 0.01)} / ${pc(d, (x) => Math.abs(x) <= 0.02)} / ${pc(d, (x) => Math.abs(x) <= 0.03)} / ${pc(d, (x) => Math.abs(x) <= 0.04)} · crédible ${pc(d, (x) => x >= -0.01 && x <= 0.03)} · trop éloigné ${pc(d, (x) => x > 0.03)} · pénétration ${pc(d, (x) => x < -0.01)} · à ± 1 image ≤ 3 cm ${pc(fr, (x) => Math.abs(x) <= 0.03)} · sommet du saut − contact${mode === 'contrat' ? ' (sauts d\'amplitude ≥ 0,3 : ' + tp.length + ')' : ''} : ${tp.length ? `médiane ${(q(tp, 0.5) * 1000).toFixed(0)} ms [p5 ${(q(tp, 0.05) * 1000).toFixed(0)}, p95 ${(q(tp, 0.95) * 1000).toFixed(0)}]` : '—'}`);
+          if (mode === 'contrat') {
+            console.log(`      contact joueur-joueur pendant le geste (bousculade) : ${a.filter((x) => x.bumped).length} · autre partie du corps dans le ballon au contact (> 1 cm, hors mains et pieds) : ${a.filter((x) => x.otherC && x.otherC.d < -0.01).length}` + (a.some((x) => x.otherC && x.otherC.d < -0.01) ? ' — ' + a.filter((x) => x.otherC && x.otherC.d < -0.01).map((x) => `${x.otherC.part} ${(x.otherC.d * 100).toFixed(1)} cm`).join(', ') : ''));
+            const amp = a.filter((x) => x.amp != null).map((x) => x.amp), hi = a.filter((x) => x.high), ball = a.map((x) => x.h);
+            console.log(`      ballon au contact : hauteur médiane ${q(ball, 0.5).toFixed(2)} m [p5 ${q(ball, 0.05).toFixed(2)}, p95 ${q(ball, 0.95).toFixed(2)}], à ${q(a.map((x) => x.dh), 0.5).toFixed(2)} m du joueur · amplitude du saut médiane ${q(amp, 0.5).toFixed(2)} · ballon trop haut pour la tête : ${hi.length} · phase au contact : médiane ${q(a.map((x) => x.uC ?? NaN).filter((x) => x === x), 0.5)} · fente ${a.filter((x) => x.lunge > 0.02).length} · pivot ${a.filter((x) => x.yaw > 0.02).length} · portée : ${JSON.stringify(a.reduce((m, x) => ((m[x.reach || '—'] = (m[x.reach || '—'] || 0) + 1), m), {}))}`);
+            const far = a.filter((x) => x.dAtC > 0.03).sort((x, y) => y.dAtC - x.dAtC).slice(0, 6);
+            if (far.length) console.log('      cas trop éloignés (les plus défavorables) : ' + far.map((x) => `${cm(x.dAtC)} cm (ballon ${x.h} m de haut à ${x.dh} m, amplitude voulue ${x.amp}, ${x.reach})`).join(' ; '));
+          }
+        } else {
+          const m = a.map((x) => x.minAll), fc = a.filter((x) => x.minAll < 0.01);
+          console.log(`  ${f.padEnd(40)} ${mode.padEnd(8)} n=${String(a.length).padStart(3)} · distance minimale corps ↔ ballon : médiane ${cm(q(m, 0.5))} p5 ${cm(q(m, 0.05))} cm · FAUX CONTACT VISUEL (< 1 cm) : ${fc.length} (${pc(a, (x) => x.minAll < 0.01)}) · < 5 cm : ${a.filter((x) => x.minAll < 0.05).length}` + (fc.length ? ' — ' + fc.slice(0, 6).map((x) => `${cm(x.minAll)} cm à ${(x.minAllT * 1000).toFixed(0)} ms, ${x.minAllPart} (${x.src || ''}${x.notes.length ? ', ' + x.notes.join('/') : ''})`).join(' ; ') : ''));
+          if (mode === 'contrat') console.log(`      contact joueur-joueur pendant le saut (bousculade) : ${a.filter((x) => x.bumped).length}, dont faux contact au ballon : ${a.filter((x) => x.bumped && x.minAll < 0.01).length} · écartement d'affichage (évite un contact visuel) : ${a.filter((x) => x.avoid > 0.005).length} (médiane ${cm(q(a.filter((x) => x.avoid > 0.005).map((x) => x.avoid), 0.5) || 0)} cm) · origine : ${JSON.stringify(a.reduce((m, x) => ((m[x.src || '?'] = (m[x.src || '?'] || 0) + 1), m), {}))} · ballon proche (< 0,9 m) : ${a.filter((x) => x.why === 'sans contact, ballon proche').length}`);
+        }
+      }
     }
     console.log(`(ancien = anciens indicateurs, même différé ; « au contact » : minimum dans ±1 pas = ±${(dt * 1000).toFixed(1)} ms)`);
     if (process.env.JSON) require('fs').writeFileSync(process.env.JSON, JSON.stringify(res));

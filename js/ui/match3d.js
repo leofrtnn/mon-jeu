@@ -23,6 +23,12 @@ const GK_ARM_Z = 0.45;   // bras du gardien en attente : mains basses, devant lu
 const BALL_R = 0.11 * (COARSE ? 1.45 : 1.15);
 /** Rotation d'affichage vers un ballon touché derrière (étape 6b) : seulement au-delà de cette distance horizontale (m). */
 const TURN_R = 0.35;
+/**
+ * Saut (étape 6c-A, étalonnage `calib6`) : au coup de tête (phase 0,5), le bassin est monté d'environ
+ * 0,67 m, le front est à 1,95 m + cette montée et la poitrine 0,58 m plus bas. L'amplitude du saut affiché est réglée pour que le front
+ * arrive à la hauteur réelle du ballon ; au-delà de ×1,35, le ballon est trop haut pour la tête.
+ */
+const JUMP_BASE = 1.95, JUMP_BOB = 0.67, JUMP_AMP_MAX = 1.35, JUMP_CHEST = 0.58;
 /** Frappe : position latérale minimale du ballon du côté du pied de frappe, dans le repère du joueur (m). */
 const SIDE_OK = 0.04;
 
@@ -894,6 +900,57 @@ export class Player3D {
       if (d) d.visible = this.mhGroup.visible;
     }).catch((e) => console.warn('photo 3D', e));
     this.detail = !this.detail; this.setDetail(!this.detail);
+  }
+  /**
+   * Surface du corps (étape 6c-A) : échantillon de sommets du modèle VISIBLE (réaliste de près, simplifié de
+   * loin) attachés à la tête, au buste et aux genoux, exprimés dans le repère de leur os. Le contact visuel se
+   * mesure et se vise sur ce point de surface le plus proche du ballon, pas sur un point fixe intérieur.
+   */
+  surfBones() { return { head: this.headPivot, chest: this.upper, knee0: this.legs[0].knee, knee1: this.legs[1].knee }; }
+  surfSamples(which) {
+    const key = this.mhGroup && this.mhGroup.visible ? 'mh' : 'simple';
+    const S = (this._surf ||= {});
+    if (!S[key]) { try { S[key] = key === 'mh' ? this._sampleMH() : this._sampleSimple(); } catch (e) { S[key] = {}; } }
+    return S[key][which] || null;
+  }
+  _sampleSimple() {
+    const B = this.surfBones(), out = {}, rig = new Set([this.body, this.upper, this.headPivot, ...this.legs.flatMap((l) => [l.hip, l.knee, l.ankle]), ...this.arms.flatMap((a) => [a.sh, a.el])]);
+    this.root.updateMatrixWorld(true);
+    for (const [k, bone] of Object.entries(B)) {
+      const inv = new THREE.Matrix4().copy(bone.matrixWorld).invert(), pts = [], V = new THREE.Vector3();
+      const walk = (o) => { for (const c of o.children) { if (rig.has(c) || c.userData?.mh) continue; if (c.isMesh && !c.isSkinnedMesh && c.geometry?.attributes?.position) { const pos = c.geometry.attributes.position, M = new THREE.Matrix4().multiplyMatrices(inv, c.matrixWorld), st = Math.max(1, Math.floor(pos.count / 300)); for (let i = 0; i < pos.count; i += st) pts.push(V.fromBufferAttribute(pos, i).applyMatrix4(M).clone()); } walk(c); } };
+      walk(bone); out[k] = pts;
+    }
+    return out;
+  }
+  _sampleMH() {
+    const B = this.surfBones(), idxOf = { head: 2, chest: 1, knee0: 4, knee1: 7 }, raw = { head: [], chest: [], knee0: [], knee1: [] }, V = new THREE.Vector3();
+    this.mhGroup.traverse((m) => {
+      if (!m.isSkinnedMesh || !/^(body|shirt|hair|beard)/.test(m.userData.mhPart || '')) return;
+      const g = m.geometry, pos = g.attributes.position, si = g.attributes.skinIndex, sw = g.attributes.skinWeight; if (!pos || !si || !sw) return;
+      for (let i = 0; i < pos.count; i++) {
+        let bi = -1, bw = 0; for (let c = 0; c < 4; c++) { const w = sw.getComponent(i, c); if (w > bw) { bw = w; bi = si.getComponent(i, c); } }
+        if (bw < 0.6) continue;
+        const k = Object.keys(idxOf).find((x) => idxOf[x] === bi); if (!k) continue;
+        raw[k].push(V.fromBufferAttribute(pos, i).applyMatrix4(m.bindMatrix).applyMatrix4(m.skeleton.boneInverses[bi]).clone());
+      }
+    });
+    const out = {}; for (const k of Object.keys(raw)) { const a = raw[k], st = Math.max(1, Math.floor(a.length / 400)); out[k] = a.filter((_, i) => i % st === 0); }
+    return out;
+  }
+  /** Centre (repère monde) de l'échantillon de surface de la partie `which` ; null sans échantillon. */
+  surfCenter(which) {
+    const pts = this.surfSamples(which); if (!pts || !pts.length) return null;
+    if (!pts._c) { const c = new THREE.Vector3(); for (const q of pts) c.add(q); pts._c = c.multiplyScalar(1 / pts.length); }
+    return pts._c.clone().applyMatrix4(this.surfBones()[which].matrixWorld);
+  }
+  /** Point de surface (repère monde) de la partie `which` le plus proche de C ; null sans échantillon. */
+  surfNearest(which, C) {
+    const pts = this.surfSamples(which); if (!pts || !pts.length) return null;
+    const M = this.surfBones()[which].matrixWorld, V = (this._snV ||= new THREE.Vector3());
+    let best = null, bd = Infinity;
+    for (const q of pts) { V.copy(q).applyMatrix4(M); const d = V.distanceToSquared(C); if (d < bd) { bd = d; best = (best || new THREE.Vector3()).copy(V); } }
+    return best;
   }
   showMH(on) {
     const mhSet = new Set();
@@ -2652,6 +2709,62 @@ export class Match3D {
    * (pied de frappe / de touche ; pied, genou, poitrine ou tête pour un contrôle) et la surface du ballon.
    * Renvoie, par geste : distance minimale, instant de ce minimum − instant du contact physique, distance au contact.
    */
+  /**
+   * Sonde des gestes aériens (étape 6c-A) : saut de tête, tête, saut des joueurs de champ (le saut du
+   * gardien, partie « mains », relève de 6c-B). Chaque geste dont l'instant de référence (contact, sinon
+   * contact prévu, sinon calage du moteur) est dans [tFrom, tTo] est rejoué pas à pas comme à l'écran.
+   * Avec contact : distance de la partie du corps du contact à la surface du ballon (au pas du contact,
+   * à ± une image), instant du sommet du saut et du coup de tête. Sans contact : distance minimale de
+   * TOUT le corps (front, poitrine, mains, genoux, pieds) au ballon pendant le geste — faux contact
+   * visuel si elle est sous 1 cm.
+   */
+  probeAir(mode, tFrom, tTo) {
+    const v = this.v, D6 = v.disp6, G = v.live?.gest; if (!D6 || !G) return [];
+    const flip = this.flip(), out = [], step = 1 / 96, V = new THREE.Vector3(), AIRK = new Set(['saut de tête', 'tête', 'saut']);
+    for (const g of G.gestures) {
+      const aerialCtrl = g.kind === 'contrôle' && ['tête', 'poitrine', 'cuisse'].includes(g.cPart) && g.tContact != null;   // (contrôles hauts : famille aérienne, 6c-A)
+      if ((!AIRK.has(g.kind) && !aerialCtrl) || g.part === 'mains') continue;
+      const contact = g.tContact != null, T = contact ? g.tContact : (g.tPlan ?? (g.t0re ?? g.t0) + 0.36);
+      if (T < tFrom || T > tTo) continue;
+      const e = this.players.get(g.pid), lp = v.players.get(g.pid); if (!e || !lp || lp.gk) continue;
+      const P3 = e.p3, W3 = (o, x, y) => o.localToWorld(V.set(x, y, 0)).clone();
+      const head = () => W3(P3.headPivot, 0.05, 0.1), chest = () => W3(P3.upper, 0.12, 0.25);
+      const names = this.bodyPts(P3).map(([n]) => n); let Cb = null; const all = () => this.bodySurf(P3, Cb).map(([, q]) => q);
+      const sn = (k, f) => P3.surfNearest(k, Cb) || f();   // (surface du modèle visible la plus proche du ballon)
+      const partPts = () => { const c = g.cPart; if (c === 'tête' || !c) return [sn('head', head)]; if (c === 'poitrine') return [sn('chest', chest)]; if (c === 'cuisse') return [sn('knee0', () => W3(P3.legs[0].knee, 0, 0)), sn('knee1', () => W3(P3.legs[1].knee, 0, 0))]; if (c === 'pied') return [W3(P3.legs[0].ankle, 0.1, -0.05), W3(P3.legs[1].ankle, 0.1, -0.05)]; return all(); };
+      let minAllPart = null, avoidMax = 0, bumped = false, otherC = null, atC = null, dFr = null, best = null, minAll = null, minAllT = null, topY = -1, topT = null, uC = null, geo = null, sawAir = false;
+      P3._sm = null;
+      for (let t = T - 0.42; t <= T + 0.4; t += step) {
+        if (!D6.sample(mode, t)) break;
+        const p = D6.disp.get(g.pid); if (!p) break;
+        const [x, z] = this.toWorld(p.x, p.y, flip); P3.root.position.set(x, 0, z);
+        const B = D6.ballN, ballAng = Math.atan2((B.y - p.y) * W, (B.x - p.x) * L);
+        P3.pose(p, flip, { dt: step, ballAng }); P3.smoothPose(step);
+        if (p._air) { this.applyAir(e, p, flip, B); sawAir = true; avoidMax = Math.max(avoidMax, p._air.avoid || 0); }
+        if ((p.bump || 0) > 0) bumped = true;   // (contact joueur-joueur : bousculade du moteur pendant le geste)
+        if (p._ik) this.applyIK(e, p, flip, B); this.antiPen(e, p, flip, B); P3.root.updateMatrixWorld(true);
+        const [bx, bz] = this.toWorld(B.x, B.y, flip), by = BALL_R + B.h * 26, dist = (q) => Math.hypot(q.x - bx, q.y - by, q.z - bz) - BALL_R;
+        Cb = new THREE.Vector3(bx, by, bz);
+        const hY = head().y; if (hY > topY) { topY = hY; topT = t - T; }
+        const dl = all().map(dist), dA = Math.min(...dl); if (minAll == null || dA < minAll) { minAll = dA; minAllT = t - T; minAllPart = names[dl.indexOf(dA)]; }
+        if (Math.abs(t - T) <= step + 1e-6 && geo == null) { const [rx, rz] = this.toWorld(p.x, p.y, flip); geo = { h: +(B.h * 26).toFixed(2), dh: +Math.hypot(bx - rx, bz - rz).toFixed(2), amp: p._air ? +(p._air.ampWant ?? 1).toFixed(2) : null, why: p._air?.why || null, high: !!p._air?.high, reach: p._ik?.reach || null, lunge: +(p._ik?.lunge || 0).toFixed(2), yaw: +(p._ik?.yaw || 0).toFixed(2) }; uC = p._air ? +p._air.u.toFixed(3) : null; }
+        if (contact) {
+          const d = Math.min(...partPts().map(dist));
+          if (!best || d < best.d) best = { d, t };
+          if (Math.abs(t - T) <= step + 1e-6 && (atC == null || d < atC)) atC = d;
+          if (Math.abs(t - T) <= 1 / 60 + 1e-6 && (dFr == null || d < dFr)) dFr = d;
+          if (Math.abs(t - T) <= step + 1e-6) {   // autres parties du corps (hors mains, pieds) au contact : pénétration éventuelle
+            const cp = g.cPart === 'cuisse' ? 'genou' : g.cPart || 'tête';
+            for (const [nm, q] of this.bodySurf(P3, Cb)) { if (nm.startsWith(cp) || nm.startsWith('main') || nm.startsWith('pied')) continue; const dd = dist(q); if (otherC == null || dd < otherC.d) otherC = { d: dd, part: nm }; }
+          }
+        }
+      }
+      out.push({ gid: g.id, kind: aerialCtrl ? 'contrôle aérien' : g.kind + (g.reflex ? ' (réflexe)' : ''), contact, part: g.cPart || null, outcome: g.outcome, src: g.src, why: g.why, notes: (g.notes || []).map((n) => n.what),
+        dAtC: atC == null ? null : +atC.toFixed(3), dFrame: dFr == null ? null : +dFr.toFixed(3), minD: best ? +best.d.toFixed(3) : null, dtMin: best ? +(best.t - T).toFixed(4) : null,
+        minAll: minAll == null ? null : +minAll.toFixed(3), minAllPart, bumped, otherC: otherC ? { d: +otherC.d.toFixed(3), part: otherC.part } : null, avoid: +avoidMax.toFixed(2), minAllT: minAllT == null ? null : +minAllT.toFixed(3), topT: topT == null ? null : +topT.toFixed(3), topY: +topY.toFixed(2), uC, sawAir, plan: g.tPlan != null && contact ? +(g.tContact - g.tPlan).toFixed(3) : null, ...(geo || {}), T, pid: g.pid });
+    }
+    return out;
+  }
   probe6(mode, tFrom, tTo) {
     const v = this.v, D6 = v.disp6, G = v.live?.gest; if (!D6 || !G) return [];
     const flip = this.flip(), out = [], step = 1 / 96, V = new THREE.Vector3();
@@ -2676,7 +2789,7 @@ export class Match3D {
         const p = D6.disp.get(g.pid); if (!p) break;
         const [x, z] = this.toWorld(p.x, p.y, flip); e.p3.root.position.set(x, 0, z);
         const B = D6.ballN, ballAng = Math.atan2((B.y - p.y) * W, (B.x - p.x) * L);
-        e.p3.pose(p, flip, { dt: step, ballAng }); e.p3.smoothPose(step); if (p._ik) this.applyIK(e, p, flip, B); this.antiPen(e, p, flip, B); e.p3.root.updateMatrixWorld(true);
+        e.p3.pose(p, flip, { dt: step, ballAng }); e.p3.smoothPose(step); if (p._air) this.applyAir(e, p, flip, B); if (p._ik) this.applyIK(e, p, flip, B); this.antiPen(e, p, flip, B); e.p3.root.updateMatrixWorld(true);
         const [bx, bz] = this.toWorld(B.x, B.y, flip), by = BALL_R + B.h * 26;
         const d = Math.min(...pts(p).map((q) => Math.hypot(q.x - bx, q.y - by, q.z - bz))) - BALL_R;
         if (!best || d < best.d) best = { d, t };
@@ -2719,6 +2832,68 @@ export class Match3D {
    *     fois par geste (côté du ballon, ou celle qui l'atteint) ;
    *  5. le ballon n'est pénétré par aucune jambe hors du pas du contact (antiPen).
    */
+  /**
+   * Saut piloté par le contrat (étape 6c-A, rendu seulement). L'animation capturée a une hauteur fixe ;
+   * son amplitude (montée du bassin, repli des jambes) est réglée pour que le front soit à la hauteur
+   * du ballon au contact (contrôle de la poitrine : la poitrine). Saut sans contact (duel perdu, saut
+   * gêné) : si le ballon passe à portée, le front reste nettement sous le ballon — jamais de contact
+   * visuel sans contact physique. Saut sans ballon proche (mur) : amplitude normale.
+   */
+  applyAir(e, p, flip, VB) {
+    const A = p._air, P3 = e.p3; if (!A) return;
+    let amp = 1, why = 'normal';
+    if (A.at) {
+      const [bx, bz] = this.toWorld(A.at.x / L, A.at.y / W, flip), by = BALL_R + Math.max(0, A.at.z - 0.11);
+      const R = P3.root.position, dh = Math.hypot(bx - R.x, bz - R.z);
+      const partOff = A.part === 'poitrine' ? JUMP_CHEST : 0;   // (poitrine sous le front, à l'étalonnage)
+      if (A.contact) { amp = (by + partOff - JUMP_BASE) / JUMP_BOB; why = 'contact'; }
+      else if (dh < 0.9) { amp = (by - BALL_R - 0.15 - JUMP_BASE) / JUMP_BOB; why = 'sans contact, ballon proche'; }
+      if (A.ctrl && amp < 0.12) amp = 0;   // contrôle haut à hauteur du corps : pas de saut
+    }
+    A.ampWant = amp; A.high = amp > JUMP_AMP_MAX; amp = Math.max(0, Math.min(JUMP_AMP_MAX, amp)); A.amp = amp; A.why = why;
+    if (Math.abs(amp - 1) > 1e-3) {
+      const lg = Math.min(1, amp);
+      P3.body.position.y *= amp;
+      for (const L3 of P3.legs) { L3.hip.rotation.x *= lg; L3.hip.rotation.z *= lg; L3.knee.rotation.z *= lg; L3.ankle.rotation.z *= lg; }
+      P3.root.updateMatrixWorld(true);
+    }
+    // Saut sans contact (duel aérien perdu, saut gêné) : aucune partie du corps ne touche le ballon affiché.
+    // Si l'une d'elles en approche à moins de 3 cm, le joueur est écarté horizontalement du ballon (au plus 0,35 m).
+    A.avoid = 0; A.avoidPart = null;
+    if (!A.contact && VB) {
+      const [bx, bz] = this.toWorld(VB.x, VB.y, flip), C = new THREE.Vector3(bx, BALL_R + VB.h * 26, bz), V = (this._airV ||= new THREE.Vector3());
+      const R = P3.root.position;
+      if (Math.hypot(bx - R.x, bz - R.z) < 1.6) {
+        for (let pass = 0; pass < 3; pass++) {
+          P3.root.updateMatrixWorld(true);
+          let worst = 1, part = null, wq = null;
+          for (const [nm, q, ctr] of this.bodySurf(P3, C)) { const d = q.distanceTo(C) - BALL_R; if (d < worst) { worst = d; part = nm; wq = ctr || q.clone(); } }
+          if (worst >= 0.03) break;
+          let ax = wq.x - bx, ay = wq.y - C.y, az = wq.z - bz; if (Math.hypot(ax, ay, az) < 0.01) { ax = R.x - bx; ay = 0; az = R.z - bz; }   // (direction 3D : ballon → partie du corps)
+          const al = Math.hypot(ax, ay, az) || 1; ax /= al; ay /= al; az /= al;
+          const push = Math.min(0.35 - A.avoid, 0.03 - worst + 0.01); if (push <= 0) break;
+          R.x += ax * push; R.y += ay * push; R.z += az * push; A.avoid += push; A.avoidPart = part;
+        }
+        P3.root.updateMatrixWorld(true);
+      }
+    }
+  }
+  /** Points du corps (monde) les plus proches du ballon C : surface de la tête, du buste et des genoux, bouts des pieds, mains. */
+  bodySurf(P3, C) {
+    P3.root.updateMatrixWorld(true);
+    const V = (this._bsV ||= new THREE.Vector3()), out = [];
+    for (const [nm, o, x, y] of this.bodyPts(P3)) {
+      const key = nm === 'tête' ? 'head' : nm === 'poitrine' ? 'chest' : nm === 'genou G' ? 'knee0' : nm === 'genou D' ? 'knee1' : null;
+      const q = key ? P3.surfNearest(key, C) : null;
+      out.push([nm, q || o.localToWorld(V.set(x, y, 0)).clone(), q ? P3.surfCenter(key) : null]);
+    }
+    return out;
+  }
+  /** Points du corps utilisés pour les contacts visuels (front, poitrine, genoux, bouts des pieds, mains). */
+  bodyPts(P3) {
+    return [['tête', P3.headPivot, 0.05, 0.1], ['poitrine', P3.upper, 0.12, 0.25], ['genou G', P3.legs[0].knee, 0, 0], ['genou D', P3.legs[1].knee, 0, 0],
+      ['pied G', P3.legs[0].ankle, 0.1, -0.05], ['pied D', P3.legs[1].ankle, 0.1, -0.05], ['main G', P3.arms[0].el, 0, -0.25], ['main D', P3.arms[1].el, 0, -0.25]];
+  }
   applyIK(e, p, flip, VB) {
     const k = p._ik; if (!k) return;
     const V = (this._ikV2 ||= new THREE.Vector3()), P3 = e.p3;
@@ -2729,10 +2904,47 @@ export class Match3D {
       // Contrôle de la cuisse, de la poitrine ou de la tête : pas de jambe ; le corps se porte vers le
       // ballon (horizontalement, au plus 0,5 m) pour que cette partie le touche au contact.
       P3.root.updateMatrixWorld(true);
-      const pt = k.part === 'tête' ? P3.headPivot.localToWorld(V.set(0.05, 0.1, 0)).clone() : k.part === 'poitrine' ? P3.upper.localToWorld(V.set(0.12, 0.25, 0)).clone() : P3.legs[0].knee.localToWorld(V.set(0, 0, 0)).clone();
-      const gx = Cc.x - pt.x, gz = Cc.z - pt.z, gl = Math.hypot(gx, gz), need = gl - BALL_R * 0.9;
+      // (6c-A) Tête, poitrine, cuisse : le corps pivote d'abord vers le ballon (comme une touche) pour que le
+      // front, la poitrine ou le genou, et non le dos, aille au ballon ; puis ajustement vertical fin (± 0,15 m) autour du contact.
+      k.yaw = 0;
+      if (k.turn && k.wy > 0) {
+        const R = P3.root, ang = () => { R.updateMatrixWorld(true); const q = R.worldToLocal(V.copy(Cc)); return q.x * q.x + q.z * q.z > 0.0225 ? Math.atan2(q.z, q.x) : 0; };
+        const a0 = ang(), ex = Math.abs(a0) - k.turn.free;
+        if (ex > 0) { const th = Math.min(ex, k.turn.max - k.turn.free) * k.wy; R.rotation.y += th; if (Math.abs(ang()) > Math.abs(a0)) R.rotation.y -= 2 * th; R.updateMatrixWorld(true); k.yaw = th; }
+      }
+      P3.root.updateMatrixWorld(true);
+      // (6c-A) Tête sur un ballon bas (sous le front) : le buste se penche vers l'avant pour baisser la tête (au plus
+      // ~50°). (Essai écarté : fléchir les genoux faisait descendre la poitrine dans le ballon plus souvent.)
+      if (k.part === 'tête' && k.w > 0) {
+        const h0 = P3.surfNearest('head', Cc) || P3.headPivot.localToWorld(V.set(0.05, 0.1, 0)).clone(), drop = h0.y - Cc.y;
+        if (drop > 0.08) { const a = Math.min(0.9, Math.acos(Math.max(0.2, 1 - drop / 0.85))) * k.w; P3.upper.rotation.z -= a; k.lean = a; P3.root.updateMatrixWorld(true); }
+      }
+      let kneeLeg = 1;
+      if (k.part === 'cuisse') {
+        // (6c-A) Contrôle de la cuisse : la jambe du côté du ballon (choisie une fois par geste) se lève pour que
+        // le genou soit à la hauteur du ballon ; la pose d'origine lève toujours la jambe droite.
+        if (e._ikLeg?.gid === k.gid) kneeLeg = e._ikLeg.leg;
+        else { kneeLeg = P3.root.worldToLocal(V.copy(Cc)).z >= 0 ? 1 : 0; if (k.gid != null && k.at) e._ikLeg = { gid: k.gid, leg: kneeLeg }; }
+        if (kneeLeg === 0) { const [a, b] = P3.legs; for (const r of ['x', 'y', 'z']) { const t = a.hip.rotation[r]; a.hip.rotation[r] = b.hip.rotation[r]; b.hip.rotation[r] = t; } const t = a.knee.rotation.z; a.knee.rotation.z = b.knee.rotation.z; b.knee.rotation.z = t; }
+        if (k.w > 0) {
+          const Lg = P3.legs[kneeLeg]; P3.root.updateMatrixWorld(true);
+          const hp = Lg.hip.getWorldPosition(new THREE.Vector3()), kn = Lg.knee.getWorldPosition(new THREE.Vector3()), th = hp.distanceTo(kn) || 0.44;
+          const want = Math.acos(Math.max(-0.2, Math.min(1, (hp.y - Cc.y) / th)));
+          Lg.hip.rotation.z += (Math.min(1.75, want) - Lg.hip.rotation.z) * k.w; Lg.knee.rotation.z = Math.min(Lg.knee.rotation.z, -0.9 * k.w);
+          P3.root.updateMatrixWorld(true);
+        }
+      }
+      const pt = P3.surfNearest(k.part === 'tête' ? 'head' : k.part === 'poitrine' ? 'chest' : 'knee' + kneeLeg, Cc) || (k.part === 'tête' ? P3.headPivot.localToWorld(V.set(0.05, 0.1, 0)).clone() : k.part === 'poitrine' ? P3.upper.localToWorld(V.set(0.12, 0.25, 0)).clone() : P3.legs[kneeLeg].knee.localToWorld(V.set(0, 0, 0)).clone());   // (point de SURFACE du modèle visible le plus proche du ballon)
+      // Cible : la SURFACE du ballon (point le plus proche de la partie du corps), pas son centre ; le corps se
+      // porte vers elle (horizontalement au plus 0,5 m ; verticalement ± 0,2 m pour la tête et la poitrine).
+      const dx = Cc.x - pt.x, dy = Cc.y - pt.y, dz = Cc.z - pt.z, dl = Math.hypot(dx, dy, dz) || 1, f = (dl - BALL_R - 0.002) / dl;   // (surface du corps sur la surface du ballon, 2 mm d'écart)
+      let sx = dx * f, sy = dy * f, sz = dz * f;
+      const hl = Math.hypot(sx, sz), capV = k.part === 'tête' || k.part === 'poitrine' ? (k.ctrlAir ? 0.25 : 0.2) : 0;
       k.lunge = 0; k.reach = 'corps';
-      if (need > 0 && k.w > 0) { const sft = Math.min(0.5, need) * k.w, R = P3.root.position; R.x += (gx / gl) * sft; R.z += (gz / gl) * sft; k.lunge = sft; if (need > 0.5) k.reach = 'hors de portée'; }
+      if (hl > 0.5) { sx *= 0.5 / hl; sz *= 0.5 / hl; k.reach = 'hors de portée'; }
+      if (Math.abs(sy) > capV) { if (Math.abs(sy) > capV + 0.03 && k.reach === 'corps') k.reach = 'ballon haut'; sy = Math.sign(sy) * capV; }
+      if (k.w > 0) { const R = P3.root.position; R.x += sx * k.w; R.z += sz * k.w; R.y += sy * k.w; k.lunge = Math.hypot(sx, sz) * k.w; k.dy = sy * k.w; }
+      P3.root.updateMatrixWorld(true);
       return;
     }
     // Ballon touché derrière ou sur le côté (le moteur admet un contact dans toutes les directions) : à
@@ -2808,6 +3020,31 @@ export class Match3D {
    */
   antiPen(e, p, flip, VB) {
     const [bx, bz] = this.toWorld(VB.x, VB.y, flip), by = BALL_R + VB.h * 26, R = e.p3.root.position;
+    // (6c-A) Gestes aériens et contrôles hauts : la tête, la poitrine et les genoux n'entrent pas non plus dans le
+    // ballon hors du pas du contact (ballon amorti contre la poitrine, ballon qui repart de la tête) : le corps
+    // s'en écarte (au plus 0,3 m, dans la direction ballon → partie du corps).
+    if ((p._air || (p._ik && p._ik.part)) && Math.hypot(bx - R.x, bz - R.z) < 1.4) {
+      const C = new THREE.Vector3(bx, by, bz), V = (this._apB ||= new THREE.Vector3()), atC = p._ik && Math.abs(p._ik.dtc) <= 1 / 96 + 1e-6;
+      const rMin = atC ? BALL_R - 0.008 : BALL_R; let moved = 0;
+      for (let pass = 0; pass < 3; pass++) {
+        e.p3.root.updateMatrixWorld(true);
+        let worst = 0, wq = null;
+        // (mains et pieds exclus : seuls le front, la poitrine et les genoux font écarter tout le corps ; les genoux
+        // seulement pour un contrôle de la cuisse — sinon un bras levé ou un genou pousserait la tête hors du contact)
+        // Pendant la fenêtre du contact (poids de la cinématique inverse > 0), seule la partie du contact compte : la
+        // poitrine d'un joueur penché sur un ballon bas ne doit pas repousser la tête au moment du coup de tête.
+        const thigh = p._ik?.part === 'cuisse', only = p._ik && p._ik.w > 0 ? ({ 'tête': 'tête', 'poitrine': 'poitrine', 'cuisse': 'genou' })[p._ik.part] : null;
+        for (const [nm, q, ctr] of this.bodySurf(e.p3, C)) { if (nm.startsWith('pied') || nm.startsWith('main') || (nm.startsWith('genou') && !thigh) || (only && !nm.startsWith(only))) continue; const d = q.distanceTo(C) - rMin; if (d < worst) { worst = d; wq = ctr || q.clone(); } }
+        if (worst >= 0) break;
+        // Sortie : dans la direction centre du ballon → centre de la partie qui pénètre, en 3D (robuste même quand
+        // le ballon est déjà engagé dans la tête ; un ballon posé sur la tête fait baisser le joueur).
+        let ax = wq.x - bx, ay = wq.y - by, az = wq.z - bz; if (Math.hypot(ax, ay, az) < 0.01) { ax = R.x - bx; ay = 0; az = R.z - bz; }
+        const al = Math.hypot(ax, ay, az) || 1; ax /= al; ay /= al; az /= al;
+        const push = Math.min(0.3 - moved, -worst + 0.004); if (push <= 0) break;
+        R.x += ax * push; R.y += ay * push; R.z += az * push; moved += push;
+      }
+      e.p3.root.updateMatrixWorld(true);
+    }
     if (Math.hypot(bx - R.x, bz - R.z) > 1.3 || by > 1.2) return;
     const C = (this._apC ||= new THREE.Vector3()).set(bx, by, bz), V = (this._apV ||= new THREE.Vector3());
     const atContact = p._ik && Math.abs(p._ik.dtc) <= 1 / 96 + 1e-6, rMin = atContact ? BALL_R - 0.008 : BALL_R;
@@ -2836,6 +3073,23 @@ export class Match3D {
     for (const [id, pow, side] of [[0, 0.5, true], [1, 0.5, true], [0, 0.85, false], [1, 0.85, false], [0, 1, false]]) sweep(`frappe id${id} puissance${pow}${side ? ' plat' : ''}`, (u) => ({ id, kick: 0.32 * (1 - u) || 1e-6, kickMax: 0.32, kickFoot: 'R', kickPow: pow, kickSide: side }), 1);
     sweep('touche de conduite', (u) => ({ touch: 0.14 * (1 - u) || 1e-6, touchMax: 0.14, touchFoot: 'R', touchIn: true }), 1);
     sweep('contrôle', (u) => ({ ctrl: 0.3 * (1 - u) || 1e-6, ctrlH: 0.11 }), 1);
+    // Volumes (étape 6c-A) : boîtes englobantes de la tête (repère de headPivot) et du buste (repère de upper),
+    // et des genoux, au repos — pour placer les points de contact sur la SURFACE du corps.
+    { P3.root.position.set(0, 0, 0); P3._sm = null; P3.pose({ ...base }, false, { dt: 0.016 }); P3.root.updateMatrixWorld(true);
+      const box = (grp, frame) => { const b = new THREE.Box3(), inv = new THREE.Matrix4().copy(frame.matrixWorld).invert(); grp.traverse((o) => { if (o.isMesh && o.geometry) { o.geometry.computeBoundingBox(); const bb = o.geometry.boundingBox.clone().applyMatrix4(o.matrixWorld).applyMatrix4(inv); b.union(bb); } }); return [b.min.toArray().map((x) => +x.toFixed(3)), b.max.toArray().map((x) => +x.toFixed(3))]; };
+      const headOnly = new THREE.Group(); out['volume tête'] = box(P3.headPivot, P3.headPivot);
+      const up = { traverse: (f) => { for (const c of P3.upper.children) if (c !== P3.headPivot && !P3.arms.some((a) => a.sh === c)) c.traverse(f); } };
+      out['volume buste'] = box(up, P3.upper);
+      out['volume genou'] = box(P3.legs[1].knee, P3.legs[1].knee);
+      out['skinné'] = !!P3.skinned || null;
+    }
+    // Saut (étape 6c-A) : hauteur et avancée du sommet de la tête, et hauteur du bassin, pour chaque séquence de saut.
+    const head = () => { P3.root.updateMatrixWorld(true); const w = P3.headPivot.localToWorld(V.set(0.05, 0.1, 0)); const l = P3.root.worldToLocal(w.clone()); return l; };
+    for (let id = 0; id < Math.max(1, JUMPS.length); id++) {
+      const rows = []; P3.root.position.set(0, 0, 0); P3._sm = null;
+      for (let u = 0; u <= 1.0001; u += 0.02) { P3.pose({ ...base, id, jump: 0.45 * (1 - u) || 1e-6 }, false, { dt: 0.016 }); P3._sm = null; const h = head(); const ch = P3.root.worldToLocal(P3.upper.localToWorld(V.set(0.12, 0.25, 0)).clone()); rows.push([+u.toFixed(2), +h.x.toFixed(3), +h.y.toFixed(3), +P3.headPivot.rotation.z.toFixed(2), +P3.body.position.y.toFixed(3), +ch.y.toFixed(3)]); }
+      out[`saut id${id}`] = rows;
+    }
     return out;
   }
 
@@ -3303,6 +3557,7 @@ export class Match3D {
       const ballAng = dB < 45 ? Math.atan2((VB.y - p.y) * W, (VB.x - p.x) * L) : null;
       e.p3.pose(p, flip, { dt: dt || 0.016, ballAng, jostle, ballNear: p.gk && dB < 30, alert: dB < 14 && !isCar && !v.restart, restFar: dB > 28 && !isCar, shield: isCar && !VIH && (p.shieldK || 0) > 0, holding: isCar && VIH && p.gk });
       e.p3.smoothPose(dt || 0.016);
+      if (p._air) this.applyAir(e, p, flip, VB);   // (étape 6c-A : saut à la hauteur du ballon)
       if (p._ik) this.applyIK(e, p, flip, VB);   // (étape 6b : le pied touche le ballon là où il est, à l'instant du contact)
       if (v.dispPlayers) this.antiPen(e, p, flip, VB);
       if (e.cloth) this.updateCloth(e.cloth, p, grab, dt || 0.016);

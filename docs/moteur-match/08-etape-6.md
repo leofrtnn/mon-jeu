@@ -552,7 +552,17 @@ Cas particuliers :
   téléphone. Le pivot, le décalage latéral et le choix de jambe ne coûtent une cinématique inverse
   supplémentaire qu'à la première image d'une touche ou d'un contrôle.
 
-### Décision : 6b validée avec réserves
+### Décision : 6b clôturée avec réserves documentées
+**Bilan de référence de 6b** (mesure exhaustive, 593 gestes sur 593, aucun non mesuré ; elle remplace
+les chiffres de l'échantillon du premier rapport, qui ne sont pas des résultats définitifs) :
+* touches de conduite : **95 % crédibles** ;
+* contrôles : **53 % au pas du contact, 85 % à une image près** ;
+* passes : 100 % ; centres, dégagements, remises en jeu au pied : mesurés séparément (table ci-dessus).
+
+Le code actuel de 6b reste la référence. La correction du choix de jambe des touches de conduite est
+différée : correction indépendante de 6b, avec comparaison sur plusieurs graines et captures avant /
+après ; elle n'est pas intégrée à 6c.
+
 Réserves acceptées et documentées :
 * contrôles rejoints dans les 10 à 15 ms suivant le contact physique ;
 * jambes encore croisées sur une faible proportion des touches (4,5 %), quand la pose reste
@@ -569,7 +579,25 @@ Points relevés pendant la clarification, non corrigés (aucun changement de com
   match, les touches crédibles de 94 à 97 %. Correction de rendu possible, à décider ;
 * dégagement isolé à 1,33 m (gardien probable), à examiner en 6c.
 
-## 6c — Duels, tacles, têtes et gardien — périmètre proposé, non commencé
+## 6c — Duels, tacles, têtes, gardien et touche — découpage validé
+
+Décisions :
+* le **lancer de touche** rejoint 6c (contact physique et instant de libération du ballon) ;
+* les **gestes techniques** rejoignent 6d, avec les feintes, les chutes et les célébrations (leurs
+  contacts éventuels restent décrits par le contrat) ;
+* les **contrôles hauts hors de portée** rejoignent les gestes aériens (6c-A).
+
+Découpage, avec rapport complet et validation après chaque famille :
+1. **6c-A** : têtes, sauts de tête et contrôles aériens ;
+2. **6c-B** : gardien (plongeons, prises, parades, sorties aériennes ; diagnostic du dégagement à 1,33 m) ;
+3. **6c-C** : tacles en fente et glissés, puis duels corporels ;
+4. **6c-D** : lancer de touche.
+
+Chaque rapport : couverture exhaustive, distributions de distances, synchronisation temporelle,
+faux contacts visuels, gestes sans contact, captures représentatives (cas défavorables compris),
+distinction contact joueur-joueur / joueur-ballon, non-régression complète et coût mobile comparé à 6b.
+
+### Proposition initiale (pour mémoire)
 Mêmes principes qu'en 6b : rendu seul, affichage différé de 0,15 s, contact animé = contact physique
 du contrat, gestes sans contact représentés comme tels, anciens indicateurs retirés pour les gestes
 migrés seulement. Moteur inchangé (112bd1dc, b47d8708).
@@ -606,10 +634,159 @@ migrés seulement. Moteur inchangé (112bd1dc, b47d8708).
 * Captures et séquences avant / après, cas défavorables compris ; coût mobile contre la référence
   6b ; non-régression complète (112bd1dc, b47d8708, déterminisme, tests, match en ligne).
 
-### À décider avant de commencer
-1. La **touche (lancer)**, gardée en anciens indicateurs (décalage +0,44 s en 6a), et les **gestes
-   techniques** (feintes) : en 6c avec les gestes des mains et des duels, ou en 6d ?
-2. La correction de rendu relevée pendant la clarification (jambe des touches et contrôles
-   mémorisée au contact connu) : l'intégrer au début de 6c, ou la laisser ?
-3. Ordre proposé : têtes et sauts, puis gardien, puis tacles et duels, avec un rapport à chaque
-   famille, ou un seul rapport pour 6c.
+
+## 6c-A — Têtes, sauts de tête et contrôles aériens — rapport, non validé
+### Principe (rendu seul)
+* **Gestes migrés** : saut de tête, tête (sans saut préalable), saut (mur, duel aérien perdu) des
+  joueurs de champ, et contrôles hauts (poitrine, cuisse, tête). Le saut du gardien (partie « mains »)
+  garde l'ancien indicateur : il relève de 6c-B. Le minuteur `jump` du moteur ne pilote plus ces
+  gestes à l'affichage ; le contrat (`js/engine/gesture.js`) les pilote.
+* **Synchronisation** (`jumpPhase`, `js/ui/animSync.js`) :
+  * le saut dure 0,45 unité de geste, soit 0,72 s de jeu (GS = 1,6) ;
+  * l'étalonnage sur le vrai squelette (`calib6`) place le coup de tête (sommet du saut, tête qui
+    frappe vers l'avant) à la phase 0,5 ;
+  * saut préparé : phase 0,5 au contact physique s'il est connu, sinon au contact prévu par le moteur ;
+    le saut affiché commence 0,36 s avant (possible grâce au différé de 0,15 s, le moteur décidant le
+    saut 0,28 s avant le contact prévu) ;
+  * tête réflexe (sans saut décidé) et contrôle haut : montée compressée dans les 0,15 s avant le
+    contact ;
+  * saut sans contact : sommet au contact prévu ; saut du mur : calé comme le moteur.
+  * Avant 6c-A, le sommet animé tombait 0,26 s après le contact (diagnostic 6a).
+* **Hauteur** (`applyAir`, `js/ui/match3d.js`) : l'animation capturée a une hauteur fixe (front à
+  2,6 m). Son amplitude (montée du bassin, repli des jambes) est réglée pour que le front (ou la
+  poitrine) arrive à la hauteur réelle du ballon au contact. Au-delà de ×1,35, le ballon est classé
+  « trop haut pour la tête » (jamais forcé).
+* **Surface réelle du corps.** Le contact se vise et se mesure sur la **surface du modèle visible**,
+  pas sur un point fixe : pour chaque joueur, un échantillon de sommets du modèle (réaliste de près,
+  simplifié de loin) attachés à la tête, au buste et aux genoux, exprimé dans le repère de l'os ; au
+  contact, le point de surface le plus proche du ballon. (Premier essai sur des points fixes : un
+  « contact à 0 cm » pouvait cacher un ballon engagé de 5 à 8 cm dans le visage ou le buste, visible
+  sur les captures ; corrigé.)
+* **Contact** (`applyIK`, partie du corps) :
+  * le corps pivote vers le ballon s'il arrive de côté ou de derrière (comme une touche de conduite) ;
+  * la surface du corps se porte sur la surface du ballon (2 mm d'écart), horizontalement au plus
+    0,5 m, verticalement au plus ±0,2 m (±0,25 m pour un contrôle haut) ;
+  * contrôle de la cuisse : la jambe du côté du ballon (choisie une fois par geste) se lève pour que
+    le genou soit à la hauteur du ballon (la pose d'origine levait toujours la jambe droite).
+  * tête sur un ballon bas (sous le front) : le buste se penche vers l'avant (au plus ~50°) pour baisser
+    la tête. Essai écarté : fléchir les genoux (la poitrine entrait dans le ballon dans 7 têtes réflexes
+    sur 14, contre 2 sur 7 en penchant le buste).
+* **Pas de pénétration** : la tête, la poitrine (et les genoux pour un contrôle de la cuisse) n'entrent
+  pas dans le ballon (8 mm tolérés au pas du contact) : ballon amorti contre la poitrine, ballon qui
+  repart de la tête. Le corps s'en écarte, au plus 0,3 m, dans la direction centre du ballon → centre de
+  la partie (une sortie vers le point de surface le plus proche, ou vers le bassin, échoue quand le
+  ballon est déjà engagé dans la tête). Les mains ne font pas écarter le corps (un bras levé
+  pousserait la tête hors du contact).
+* **Aucun faux contact visuel** : pour un saut sans contact (duel aérien perdu, saut gêné), si une
+  partie du corps (front, poitrine, mains, genoux, pieds) approche le ballon à moins de 3 cm, le joueur
+  en est écarté à l'affichage (au plus 0,35 m) ; si le ballon passe à portée, le front reste sous lui.
+
+### Méthode de mesure
+* `probeAir` (`js/ui/match3d.js`) et `anim-probe.cjs` (`AIR=1 SPEED=20`) : un match complet,
+  simulation accélérée (au plus 1 s de jeu par image), chaque geste rejoué pas à pas comme à l'écran,
+  ancien rendu puis contrat. Ralentis coupés pendant la sonde (voir défaut d'interface ci-dessous).
+* **Couverture** : tous les gestes aériens des joueurs de champ dont l'instant de référence (contact,
+  sinon contact prévu) tombe pendant la sonde, avec ou sans contact, comptés à chaque relevé.
+* Avec contact : distance de la partie du corps du contact à la surface du ballon (au pas du contact,
+  et à ± une image), instant du sommet du saut − contact, phase de l'animation au contact.
+* Sans contact : distance minimale de **tout le corps** au ballon pendant le geste ; faux contact
+  visuel sous 1 cm ; bousculade (contact joueur-joueur du moteur) relevée séparément.
+
+### Résultats (deux matchs complets, couverture 244 gestes sur 244, aucun non mesuré)
+Mêmes gestes, ancien rendu → contrat ; d = surface du corps ↔ surface du ballon au contact.
+
+| Famille | n | Médiane, ancien → contrat (cm) | p90 / p95 (cm) | \|d\| ≤ 1 / 2 / 3 / 4 cm | Crédible / trop éloigné / pénétration | À ± 1 image ≤ 3 cm | Sommet du saut − contact (sauts réels) | Autre partie du corps dans le ballon | Bousculade |
+|---|---|---|---|---|---|---|---|---|---|
+| Saut de tête, contact de la tête | 45 | 15,5 → −0,4 | 1,3 / 1,5 | 89 / 98 / 98 / 98 % | **98** / 2 / 0 % | 98 % | **−3 ms** (33) ; ancien +299 ms | 2 | 6 |
+| Tête sans saut (réflexe) | 50 | 13,2 → −0,4 | 1,5 / 3,1 | 80 / 94 / 94 / 96 % | **92** / 6 / 2 % | 96 % | phase 0,49 au contact ; ancien +143 ms | **23** | 4 |
+| Contrôle de la poitrine | 60 | 19,0 → −0,6 | 0,4 / 0,8 | 87 / 93 / 95 / 98 % | 87 / 2 / 12 % | 95 % | phase 0,49 | 0 | 3 |
+| Contrôle de la cuisse | 45 | 34,7 → 0,5 | 4,9 / 5,3 | 53 / 69 / 76 / 82 % | 76 / 22 / 2 % | 76 % | — | 0 | 3 |
+| Saut de tête touché de la cuisse | 1 | 68,2 → 24,3 | | | 0 / 100 / 0 % | | | | |
+
+Gestes sans contact (distance minimale de tout le corps au ballon pendant le geste) :
+
+| Famille | n | Distance minimale (médiane, p5) | Faux contact visuel (< 1 cm) | < 5 cm | Écartement d'affichage | Bousculade (joueur-joueur) |
+|---|---|---|---|---|---|---|
+| Saut de tête perdu (duel, coupe, receveur devancé) | 40 | 36,8 cm, 4,0 cm | **0** (ancien rendu : 6) | 3 | 3 | 15, dont 0 faux contact au ballon |
+| Saut du mur | 3 | 108 cm | 0 | 0 | 0 | 0 |
+
+**Joueur-joueur / joueur-ballon** : les bousculades du moteur (épaule contre épaule pendant un duel
+aérien) sont relevées séparément ; 15 sauts perdus en comportent une, aucun ne montre de contact
+avec le ballon. Le contact entre joueurs n'est pas un contact au ballon et n'est pas représenté par
+le ballon.
+
+**Écarts restants (non masqués)** :
+* **Tête réflexe sur un ballon bas : poitrine dans le ballon au contact** (23 sur 50, médiane 6 cm,
+  jusqu'à 13 cm). Le moteur annonce une tête sur un ballon centré vers 1,5-1,6 m, sous le front d'un
+  joueur debout ; le ballon affiché est en outre agrandi (rayon ×1,15, ×1,45 sur mobile) pour rester
+  lisible. Quand le front le touche de face, sa moitié basse atteint la poitrine. Essais : buste penché
+  (retenu, 2 cas sur 7 dans l'essai court, 46 % sur les deux matchs), genoux fléchis (pire, écarté).
+  Incohérence perceptible en gros plan. À décider (voir la décision proposée).
+* **Contrôle de la cuisse** : 22 % à plus de 3 cm (médiane des écarts 4-5 cm) : ballon plus haut
+  que le genou levé au maximum, ou plus bas que le genou au repos (0,42 m) — contact du tibia plutôt
+  que de la cuisse.
+* **Contrôle de la poitrine** : 12 % de pénétration de 1 à 8 cm au pas du contact (ballon amorti).
+* **Saut de tête touché de la cuisse** (1 cas) : 24 cm, représentation aérienne de la jambe absente.
+* **Tête sur un ballon à 0,37 m** (un cas vu en capture d'essai) : le moteur compte une tête sur un
+  ballon presque au sol ; aucune représentation (plongeon de la tête) : anomalie du moteur, backlog.
+
+### Non-régression 6b (même code, autre match, 480 s)
+Touches de conduite 94 % crédibles (référence 95 %), passes 100 % (référence 100 %), contrôles 71 % au
+pas du contact (référence 53 % : les contrôles hauts sont désormais représentés). 608 gestes sur 610
+mesurés ; 2 non mesurés (joueur absent de l'affichage au moment du relevé), signalés par la sonde.
+
+### Défaut d'interface relevé (hors 6c, non corrigé)
+* Quand un ralenti (faute, occasion) est programmé mais que moins de 10 images ont été enregistrées,
+  il ne démarre jamais et la boucle d'affichage reste bloquée : le match est figé. Cela arrive à très
+  faible cadence d'image (quelques images par seconde, accéléré). Sans effet sur le moteur. À corriger
+  séparément (interface).
+
+### Captures (`anim-shots.cjs`, `AIR=1`)
+* Avant / après au même instant (image du contact), caméra de côté relevée :
+  * saut de tête (ballon à 2,34 m) : ancien rendu, ballon loin au-dessus du joueur ; contrat, front
+    sur le ballon au sommet du saut ;
+  * contrôle de la poitrine **défavorable** (pénétration 8 cm) : le ballon chevauche la poitrine et
+    les bras ;
+  * contrôle de la cuisse trop éloigné (4,4 cm, ballon plus bas que le genou levé) ;
+  * saut de tête perdu (coupe) : aucun contact visuel.
+* Séquence de −240 à +240 ms autour d'une tête (caméra de côté et caméra de jeu) : le front touche
+  le ballon à 0 ms, puis le joueur pivote et le ballon repart ; l'adversaire saute à côté sans le
+  toucher.
+* Premier essai (avant la surface réelle du corps) : tête réflexe avec le ballon engagé dans le
+  visage, alors que la sonde mesurait 0 cm sur un point fixe intérieur — d'où la correction.
+
+### Non-régression et coût
+* Moteur : match identique (112bd1dc), avec ou sans diagnostic ; déterminisme 5 → 112bd1dc,
+  104 → 2a6d7bc9, 300 → 8b411e7e ; moteur rapide b47d8708.
+* Couche d'affichage sans effet sur le match (test) ; nouveau test : coup de tête animé (phase 0,5)
+  exactement au contact, saut sans contact calé sur le contact prévu, début du geste au plus 0,36 s
+  avant le contact (0,15 s pour une tête réflexe).
+* Tests unitaires : 129 réussis (128, plus le test des gestes aériens) ; tests d'interface réussis ; match
+  en ligne entre deux managers réussi (même match, même image différée à la pause).
+* Coût mobile (`render-cost.cjs`, `AB6=1 REP=4`), 6c-A et référence 6b mesurées l'une après l'autre ;
+  rapport contrat / affichage direct dans la même série (la machine varie d'une série à l'autre) :
+
+  | Processeur | 6c-A : direct / contrat | Référence 6b : direct / contrat |
+  |---|---|---|
+  | Non ralenti | 179 / 178 ms (0,99) | 210 / 207 ms (0,99) |
+  | Ralenti ×4 | 342 / 332 ms (0,97) | 334 / 319 ms (0,95) |
+
+  Pas d'écart mesurable. L'échantillon de surface est calculé une fois par joueur et par modèle
+  (réaliste / simplifié) ; il n'est parcouru que pour les joueurs en geste aérien ou en contrôle haut.
+
+### Décision proposée
+* **Atteint** : coup de tête animé au contact (sommet −3 ms, contre +0,3 s avant) ; tête au ballon dans
+  98 % des sauts de tête et 92 % des têtes réflexes ; contrôle de la poitrine 95 % à une image près ;
+  **aucun faux contact visuel** sur 43 sauts sans contact (6 avec l'ancien rendu) ; aucune pénétration
+  de la tête ; bousculades joueur-joueur distinguées des contacts au ballon.
+* **Écart perceptible restant, à trancher avant validation** : poitrine dans le ballon pour une tête
+  réflexe sur ballon bas (46 % de ces têtes, médiane 6 cm). Options, toutes dans le rendu :
+  1. l'accepter comme réserve (visible surtout en gros plan) ;
+  2. représenter ces contacts bas autrement (tête plongeante : corps projeté vers l'avant, poitrine
+     en retrait) — nouvelle animation à construire ;
+  3. réduire l'agrandissement d'affichage du ballon (×1,15, ×1,45 sur mobile), décision globale qui
+     touche toute la lisibilité.
+* Autres réserves mineures : contrôle de la cuisse (22 % à 4-5 cm), contrôle de la poitrine amorti
+  (12 % de pénétration au pas du contact), 1 saut de tête touché de la cuisse, tête sur ballon
+  presque au sol (anomalie du moteur, backlog). Défaut d'interface du ralenti figé (hors 6c).
+* **6c-B n'est pas commencée.**

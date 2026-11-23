@@ -12,8 +12,10 @@
  * t_aff = now − DELAY (positions interpolées entre deux pas). Pour les gestes MIGRÉS (frappes, passes,
  * centres, dégagements, remises en jeu au pied, contrôles, touches de conduite), les champs de geste
  * que lit le rendu (kick, touch, ctrl…) sont recalculés à partir du contrat (js/engine/gesture.js) ;
- * les anciens indicateurs du moteur ne les pilotent plus. Les autres gestes (tacles, têtes, gardien,
- * touche, chutes, célébrations…) gardent leurs anciens indicateurs (statut : non migrés, 6c-6d).
+ * les anciens indicateurs du moteur ne les pilotent plus. Étape 6c-A : gestes aériens des joueurs de
+ * champ (saut de tête, tête, saut, contrôles hauts) migrés de la même façon (minuteur `jump`). Les autres
+ * gestes (tacles, gardien, touche, chutes, célébrations, gestes techniques) gardent leurs anciens
+ * indicateurs (statut : non migrés, 6c-B à 6d).
  */
 export const DELAY = 0.15;                 // différé d'affichage (s) ≥ la plus longue anticipation ci-dessous
 const KICK = { pre: 0.38, contact: 0.55 };  // fractions de l'animation de frappe (armé, contact) — comme avant
@@ -23,11 +25,19 @@ const CTRL = { lead: 0.12, post: 0.24 };   // contrôle : le corps se présente 
 /** Cinématique inverse (s) : montée du poids avant le contact, descente après. */
 /** Rotation d'affichage vers un ballon touché derrière ou sur le côté (touches, contrôles) : fenêtre plus large que la jambe. */
 const TURN = { rise: 0.22, fall: 0.18, free: Math.PI / 3, max: Math.PI * 0.75 };
-const IK = { kick: { rise: 0.1, fall: 0.05 }, touch: { rise: 0.08, fall: 0.04 }, ctrl: { rise: 0.1, fall: 0.05 } };
+const IK = { kick: { rise: 0.1, fall: 0.05 }, touch: { rise: 0.08, fall: 0.04 }, ctrl: { rise: 0.1, fall: 0.05 }, air: { rise: 0.12, fall: 0.06 } };
+/**
+ * Saut (6c-A) : minuteur `jump` du moteur, 0,45 « unité de geste » = 0,72 s de jeu (GS = 1,6) ; le coup
+ * de tête de l'animation (sommet du saut, tête qui frappe vers l'avant) est à la phase 0,5 (étalonnage
+ * `calib6`). Tête sans saut préalable (geste réflexe) : élan compressé dans les 0,15 s avant le contact.
+ */
+export const JUMP = { dur: 0.45 * 1.6, uc: 0.5, lead: 0.15 };
+/** Gestes aériens migrés en 6c-A (joueurs de champ ; le saut du gardien, partie « mains », relève de 6c-B). */
+export const AIR = new Set(['saut de tête', 'tête', 'saut']);
 const KICKS = new Set(['passe', 'passe levée', 'frappe', 'centre', 'dégagement', 'remise en jeu au pied']);
 const CTRLS = new Set(['contrôle', 'subi']);
 /** Familles migrées en 6b (le rendu ne lit plus les anciens indicateurs pour elles). */
-export const MIGRATED = new Set([...KICKS, ...CTRLS, 'touche de conduite']);
+export const MIGRATED = new Set([...KICKS, ...CTRLS, 'touche de conduite', ...AIR]);
 const clamp01 = (x) => Math.max(0, Math.min(1, x));
 
 /** Phase (0-1) de l'animation de frappe à l'instant d'affichage `t`, ou null hors du geste. */
@@ -46,6 +56,27 @@ export function kickPhase(g, t, simNow) {
   if (t < tC - strike) return KICK.pre * clamp01((t - tS) / Math.max(1e-3, tC - strike - tS));
   if (t < tC) return KICK.pre + (KICK.contact - KICK.pre) * (t - (tC - strike)) / strike;
   const u = KICK.contact + (1 - KICK.contact) * (t - tC) / ((1 - KICK.contact) * dur);
+  return u < 1 ? u : null;
+}
+/**
+ * Phase (0-1) du saut à l'instant d'affichage `t`, ou null hors du geste. Contact animé (phase 0,5) =
+ * contact physique s'il est connu, sinon contact prévu par le moteur ; saut sans instant prévu (mur) :
+ * calé comme le moteur (début du geste). Geste réflexe (tête sans saut préalable, contrôle haut) :
+ * montée compressée dans les 0,15 s avant le contact.
+ */
+export function jumpPhase(g, t, simNow) {
+  const known = g.tContact != null && g.tContact <= simNow + 1e-9;
+  if (g.reflex) {
+    if (!known) return null;
+    const tC = g.tContact; if (t < tC - JUMP.lead) return null;
+    const u = t < tC ? JUMP.uc * (t - (tC - JUMP.lead)) / JUMP.lead : JUMP.uc + (t - tC) / JUMP.dur;
+    return u < 1 ? u : null;
+  }
+  const T = known ? g.tContact : (g.tPlan ?? (g.t0re ?? g.t0) + JUMP.uc * JUMP.dur);
+  const tS = T - JUMP.uc * JUMP.dur;
+  if (t < tS) return null;
+  if (g.outcome === 'interrompu' && g.end != null && t >= g.end) return null;   // chute pendant le saut : le geste s'arrête
+  const u = (t - tS) / JUMP.dur;
   return u < 1 ? u : null;
 }
 /** Phase (0-1, sommet 0,5 au contact) d'un geste à contact central (touche, contrôle). */
@@ -146,11 +177,28 @@ export class DisplayBuffer {
       // Cible : le ballon À L'INSTANT DU CONTACT (connu grâce au différé) — le pied et le ballon s'y rejoignent exactement au contact.
       // (présent pendant tout le geste : hors de la fenêtre de poids, il sert seulement à empêcher le pied d'entrer dans le ballon)
       const ikOf = (g, rise, fall, leg) => { if (g.tContact == null || g.tContact > simNow) return { w: 0, leg, at: null, dtc: 1, gid: g.id }; const x = tD - g.tContact; let w = x < 0 ? 1 - Math.min(1, -x / rise) : 1 - Math.min(1, x / fall); w = Math.max(0, w); let wy = 1 - Math.min(1, Math.abs(x) / (x < 0 ? TURN.rise : TURN.fall)); wy = Math.max(0, wy); return { w: w * w * (3 - 2 * w), wy: wy * wy * (3 - 2 * wy), leg, at: this.ballAt(g.tContact), dtc: x, gid: g.id }; };
+      // Gestes aériens (6c-A) : saut piloté par le contrat ; le saut du gardien (6c-B) garde l'ancien indicateur.
+      let air = null;
+      if (!d.gk) {
+        for (let j = gs.length - 1; j >= 0 && !air; j--) { const g = gs[j]; if (!AIR.has(g.kind) || g.part === 'mains') continue; const u = jumpPhase(g, tD, simNow); if (u != null) air = { g, u }; }
+        // Contrôle haut (tête, poitrine) : petit saut réflexe ; l'amplitude est réglée au rendu (0 si le ballon est à hauteur).
+        if (!air && ctrl && ctrl.g.kind === 'contrôle' && (ctrl.g.cPart === 'tête' || ctrl.g.cPart === 'poitrine')) { const u = jumpPhase(ctrl.g, tD, simNow); if (u != null) air = { g: ctrl.g, u, ctrl: true }; }
+      }
+      if (air) {
+        const g = air.g, known = g.tContact != null && g.tContact <= simNow + 1e-9, T = known ? g.tContact : (g.tPlan ?? null);
+        d.jump = 0.45 * (1 - air.u) || 1e-6;
+        d._air = { gid: g.id, u: air.u, contact: known, part: known ? (g.cPart || 'tête') : 'tête', ctrl: !!air.ctrl, at: T != null ? this.ballAt(Math.min(T, simNow)) : null };
+      } else if (!d.gk) { d.jump = 0; d._air = null; }
+      else d._air = null;
       if (kick) { d._ik = ikOf(kick.g, IK.kick.rise, IK.kick.fall, (kick.g.style?.foot || d.kickFoot) === 'L' ? 0 : 1); d._ik.wy = 0; }   // (frappe : orientation du moteur)
       else if (touch) { d._ik = ikOf(touch.g, IK.touch.rise, IK.touch.fall, null); d._ik.turn = TURN; }   // (la jambe la plus proche du ballon : le pied de touche du moteur suit la foulée)
+      else if (air && !air.ctrl && air.g.tContact != null && air.g.tContact <= simNow) {
+        // Contact de la tête (ou d'une autre partie du corps) pendant un saut : le corps se porte vers le ballon au contact.
+        d._ik = ikOf(air.g, IK.air.rise, IK.air.fall, null); d._ik.part = ['tête', 'poitrine', 'cuisse'].includes(air.g.cPart) ? air.g.cPart : 'tête'; d._ik.turn = TURN;
+      }
       else if (ctrl && ctrl.g.kind === 'contrôle') {
         d._ik = ikOf(ctrl.g, IK.ctrl.rise, IK.ctrl.fall, null); d._ik.turn = TURN;
-        if (d._ik && ctrl.g.cPart && ctrl.g.cPart !== 'pied') d._ik.part = ctrl.g.cPart;   // cuisse, poitrine, tête : le corps se porte vers le ballon
+        if (d._ik && ctrl.g.cPart && ctrl.g.cPart !== 'pied') { d._ik.part = ctrl.g.cPart; d._ik.ctrlAir = true; }   // cuisse, poitrine, tête : le corps se porte vers le ballon
       }
     }
   }
