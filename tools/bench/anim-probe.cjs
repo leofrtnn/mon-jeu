@@ -62,7 +62,7 @@ const serve = () => new Promise((resolve) => {
     await page.waitForTimeout(4000);   // chargement terminé, jeu lancé
     await page.waitForFunction(() => !!window.__view?.r3d?.probeAir, null, { timeout: 120000 });   // (vue 3D prête)
     await page.evaluate(() => { window.__freezeNow = false; });   // (horloge rendue au jeu une fois le match lancé)
-    if (process.env.HEADTEST) { const cases = []; for (const mh of [0, 1]) for (const h of [1.5, 1.75, 2.1]) for (const a of [0, 45, 90, 135, 180]) cases.push([a / 57.3, 0.45, h, mh]); const r = await page.evaluate((c) => window.__view.r3d.headTest(c), cases); for (const x of r) console.log(JSON.stringify(x)); throw new Error('banc d\'essai terminé'); }
+    if (process.env.HEADTEST) { const cases = []; const HP = process.env.HEADTEST === 'poitrine' ? 'poitrine' : null, HH = HP ? [1.0, 1.25, 1.47] : [1.5, 1.75, 2.1]; for (const mh of [0, 1]) for (const h of HH) for (const a of [0, 45, 90, 135, 180]) cases.push([a / 57.3, 0.5, h, mh, HP]); const r = await page.evaluate((c) => window.__view.r3d.headTest(c), cases); for (const x of r) console.log(JSON.stringify(x)); throw new Error('banc d\'essai terminé'); }
     if (process.env.CALIB) { const c = await page.evaluate(() => window.__view.r3d.calib6()); console.log(JSON.stringify(c)); throw new Error('étalonnage terminé'); }
     // Historique d'affichage élargi (outil seulement ; l'historique des gestes reste celui du jeu) : chaque relevé couvre tout le temps
     // écoulé depuis le précédent, sans trou (couverture vérifiée ci-dessous).

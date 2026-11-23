@@ -2870,7 +2870,7 @@ export class Match3D {
       const lg = Math.min(1, amp);
       P3.body.position.y *= amp;
       for (const L3 of P3.legs) { L3.hip.rotation.x *= lg; L3.hip.rotation.z *= lg; L3.knee.rotation.z *= lg; L3.ankle.rotation.z *= lg; }
-      P3.body.rotation.z *= Math.max(0.2, lg);   // (inclinaison du corps de l'animation de saut, réduite avec l'amplitude : sinon la tête d'une tête réflexe passe devant le ballon)
+      if (!A.ctrl) P3.body.rotation.z *= Math.max(0.2, lg);   // (inclinaison du corps de l'animation de saut, réduite avec l'amplitude pour les têtes : sinon la tête d'une tête réflexe passe devant le ballon ; un contrôle haut la garde, la poitrine restant offerte au ballon entre deux touchers rapprochés)
       P3.root.updateMatrixWorld(true);
     }
     // Saut sans contact (duel aérien perdu, saut gêné) : aucune partie du corps ne touche le ballon affiché.
@@ -3122,12 +3122,12 @@ export class Match3D {
   headTest(cases) {
     const e = [...this.players.values()][0]; if (!e) return null;
     const P3 = e.p3, out = [], V = new THREE.Vector3();
-    for (const [ang, dist, h, mh] of cases) {
+    for (const [ang, dist, h, mh, part0] of cases) { const part = part0 || 'tête', ctrl = part !== 'tête';
       if (P3.mhGroup) P3.showMH(!!mh);
       const p = { face: 0, speed: 0, phase: 0, id: 0, x: 0.5, y: 0.5, jump: 0.45 * 0.5 };
       const bx = 52.5 + dist * Math.cos(ang), by = 34 + dist * Math.sin(ang), bz = h;
-      p._ik = { w: 1, wy: 1, leg: null, at: { x: bx, y: by, z: bz }, dtc: 0, gid: 9e9 + out.length, part: 'tête', turn: { rise: 0.22, fall: 0.18, free: Math.PI / 3, max: Math.PI * 0.75 } };
-      p._air = { gid: p._ik.gid, u: 0.5, contact: true, part: 'tête', ctrl: false, at: { x: bx, y: by, z: bz } };
+      p._ik = { w: 1, wy: 1, leg: null, at: { x: bx, y: by, z: bz }, dtc: 0, gid: 9e9 + out.length, part, ctrlAir: ctrl, turn: { rise: 0.22, fall: 0.18, free: Math.PI / 3, max: Math.PI * 0.75 } };
+      p._air = { gid: p._ik.gid, u: 0.5, contact: true, part, ctrl, at: { x: bx, y: by, z: bz } };
       const [x, z] = this.toWorld(0.5, 0.5, false); P3.root.position.set(x, 0, z); P3._sm = null;
       const VB = { x: bx / L, y: by / W, h: Math.max(0, bz - 0.11) / 26 };
       P3.pose(p, false, { dt: 0.016, ballAng: Math.atan2(by - 34, bx - 52.5) }); P3._sm = null;
