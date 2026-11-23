@@ -2808,6 +2808,33 @@ export class Match3D {
     if (w < 1) arms.forEach((a, i) => { const s0 = save[i]; a.sh.rotation.set(s0[0] + (a.sh.rotation.x - s0[0]) * w, s0[1], s0[2] + (a.sh.rotation.z - s0[2]) * w); a.el.rotation.z = s0[3] + (a.el.rotation.z - s0[3]) * w; });
     R.updateMatrixWorld(true);
   }
+  /** Plongeon (6c-B) : corps affiché recalé sur la portée des mains du moteur, orienté vers le point de contact. */
+  gkDiveAlign(e, p, flip, k) {
+    const P3 = e.p3;
+    if (p.dive > 0) {
+      const tD = 1 - p.dive / 0.75, fa = tD < 0.6 ? 1 : Math.max(0, 1 - (tD - 0.6) / 0.4);   // (fin du plongeon : le recalage s'estompe, sans saut du corps)
+      // Plongeon : le moteur fait glisser le gardien et place ses mains à 0,95 m au-delà du corps ; la pose couche le
+      // corps sur le côté (gants à ~2,3 m de l'origine). Le corps affiché est recalé pour que les gants soient là
+      // où le moteur place les mains. Contact connu : le gardien s'oriente pour plonger vers le point de contact
+      // (ballon arrivant de face ou de biais), avec le poids de la fenêtre du contact.
+      const R = P3.root; R.updateMatrixWorld(true);
+      if (k && k.at && k.w > 0) {
+        const [cx, cz] = this.toWorld(k.at.x / L, k.at.y / W, flip), q = R.worldToLocal(new THREE.Vector3(cx, 0, cz)), sd = p.diveSide ?? 1;
+        const a = Math.atan2(q.z, q.x) - sd * Math.PI / 2, aw = Math.atan2(Math.sin(a), Math.cos(a));
+        R.rotation.y += aw * k.w; R.updateMatrixWorld(true);
+      }
+      const hs = P3.arms.map((a) => R.worldToLocal(a.hand.getWorldPosition(new THREE.Vector3())));
+      const hz = (hs[0].z + hs[1].z) / 2, hx = (hs[0].x + hs[1].x) / 2, sd = Math.sign(hz) || 1, reach = 0.95 * Math.min(1, Math.abs(hz) / 0.95);
+      const off = new THREE.Vector3(0.1 - hx, 0, sd * reach - hz).applyQuaternion(R.quaternion);
+      R.position.addScaledVector(off, fa); R.updateMatrixWorld(true);
+      // Contact connu : les gants sont amenés au point de contact (horizontalement, au plus 1 m, poids de la fenêtre).
+      if (k && k.at && k.w > 0) {
+        const [cx, cz] = this.toWorld(k.at.x / L, k.at.y / W, flip), hm = P3.arms.map((a) => a.hand.getWorldPosition(new THREE.Vector3())).reduce((a, b) => a.add(b)).multiplyScalar(0.5);
+        let mx = cx - hm.x, mz = cz - hm.z; const ml = Math.hypot(mx, mz); if (ml > 1) { mx /= ml; mz /= ml; }
+        R.position.x += mx * k.w * fa; R.position.z += mz * k.w * fa; R.updateMatrixWorld(true);
+      }
+    }
+  }
   /**
    * Gardien (6c-B, rendu seulement) : mains au ballon au contact réel, selon le résultat lu dans l'enregistrement
    *  - capté : les deux mains derrière le ballon (paumes face à lui, en « W »), puis ballon ramené contre la poitrine ;
@@ -2818,6 +2845,7 @@ export class Match3D {
    */
   applyGK(e, p, flip, VB, held = false) {
     const P3 = e.p3, k = p._gk;
+    this.gkDiveAlign(e, p, flip, k);   // (avant le ballon tenu aussi : prise en plein plongeon, sans saut du corps)
     if (held) {
       const up = P3.upper, tD = this.v.disp6?.tD ?? 0;
       P3.root.updateMatrixWorld(true);
@@ -2842,28 +2870,6 @@ export class Match3D {
       e._heldPos = C; return;
     }
     e._hold = null; e._heldPos = null;
-    if (p.dive > 0) {
-      // Plongeon : le moteur fait glisser le gardien et place ses mains à 0,95 m au-delà du corps ; la pose couche le
-      // corps sur le côté (gants à ~2,3 m de l'origine). Le corps affiché est recalé pour que les gants soient là
-      // où le moteur place les mains. Contact connu : le gardien s'oriente pour plonger vers le point de contact
-      // (ballon arrivant de face ou de biais), avec le poids de la fenêtre du contact.
-      const R = P3.root; R.updateMatrixWorld(true);
-      if (k && k.at && k.w > 0) {
-        const [cx, cz] = this.toWorld(k.at.x / L, k.at.y / W, flip), q = R.worldToLocal(new THREE.Vector3(cx, 0, cz)), sd = p.diveSide ?? 1;
-        const a = Math.atan2(q.z, q.x) - sd * Math.PI / 2, aw = Math.atan2(Math.sin(a), Math.cos(a));
-        R.rotation.y += aw * k.w; R.updateMatrixWorld(true);
-      }
-      const hs = P3.arms.map((a) => R.worldToLocal(a.hand.getWorldPosition(new THREE.Vector3())));
-      const hz = (hs[0].z + hs[1].z) / 2, hx = (hs[0].x + hs[1].x) / 2, sd = Math.sign(hz) || 1, reach = 0.95 * Math.min(1, Math.abs(hz) / 0.95);
-      const off = new THREE.Vector3(0.1 - hx, 0, sd * reach - hz).applyQuaternion(R.quaternion);
-      R.position.add(off); R.updateMatrixWorld(true);
-      // Contact connu : les gants sont amenés au point de contact (horizontalement, au plus 1 m, poids de la fenêtre).
-      if (k && k.at && k.w > 0) {
-        const [cx, cz] = this.toWorld(k.at.x / L, k.at.y / W, flip), hm = P3.arms.map((a) => a.hand.getWorldPosition(new THREE.Vector3())).reduce((a, b) => a.add(b)).multiplyScalar(0.5);
-        let mx = cx - hm.x, mz = cz - hm.z; const ml = Math.hypot(mx, mz); if (ml > 1) { mx /= ml; mz /= ml; }
-        R.position.x += mx * k.w; R.position.z += mz * k.w; R.updateMatrixWorld(true);
-      }
-    }
     if (!k) return;
     const [bx, bz] = this.toWorld(VB.x, VB.y, flip), Cb = new THREE.Vector3(bx, BALL_R + VB.h * 26, bz);
     if (k.avoid) {
@@ -3002,7 +3008,7 @@ export class Match3D {
         }
       }
       const t0 = g.kind === 'plongeon' ? Math.min(g.t0 - 0.05, T - 0.45) : T - 0.45, t1 = g.kind === 'plongeon' ? Math.max(g.t0 + 1.0, T + 0.3) : T + 0.35;
-      let atC = null, dFr = null, best = null, minAll = null, minAllT = null, otherC = null, geo = null, jumpIn = null, jumpOut = null, prevBall = null, prevHeld = false;
+      let atC = null, dFr = null, best = null, minAll = null, minAllT = null, otherC = null, geo = null, jumpIn = null, jumpOut = null, prevBall = null, prevHeld = false, prevOff = null; const bodyJump = { d: 0, at: null };
       const held = { n: 0, gapMax: 0, penMin: 0, slideMax: 0, both: 0, prevLocal: null, firstT: null };
       P3._sm = null;
       const end = kick ? T + 0.35 : contact && res === 'capté' ? Math.max(t1, T + 1.0) : t1;
@@ -3016,6 +3022,7 @@ export class Match3D {
         if (p._air) this.applyAir(e, p, flip, B); if (p._ik) this.applyIK(e, p, flip, B); this.antiPen(e, p, flip, B);
         if (p.fall > 0 || p.slide > 0 || p.hurt > 0 || p.place > 0 || p.block > 0 || (p.dive > 0 && p.dive < 0.3)) P3.groundContact();
         if (mode === 'contrat') this.applyGK(e, p, flip, B, isH); P3.root.updateMatrixWorld(true);
+        { const off = new THREE.Vector3(P3.root.position.x - x, P3.root.position.y, P3.root.position.z - z); if (prevOff) { const j = off.distanceTo(prevOff); if (j > bodyJump.d) { bodyJump.d = j; bodyJump.at = t - T; } } prevOff = off; }   // (saut du corps affiché par rapport au moteur, d'un pas à l'autre)
         let C;
         if (isH) C = (mode === 'contrat' && e._heldPos ? e._heldPos.clone() : this.heldBallPos(e, p, flip)) || null;
         if (!C) { const [bx, bz] = this.toWorld(B.x, B.y, flip); C = new THREE.Vector3(bx, BALL_R + B.h * 26, bz); if (mode === 'contrat') this.puntBlend(C, flip); }
@@ -3041,6 +3048,7 @@ export class Match3D {
           held.n++; held.firstT ??= t - T;
           if (dh > held.gapMax) { held.gapMax = dh; held.gapT = t - T; held.gapRel = !!p._rel; held.gapDive = +(p.dive || 0).toFixed(2); } held.penMin = Math.min(held.penMin, Math.min(...hd));
           if (Math.max(...hd) <= 0.03) held.both++;
+          { const hm = [0, 1].map((i) => P3.surfNearest('hand' + i, C)).filter(Boolean); if (hm.length === 2) { const rel = C.clone().sub(hm[0].clone().add(hm[1]).multiplyScalar(0.5)); if (held.prevRel) held.slipMax = Math.max(held.slipMax || 0, rel.distanceTo(held.prevRel)); held.prevRel = rel; } }   // (glissement : ballon par rapport aux gants)
           const loc = P3.upper.worldToLocal(C.clone());
           if (held.prevLocal && loc.distanceTo(held.prevLocal) > held.slideMax) { held.slideMax = loc.distanceTo(held.prevLocal); held.slideT = t - T; }
           held.prevLocal = loc;
@@ -3049,8 +3057,8 @@ export class Match3D {
       if (this._probeLOD && P3.mhGroup) P3.showMH(lod0);
       out.push({ gid: g.id, kind: g.kind + (g.reflex ? ' (réflexe)' : ''), src: g.src, contact, part: g.cPart || g.part, outcome: g.outcome, res, ratio: ratio == null ? null : +ratio.toFixed(2), turn: turn == null ? null : +turn.toFixed(0),
         dAtC: atC == null ? null : +atC.toFixed(3), dFrame: dFr == null ? null : +dFr.toFixed(3), minD: best ? +best.d.toFixed(3) : null, dtMin: best ? +(best.t - T).toFixed(4) : null,
-        minAll: minAll == null || !isFinite(minAll) ? null : +minAll.toFixed(3), minAllT: minAllT == null ? null : +minAllT.toFixed(3), otherC: otherC ? { d: +otherC.d.toFixed(3), part: otherC.part } : null, jump: jumpIn, jumpOut,
-        held: held.n ? { n: held.n, from: +held.firstT.toFixed(3), gapMax: +held.gapMax.toFixed(3), gapT: held.gapT != null ? +held.gapT.toFixed(3) : null, gapDive: held.gapDive, slideT: held.slideT != null ? +held.slideT.toFixed(3) : null, penMin: +held.penMin.toFixed(3), both: +(held.both / held.n).toFixed(2), slideMax: +held.slideMax.toFixed(3) } : null,
+        minAll: minAll == null || !isFinite(minAll) ? null : +minAll.toFixed(3), minAllT: minAllT == null ? null : +minAllT.toFixed(3), otherC: otherC ? { d: +otherC.d.toFixed(3), part: otherC.part } : null, jump: jumpIn, jumpOut, bodyJump: { d: +bodyJump.d.toFixed(3), at: bodyJump.at == null ? null : +bodyJump.at.toFixed(3) },
+        held: held.n ? { n: held.n, slipMax: +(held.slipMax || 0).toFixed(3), from: +held.firstT.toFixed(3), gapMax: +held.gapMax.toFixed(3), gapT: held.gapT != null ? +held.gapT.toFixed(3) : null, gapDive: held.gapDive, slideT: held.slideT != null ? +held.slideT.toFixed(3) : null, penMin: +held.penMin.toFixed(3), both: +(held.both / held.n).toFixed(2), slideMax: +held.slideMax.toFixed(3) } : null,
         lod: P3.mhGroup && P3.mhGroup.visible ? 'mh' : 'simple', ...(geo || {}), T, pid: g.pid });
     }
     return out;
