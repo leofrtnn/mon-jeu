@@ -3033,10 +3033,10 @@ export class Match3D {
         }
         if (isH && t >= T && !kick && !(mode === 'contrat' && p._rel)) {   // (hors lâcher d'une relance au pied)
           held.n++; held.firstT ??= t - T;
-          held.gapMax = Math.max(held.gapMax, dh); held.penMin = Math.min(held.penMin, Math.min(...hd));
+          if (dh > held.gapMax) { held.gapMax = dh; held.gapT = t - T; held.gapRel = !!p._rel; held.gapDive = +(p.dive || 0).toFixed(2); } held.penMin = Math.min(held.penMin, Math.min(...hd));
           if (Math.max(...hd) <= 0.03) held.both++;
           const loc = P3.upper.worldToLocal(C.clone());
-          if (held.prevLocal) held.slideMax = Math.max(held.slideMax, loc.distanceTo(held.prevLocal));
+          if (held.prevLocal && loc.distanceTo(held.prevLocal) > held.slideMax) { held.slideMax = loc.distanceTo(held.prevLocal); held.slideT = t - T; }
           held.prevLocal = loc;
         }
       }
@@ -3044,7 +3044,7 @@ export class Match3D {
       out.push({ gid: g.id, kind: g.kind + (g.reflex ? ' (réflexe)' : ''), src: g.src, contact, part: g.cPart || g.part, outcome: g.outcome, res, ratio: ratio == null ? null : +ratio.toFixed(2), turn: turn == null ? null : +turn.toFixed(0),
         dAtC: atC == null ? null : +atC.toFixed(3), dFrame: dFr == null ? null : +dFr.toFixed(3), minD: best ? +best.d.toFixed(3) : null, dtMin: best ? +(best.t - T).toFixed(4) : null,
         minAll: minAll == null || !isFinite(minAll) ? null : +minAll.toFixed(3), minAllT: minAllT == null ? null : +minAllT.toFixed(3), otherC: otherC ? { d: +otherC.d.toFixed(3), part: otherC.part } : null, jump: jumpIn, jumpOut,
-        held: held.n ? { n: held.n, from: +held.firstT.toFixed(3), gapMax: +held.gapMax.toFixed(3), penMin: +held.penMin.toFixed(3), both: +(held.both / held.n).toFixed(2), slideMax: +held.slideMax.toFixed(3) } : null,
+        held: held.n ? { n: held.n, from: +held.firstT.toFixed(3), gapMax: +held.gapMax.toFixed(3), gapT: held.gapT != null ? +held.gapT.toFixed(3) : null, gapDive: held.gapDive, slideT: held.slideT != null ? +held.slideT.toFixed(3) : null, penMin: +held.penMin.toFixed(3), both: +(held.both / held.n).toFixed(2), slideMax: +held.slideMax.toFixed(3) } : null,
         lod: P3.mhGroup && P3.mhGroup.visible ? 'mh' : 'simple', ...(geo || {}), T, pid: g.pid });
     }
     return out;
