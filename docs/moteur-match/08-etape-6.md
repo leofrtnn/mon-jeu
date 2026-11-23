@@ -873,3 +873,18 @@ Réserves :
   n'affichent qu'une pose, celle de la tête ; 4 restent trop éloignés de la poitrine ;
 * contrôles de la cuisse : inchangés (réserve déjà documentée).
 
+**Captures** (mêmes gestes, version d'origine et corrigée, même graine) : de près, la version d'origine
+montre le corps entier penché en avant et le ballon sur l'arrière ou le côté du crâne ; la version
+corrigée, le joueur droit, genoux fléchis pour un ballon bas, ballon au front. En vue de jeu (séquence
+de −120 à +120 ms), le ballon passe de la poitrine et des épaules à la tête. Aucun défaut de cou ni de
+contact faux relevé sur ces captures. Deux captures n'ont pas abouti : la caméra fixe de côté des
+séquences (`SEQ=1`) ne cadrait pas le joueur, et la capture ciblée d'un saut de tête (graine 21,
+1058,5 s) n'a pas été atteinte dans le temps imparti ; ce sont des limites de l'outil de capture.
+
+**Non-régression** : empreintes du moteur inchangées (112bd1dc ; graine 104 → 2a6d7bc9 ; 300 → 8b411e7e ;
+moteur rapide b47d8708) ; 129 tests unitaires, tests d'interface et test du match à deux réussis ; sonde
+6b (graine 21, 8 min, version d'origine / corrigée) : conduite 92 / 91 %, contrôles 55 / 56 %, passes
+92 / 92 % crédibles (le code des gestes au pied n'est pas modifié ; les deux passes en temps réel ne
+sont pas identiques au geste près : 626 / 621 gestes) ; coût d'affichage : pas d'écart mesurable dans
+le bruit de mesure (images de 170 à 260 ms dans les deux versions en rendu logiciel sans GPU).
+
