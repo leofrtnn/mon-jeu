@@ -32,6 +32,9 @@ const serve = () => new Promise((resolve) => {
   const ctx = await browser.newContext({ ...devices['Pixel 5 landscape'] });
   await ctx.addInitScript(() => { try { localStorage.setItem('cdp-tuto', JSON.stringify({ done: true })); } catch {} });
   await ctx.route(/wikipedia\.org|wikimedia\.org|flagcdn/, (r) => r.abort());
+  // SEED=n : Math.random de la page fixé (création de la partie, choix d'affichage) — le même match est
+  // rejoué à chaque passe, pour comparer les MÊMES gestes avant / après une correction de rendu.
+  if (process.env.SEED) await ctx.addInitScript((seed) => { const realNow = Date.now.bind(Date); window.__freezeNow = true; Date.now = () => (window.__freezeNow ? 1767225600000 + seed * 1000 : realNow()); let a = seed >>> 0; Math.random = () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }, +process.env.SEED);
   const page = await ctx.newPage();
   page.on('pageerror', (e) => console.error('ERREUR PAGE :', e.message, (e.stack || '').split('\n').slice(0, 3).join(' | ')));
   try {
@@ -57,6 +60,9 @@ const serve = () => new Promise((resolve) => {
     await page.waitForFunction(() => window.__view?.live?.m?.phase === 'live', null, { timeout: 60000 });
     await page.evaluate(() => { window.__view.hlWant = () => true; });
     await page.waitForTimeout(4000);   // chargement terminé, jeu lancé
+    await page.waitForFunction(() => !!window.__view?.r3d?.probeAir, null, { timeout: 120000 });   // (vue 3D prête)
+    await page.evaluate(() => { window.__freezeNow = false; });   // (horloge rendue au jeu une fois le match lancé)
+    if (process.env.HEADTEST) { const cases = []; for (const mh of [0, 1]) for (const h of [1.5, 1.75, 2.1]) for (const a of [0, 45, 90, 135, 180]) cases.push([a / 57.3, 0.45, h, mh]); const r = await page.evaluate((c) => window.__view.r3d.headTest(c), cases); for (const x of r) console.log(JSON.stringify(x)); throw new Error('banc d\'essai terminé'); }
     if (process.env.CALIB) { const c = await page.evaluate(() => window.__view.r3d.calib6()); console.log(JSON.stringify(c)); throw new Error('étalonnage terminé'); }
     // Historique d'affichage élargi (outil seulement ; l'historique des gestes reste celui du jeu) : chaque relevé couvre tout le temps
     // écoulé depuis le précédent, sans trou (couverture vérifiée ci-dessous).
@@ -64,6 +70,7 @@ const serve = () => new Promise((resolve) => {
     await page.evaluate(([x]) => { window.__view.disp6.extra = x + 1; }, [WIN]);
     // SPEED=n : la simulation avance n fois plus vite (au plus 1 s de jeu par image) pour couvrir un match
     // entier ; l'affichage n'a pas à être fluide, la sonde rejoue elle-même chaque geste pas à pas.
+    if (process.env.LOD) await page.evaluate((l) => { window.__view.r3d._probeLOD = l; }, process.env.LOD);   // LOD=mh|simple : modèle mesuré
     if (SPEED) await page.evaluate((k) => { const v = window.__view; v.TS = k; v.opts.replays = false; v.replayPlan = null; }, SPEED);   // (ralentis coupés : à très faible cadence d'image, un ralenti sans assez d'images fige le match — défaut d'interface signalé, hors 6c)
     const res = { contrat: [], ancien: [], airC: [], airA: [] };
     let last = await page.evaluate(() => window.__view.live.now), start = last;
@@ -87,13 +94,13 @@ const serve = () => new Promise((resolve) => {
         const ac = v.r3d.probeAir('contrat', tFrom, tTo), aa = v.r3d.probeAir('ancien', tFrom, tTo);
         const AK = new Set(['saut de tête', 'tête', 'saut']), Tof = (g) => g.tContact ?? g.tPlan ?? (g.t0re ?? g.t0) + 0.36, isA = (g) => AK.has(g.kind) || (g.kind === 'contrôle' && ['tête', 'poitrine', 'cuisse'].includes(g.cPart) && g.tContact != null);
         const allA = prev == null ? [] : v.live.gest.gestures.filter((g) => isA(g) && g.part !== 'mains' && !v.players.get(g.pid)?.gk && Tof(g) > prev && Tof(g) <= tTo);
-        const gotA = new Set(ac.map((x) => x.gid));
-        const acov = prev == null ? null : { n: allA.length, miss: allA.filter((g) => !gotA.has(g.id)).map((g) => ({ kind: g.kind, gap: Tof(g) < tFrom })) };
+        const gotA = new Set(ac.map((x) => x.gid)); const skippedA = ac.filter((x) => x.skipped); for (let i = ac.length - 1; i >= 0; i--) if (ac[i].skipped) ac.splice(i, 1); for (let i = aa.length - 1; i >= 0; i--) if (aa[i].skipped) aa.splice(i, 1);
+        const acov = prev == null ? null : { n: allA.length, skipped: skippedA.length, miss: allA.filter((g) => !gotA.has(g.id)).map((g) => ({ kind: g.kind, gap: Tof(g) < tFrom })) };
         return { now, c, a, ac, aa, acov, cov: prev == null ? null : { n: all.length, miss: all.filter((g) => !got.has(g.id)).map((g) => ({ kind: g.kind, gap: g.tContact < tFrom })) } };
       }, [WIN, AIRONLY]);
       res.contrat.push(...r.c); res.ancien.push(...r.a); res.airC.push(...(r.ac || [])); res.airA.push(...(r.aa || [])); last = r.now;
       if (process.env.PROGRESS) console.error(`t=${r.now.toFixed(0)} aériens ${res.airC.length} ` + await page.evaluate(() => { const v = window.__view; return JSON.stringify({ paused: v.paused, phase: v.m.phase, TS: v.TS, stalled: v.stalled, replay: !!v.replaying, banner: v.banner?.text, sheet: [...document.querySelectorAll('.sheet [data-act]')].map((b) => b.dataset.act).slice(0, 8), fast: v.fast, hl: v.hl, acc: v.liveAcc, slow: v.slowmo, spd: v.speed, ls: v.liveSpeed?.(0.016), rp: !!v.replayPlan, rl: !!v.replayLive, steps: v.liveSteps, ko: v.koWait, cur: v.cur?.type }); }).catch((e) => e.message));
-      if (r.acov) { (res.acov ||= { n: 0, miss: [] }).n += r.acov.n; res.acov.miss.push(...r.acov.miss); }
+      if (r.acov) { (res.acov ||= { n: 0, miss: [], skipped: 0 }).n += r.acov.n; res.acov.skipped += r.acov.skipped || 0; res.acov.miss.push(...r.acov.miss); }
       if (r.cov) { (res.cov ||= { n: 0, miss: [] }).n += r.cov.n; res.cov.miss.push(...r.cov.miss); }
     }
     const q = (a, f) => { const s = [...a].sort((x, y) => x - y); return s.length ? s[Math.min(s.length - 1, Math.floor(f * s.length))] : NaN; };
@@ -125,7 +132,7 @@ const serve = () => new Promise((resolve) => {
     // ——— Gestes aériens (6c-A) ———
     if (res.airC.length || res.acov) {
       console.log(`\ngestes aériens (6c-A) : ${res.airC.length} gestes (joueurs de champ ; saut du gardien exclu, 6c-B)`);
-      if (res.acov) console.log(`couverture aérienne : ${res.acov.n} gestes ; non mesurés ${res.acov.miss.length}` + (res.acov.miss.length ? ' — ' + JSON.stringify(res.acov.miss) : ''));
+      if (res.acov) console.log(`couverture aérienne : ${res.acov.n} gestes ; non mesurés ${res.acov.miss.length}${res.acov.skipped ? ` (dont ${res.acov.skipped} sans modèle réaliste chargé, LOD=mh)` : ''}` + (res.acov.miss.length ? ' — ' + JSON.stringify(res.acov.miss) : ''));
       const fam = (x) => x.kind + (x.contact ? ` · contact ${x.part || '?'}` : ' · sans contact');
       const fams = [...new Set(res.airC.map(fam))].sort();
       const cm = (x) => (x * 100).toFixed(1);
@@ -135,6 +142,8 @@ const serve = () => new Promise((resolve) => {
           const d = a.map((x) => x.dAtC), fr = a.map((x) => x.dFrame), tp = a.filter((x) => mode === 'ancien' || (x.amp ?? 1) >= 0.3).map((x) => x.topT);
           console.log(`  ${f.padEnd(40)} ${mode.padEnd(8)} n=${String(a.length).padStart(3)} · d médiane ${cm(q(d, 0.5))} p90 ${cm(q(d, 0.9))} p95 ${cm(q(d, 0.95))} cm · |d| ≤ 1/2/3/4 cm : ${pc(d, (x) => Math.abs(x) <= 0.01)} / ${pc(d, (x) => Math.abs(x) <= 0.02)} / ${pc(d, (x) => Math.abs(x) <= 0.03)} / ${pc(d, (x) => Math.abs(x) <= 0.04)} · crédible ${pc(d, (x) => x >= -0.01 && x <= 0.03)} · trop éloigné ${pc(d, (x) => x > 0.03)} · pénétration ${pc(d, (x) => x < -0.01)} · à ± 1 image ≤ 3 cm ${pc(fr, (x) => Math.abs(x) <= 0.03)} · sommet du saut − contact${mode === 'contrat' ? ' (sauts d\'amplitude ≥ 0,3 : ' + tp.length + ')' : ''} : ${tp.length ? `médiane ${(q(tp, 0.5) * 1000).toFixed(0)} ms [p5 ${(q(tp, 0.05) * 1000).toFixed(0)}, p95 ${(q(tp, 0.95) * 1000).toFixed(0)}]` : '—'}`);
           if (mode === 'contrat') {
+            const ps = a.filter((x) => (x.lean || 0) > 0.02 || (x.nod || 0) > 0.02);
+            if (ps.length) console.log(`      pose (tête) : buste penché ${ps.length} (médiane ${q(ps.map((x) => x.lean), 0.5).toFixed(2)} rad, max ${Math.max(...ps.map((x) => x.lean)).toFixed(2)}) · menton rentré ${a.filter((x) => (x.nod || 0) > 0.02).length} (max ${Math.max(0, ...a.map((x) => x.nod || 0)).toFixed(2)} rad) · cou : angle min ${Math.min(...a.map((x) => x.neck ?? 0)).toFixed(2)} rad (limite −0,65)`);
             console.log(`      contact joueur-joueur pendant le geste (bousculade) : ${a.filter((x) => x.bumped).length} · autre partie du corps dans le ballon au contact (> 1 cm, hors mains et pieds) : ${a.filter((x) => x.otherC && x.otherC.d < -0.01).length}` + (a.some((x) => x.otherC && x.otherC.d < -0.01) ? ' — ' + a.filter((x) => x.otherC && x.otherC.d < -0.01).map((x) => `${x.otherC.part} ${(x.otherC.d * 100).toFixed(1)} cm`).join(', ') : ''));
             const amp = a.filter((x) => x.amp != null).map((x) => x.amp), hi = a.filter((x) => x.high), ball = a.map((x) => x.h);
             console.log(`      ballon au contact : hauteur médiane ${q(ball, 0.5).toFixed(2)} m [p5 ${q(ball, 0.05).toFixed(2)}, p95 ${q(ball, 0.95).toFixed(2)}], à ${q(a.map((x) => x.dh), 0.5).toFixed(2)} m du joueur · amplitude du saut médiane ${q(amp, 0.5).toFixed(2)} · ballon trop haut pour la tête : ${hi.length} · phase au contact : médiane ${q(a.map((x) => x.uC ?? NaN).filter((x) => x === x), 0.5)} · fente ${a.filter((x) => x.lunge > 0.02).length} · pivot ${a.filter((x) => x.yaw > 0.02).length} · portée : ${JSON.stringify(a.reduce((m, x) => ((m[x.reach || '—'] = (m[x.reach || '—'] || 0) + 1), m), {}))}`);
@@ -144,7 +153,7 @@ const serve = () => new Promise((resolve) => {
         } else {
           const m = a.map((x) => x.minAll), fc = a.filter((x) => x.minAll < 0.01);
           console.log(`  ${f.padEnd(40)} ${mode.padEnd(8)} n=${String(a.length).padStart(3)} · distance minimale corps ↔ ballon : médiane ${cm(q(m, 0.5))} p5 ${cm(q(m, 0.05))} cm · FAUX CONTACT VISUEL (< 1 cm) : ${fc.length} (${pc(a, (x) => x.minAll < 0.01)}) · < 5 cm : ${a.filter((x) => x.minAll < 0.05).length}` + (fc.length ? ' — ' + fc.slice(0, 6).map((x) => `${cm(x.minAll)} cm à ${(x.minAllT * 1000).toFixed(0)} ms, ${x.minAllPart} (${x.src || ''}${x.notes.length ? ', ' + x.notes.join('/') : ''})`).join(' ; ') : ''));
-          if (mode === 'contrat') console.log(`      contact joueur-joueur pendant le saut (bousculade) : ${a.filter((x) => x.bumped).length}, dont faux contact au ballon : ${a.filter((x) => x.bumped && x.minAll < 0.01).length} · écartement d'affichage (évite un contact visuel) : ${a.filter((x) => x.avoid > 0.005).length} (médiane ${cm(q(a.filter((x) => x.avoid > 0.005).map((x) => x.avoid), 0.5) || 0)} cm) · origine : ${JSON.stringify(a.reduce((m, x) => ((m[x.src || '?'] = (m[x.src || '?'] || 0) + 1), m), {}))} · ballon proche (< 0,9 m) : ${a.filter((x) => x.why === 'sans contact, ballon proche').length}`);
+          if (mode === 'contrat') console.log(`      contact joueur-joueur pendant le saut (bousculade) : ${a.filter((x) => x.bumped).length}, dont faux contact au ballon : ${a.filter((x) => x.bumped && x.minAll < 0.01).length} · écartement d'affichage (évite un contact visuel) : ${a.filter((x) => x.avoid > 0.005).length} (médiane ${cm(q(a.filter((x) => x.avoid > 0.005).map((x) => x.avoid), 0.5) || 0)} cm) · origine : ${JSON.stringify(a.reduce((m, x) => ((m[x.src || '?'] = (m[x.src || '?'] || 0) + 1), m), {}))} · ballon proche (< 1,3 m) : ${a.filter((x) => x.why === 'sans contact, ballon proche').length}`);
         }
       }
     }

@@ -668,9 +668,12 @@ migrés seulement. Moteur inchangé (112bd1dc, b47d8708).
     0,5 m, verticalement au plus ±0,2 m (±0,25 m pour un contrôle haut) ;
   * contrôle de la cuisse : la jambe du côté du ballon (choisie une fois par geste) se lève pour que
     le genou soit à la hauteur du ballon (la pose d'origine levait toujours la jambe droite).
-  * tête sur un ballon bas (sous le front) : le buste se penche vers l'avant (au plus ~50°) pour baisser
-    la tête. Essai écarté : fléchir les genoux (la poitrine entrait dans le ballon dans 7 têtes réflexes
-    sur 14, contre 2 sur 7 en penchant le buste).
+  * **pose « tête sans saut »** (correction demandée après le premier rapport) : sur un ballon bas, le
+    buste se penche juste assez pour baisser la tête ; si la poitrine entrait alors dans le ballon, le
+    rendu cherche la plus petite combinaison buste penché (au plus ~50°) + menton rentré (au plus
+    0,3 rad, cou limité à 0,65 rad au total) qui amène le front au ballon en gardant la poitrine en
+    retrait ; à défaut, la pose la moins pénétrante. Pas de tête plongeante, pas de flexion des genoux
+    (essai écarté : la poitrine entrait dans le ballon plus souvent).
 * **Pas de pénétration** : la tête, la poitrine (et les genoux pour un contrôle de la cuisse) n'entrent
   pas dans le ballon (8 mm tolérés au pas du contact) : ballon amorti contre la poitrine, ballon qui
   repart de la tête. Le corps s'en écarte, au plus 0,3 m, dans la direction centre du ballon → centre de
@@ -736,10 +739,8 @@ pas du contact (référence 53 % : les contrôles hauts sont désormais représe
 mesurés ; 2 non mesurés (joueur absent de l'affichage au moment du relevé), signalés par la sonde.
 
 ### Défaut d'interface relevé (hors 6c, non corrigé)
-* Quand un ralenti (faute, occasion) est programmé mais que moins de 10 images ont été enregistrées,
-  il ne démarre jamais et la boucle d'affichage reste bloquée : le match est figé. Cela arrive à très
-  faible cadence d'image (quelques images par seconde, accéléré). Sans effet sur le moteur. À corriger
-  séparément (interface).
+* Ralenti programmé qui fige le match à très faible cadence d'image : enregistré séparément,
+  **DI-1** dans `docs/defauts-interface.md` (cause, impact, correction proposée).
 
 ### Captures (`anim-shots.cjs`, `AIR=1`)
 * Avant / après au même instant (image du contact), caméra de côté relevée :
@@ -790,3 +791,54 @@ mesurés ; 2 non mesurés (joueur absent de l'affichage au moment du relevé), s
   (12 % de pénétration au pas du contact), 1 saut de tête touché de la cuisse, tête sur ballon
   presque au sol (anomalie du moteur, backlog). Défaut d'interface du ralenti figé (hors 6c).
 * **6c-B n'est pas commencée.**
+
+### Correction ciblée : pose « tête sans saut » (après le premier rapport de 6c-A)
+Demande : la poitrine entrait dans le ballon sur 23 têtes sans saut sur 50 (médiane 6 cm, jusqu'à
+13 cm). Correction exclusivement visuelle, sans tête plongeante, sans changer la taille du ballon,
+le moteur ni les seuils.
+
+**Ce que le diagnostic a montré** (banc d'essai `headTest` et captures de près) :
+* Une première correction (buste penché à la demande pour dégager la poitrine) réduisait la mesure
+  (23 → 6) mais produisait, de près, des poses peu naturelles : joueur très penché, ballon posé sur la
+  nuque. Mesurer la seule distance ne suffisait pas : la sonde relève désormais aussi **la zone de la
+  tête qui touche** (front, côté, dessus, arrière) et l'angle entre le regard et le ballon.
+* Avant toute correction, la plupart des têtes sans saut touchaient déjà le ballon du **côté ou de
+  l'arrière** du crâne. Deux causes, toutes deux dans le rendu :
+  1. l'animation capturée du saut penche le corps vers l'avant (~0,27 rad au coup de tête) ; pour une
+     tête sans saut (amplitude 0), cette inclinaison restait entière : la tête passait 0,3 m **devant**
+     le ballon, et c'est la nuque qui le touchait ;
+  2. la pose tourne la tête vers le ballon d'après l'orientation du corps avant le pivot vers le
+     ballon ; après le pivot, les deux rotations s'additionnaient.
+* L'animation de la tête comporte un coup de tête (menton vers la poitrine) : ajouté à un buste penché,
+  il présentait le sommet du crâne au ballon.
+
+**Pose retenue** (`applyAir`, `applyIK`, `js/ui/match3d.js`) :
+* l'inclinaison du corps de l'animation de saut est réduite avec l'amplitude du saut (comme la hauteur
+  et le repli des jambes déjà) ;
+* après le pivot vers le ballon, la tête est réorientée vers le ballon depuis l'orientation réelle du
+  corps (au plus 1,1 rad, comme la pose d'origine) ;
+* ballon bas : la tête descend d'abord par la flexion des genoux (au plus 30 cm), le buste ne se
+  penchant que pour le reste ; ballon derrière : légère inclinaison vers l'arrière (déviation de la
+  nuque, au plus ~26°), jamais le buste vers l'avant ;
+* le visage reste presque face au ballon (inclinaison vers le bas au plus 0,25 rad) quand le buste se
+  penche ; c'est le front qui est visé (points de surface du front et du visage) ;
+* si la poitrine entre encore dans le ballon : plus petite combinaison buste penché + menton rentré qui
+  la dégage en gardant le front au ballon ; jamais au prix du contact de la tête (un premier essai sans
+  cette règle dégradait un cas : tête 0,6 → 4,5 cm) ;
+* seuil « ballon proche » des sauts sans contact porté de 0,9 m à 1,3 m (faux contact de la poitrine
+  relevé pendant la vérification, ballon à 0,97 m).
+
+**Banc d'essai** (`HEADTEST=1 node tools/bench/anim-probe.cjs`) : joueur seul, ballon à 0,45 m, à 0°,
+45°, 90°, 135°, 180° et à 1,5 / 1,75 / 2,1 m, modèle simplifié et réaliste (30 situations) : contact
+du front dans 24 cas (côté dans 6 : ballon nettement derrière ou très bas sur le côté), regard vers le
+ballon à 6-25° hors de ces cas, tête à 0,2 cm de la surface, poitrine dégagée dans les 30 cas
+(+0,5 à +14 cm).
+
+**Mêmes cas rejoués.** Les matchs du premier rapport n'étaient pas rejouables (sonde sans graine).
+La sonde accepte maintenant `SEED=n` (outil seulement : `Math.random` de la page et horloge de création
+de la partie figés), et deux passes donnent le même match. Deux matchs complets (graines 21 et 22),
+code avant (commit 1eac56d) puis après, mêmes critères ; comparaison geste par geste (même joueur,
+même instant). Les matchs divergent après la mi-temps (choix d'interface de la causerie) : seuls les
+gestes appariés sont comparés ; aucun n'est exclu des mesures de chaque passe.
+
+*(Résultats comparatifs : mesure en cours, complétés au commit suivant.)*

@@ -35,6 +35,9 @@ const serve = () => new Promise((resolve) => {
   const ctx = await browser.newContext({ ...devices['Desktop Chrome'], viewport: { width: 1280, height: 720 }, deviceScaleFactor: 2 });
   await ctx.addInitScript(() => { try { localStorage.setItem('cdp-tuto', JSON.stringify({ done: true })); } catch {} });
   await ctx.route(/wikipedia\.org|wikimedia\.org|flagcdn/, (r) => r.abort());
+  // SEED=n : Math.random de la page fixé (création de la partie, choix d'affichage) — le même match est
+  // rejoué à chaque passe, pour comparer les MÊMES gestes avant / après une correction de rendu.
+  if (process.env.SEED) await ctx.addInitScript((seed) => { const realNow = Date.now.bind(Date); window.__freezeNow = true; Date.now = () => (window.__freezeNow ? 1767225600000 + seed * 1000 : realNow()); let a = seed >>> 0; Math.random = () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }, +process.env.SEED);
   const page = await ctx.newPage();
   try {
     await page.goto(`http://localhost:${srv.address().port}/?backend=local`);
@@ -59,24 +62,27 @@ const serve = () => new Promise((resolve) => {
     await page.waitForFunction(() => window.__view?.live?.m?.phase === 'live', null, { timeout: 60000 });
     await page.evaluate(() => { window.__view.hlWant = () => true; });
     await page.waitForTimeout(4000);   // chargement terminé, jeu lancé
+    if (process.env.SEED) await page.evaluate(() => { window.__freezeNow = false; });
     await page.evaluate(() => { window.__view.disp6.extra = 1.4; });
     await page.waitForTimeout(8000);
     const want = ['touche de conduite', 'contrôle', 'passe', 'passe levée', 'centre', 'frappe', 'dégagement', 'subi'];
     const done = new Map(); let shots = 0;
     const RES = !!(process.env.RES || process.env.SEQ), SEQ = !!process.env.SEQ, AIR = !!process.env.AIR;
-    if (AIR) await page.evaluate(() => { const v = window.__view; v.TS = 6; v.opts.replays = false; v.replayPlan = null; });   // (gestes aériens rares : jeu accéléré entre deux captures)
-    if (RES) await page.evaluate((x) => { window.__view.disp6.extra = x; }, AIR ? 5 : 1.4);
+    if (AIR) await page.evaluate((k) => { const v = window.__view; v.TS = k ? 20 : 6; v.opts.replays = false; v.replayPlan = null; }, !!process.env.KEYS);   // (gestes aériens rares : jeu accéléré entre deux captures)
+    if (RES) await page.evaluate((x) => { window.__view.disp6.extra = x; }, process.env.KEYS ? 32 : AIR ? 5 : 1.4);
     for (let tries = 0; tries < (AIR ? 600 : RES ? 200 : 80) && shots < PAIRS; tries++) {
       await page.waitForTimeout(1200);
       const pick = await page.evaluate((args) => {
         const [want, done, RES, SEQ, AIR] = args, v = window.__view, G = v.live.gest, now = v.live.now;
         let g = null, why = null;
         if (AIR) {
-          v.TS = 6;
-          const pr = v.r3d.probeAir('contrat', (v._airT || now - 4), now - 0.6); v._airT = now - 0.6;
-          const cat = (x) => x.contact ? (x.dAtC > 0.03 ? 'aerien_trop_eloigne' : x.dAtC < -0.01 ? 'aerien_penetration' : x.kind.startsWith('contrôle') ? 'controle_' + (x.part || '') : 'tete_' + (x.kind.includes('réflexe') ? 'reflexe' : 'saut')) : (x.minAll < 0.1 || x.avoid > 0.005 ? 'tete_perdue_ballon_proche' : 'tete_perdue');
-          const r = pr.find((x) => (SEQ ? x.contact && x.kind === 'saut de tête' && x.dAtC <= 0.03 : (done[cat(x)] || 0) < 1) && !(v._usedG ||= new Set()).has(x.gid));
-          if (r) { v._usedG.add(r.gid); g = G.gestures.find((x) => x.id === r.gid); why = cat(r) + (r.contact ? ` (d ${(r.dAtC * 100).toFixed(1)} cm, ballon à ${r.h} m de haut, à ${r.dh} m, amplitude du saut ${r.amp}, ${r.reach})` : ` (distance minimale ${(r.minAll * 100).toFixed(1)} cm, ${r.minAllPart}, écartement ${(r.avoid * 100).toFixed(0)} cm, ${r.src})`); if (g) g._T = r.T; }
+          v.TS = args[5] ? 20 : 6;
+          const pr = v.r3d.probeAir('contrat', Math.max(v._airT || 0, now - (args[5] ? 30 : 4)), now - 0.6); v._airT = now - 0.6;   // (gestes ciblés : jeu accéléré, fenêtre de 30 s)
+          const cat = (x) => x.contact ? (x.dAtC > 0.03 ? 'aerien_trop_eloigne' : x.dAtC < -0.01 ? 'aerien_penetration' : x.kind.startsWith('contrôle') ? 'controle_' + (x.part || '') : 'tete_' + (x.kind.includes('réflexe') ? ((x.lean || 0) > 0.25 ? 'reflexe_pose' : 'reflexe') : 'saut')) : (x.minAll < 0.1 || x.avoid > 0.005 ? 'tete_perdue_ballon_proche' : 'tete_perdue');
+          const KEYS = (args[5] || '').split(',').filter(Boolean).map((k) => k.split(':').map(Number));   // KEYS=pid:T,… : gestes précis
+          if (KEYS.length) v._keysDone ||= new Set();
+          const r = KEYS.length ? pr.find((x) => KEYS.some(([pid, T]) => x.pid === pid && Math.abs(x.T - T) < 0.01) && !v._keysDone.has(x.gid) && (v._keysDone.add(x.gid), true)) : pr.find((x) => (SEQ ? x.contact && x.kind.startsWith(process.env.SEQKIND || 'saut de tête') && x.dAtC <= 0.03 && (!process.env.SEQKIND || (x.lean || 0) > 0.25) : (done[cat(x)] || 0) < 1) && !(v._usedG ||= new Set()).has(x.gid));
+          if (r) { (v._usedG ||= new Set()).add(r.gid); g = G.gestures.find((x) => x.id === r.gid); why = cat(r) + (r.contact ? ` (d ${(r.dAtC * 100).toFixed(1)} cm, buste ${r.lean} rad, menton ${r.nod} rad, poitrine ${r.otherC ? (r.otherC.d * 100).toFixed(1) + ' cm' : 'dégagée'}, ballon à ${r.h} m de haut, à ${r.dh} m, amplitude du saut ${r.amp}, ${r.reach})` : ` (distance minimale ${(r.minAll * 100).toFixed(1)} cm, ${r.minAllPart}, écartement ${(r.avoid * 100).toFixed(0)} cm, ${r.src})`); if (g) g._T = r.T; }
         } else if (RES) {
           // Cas résiduels : la sonde du rendu classe les gestes récents ; on garde les cas défavorables.
           const pr = v.r3d.probe6('contrat', now - 1.1, now - 0.45);
@@ -87,7 +93,7 @@ const serve = () => new Promise((resolve) => {
         } else g = [...G.gestures].reverse().find((x) => want.includes(x.kind) && x.tContact != null && x.tContact > now - 1.1 && x.tContact < now - 0.45 && (done[x.kind] || 0) < 1);
         if (!g) return null;
         const e = v.r3d.players.get(g.pid); if (!e) return null;
-        v.TS0 = AIR ? 6 : v.TS; v.TS = 0; v._shotAir = AIR;   // simulation figée
+        v.TS0 = AIR ? (args[5] ? 20 : 6) : v.TS; v.TS = 0; v._shotAir = AIR;   // simulation figée
         v._cam0 = v.r3d.updateCamera; v._samp0 = v.sampleDisplay;
         // Caméra de côté : perpendiculaire à l'axe joueur → ballon, du côté opposé au joueur le plus proche (pas d'occultation).
         v.r3d.updateCamera = function () {
@@ -99,7 +105,7 @@ const serve = () => new Promise((resolve) => {
         };
         v._shot = { tC: (g._T ?? g.tContact) + (why && /penetration_hors/.test(why) ? +(why.match(/à (-?\d+) ms/) || [0, 0])[1] / 1000 : 0), kind: g.kind + (g.reflex && ['passe', 'passe levée', 'centre', 'frappe', 'dégagement'].includes(g.kind) ? ' sans armé' : ''), id: g.id, why, cat: why ? why.split(' ')[0] : null };
         return v._shot;
-      }, [want, Object.fromEntries(done), RES, SEQ, AIR]);
+      }, [want, Object.fromEntries(done), RES, SEQ, AIR, process.env.KEYS || '']);
       if (!pick) continue;
       if (SEQ) {
         // Séquence : même geste, instants successifs ; caméra de côté figée sur sa position au contact, puis caméra de jeu.
@@ -120,7 +126,7 @@ const serve = () => new Promise((resolve) => {
         await page.evaluate(() => { const v = window.__view; v.TS = v.TS0; v.r3d.updateCamera = v._cam0; v.sampleDisplay = v._samp0; v._camSide = null; });
         shots++; continue;
       }
-      for (const mode of RES && !AIR ? ['contrat'] : ['ancien', 'contrat']) {
+      for (const mode of (RES && !AIR) || process.env.KEYS ? ['contrat'] : ['ancien', 'contrat']) {
         await page.evaluate((m) => { const v = window.__view; v.sampleDisplay = function () { const ok = this.disp6.sample(m, this._shot.tC); if (!ok) return; this.dispPlayers = this.disp6.disp; this.dispPhys = this.disp6.ball; this.dispBall = this.disp6.ballN; this.dispHolder = this.disp6.holder; this.dispInHands = this.disp6.inHands; }; v.liveAcc = 0; }, mode);
         await page.waitForTimeout(700);
         const f = path.join(OUT, `${String(shots + 1).padStart(2, '0')}-${pick.kind.replace(/ /g, '_')}-${AIR ? pick.cat + "-" + mode : pick.cat || mode}.png`);
