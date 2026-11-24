@@ -896,4 +896,76 @@ inchangés. DI-1 suivi séparément.
 
 ## 6c-B — Gardien — rapport, non validé
 
-*(Rapport en cours de mesure.)*
+Statut : rapport présenté, en attente de validation. 6c-C non commencée.
+
+### Constat de départ (version d'origine, même sonde)
+Sonde dédiée `probeGK` (`GK=1 node tools/bench/anim-probe.cjs`) : tous les gestes du gardien (plongeon, saut
+« mains », mains debout, prise, relances au pied), avec ou sans contact ; distance des GANTS (surface du
+modèle visible, MH ou simplifié) à la surface du ballon affiché ; ballon tenu (écart et pénétration des
+gants, glissement du ballon par rapport aux gants) ; saut du ballon à la prise et au lâcher ; saut du corps
+affiché par rapport au moteur. Deux matchs complets (graines 21 et 22), couverture 32/32 gestes.
+* Au contact, les gants étaient à 92 cm du ballon (médiane), jusqu'à 2,1-2,6 m ; aucun contact crédible.
+* Deux défauts d'origine expliquent la plupart des écarts : le côté du plongeon était tiré de l'axe du
+  terrain sans tenir compte de l'orientation du gardien (et inversé en seconde période par un facteur de
+  vue, alors que la vue retournée est une simple rotation) ; la pose de plongeon couche le corps sur le
+  côté et place les gants à ~2,3 m de l'origine, alors que le moteur fait déjà glisser le gardien et
+  place ses mains à 0,95 m au-delà du corps (portée comptée deux fois).
+* Parade debout : la pose de parade (`block`) et le petit saut étaient lancés par le moteur APRÈS le
+  contact, donc toujours en retard.
+* Ballon tenu : jamais entre les deux gants (0 % des images), gant jusqu'à 4,9 cm dans le ballon.
+* Relance du gardien ballon en main (le « dégagement à 1,33 m » de 6b) : le moteur frappe le ballon là où
+  il le tient (0,3 m devant lui, 1,05 m de haut, sans armé) ; le pied ne peut pas l'atteindre ; le ballon
+  sautait de 1,5 m entre les mains et sa trajectoire.
+
+### Principe (rendu seul ; moteur, physique, contacts et décisions inchangés)
+* Contrat (`js/ui/animSync.js`) : contact des mains du gardien (plongeon, sortie aérienne, mains debout,
+  prise) ; résultat lu dans l'enregistrement grâce au différé de 0,15 s : capté (ballon tenu juste après),
+  dévié (le ballon garde plus de 60 % de sa vitesse et dévie de moins de 35°), repoussé sinon. Parade
+  debout et petit saut calés sur l'instant réel du contact. Côté du plongeon lu sur le déplacement réel du
+  gardien. Ballon bas touché debout à plus d'un mètre : plongeon court vers lui, calé sur le contact.
+* Rendu (`js/ui/match3d.js`, `applyGK`) : cinématique inverse des deux bras (épaule, coude) vers des points
+  de la surface du ballon selon le résultat — capté : deux mains derrière le ballon ; repoussé : deux
+  paumes sur la face qui arrive ; dévié : une main ; flexion des genoux pour un ballon bas, rotation vers
+  le ballon, corps porté vers lui si les bras ne suffisent pas, aucune autre partie du corps dans le
+  ballon. Plongeon : corps recalé sur la portée des mains du moteur et orienté vers le point de contact.
+  Décalage du corps affiché borné à 6 m/s et sa rotation à 10 rad/s (aucun saut d'une image à l'autre).
+* Ballon tenu : entre les deux gants, ramené contre la poitrine en 0,35 s ; il suit le corps.
+* Plongeon battu, sortie manquée : aucune pose de contact ; si un gant approchait à moins de 3 cm du
+  ballon, le corps s'en écarterait (jamais déclenché dans les matchs mesurés).
+* Relance ballon en main : le ballon est lâché dans les 0,15 s avant la frappe et frappé à hauteur de
+  genou (0,6 m) ; il rejoint la trajectoire du moteur en 0,12 s.
+
+### Résultats (deux matchs complets ; avant : 32 gestes, après : 49 ; couverture 100 % des deux côtés)
+Seuils inchangés : crédible −1 à +3 cm, trop éloigné > 3 cm, pénétration < −1 cm (minimum dans ±1 pas).
+
+| Famille | avant | après |
+|---|---|---|
+| Contacts des mains (tous) | 17 · médiane 92,5 cm · crédible 0 | 34 · médiane 0,1 cm · crédible 12 · ±5 cm 19 · ±10 cm 27 · > 10 cm 6 |
+| Mains debout (arrêt, prise) | 14 · médiane 92,5 cm, max 213 | 25 · médiane −0,5 cm · p90 13,4 · max 175 |
+| Plongeon avec contact | 2 · 260 cm | 8 · médiane 0,3 cm · p90 65 |
+| Sortie aérienne avec contact | 1 · 231 cm | 1 · 1,1 cm |
+| Plongeon battu, sortie manquée (faux contact < 1 cm) | 0 / 6 | 0 / 6 (approche min. médiane 139 cm) |
+| Relance au pied | 9 · crédible 56 % · max 115 cm | 9 · crédible 89 % · max −0,4 cm |
+| Saut du ballon au lâcher | médiane 152 cm | médiane 15 cm, max 37 |
+| Ballon tenu, deux gants au ballon | 0 % des images | 100 % (debout), 92 % (plongeon) |
+| Saut du corps affiché d'un pas à l'autre | 0 | ≤ 6,3 cm (borne), sauf relances au pied 35 cm (comme avant) |
+
+Synchronisation : le minimum de distance des gants au ballon tombe à 21 ms du contact physique (médiane ;
+avant : 144 ms). Résultat lu dans l'enregistrement (après) : repoussé 19, dévié 8, capté 7.
+
+### Réserves (cas défavorables, non exclus des mesures)
+* 6 contacts sur 34 restent à plus de 10 cm : deux plongeons courts (ballon au sol à 1,4-1,5 m du
+  gardien) à 0,65 m et 1,75 m, une déviation haute (ballon à 2,23 m) à 22 cm, trois déviations d'une main
+  à 7-14 cm ;
+* pénétrations des gants de 1 à 15 cm sur 13 contacts (mesure : minimum dans ±1 pas autour du contact ;
+  un ballon à 20 m/s parcourt 20 cm en un pas) ;
+* prise en plein plongeon : ballon tenu avec un gant jusqu'à 12 cm dedans et un glissement de 22 cm
+  d'une image à l'autre au moment où le plongeon s'achève ;
+* sortie aérienne au-dessus de 2,9 m : gants à 1-7 cm selon le match (amplitude du saut) ;
+* relance au pied : le corps se porte vers le ballon de 35 cm en un pas (cinématique de frappe de 6b,
+  identique avant/après) ;
+* captures : la caméra de côté de l'outil cadre mal le gardien (ballon souvent hors champ ou masqué par
+  le corps).
+
+*(Non-régression et captures : en cours.)*
+
