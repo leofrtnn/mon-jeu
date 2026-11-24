@@ -72,6 +72,7 @@ const serve = () => new Promise((resolve) => {
     await page.evaluate(([x]) => { window.__view.disp6.extra = x + 1; }, [WIN]);
     // SPEED=n : la simulation avance n fois plus vite (au plus 1 s de jeu par image) pour couvrir un match
     // entier ; l'affichage n'a pas à être fluide, la sonde rejoue elle-même chaque geste pas à pas.
+    if (process.env.GKSERIES) await page.evaluate(() => { window.__view.r3d._gkSeries = {}; });
     if (process.env.LOD) await page.evaluate((l) => { window.__view.r3d._probeLOD = l; }, process.env.LOD);   // LOD=mh|simple : modèle mesuré
     if (SPEED) await page.evaluate((k) => { const v = window.__view; v.TS = k; v.opts.replays = false; v.replayPlan = null; }, SPEED);   // (ralentis coupés : à très faible cadence d'image, un ralenti sans assez d'images fige le match — défaut d'interface signalé, hors 6c)
     const res = { contrat: [], ancien: [], airC: [], airA: [], gkC: [], gkA: [] };
@@ -165,6 +166,7 @@ const serve = () => new Promise((resolve) => {
       }
     }
     console.log(`(ancien = anciens indicateurs, même différé ; « au contact » : minimum dans ±1 pas = ±${(dt * 1000).toFixed(1)} ms)`);
+    if (process.env.GKSERIES) res.gkSeries = await page.evaluate(() => window.__view.r3d._gkSeries);
     if (process.env.JSON) require('fs').writeFileSync(process.env.JSON, JSON.stringify(res));
   } catch (e) { console.error('Échec :', e.message); process.exitCode = 1; }
   await browser.close(); srv.close();

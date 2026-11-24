@@ -2821,8 +2821,11 @@ export class Match3D {
       const R = P3.root; R.updateMatrixWorld(true);
       if (k && k.at && k.w > 0) {
         const [cx, cz] = this.toWorld(k.at.x / L, k.at.y / W, flip), q = R.worldToLocal(new THREE.Vector3(cx, 0, cz)), sd = p.diveSide ?? 1;
-        const a = Math.atan2(q.z, q.x) - sd * Math.PI / 2, aw = Math.atan2(Math.sin(a), Math.cos(a));
-        R.rotation.y += aw * k.w; R.updateMatrixWorld(true);
+        const ang = (v) => { const e2 = Math.atan2(v.z, v.x) - sd * Math.PI / 2; return Math.atan2(Math.sin(e2), Math.cos(e2)); };
+        const a0 = ang(q), r0 = R.rotation.y;
+        // (sens de rotation vérifié : l'écart à l'axe visé doit diminuer, sinon rotation dans l'autre sens)
+        R.rotation.y = r0 - a0 * k.w; R.updateMatrixWorld(true);
+        if (Math.abs(ang(R.worldToLocal(new THREE.Vector3(cx, 0, cz)))) > Math.abs(a0) + 1e-6) { R.rotation.y = r0 + a0 * k.w; R.updateMatrixWorld(true); }
       }
       const hs = P3.arms.map((a) => R.worldToLocal(a.hand.getWorldPosition(new THREE.Vector3())));
       // (recalage proportionnel à l'extension des bras sur le côté : nul au départ du plongeon, sans saut ni bascule de côté)
@@ -2846,15 +2849,20 @@ export class Match3D {
    * recalculés sur le corps ainsi lissé (les gants restent au ballon si la portée le permet).
    */
   applyGK(e, p, flip, VB, held = false) {
-    const R = e.p3.root, base = R.position.clone(), tD = this.v.disp6?.tD ?? 0;
+    const R = e.p3.root, base = R.position.clone(), rot0 = R.rotation.y, tD = this.v.disp6?.tD ?? 0;
     e._gkLast = null;
     this.applyGK0(e, p, flip, VB, held);
     const d = R.position.clone().sub(base), o = e._gkO, dt = o ? tD - o.t : 0;
+    let dr = Math.atan2(Math.sin(R.rotation.y - rot0), Math.cos(R.rotation.y - rot0)), rotLim = false;
+    if (o && dt > 0 && dt < 0.3) {
+      // Rotation du corps affiché bornée à 10 rad/s (pas de demi-tour d'une image à l'autre).
+      const lr = 10 * dt; if (Math.abs(dr - o.dr) > lr) { dr = o.dr + Math.sign(dr - o.dr) * lr; R.rotation.y = rot0 + dr; R.updateMatrixWorld(true); rotLim = true; }
+    }
     if (o && dt > 0 && dt < 0.3) {
       const diff = d.clone().sub(o.d), lim = 6 * dt;
-      if (diff.length() > lim) {
+      if (diff.length() > lim || rotLim) {
         const before = R.position.clone();
-        d.copy(o.d).addScaledVector(diff, lim / diff.length()); R.position.copy(base).add(d); R.updateMatrixWorld(true);
+        if (diff.length() > lim) d.copy(o.d).addScaledVector(diff, lim / diff.length()); R.position.copy(base).add(d); R.updateMatrixWorld(true);
         const g = e._gkLast;
         if (g && g.w > 0) {
           // Ballon tenu : il suit le corps lissé (il reste entre les gants) ; sinon, les gants retournent au ballon.
@@ -2863,7 +2871,7 @@ export class Match3D {
         }
       }
     }
-    e._gkO = { t: tD, d };
+    e._gkO = { t: tD, d, dr };
   }
   /**
    * Gardien (6c-B, rendu seulement) : mains au ballon au contact réel, selon le résultat lu dans l'enregistrement
@@ -3059,6 +3067,7 @@ export class Match3D {
         if (prevBall && isH !== prevHeld) { const j = C.distanceTo(prevBall), r = { d: +j.toFixed(3), at: +(t - T).toFixed(3), to: isH ? 'tenu' : 'lâché' }; if (isH) { if (jumpIn == null || j > jumpIn.d) jumpIn = r; } else if (jumpOut == null || j > jumpOut.d) jumpOut = r; }
         prevBall = C.clone(); prevHeld = isH;
         const hd = [0, 1].map((i) => { const q = P3.surfNearest('hand' + i, C); return q ? q.distanceTo(C) - BALL_R : Infinity; }), dh = Math.min(...hd);
+        if (this._gkSeries && mode === 'contrat' && contact && Math.abs(t - T) < 0.3) { const R = P3.root, hm = P3.arms.map((a) => R.worldToLocal(a.hand.getWorldPosition(new THREE.Vector3()))), cl = R.worldToLocal(C.clone()); (this._gkSeries[g.id] ||= { kind: g.kind, T, rows: [] }).rows.push({ t: +(t - T).toFixed(3), d: +dh.toFixed(3), off: [+(R.position.x - x).toFixed(2), +(R.position.z - z).toFixed(2)], yaw: +(R.rotation.y + (flip ? p.face + Math.PI : p.face)).toFixed(2), dive: +(p.dive || 0).toFixed(2), side: p.diveSide ?? null, w: p._gk ? +(p._gk.w || 0).toFixed(2) : null, res: p._gk?.res || null, hands: hm.map((v) => v.toArray().map((u) => +u.toFixed(2))), ball: cl.toArray().map((u) => +u.toFixed(2)) }); }
         if (kick && contact) {   // relance au pied : bout du pied le plus proche du ballon (comme la sonde 6b)
           const df = Math.min(...[0, 1].map((i) => P3.legs[i].ankle.localToWorld(new THREE.Vector3(0.1, -0.05, 0)).distanceTo(C) - BALL_R));
           if (Math.abs(t - T) <= step + 1e-6 && (atC == null || df < atC)) { atC = df; geo = { h: +C.y.toFixed(2), dh: +Math.hypot(C.x - x, C.z - z).toFixed(2), heldAtC: isH, holderAtC: D6.holder === g.pid, inHands: !!D6.inHands }; }
