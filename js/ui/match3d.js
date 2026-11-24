@@ -2765,6 +2765,7 @@ export class Match3D {
     else pairs = hp[0].distanceTo(targets[0]) + hp[1].distanceTo(targets[1]) <= hp[0].distanceTo(targets[1]) + hp[1].distanceTo(targets[0]) ? [[0, targets[0]], [1, targets[1]]] : [[0, targets[1]], [1, targets[0]]];
     const save = arms.map((a) => [a.sh.rotation.x, a.sh.rotation.y, a.sh.rotation.z, a.el.rotation.z]);
     const ctr = (S, off = 0) => { const n = S.clone().sub(C).normalize(); return C.clone().addScaledVector(n, BALL_R + RH - off); };
+    e._gkLast = { C, pairs, ctr, w };
     // Gardien debout : le corps s'oriente vers le ballon (au-delà de 17°, au plus 0,9 rad), comme pour aller le chercher.
     if (!grounded) { const q = R.worldToLocal(C.clone()), a = Math.atan2(q.z, q.x), ex = Math.abs(a) - 0.3; if (ex > 0 && Math.hypot(q.x, q.z) > 0.15) { const th = Math.min(0.9, ex) * w, r0 = R.rotation.y; R.rotation.y += Math.sign(a) * th; R.updateMatrixWorld(true); const q2 = R.worldToLocal(C.clone()); if (Math.abs(Math.atan2(q2.z, q2.x)) > Math.abs(a)) { R.rotation.y = r0 - Math.sign(a) * th; R.updateMatrixWorld(true); } } }
     // Ballon bas (gardien debout) : il fléchit les genoux puis se penche (au plus 0,35 m et 0,7 rad), jamais en
@@ -2837,6 +2838,29 @@ export class Match3D {
     }
   }
   /**
+   * Gardien (6c-B) : décalage du corps affiché (par rapport à la position du moteur) borné à 6 m/s, soit 6 cm par pas
+   * de 1/96 s — l'allure d'un plongeon : pas de saut du corps d'une image à l'autre. Les bras sont ensuite
+   * recalculés sur le corps ainsi lissé (les gants restent au ballon si la portée le permet).
+   */
+  applyGK(e, p, flip, VB, held = false) {
+    const R = e.p3.root, base = R.position.clone(), tD = this.v.disp6?.tD ?? 0;
+    e._gkLast = null;
+    this.applyGK0(e, p, flip, VB, held);
+    const d = R.position.clone().sub(base), o = e._gkO, dt = o ? tD - o.t : 0;
+    if (o && dt > 0 && dt < 0.3) {
+      const diff = d.clone().sub(o.d), lim = 6 * dt;
+      if (diff.length() > lim) {
+        d.copy(o.d).addScaledVector(diff, lim / diff.length()); R.position.copy(base).add(d); R.updateMatrixWorld(true);
+        const g = e._gkLast;
+        if (g && g.w > 0) {
+          for (const [i, S] of g.pairs) this.armSolve(e.p3.arms[i], g.ctr(S, S._off?.v || 0));
+          if (held && e._heldPos) { /* (ballon tenu : il reste entre les gants recalculés) */ }
+        }
+      }
+    }
+    e._gkO = { t: tD, d };
+  }
+  /**
    * Gardien (6c-B, rendu seulement) : mains au ballon au contact réel, selon le résultat lu dans l'enregistrement
    *  - capté : les deux mains derrière le ballon (paumes face à lui, en « W »), puis ballon ramené contre la poitrine ;
    *  - repoussé : les deux paumes sur la face du ballon qui arrive ;
@@ -2844,7 +2868,7 @@ export class Match3D {
    *  - geste sans contact (plongeon battu, sortie manquée) : les gants restent à distance du ballon.
    * Ballon tenu : il suit le buste (catch → poitrine en 0,35 s) et les mains sont posées de part et d'autre.
    */
-  applyGK(e, p, flip, VB, held = false) {
+  applyGK0(e, p, flip, VB, held = false) {
     const P3 = e.p3, k = p._gk;
     this.gkDiveAlign(e, p, flip, k);   // (avant le ballon tenu aussi : prise en plein plongeon, sans saut du corps)
     if (held) {
