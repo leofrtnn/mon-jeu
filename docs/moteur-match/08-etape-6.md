@@ -998,7 +998,15 @@ centrée sur le ballon a été ajoutée pour le gardien. Constat (vue plongeante
 
 
 
-## 6c-C — Tacles et duels corporels — rapport, en attente de validation
+## 6c-C — Tacles et duels corporels — validée avec réserves
+
+**Décision (utilisateur)** : 6c-C validée avec réserves (synchronisation des fentes et représentation des
+contacts ballon suffisamment améliorées). Réserves conservées dans le rapport et le backlog, sans les masquer :
+38 % des fentes avec contact ballon trop éloignées, dont 18 au-delà de 30 cm ; 7 % de pénétrations du pied
+dans le ballon ; glissés sur l'homme trop éloignés des jambes de la victime ; chevauchements de bustes dans
+les tacles sur l'homme ; deux faux contacts de fentes manquées ; pied estimé sous le sol ; poses peu
+naturelles de la jambe d'appui. Moteur, physique, contacts, décisions et arbitrage non modifiés pour ces
+résultats : les incohérences moteur/rendu restent documentées pour une décision ultérieure.
 
 ### Constat de départ (version 6c-B, même sonde)
 Sonde dédiée `probeTK` (`TK=1 node tools/bench/anim-probe.cjs`) : tous les tacles (fente, glissé), avec contact
@@ -1106,5 +1114,11 @@ concordent avec la sonde.
   pas d'écart mesurable au-delà du bruit.
 * Outils conservés : sondes `probe6`, `probeAir`, `probeGK`, `probeTK` (`TK=1`) ; captures `TK=1`.
 
-### Décision demandée
-6c-C est présentée pour validation, avec les réserves ci-dessus. 6c-D n'est pas commencée.
+### Backlog (décision ultérieure, moteur/rendu)
+* Contact ballon de la fente compté hors de portée de la jambe (jusqu'à 1,18 m) ; tacle sur l'homme avec
+  centres à 0,25-0,57 m ; déséquilibre déclenché à 1 m entre les centres (corps affichés à ~54 cm).
+
+
+## 6c-D — Lancer de touche — en cours
+
+*(Rapport à venir.)*
