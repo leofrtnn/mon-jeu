@@ -125,3 +125,27 @@ test('tacles (6c-C) : phase des images clés calée sur la cinématique du moteu
   // Monotone (aucun retour en arrière de l'animation).
   let prev = -1; for (let s = 0; s < 1.6; s += 0.01) { const u = tacklePhase('slide', s); if (u == null) break; assert.ok(u >= prev); prev = u; }
 });
+
+test('touche (6c-D) : ballon dans les mains jusqu\'à l\'instant réel du lâcher, aucun lancer sans lâcher', async () => {
+  const { TH } = await import('../js/ui/animSync.js');
+  const m = createMatch(await cfgFor(21)), sim = new LiveSim(m);
+  sim.gest.all = true;
+  const view = { live: sim, players: sim.players, phys: sim.P };
+  const D = new DisplayBuffer(view);
+  let before = 0, after = 0, atRel = 0, held = 0, noRel = 0;
+  for (let k = 0; k < 96 * 60 * 9 && m.phase !== 'ft'; k++) {
+    sim.step(dt); if (m.phase === 'ht') sim.resumeHT = true;
+    D.record(); D.sample('contrat');
+    const tD = sim.now - DELAY;
+    for (const g of sim.gest.gestures) {
+      if (g.kind !== 'touche' || Math.abs(tD - g.t0) > 0.5) continue;
+      const d = D.disp.get(g.pid); if (!d) continue;
+      assert.ok(!(d.throwIn > 0), 'ancien minuteur de touche coupé');
+      if (g.tContact == null) { assert.equal(d._th, null, 'aucun lancer sans lâcher'); noRel++; continue; }
+      if (tD >= g.tContact - TH.lead && tD < g.tContact) { assert.ok(d._th && d._thHeld, 'tenu avant le lâcher'); before++; }
+      if (tD >= g.tContact && tD <= g.tContact + TH.post) { assert.ok(d._th && !d._thHeld, 'lâché à l\'instant réel'); after++; if (Math.abs(tD - g.tContact) < dt) atRel++; }
+      if (tD < g.tContact - TH.lead && d.hold > 0) { assert.ok(d._thHold, 'tenue : prise relevée'); held++; }
+    }
+  }
+  assert.ok(before > 0 && after > 0 && held > 0, `touches observées (avant ${before}, après ${after}, tenue ${held}, sans lâcher ${noRel})`);
+});

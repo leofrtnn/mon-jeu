@@ -31,6 +31,7 @@ const serve = () => new Promise((resolve) => {
   const browser = await chromium.launch();
   const ctx = await browser.newContext({ ...devices['Pixel 5 landscape'] });
   await ctx.addInitScript(() => { try { localStorage.setItem('cdp-tuto', JSON.stringify({ done: true })); } catch {} });
+  if (process.env.THTRACE) await ctx.addInitScript(() => { globalThis.__thTrace = true; });
   await ctx.route(/wikipedia\.org|wikimedia\.org|flagcdn/, (r) => r.abort());
   // SEED=n : Math.random de la page fixé (création de la partie, choix d'affichage) — le même match est
   // rejoué à chaque passe, pour comparer les MÊMES gestes avant / après une correction de rendu.

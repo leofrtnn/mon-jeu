@@ -61,6 +61,14 @@ export const PUNT = { z: 0.6, lead: 0.15, blend: 0.12 };
  * long). Fente : pied tendu (phase 0,5) à t1. Glissé : au sol, jambe tendue (phase 0,26) en 0,3 s, tenu jusqu'à
  * dur, puis relevé. Fenêtres de cinématique inverse du pied (contact ballon ou sur l'homme).
  */
+/**
+ * Lancer de touche (6c-D) : le moteur lâche le ballon au pas même où le geste « touche » commence (instant
+ * réel = g.tContact), à 2 m de haut, au-dessus du point où le ballon était posé ; avant, le joueur le tient
+ * (hold). lead : le ballon passe d'au-dessus de la tête au point de lâcher dans les `lead` s qui précèdent le
+ * contact (connu grâce au différé de 0,15 s) ; post : accompagnement des bras après le lâcher ; pick : prise
+ * du ballon posé (début du hold : accroupi 0,3 s, puis montée) jusqu'au-dessus de la tête.
+ */
+export const TH = { lead: 0.14, post: 0.35, pick: 0.8 };
 export const TK = { stand: { t1: 0.36, dur: 0.55, up: 0.35 }, slide: { t1: 0.6, dur: 0.9, down: 0.3, up: 0.6 }, rise: 0.1, fall: 0.1 };
 export function tacklePhase(kind, s, sc = null) {
   if (s < 0) return null;
@@ -118,7 +126,7 @@ export function peakPhase(tC, t, lead, post) {
 
 export class DisplayBuffer {
   constructor(view) { this.v = view; this.snaps = []; this.keys = new Map(); this.disp = new Map(); this.ball = { rot: { a: 0, b: 0 } }; this.ballN = { x: 0.5, y: 0.5, h: 0 }; this.probe = null; this.extra = 0; }
-  reset() { this.snaps.length = 0; }
+  reset() { this.snaps.length = 0; this._hs?.clear(); }
   /** Copie des champs d'affichage (valeurs simples) d'un joueur ; liste des clés revue chaque seconde. */
   _keysOf(id, p, t) {
     let k = this.keys.get(id);
@@ -129,7 +137,12 @@ export class DisplayBuffer {
   record() {
     const L = this.v.live, t = L.now, P = this.v.phys;
     const ps = new Map();
-    for (const [id, p] of this.v.players) { const o = {}; for (const k of this._keysOf(id, p, t)) o[k] = p[k]; ps.set(id, o); }
+    const hs = (this._hs ||= new Map());
+    for (const [id, p] of this.v.players) {
+      const o = {}; for (const k of this._keysOf(id, p, t)) o[k] = p[k]; ps.set(id, o);
+      // (6c-D) Début du ballon tenu (touche) et ballon posé à cet instant : champs d'affichage seulement.
+      if (p.hold > 0) { if (!hs.has(id)) hs.set(id, { t, x: P.x, y: P.y, z: P.z }); const h = hs.get(id); o.thT0 = h.t; o.thBx = h.x; o.thBy = h.y; o.thBz = h.z; } else hs.delete(id);
+    }
     this.snaps.push({ t, ps, holder: L.holder ? L.holder.mp.id : null, inHands: L.inHands, restart: !!L.restart,
       b: { x: P.x, y: P.y, z: P.z, vx: P.vx, vy: P.vy, vz: P.vz, ra: P.rot?.a || 0, rb: P.rot?.b || 0, spin: P.spin || 0, inGoal: P.inGoal || 0 } });
     while (this.snaps.length > 2 && this.snaps[1].t < t - DELAY - 0.1 - this.extra) this.snaps.shift();   // (extra : sonde de contrôle visuel)
@@ -312,6 +325,21 @@ export class DisplayBuffer {
       }
       // Tacles (6c-C) : phase calée sur la cinématique du moteur ; pied d'attaque au ballon au contact, ou sur les
       // jambes de l'adversaire au contact sur l'homme ; tacle sans contact ballon : pieds tenus à distance du ballon.
+      // Lancer de touche (6c-D) : geste calé sur l'instant réel du lâcher ; ballon tenu dans les mains jusqu'à cet
+      // instant, puis uniquement la trajectoire du moteur ; aucun lancer sans lâcher (geste annulé : rien).
+      d._th = null; d._thHeld = false; d._thHold = null;
+      {
+        const g = gs.findLast((x) => x.kind === 'touche' && tD - x.t0 > -0.5 && tD - x.t0 < TH.post + 0.5);
+        if (g) d.throwIn = 0;   // (ancien minuteur : remplacé, ni geste en retard ni lancer sans lâcher)
+        const tC = g && g.tContact != null && g.tContact <= simNow ? g.tContact : null;
+        if (tC != null && tD >= tC - TH.lead && tD <= tC + TH.post) {
+          const R = this.ballAt(tC), R2 = this.ballAt(Math.min(simNow, tC + 0.05));
+          d._th = { u: tD - tC, R, dir: R && R2 ? { x: R2.x - R.x, y: R2.y - R.y } : null, gid: g.id }; d._thHeld = tD < tC; d.hold = 0;
+        } else if (d.hold > 0) {
+          // Prise : début du ballon tenu et ballon posé à cet instant (relevés à l'enregistrement).
+          if (d.thT0 != null) d._thHold = { s: tD - d.thT0, B0: { x: d.thBx, y: d.thBy, z: d.thBz } };
+        }
+      }
       d._tkU = null; d._tkMiss = false; let tkIK = null;
       for (let j = gs.length - 1; j >= 0; j--) {
         const g = gs[j]; if (!g.kind.startsWith('tacle')) continue;
