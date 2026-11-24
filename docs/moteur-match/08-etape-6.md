@@ -967,5 +967,30 @@ avant : 144 ms). Résultat lu dans l'enregistrement (après) : repoussé 19, dé
 * captures : la caméra de côté de l'outil cadre mal le gardien (ballon souvent hors champ ou masqué par
   le corps).
 
-*(Non-régression et captures : en cours.)*
+### Captures (`anim-shots.cjs`, `GK=1`, mêmes gestes avant/après, graine 22, au contact et à ±)
+La caméra de côté de l'outil cadre mal le gardien (ballon masqué par le corps) ; une vue plongeante
+centrée sur le ballon a été ajoutée pour le gardien. Constat (vue plongeante) :
+* sortie aérienne repoussée : gants à 2,3 m du ballon avant, au ballon après ;
+* ballon au sol à 1,4 m repoussé : avant, gardien debout bras tendus, ballon loin ; après, plongeon court,
+  gants au ballon ;
+* prise : ballon tenu contre la poitrine entre les gants (+300 ms) ; défaut visible : gants croisés devant
+  le ballon, bras peu visibles (ils traversent en partie le buste) ;
+* plongeon battu : aucun gant au ballon ;
+* défavorables (non écartés) : une déviation d'une main à 16 cm ; dans cette passe de capture, une relance
+  au pied d'un ballon au sol à 1,9 m du pied (le match a divergé de la passe de référence à cet instant :
+  ce geste était à −0,4 cm dans les deux matchs mesurés ; frappe de 6b, hors gardien au sens strict).
+
+### Non-régression
+* Empreintes du moteur inchangées : 112bd1dc ; graine 104 → 2a6d7bc9 ; 300 → 8b411e7e ; moteur rapide
+  b47d8708 ; la couche d'affichage ne modifie pas le match (test unitaire).
+* 130 tests unitaires (dont le nouveau test du résultat lu dans l'enregistrement), tests d'interface (13
+  étapes ; un premier passage a échoué par un rechargement de la page dû à un changement de version de
+  l'application pendant le test, réussi au second passage) et test du match à deux (en ligne) réussis.
+* Sonde 6b (graine 21, 8 min, version d'origine / corrigée) : conduite 92 / 92 %, contrôles 55 / 56 %,
+  passes 92 / 92 %, centres et dégagements 100 / 100 % crédibles.
+* Coût d'affichage (rendu logiciel sans GPU, mesures alternées) : sans ralentissement 211 ms (origine) /
+  219-249 ms par image ; processeur ralenti ×4 348-358 / 292-363 ms : pas d'écart mesurable dans le bruit.
+  Deux passes de référence sans vue 3D (17 et 23 ms, 900 images en 15 s) ont été écartées.
+* Outils : sonde `probeGK` (`GK=1`), relevé pas à pas (`GKSERIES=1`), bancs `GKTEST` et `DIVESIDE`.
+
 
