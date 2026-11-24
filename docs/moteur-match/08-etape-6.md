@@ -998,6 +998,82 @@ centrée sur le ballon a été ajoutée pour le gardien. Constat (vue plongeante
 
 
 
-## 6c-C — Tacles et duels corporels — en cours
+## 6c-C — Tacles et duels corporels — rapport, en attente de validation
 
-*(Rapport à venir.)*
+### Constat de départ (version 6c-B, même sonde)
+Sonde dédiée `probeTK` (`TK=1 node tools/bench/anim-probe.cjs`) : tous les tacles (fente, glissé), avec contact
+ballon, contact sur l'homme (faute ou non, lu dans les notes du moteur) ou sans contact ; distance de la
+pointe des pieds à la SURFACE du ballon au contact (minimum dans ±1 pas) ; écart entre les jambes du tacleur
+et celles des adversaires (segments hanche-genou-cheville, rayon 6 cm) ; approche minimale du ballon pour un
+tacle manqué ; déplacement du corps affiché par rapport à la position du moteur ; et tous les débuts de
+déséquilibre (`bump`, duels et chocs) avec l'écart entre les bustes. Deux matchs complets (graines 21 et 22),
+couverture 213/213 tacles.
+* Fente avec contact ballon : pied à 42 cm du ballon (médiane) au contact ; 4 % crédibles. La pose du tacle
+  suivait l'ancien minuteur, 1,6 fois plus long que le geste réel : jambe tendue au maximum 149 ms après le
+  contact (médiane).
+* Tacle manqué : pied au ballon (< 1 cm) sur 5 tacles sans contact ballon (faux contact ballon).
+* Fente avec faute sur l'homme : jambe à 1,2 cm des jambes de la victime (médiane) — souvent juste, par la
+  géométrie du moteur ; contact sans faute : 38 cm.
+* Duels et chocs : le moteur déclenche un déséquilibre quand deux centres sont à moins de 1 m (duel : 0,85 m) ;
+  les bustes affichés sont alors à 54-55 cm l'un de l'autre (médiane).
+
+### Principe (rendu seul ; moteur, physique, contacts, décisions et arbitrage inchangés)
+* Contrat (`js/ui/animSync.js`, `tacklePhase`) : la phase du tacle suit la cinématique du moteur (`tackleFoot` :
+  fente 0,55 s, jambe tendue à 0,36 s ; glissé 0,9 s, couché à 0,3 s, relevé à 0,6 s), et non plus l'ancien
+  minuteur. Contact ballon : la jambe est tendue à l'instant réel du contact (s'il tombe avant 0,36 s).
+* Contact ballon : cinématique inverse de la jambe d'attaque vers la surface du ballon au contact, sans
+  déplacer le corps ; si la jambe ne suffit pas, le joueur fléchit sur sa jambe d'appui (bassin abaissé de
+  0,35 m au plus). Une première version portait le corps de la fente vers le ballon (≤ 0,35 m) : mesurée,
+  elle changeait surtout des « trop éloignés » en pénétrations (crédibles 55 → 47 %, pénétrations 6 → 17 %) ;
+  retirée.
+* Contact sur l'homme (note du moteur) : la jambe d'attaque va sur le tibia de l'adversaire le plus proche
+  à l'instant noté, sans contact ballon ni déplacement du corps. La phase n'est pas recalée sur ce contact
+  (essai mesuré : écart médian 1,2 → 6,7 cm).
+* Tacle sans contact ballon : les pieds sont tenus à au moins 3 cm du ballon (anti-pénétration élargie).
+* Glissé : aucun déplacement ajouté ; le corps suit la position du moteur (qui fait lui-même glisser le
+  joueur), la pose couchée suit la phase réelle.
+* Duels et chocs : aucune modification (un penché vers l'adversaire a été essayé : interpénétrations des
+  bustes 6 → 14-21 ; retiré).
+
+### Résultats (deux matchs complets ; avant : 216 tacles, après : 208 ; couverture 100 % des deux côtés)
+Seuils inchangés : crédible −1 à +3 cm, trop éloigné > 3 cm, pénétration < −1 cm (minimum dans ±1 pas). Les
+matchs du navigateur ne sont pas strictement identiques d'une passe à l'autre (cadence d'image) : le match de
+la graine 21 diverge de la passe de référence à 513 s ; 110 tacles appariés (même joueur, même instant).
+
+| Famille | avant | après |
+|---|---|---|
+| Fente, contact ballon | 112 · médiane 42,3 cm · p90 61 · crédible 4 % · trop éloigné 96 % · pénétration 0 % | 122 · médiane 1,3 cm · p90 50 · crédible 55 % · trop éloigné 38 % · pénétration 7 % |
+| idem, appariés | 61 · médiane 42,0 · crédible 5 % | 61 · médiane 1,6 · crédible 57 % · pénétration 5 % |
+| Fente, faute sur l'homme (jambe↔jambes) | 22 · médiane 1,2 cm · ≤ 5 cm 59 % | 11 · médiane −4,0 cm · ≤ 5 cm 82 % (max 29 cm) |
+| Fente, contact sur l'homme sans faute | 8 · médiane 38,5 cm · ≤ 5 cm 0 % | 9 · médiane 5,1 cm · ≤ 5 cm 44 % |
+| Fente manquée : faux contact ballon (< 1 cm) | 5 / 49 | 2 / 42 (approche min. médiane 37 cm) |
+| Glissé, faute sur l'homme | 11 · médiane 33,8 cm · ≤ 5 cm 18 % | 7 · médiane 44,3 cm · ≤ 5 cm 43 % |
+| Glissé, contact ballon | — | 1 · 48,5 cm (hors de portée sans déplacer le corps) |
+| Glissé manqué : faux contact ballon | 0 / 14 | 0 / 16 (approche min. médiane 99 cm) |
+| Déplacement du corps ajouté (max) | fente 34,6 cm (ancienne fente du rendu) | fente avec contact 6,8 cm ; glissé 0 |
+
+Synchronisation (fente, contact ballon) : distance minimale pied↔ballon atteinte à 15 ms du contact
+(médiane ; p90 212 ms ; avant : 149 ms, p90 537 ms).
+
+Duels et chocs (début d'un déséquilibre, écart entre les bustes affichés, inchangés par 6c-C) :
+| | avant | après |
+|---|---|---|
+| Duels, chocs entre adversaires | 2202 · médiane 55,4 cm · < 0 : 77 | 2153 · médiane 54,0 cm · < 0 : 88 |
+| Chocs entre partenaires | 1244 · médiane 54,0 cm · < 0 : 39 | 1241 · médiane 52,5 cm · < 0 : 47 |
+| Tacle sur l'homme | 8 · médiane 30,3 cm · < 0 : 0 | 8 · médiane −3,0 cm · < 0 : 5 (≤ −17 cm) |
+
+### Réserves (cas défavorables, non exclus des mesures)
+* Fente avec contact ballon : 38 % restent trop éloignés, dont 18 au-delà de 30 cm (jusqu'à 1,18 m) : le
+  moteur compte un contact ballon que la jambe ne peut pas atteindre sans déplacer le corps ; 7 % de
+  pénétrations (1 à 3 cm).
+* Glissé avec faute : jambe à 44 cm des jambes de la victime (médiane) ; la pose couchée du rendu ne suit
+  pas la position relative des deux joueurs.
+* Tacle sur l'homme : au moment du choc, les bustes s'interpénètrent dans 5 cas sur 8 (jusqu'à −17 cm), là
+  où l'ancienne pose (plus tardive) les séparait ; trois de ces cas ont des centres à 0,25-0,57 m dans le
+  moteur. Un buste redressé au contact a été essayé (−6 → −17 cm sur le cas mesuré) : retiré.
+* Duels et chocs : déséquilibre déclenché par le moteur à moins de 1 m entre les centres ; les corps
+  affichés restent à ~54 cm sans se toucher (médiane), avec ~2-4 % d'interpénétrations (inchangé).
+* Tacles manqués : 2 fentes passent encore à moins de 1 cm du ballon (−0,4 cm) ; pointe du pied estimée
+  à 4 cm sous le niveau de la pelouse au contact (médiane ; avant +2 cm).
+
+*(Captures et non-régression : à venir dans ce rapport.)*
