@@ -17,8 +17,12 @@
  * gardien — contact des mains (plongeon, sortie aérienne, mains debout, prise) piloté par le contrat :
  * résultat lu dans l'enregistrement (capté, repoussé, dévié), mains au ballon au contact réel, parade
  * debout et petit saut calés sur le contact, relance ballon en main (lâcher puis frappe au genou) ; le
- * plongeon lui-même garde le minuteur du moteur (déjà calé sur sa cinématique). Les autres gestes (tacles,
- * touche, chutes, célébrations, gestes techniques) gardent leurs anciens indicateurs (6c-C à 6d).
+ * plongeon lui-même garde le minuteur du moteur (déjà calé sur sa cinématique). Étape 6c-C : tacles (fente,
+ * glissé) — phase des images clés calée sur la cinématique du moteur, pied d'attaque au ballon au contact ballon
+ * ou sur les jambes de l'adversaire au contact sur l'homme (sans déplacement du corps), tacle sans contact ballon
+ * tenu à distance du ballon. Les chocs et duels de corps gardent leurs anciens indicateurs (déséquilibre lancé
+ * par le moteur à l'instant du choc). Les autres gestes (touche, chutes, célébrations, gestes techniques) gardent
+ * leurs anciens indicateurs (6c-D, 6d).
  */
 export const DELAY = 0.15;                 // différé d'affichage (s) ≥ la plus longue anticipation ci-dessous
 const KICK = { pre: 0.38, contact: 0.55 };  // fractions de l'animation de frappe (armé, contact) — comme avant

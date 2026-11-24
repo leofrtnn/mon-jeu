@@ -110,3 +110,18 @@ test('gardien (6c-B) : résultat lu dans l\'enregistrement (capté / repoussé /
   // Geste sans contact (plongeon battu) : jamais de résultat de contact.
   assert.equal(mk(() => 0, false).gkContact([{ ...g, kind: 'plongeon', tContact: null }], 0.95, 2), null);
 });
+
+test('tacles (6c-C) : phase des images clés calée sur la cinématique du moteur', async () => {
+  const { tacklePhase, TK } = await import('../js/ui/animSync.js');
+  // Fente : pied au plus loin (phase 0,5 des images clés) à t1 du moteur ; fin du geste au relevé.
+  assert.equal(tacklePhase('stand', -0.01), null);
+  assert.equal(tacklePhase('stand', TK.stand.t1), 0.5);
+  assert.ok(tacklePhase('stand', TK.stand.dur) > 0.5 && tacklePhase('stand', TK.stand.dur) < 1);
+  assert.equal(tacklePhase('stand', TK.stand.dur + TK.stand.up + 0.01), null);
+  // Glissé : au sol jambe tendue (0,26) en 0,3 s, tenu jusqu'à la fin du glissé du moteur (0,55), puis relevé.
+  assert.ok(Math.abs(tacklePhase('slide', TK.slide.down) - 0.26) < 1e-9);
+  assert.ok(Math.abs(tacklePhase('slide', TK.slide.dur - 1e-9) - 0.55) < 1e-6);
+  assert.equal(tacklePhase('slide', TK.slide.dur + TK.slide.up + 0.01), null);
+  // Monotone (aucun retour en arrière de l'animation).
+  let prev = -1; for (let s = 0; s < 1.6; s += 0.01) { const u = tacklePhase('slide', s); if (u == null) break; assert.ok(u >= prev); prev = u; }
+});
