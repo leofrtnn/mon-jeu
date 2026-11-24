@@ -323,7 +323,7 @@ export class DisplayBuffer {
         const ballC = g.tContact != null && g.tContact <= simNow;
         d._tkMiss = !ballC;
         const man = (g.notes || []).find((n) => /homme/.test(n.what) && n.t <= simNow);
-        if (ballC) { tkIK = ikOf(g, TK.rise, TK.fall, leg); tkIK.wy = 0; tkIK.noShift = true; if (kind === 'stand') tkIK.lungeMax = 0.35; }   // (fente : le corps peut se porter vers le ballon, au plus 0,35 m ; glissé : aucun déplacement)
+        if (ballC) { tkIK = ikOf(g, TK.rise, TK.fall, leg); tkIK.wy = 0; tkIK.noShift = true; }   // (aucun déplacement du corps : la fente portée vers le ballon, mesurée, changeait les « trop éloignés » en pénétrations)
         else if (man) {
           // Jambes de l'adversaire touché : le plus proche du pied du tacleur à l'instant noté par le moteur.
           const me = this.posAt(g.pid, man.t); let vic = null, vd = Infinity;
