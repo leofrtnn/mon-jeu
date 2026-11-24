@@ -2789,7 +2789,7 @@ export class Match3D {
       if (worst > -0.004) break;
       // (dans la direction ballon → partie du corps, en 3D ; jamais vers le bas)
       const dv = wc.clone().sub(C); dv.y = Math.max(0, dv.y); if (dv.lengthSq() < 1e-6) dv.set(R.position.x - C.x, 0, R.position.z - C.z); dv.normalize();
-      R.position.addScaledVector(dv, 0.01 - worst); R.updateMatrixWorld(true);
+      R.position.addScaledVector(dv, (0.01 - worst) * w); R.updateMatrixWorld(true);
       for (const [i, S] of pairs) this.armSolve(arms[i], ctr(S, S._off?.v || 0));
     } };
     // Aucune autre partie du corps (tête, poitrine, genoux) dans le ballon : le corps recule de ce qu'il faut.
@@ -2824,8 +2824,9 @@ export class Match3D {
         R.rotation.y += aw * k.w; R.updateMatrixWorld(true);
       }
       const hs = P3.arms.map((a) => R.worldToLocal(a.hand.getWorldPosition(new THREE.Vector3())));
-      const hz = (hs[0].z + hs[1].z) / 2, hx = (hs[0].x + hs[1].x) / 2, sd = Math.sign(hz) || 1, reach = 0.95 * Math.min(1, Math.abs(hz) / 0.95);
-      const off = new THREE.Vector3(0.1 - hx, 0, sd * reach - hz).applyQuaternion(R.quaternion);
+      // (recalage proportionnel à l'extension des bras sur le côté : nul au départ du plongeon, sans saut ni bascule de côté)
+      const hz = (hs[0].z + hs[1].z) / 2, hx = (hs[0].x + hs[1].x) / 2, ext = Math.max(0, Math.min(1, (Math.abs(hz) - 0.3) / 1.2)), sd = Math.sign(hz) || 1;
+      const off = new THREE.Vector3((0.1 - hx) * ext, 0, (sd * 0.95 - hz) * ext).applyQuaternion(R.quaternion);
       R.position.addScaledVector(off, fa); R.updateMatrixWorld(true);
       // Contact connu : les gants sont amenés au point de contact (horizontalement, au plus 1 m, poids de la fenêtre).
       if (k && k.at && k.w > 0) {

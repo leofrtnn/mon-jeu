@@ -44,7 +44,7 @@ export const MIGRATED = new Set([...KICKS, ...CTRLS, 'touche de conduite', ...AI
 const clamp01 = (x) => Math.max(0, Math.min(1, x));
 /** Gardien (6c-B) : gestes à contact des mains ; fenêtre de cinématique inverse des bras autour du contact (s). */
 export const GK = new Set(['plongeon', 'saut', 'mains']);
-const GKW = { rise: 0.14, fall: 0.16, hold: 0.45, block: 0.4, blockLead: 0.12 };
+const GKW = { rise: 0.14, fall: 0.16, hold: 0.45, holdCatch: 0.9, block: 0.4, blockLead: 0.12 };
 /**
  * Relance du gardien ballon en main (6c-B) : le moteur frappe le ballon là où il le tient (≈ 1,05 m de haut,
  * sans armé). À l'affichage : le ballon est lâché dans les 0,15 s avant le contact et frappé à hauteur de
@@ -187,7 +187,7 @@ export class DisplayBuffer {
     for (let j = gs.length - 1; j >= 0; j--) {
       const g = gs[j];
       if (!GK.has(g.kind) || (g.kind === 'saut' && g.part !== 'mains') || g.tContact == null || g.tContact > simNow) continue;
-      const x = tD - g.tContact; if (x < -GKW.rise || x > GKW.hold) continue;
+      const x = tD - g.tContact; if (x < -GKW.rise || x > GKW.holdCatch) continue;
       const tC = g.tContact, a0 = this.ballAt(tC - 0.03), a1 = this.ballAt(tC - 0.005);
       const vin = { x: (a1.x - a0.x) / 0.025, y: (a1.y - a0.y) / 0.025, z: (a1.z - a0.z) / 0.025 };
       let res = 'capté';
@@ -197,6 +197,7 @@ export class DisplayBuffer {
         const ni = Math.hypot(vin.x, vin.y, vin.z), no = Math.hypot(vo.x, vo.y, vo.z), cos = ni && no ? (vin.x * vo.x + vin.y * vo.y + vin.z * vo.z) / (ni * no) : -1;
         res = ni && no / ni > 0.6 && cos > Math.cos(35 * Math.PI / 180) ? 'dévié' : 'repoussé';
       }
+      if (res !== 'capté' && x > GKW.hold) continue;   // (prise : fenêtre prolongée jusqu'à la fin d'un plongeon, sans saut du corps)
       return { g, x, res, vin, at: this.ballAt(tC) };
     }
     return null;
