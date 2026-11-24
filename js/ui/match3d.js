@@ -3467,8 +3467,18 @@ export class Match3D {
       R.x += (dx / dl) * sft; R.z += (dz / dl) * sft; k.lunge = sft;
       P3.root.updateMatrixWorld(true); hip = P3.legs[leg].hip.getWorldPosition(new THREE.Vector3());
     }
-    const tooFar = Cc.distanceTo(hip) - BALL_R > P3._legLen * 0.97;
-    k.reach = tooFar ? 'hors de portée' : tooHigh ? 'ballon haut' : k.lunge > 0.005 ? 'fente' : 'ok';
+    let tooFar = Cc.distanceTo(hip) - BALL_R > P3._legLen * 0.97;
+    if (tooFar && k.noShift && k.w > 0 && !tooHigh) {
+      // (6c-C) Tacle : le moteur pose le pied à 0,75 m devant le corps, au ras du sol ; sans déplacer le corps, le
+      // joueur fléchit sur sa jambe d'appui (bassin abaissé, au plus 0,35 m) pour que la jambe d'attaque y arrive.
+      const Lr = P3._legLen * 0.95, hd = Math.hypot(Cc.x - hip.x, Cc.z - hip.z), r = Lr + BALL_R;
+      if (hd < r) {
+        const drop = Math.min(0.35, Math.max(0, hip.y - Cc.y - Math.sqrt(r * r - hd * hd))) * k.w;
+        if (drop > 0) { P3.body.position.y -= drop; const sup = P3.legs[1 - leg]; sup.hip.rotation.z += 1.2 * drop; sup.knee.rotation.z -= 2.4 * drop; P3.root.updateMatrixWorld(true); hip = P3.legs[leg].hip.getWorldPosition(new THREE.Vector3()); k.drop = drop; }
+        tooFar = Cc.distanceTo(hip) - BALL_R > P3._legLen * 0.97;
+      }
+    }
+    k.reach = tooFar ? 'hors de portée' : tooHigh ? 'ballon haut' : k.lunge > 0.005 ? 'fente' : k.drop ? 'flexion' : 'ok';
     if (k.w > 0 && !tooFar && !tooHigh) {
       const t0 = toeOf(leg), dir = t0.clone().sub(Cc); if (dir.lengthSq() < 1e-8) dir.set(-1, 0, 0);
       P3.ikLeg(leg, Cc.clone().add(dir.normalize().multiplyScalar(BALL_R)), k.w);

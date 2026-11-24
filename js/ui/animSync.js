@@ -62,10 +62,11 @@ export const PUNT = { z: 0.6, lead: 0.15, blend: 0.12 };
  * dur, puis relevé. Fenêtres de cinématique inverse du pied (contact ballon ou sur l'homme).
  */
 export const TK = { stand: { t1: 0.36, dur: 0.55, up: 0.35 }, slide: { t1: 0.6, dur: 0.9, down: 0.3, up: 0.6 }, rise: 0.1, fall: 0.1 };
-export function tacklePhase(kind, s) {
+export function tacklePhase(kind, s, sc = null) {
   if (s < 0) return null;
-  if (kind === 'stand') { const T = TK.stand; if (s < T.t1) return 0.5 * s / T.t1; const u = 0.5 + 0.5 * (s - T.t1) / (T.dur - T.t1 + T.up); return u < 1 ? u : null; }
-  const T = TK.slide; if (s < T.down) return 0.26 * s / T.down; if (s < T.dur) return 0.26 + 0.29 * (s - T.down) / (T.dur - T.down);
+  // sc : instant du contact (depuis le début du geste), connu grâce au différé : jambe tendue AU contact s'il est plus tôt.
+  if (kind === 'stand') { const T = TK.stand, t1 = sc != null && sc > 0.04 ? Math.min(T.t1, sc) : T.t1; if (s < t1) return 0.5 * s / t1; const u = 0.5 + 0.5 * (s - t1) / (T.dur - t1 + T.up); return u < 1 ? u : null; }
+  const T = TK.slide, dn = sc != null && sc > 0.04 ? Math.min(T.down, sc) : T.down; if (s < dn) return 0.26 * s / dn; if (s < T.dur) return 0.26 + 0.29 * (s - dn) / (T.dur - dn);
   const u = 0.55 + 0.45 * (s - T.dur) / T.up; return u < 1 ? u : null;
 }
 
@@ -314,7 +315,8 @@ export class DisplayBuffer {
       d._tkU = null; d._tkMiss = false; let tkIK = null;
       for (let j = gs.length - 1; j >= 0; j--) {
         const g = gs[j]; if (!g.kind.startsWith('tacle')) continue;
-        const kind = g.kind === 'tacle (glissé)' ? 'slide' : 'stand', u = tacklePhase(kind, tD - g.t0);
+        const kind = g.kind === 'tacle (glissé)' ? 'slide' : 'stand', manN = (g.notes || []).find((n) => /homme/.test(n.what) && n.t <= simNow);
+        const tcK = g.tContact != null && g.tContact <= simNow ? g.tContact : manN ? manN.t : null, u = tacklePhase(kind, tD - g.t0, tcK != null ? tcK - g.t0 : null);
         if (u == null) { if (tD - g.t0 < 3) d.slide = 0; break; }   // (fin du geste : l'ancien minuteur, plus long, ne le prolonge pas)
         d._tkU = u; d.tk = kind; d.slide = Math.max(d.slide || 0, 0.05);
         const leg = (d.id ?? 0) % 2 === 1 ? 0 : 1;   // (jambe d'attaque des images clés, comme le rendu les applique)
