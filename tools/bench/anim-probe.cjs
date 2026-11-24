@@ -68,14 +68,14 @@ const serve = () => new Promise((resolve) => {
     if (process.env.CALIB) { const c = await page.evaluate(() => window.__view.r3d.calib6()); console.log(JSON.stringify(c)); throw new Error('étalonnage terminé'); }
     // Historique d'affichage élargi (outil seulement ; l'historique des gestes reste celui du jeu) : chaque relevé couvre tout le temps
     // écoulé depuis le précédent, sans trou (couverture vérifiée ci-dessous).
-    const SPEED = +(process.env.SPEED || 0), WIN = SPEED ? 32 : 5, GKONLY = !!process.env.GK, TKONLY = !!process.env.TK, AIRONLY = !!process.env.AIR || GKONLY || TKONLY;   // TK=1 : tacles et duels de corps (6c-C)   // GK=1 : gestes du gardien seulement (6c-B)   // AIR=1 : gestes aériens seulement (6c-A)
+    const SPEED = +(process.env.SPEED || 0), WIN = SPEED ? 32 : 5, GKONLY = !!process.env.GK, TKONLY = !!process.env.TK, THONLY = !!process.env.TH, AIRONLY = !!process.env.AIR || GKONLY || TKONLY || THONLY;   // TH=1 : lancers de touche (6c-D)   // TK=1 : tacles et duels de corps (6c-C)   // GK=1 : gestes du gardien seulement (6c-B)   // AIR=1 : gestes aériens seulement (6c-A)
     await page.evaluate(([x]) => { window.__view.disp6.extra = x + 1; }, [WIN]);
     // SPEED=n : la simulation avance n fois plus vite (au plus 1 s de jeu par image) pour couvrir un match
     // entier ; l'affichage n'a pas à être fluide, la sonde rejoue elle-même chaque geste pas à pas.
     if (process.env.GKSERIES) await page.evaluate(() => { window.__view.r3d._gkSeries = {}; });
     if (process.env.LOD) await page.evaluate((l) => { window.__view.r3d._probeLOD = l; }, process.env.LOD);   // LOD=mh|simple : modèle mesuré
     if (SPEED) await page.evaluate((k) => { const v = window.__view; v.TS = k; v.opts.replays = false; v.replayPlan = null; }, SPEED);   // (ralentis coupés : à très faible cadence d'image, un ralenti sans assez d'images fige le match — défaut d'interface signalé, hors 6c)
-    const res = { contrat: [], ancien: [], airC: [], airA: [], gkC: [], gkA: [], tkC: [], tkA: [], bumpC: [], bumpA: [] };
+    const res = { contrat: [], ancien: [], airC: [], airA: [], gkC: [], gkA: [], tkC: [], tkA: [], bumpC: [], bumpA: [], thC: [], thA: [] };
     let last = await page.evaluate(() => window.__view.live.now), start = last;
     while (last - start < SECS) {
       await page.waitForTimeout(2500);
@@ -83,7 +83,7 @@ const serve = () => new Promise((resolve) => {
       for (const sel of ['.sheet [data-act=talk] >> nth=1', '.sheet [data-act=resume]', '.sheet [data-act=ok]']) if (await page.isVisible(sel.split(' >> ')[0]).catch(() => false)) await page.click(sel).catch(() => {});
       if (SPEED) await page.evaluate((k) => { const v = window.__view; if (!v.paused) v.TS = k; }, SPEED);
       if (await page.evaluate(() => window.__view.m.phase === 'ft' || window.__view.m.phase === 'done').catch(() => false)) break;
-      const r = await page.evaluate(([WIN, AIRONLY, GKONLY, TKONLY]) => {
+      const r = await page.evaluate(([WIN, AIRONLY, GKONLY, TKONLY, THONLY]) => {
         const v = window.__view, now = v.live.now, tTo = now - 0.5, prev = v._probeT ?? null, tFrom = Math.max(prev || 0, tTo - WIN);
         if (tTo <= tFrom) return { now, c: [], a: [], ac: [], aa: [], cov: null, acov: null };
         v._probeT = tTo;
@@ -94,8 +94,12 @@ const serve = () => new Promise((resolve) => {
         const all = prev == null ? [] : v.live.gest.gestures.filter((g) => K.has(g.kind) && g.tContact != null && g.tContact > prev && g.tContact <= tTo);
         const got = new Set(c.map((x) => x.gid)); if (AIRONLY) all.length = 0;
         // Gestes aériens (6c-A) : avec ou sans contact, joueurs de champ ; même comptage de couverture.
-        const ac = GKONLY || TKONLY ? [] : v.r3d.probeAir('contrat', tFrom, tTo), aa = GKONLY || TKONLY ? [] : v.r3d.probeAir('ancien', tFrom, tTo);
+        const ac = GKONLY || TKONLY || THONLY ? [] : v.r3d.probeAir('contrat', tFrom, tTo), aa = GKONLY || TKONLY || THONLY ? [] : v.r3d.probeAir('ancien', tFrom, tTo);
         // Tacles et duels (6c-C) : tous les tacles (contact ballon, sur l'homme ou aucun) et tous les débuts de déséquilibre.
+        // Lancers de touche (6c-D) : tous les gestes « touche », avec ou sans lâcher.
+        const hc = THONLY ? v.r3d.probeTH('contrat', tFrom, tTo) : null, ha = THONLY ? v.r3d.probeTH('ancien', tFrom, tTo) : null;
+        const allH = prev == null || !THONLY ? [] : v.live.gest.gestures.filter((g) => g.kind === 'touche' && (g.tContact ?? g.t0) > prev && (g.tContact ?? g.t0) <= tTo);
+        const gotH = new Set((hc || []).map((x) => x.gid)), hcov = prev == null || !THONLY ? null : { n: allH.length, miss: allH.filter((g) => !gotH.has(g.id)).map((g) => ({ rel: g.tContact != null, gap: (g.tContact ?? g.t0) < tFrom })) };
         const tc = TKONLY ? v.r3d.probeTK('contrat', tFrom, tTo) : null, ta = TKONLY ? v.r3d.probeTK('ancien', tFrom, tTo) : null;
         const allT = prev == null || !TKONLY ? [] : v.live.gest.gestures.filter((g) => g.kind.startsWith('tacle') && (g.tContact ?? g.t0) > prev && (g.tContact ?? g.t0) <= tTo);
         const gotT = new Set((tc?.tk || []).map((x) => x.gid)), tcov = prev == null || !TKONLY ? null : { n: allT.length, miss: allT.filter((g) => !gotT.has(g.id)).map((g) => ({ kind: g.kind, gap: (g.tContact ?? g.t0) < tFrom })) };
@@ -108,9 +112,9 @@ const serve = () => new Promise((resolve) => {
         const allA = prev == null ? [] : v.live.gest.gestures.filter((g) => isA(g) && g.part !== 'mains' && !v.players.get(g.pid)?.gk && Tof(g) > prev && Tof(g) <= tTo);
         const gotA = new Set(ac.map((x) => x.gid)); const skippedA = ac.filter((x) => x.skipped); for (let i = ac.length - 1; i >= 0; i--) if (ac[i].skipped) ac.splice(i, 1); for (let i = aa.length - 1; i >= 0; i--) if (aa[i].skipped) aa.splice(i, 1);
         const acov = prev == null ? null : { n: allA.length, skipped: skippedA.length, miss: allA.filter((g) => !gotA.has(g.id)).map((g) => ({ kind: g.kind, gap: Tof(g) < tFrom })) };
-        return { now, c, a, ac, aa, gc, ga, gcov, tc, ta, tcov, acov, cov: prev == null ? null : { n: all.length, miss: all.filter((g) => !got.has(g.id)).map((g) => ({ kind: g.kind, gap: g.tContact < tFrom })) } };
-      }, [WIN, AIRONLY, GKONLY, TKONLY]);
-      res.contrat.push(...r.c); res.ancien.push(...r.a); res.airC.push(...(r.ac || [])); res.airA.push(...(r.aa || [])); res.gkC.push(...(r.gc || [])); res.gkA.push(...(r.ga || [])); if (r.gcov) { (res.gcov ||= { n: 0, miss: [] }).n += r.gcov.n; res.gcov.miss.push(...r.gcov.miss); } if (r.tc) { res.tkC.push(...r.tc.tk); res.bumpC.push(...r.tc.bumps); res.tkA.push(...r.ta.tk); res.bumpA.push(...r.ta.bumps); } if (r.tcov) { (res.tcov ||= { n: 0, miss: [] }).n += r.tcov.n; res.tcov.miss.push(...r.tcov.miss); } last = r.now;
+        return { now, c, a, ac, aa, gc, ga, gcov, tc, ta, tcov, hc, ha, hcov, acov, cov: prev == null ? null : { n: all.length, miss: all.filter((g) => !got.has(g.id)).map((g) => ({ kind: g.kind, gap: g.tContact < tFrom })) } };
+      }, [WIN, AIRONLY, GKONLY, TKONLY, THONLY]);
+      res.contrat.push(...r.c); res.ancien.push(...r.a); res.airC.push(...(r.ac || [])); res.airA.push(...(r.aa || [])); res.gkC.push(...(r.gc || [])); res.gkA.push(...(r.ga || [])); if (r.gcov) { (res.gcov ||= { n: 0, miss: [] }).n += r.gcov.n; res.gcov.miss.push(...r.gcov.miss); } if (r.tc) { res.tkC.push(...r.tc.tk); res.bumpC.push(...r.tc.bumps); res.tkA.push(...r.ta.tk); res.bumpA.push(...r.ta.bumps); } if (r.tcov) { (res.tcov ||= { n: 0, miss: [] }).n += r.tcov.n; res.tcov.miss.push(...r.tcov.miss); } if (r.hc) { res.thC.push(...r.hc); res.thA.push(...r.ha); } if (r.hcov) { (res.hcov ||= { n: 0, miss: [] }).n += r.hcov.n; res.hcov.miss.push(...r.hcov.miss); } last = r.now;
       if (process.env.PROGRESS) console.error(`t=${r.now.toFixed(0)} aériens ${res.airC.length} ` + await page.evaluate(() => { const v = window.__view; return JSON.stringify({ paused: v.paused, phase: v.m.phase, TS: v.TS, stalled: v.stalled, replay: !!v.replaying, banner: v.banner?.text, sheet: [...document.querySelectorAll('.sheet [data-act]')].map((b) => b.dataset.act).slice(0, 8), fast: v.fast, hl: v.hl, acc: v.liveAcc, slow: v.slowmo, spd: v.speed, ls: v.liveSpeed?.(0.016), rp: !!v.replayPlan, rl: !!v.replayLive, steps: v.liveSteps, ko: v.koWait, cur: v.cur?.type }); }).catch((e) => e.message));
       if (r.acov) { (res.acov ||= { n: 0, miss: [], skipped: 0 }).n += r.acov.n; res.acov.skipped += r.acov.skipped || 0; res.acov.miss.push(...r.acov.miss); }
       if (r.cov) { (res.cov ||= { n: 0, miss: [] }).n += r.cov.n; res.cov.miss.push(...r.cov.miss); }

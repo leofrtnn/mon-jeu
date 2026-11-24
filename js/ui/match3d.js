@@ -3185,6 +3185,61 @@ export class Match3D {
     }
     return { tk, bumps };
   }
+  /**
+   * Sonde des lancers de touche (6c-D) : tous les gestes « touche », lâcher ou non. Ballon affiché
+   * (dans les mains tant qu'il est tenu, sinon celui du moteur) ; distance de chaque main (surface du
+   * modèle) à la surface du ballon pendant la prise, à l'instant réel du lâcher (ballon du moteur) ;
+   * ballon au-dessus de la tête ; saut du ballon affiché au lâcher ; écart ballon affiché / moteur après
+   * le lâcher ; instant où les mains passent au plus près du point de lâcher.
+   */
+  probeTH(mode, tFrom, tTo) {
+    const v = this.v, D6 = v.disp6, G = v.live?.gest; if (!D6 || !G) return [];
+    const flip = this.flip(), out = [], step = 1 / 96;
+    const engBall = () => { const B = D6.ballN, [bx, bz] = this.toWorld(B.x, B.y, flip); return new THREE.Vector3(bx, BALL_R + B.h * 26, bz); };
+    for (const g of G.gestures) {
+      if (g.kind !== 'touche') continue;
+      const rel = g.tContact != null, T = rel ? g.tContact : g.t0; if (T < tFrom || T > tTo) continue;
+      const e = this.players.get(g.pid); if (!e) continue;
+      const P3 = e.p3; P3._sm = null;
+      let hold = null, holdEng = null, atRel = null, sync = null, jump = { d: 0, at: null }, post = 0, played = false, heldAfter = 0, prevD = null, prevE = null, Crel = null;
+      if (rel && D6.sample(mode, g.tContact)) Crel = engBall();
+      for (let t = g.t0 - 1.0; t <= T + 0.6; t += step) {
+        if (!D6.sample(mode, t)) break;
+        const p = D6.disp.get(g.pid); if (!p) break;
+        const Ce = engBall();
+        const [x, z] = this.toWorld(p.x, p.y, flip); P3.root.position.set(x, 0, z);
+        const B = D6.ballN; P3.pose(p, flip, { dt: step, ballAng: Math.atan2((B.y - p.y) * W, (B.x - p.x) * L) }); P3.smoothPose(step);
+        if (p._ik) this.applyIK(e, p, flip, B); P3.root.updateMatrixWorld(true);
+        if (p.throwIn > 0 || p._th) played = true;
+        const held = p.hold > 0 || !!p._thHeld;
+        const Cd = held ? (this.heldBallPos(e, p, flip) || Ce) : Ce;
+        const hg = [0, 1].map((i) => { const q = P3.surfNearest('hand' + i, Cd); return q ? q.distanceTo(Cd) - BALL_R : null; });
+        if (held && (!rel || t < g.tContact - step / 2)) { holdEng ||= { h: 0, dh: 0 }; holdEng.h = Math.max(holdEng.h, Ce.y); holdEng.dh = Math.max(holdEng.dh, Math.hypot(Ce.x - x, Ce.z - z)); }
+        if (held && (!rel || t < g.tContact - step / 2) && hg[0] != null) {
+          const hq = P3.surfNearest('head', Cd), hc = P3.surfCenter('head');
+          hold ||= { n: 0, gapMax: -9, penMin: 9, both: 0, headMin: 9, above: 0 };
+          hold.n++; hold.gapMax = Math.max(hold.gapMax, ...hg); hold.penMin = Math.min(hold.penMin, ...hg);
+          if (hg[0] <= 0.03 && hg[1] <= 0.03) hold.both++;
+          if (hq) hold.headMin = Math.min(hold.headMin, hq.distanceTo(Cd) - BALL_R);
+          if (hc && Cd.y > hc.y) hold.above++;
+        }
+        if (rel && Math.abs(t - g.tContact) <= step / 2 + 1e-6) {
+          const hr = [0, 1].map((i) => { const q = P3.surfNearest('hand' + i, Ce); return q ? q.distanceTo(Ce) - BALL_R : null; });
+          // Point de lâcher du moteur dans le repère du joueur affiché : devant (selon son orientation), de côté, hauteur.
+          const fa = flip ? p.face + Math.PI : p.face, dx = Ce.x - x, dz = Ce.z - z;
+          atRel = { hands: hr.map((u) => u == null ? null : +u.toFixed(3)), held, ballH: +Ce.y.toFixed(2), dh: +Math.hypot(dx, dz).toFixed(2), fwd: +(dx * Math.cos(fa) + dz * Math.sin(fa)).toFixed(2), lat: +(-dx * Math.sin(fa) + dz * Math.cos(fa)).toFixed(2) };
+        }
+        if (Crel) { const h0 = P3.surfNearest('hand0', Crel), h1 = P3.surfNearest('hand1', Crel); if (h0 && h1) { const d = h0.clone().add(h1).multiplyScalar(0.5).distanceTo(Crel) - BALL_R; if (!sync || d < sync.d) sync = { d, dt: t - g.tContact }; } }
+        if (prevD && rel && Math.abs(t - g.tContact) < 0.15) { const j = Cd.distanceTo(prevD) - Ce.distanceTo(prevE); if (j > jump.d) { jump.d = j; jump.at = t - g.tContact; } }
+        if (rel && t > g.tContact + step / 2) { post = Math.max(post, Cd.distanceTo(Ce)); if (held) heldAfter++; }
+        prevD = Cd.clone(); prevE = Ce.clone();
+      }
+      out.push({ gid: g.id, pid: g.pid, t0: g.t0, T, rel, dtRel: rel ? +(g.tContact - g.t0).toFixed(3) : null, played,
+        hold: hold ? { n: hold.n, gapMax: +hold.gapMax.toFixed(3), penMin: +hold.penMin.toFixed(3), both: +(hold.both / hold.n).toFixed(2), headMin: +hold.headMin.toFixed(3), above: +(hold.above / hold.n).toFixed(2) } : null,
+        atRel, sync: sync ? { d: +sync.d.toFixed(3), dt: +sync.dt.toFixed(3) } : null, jump: { d: +jump.d.toFixed(3), at: jump.at == null ? null : +jump.at.toFixed(3) }, post: +post.toFixed(3), heldAfter, holdEng: holdEng ? { h: +holdEng.h.toFixed(2), dh: +holdEng.dh.toFixed(2) } : null });
+    }
+    return out;
+  }
   probe6(mode, tFrom, tTo) {
     const v = this.v, D6 = v.disp6, G = v.live?.gest; if (!D6 || !G) return [];
     const flip = this.flip(), out = [], step = 1 / 96, V = new THREE.Vector3();
