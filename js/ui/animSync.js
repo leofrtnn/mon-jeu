@@ -51,6 +51,20 @@ const GKW = { rise: 0.14, fall: 0.16, hold: 0.45, holdCatch: 0.9, block: 0.4, bl
  * genou (PUNT.z), puis rejoint la trajectoire du moteur en PUNT.blend s.
  */
 export const PUNT = { z: 0.6, lead: 0.15, blend: 0.12 };
+/**
+ * Tacles (6c-C) : phase des images clés (KEYS.stand / KEYS.slide du rendu) calée sur la cinématique du moteur
+ * (contact.js · TACKLE : t1 = pied au plus loin, dur = fin du geste) au lieu du minuteur `slide` (1,6 fois plus
+ * long). Fente : pied tendu (phase 0,5) à t1. Glissé : au sol, jambe tendue (phase 0,26) en 0,3 s, tenu jusqu'à
+ * dur, puis relevé. Fenêtres de cinématique inverse du pied (contact ballon ou sur l'homme).
+ */
+export const TK = { stand: { t1: 0.36, dur: 0.55, up: 0.35 }, slide: { t1: 0.6, dur: 0.9, down: 0.3, up: 0.6 }, rise: 0.1, fall: 0.1 };
+export function tacklePhase(kind, s) {
+  if (s < 0) return null;
+  if (kind === 'stand') { const T = TK.stand; if (s < T.t1) return 0.5 * s / T.t1; const u = 0.5 + 0.5 * (s - T.t1) / (T.dur - T.t1 + T.up); return u < 1 ? u : null; }
+  const T = TK.slide; if (s < T.down) return 0.26 * s / T.down; if (s < T.dur) return 0.26 + 0.29 * (s - T.down) / (T.dur - T.down);
+  const u = 0.55 + 0.45 * (s - T.dur) / T.up; return u < 1 ? u : null;
+}
+
 
 /** Phase (0-1) de l'animation de frappe à l'instant d'affichage `t`, ou null hors du geste. */
 export function kickPhase(g, t, simNow) {
@@ -291,7 +305,33 @@ export class DisplayBuffer {
         if (this.heldAt(g.pid, g.tContact - 0.012)) { const ph = this.ballAt(g.tContact); d._rel = this.rel = { gid: g.id, pid: g.pid, tC: g.tContact, phys: ph, at: { x: ph.x, y: ph.y, z: Math.min(ph.z, PUNT.z) } }; }
         break;
       }
-      if (kick) { d._ik = ikOf(kick.g, IK.kick.rise, IK.kick.fall, (kick.g.style?.foot || d.kickFoot) === 'L' ? 0 : 1); d._ik.wy = 0; if (d._rel && d._rel.gid === kick.g.id && d._ik.at) d._ik.at = { ...d._rel.at }; }   // (frappe : orientation du moteur)
+      // Tacles (6c-C) : phase calée sur la cinématique du moteur ; pied d'attaque au ballon au contact, ou sur les
+      // jambes de l'adversaire au contact sur l'homme ; tacle sans contact ballon : pieds tenus à distance du ballon.
+      d._tkU = null; d._tkMiss = false; let tkIK = null;
+      for (let j = gs.length - 1; j >= 0; j--) {
+        const g = gs[j]; if (!g.kind.startsWith('tacle')) continue;
+        const kind = g.kind === 'tacle (glissé)' ? 'slide' : 'stand', u = tacklePhase(kind, tD - g.t0);
+        if (u == null) { if (tD - g.t0 < 3) d.slide = 0; break; }   // (fin du geste : l'ancien minuteur, plus long, ne le prolonge pas)
+        d._tkU = u; d.tk = kind; d.slide = Math.max(d.slide || 0, 0.05);
+        const leg = (d.id ?? 0) % 2 === 1 ? 0 : 1;   // (jambe d'attaque des images clés, comme le rendu les applique)
+        const ballC = g.tContact != null && g.tContact <= simNow;
+        d._tkMiss = !ballC;
+        const man = (g.notes || []).find((n) => /homme/.test(n.what) && n.t <= simNow);
+        if (ballC) { tkIK = ikOf(g, TK.rise, TK.fall, leg); tkIK.wy = 0; tkIK.noShift = true; }
+        else if (man) {
+          // Jambes de l'adversaire touché : le plus proche du pied du tacleur à l'instant noté par le moteur.
+          const me = this.posAt(g.pid, man.t); let vic = null, vd = Infinity;
+          if (me) for (const [id2, q2] of this.disp) { if (q2.side === d.side) continue; const pv = this.posAt(id2, man.t); if (!pv) continue; const dd = Math.hypot(pv.x - me.x, pv.y - me.y); if (dd < vd) { vd = dd; vic = pv; } }
+          if (vic && vd < 2.2) {
+            const ux = (me.x - vic.x) / (vd || 1), uy = (me.y - vic.y) / (vd || 1), x = tD - man.t;
+            let w = x < 0 ? 1 - Math.min(1, -x / TK.rise) : 1 - Math.min(1, x / TK.fall); w = Math.max(0, w);
+            tkIK = { w: w * w * (3 - 2 * w), wy: 0, leg, at: { x: vic.x + ux * 0.02, y: vic.y + uy * 0.02, z: 0.11 + 0.08 }, dtc: x, gid: g.id, noShift: true, man: true };   // (bout du pied à ~11 cm du centre de la victime : sur son tibia)
+          }
+        }
+        break;
+      }
+      if (tkIK) { d._ik = tkIK; }
+      else if (kick) { d._ik = ikOf(kick.g, IK.kick.rise, IK.kick.fall, (kick.g.style?.foot || d.kickFoot) === 'L' ? 0 : 1); d._ik.wy = 0; if (d._rel && d._rel.gid === kick.g.id && d._ik.at) d._ik.at = { ...d._rel.at }; }   // (frappe : orientation du moteur)
       else if (touch) { d._ik = ikOf(touch.g, IK.touch.rise, IK.touch.fall, null); d._ik.turn = TURN; }   // (la jambe la plus proche du ballon : le pied de touche du moteur suit la foulée)
       else if (air && !air.ctrl && air.g.tContact != null && air.g.tContact <= simNow) {
         // Contact de la tête (ou d'une autre partie du corps) pendant un saut : le corps se porte vers le ballon au contact.

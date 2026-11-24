@@ -1312,7 +1312,10 @@ export class Player3D {
       for (const a of this.arms) { a.sh.rotation.z = 0.9; a.sh.rotation.x = a.sgn * 0.25; a.el.rotation.z = 1.5; }
     }
     // Tacle (glissé ou debout) : séquence d'images clés, durée réelle du geste.
-    if (p.slide > 0) {
+    if (p._tkU != null) {
+      // (6c-C) Tacle piloté par le contrat : phase calée sur la cinématique du moteur.
+      this.applyKeys(keyPose(p.tk === 'stand' ? KEYS.stand : KEYS.slide, p._tkU), (p.id ?? 0) % 2 === 1); this._slideMax = 0;
+    } else if (p.slide > 0) {
       if (!(this._slideMax > 0) || p.slide > this._slidePrev + 0.01) this._slideMax = p.slide;
       this._slidePrev = p.slide;
       const t = 1 - p.slide / this._slideMax;
@@ -3102,6 +3105,86 @@ export class Match3D {
     }
     return out;
   }
+  /**
+   * Sonde des tacles et des duels de corps (étape 6c-C, outil). Tacles (fente, glissé) : distance des pieds à la
+   * surface du ballon affiché (au contact ballon, ou approche minimale pour un tacle sans contact ballon : faux
+   * contact) ; contact sur l'homme (note du moteur) : distance entre la jambe du tacleur et les jambes de
+   * l'adversaire ; décalage du corps affiché par rapport au moteur (aucun déplacement artificiel). Duels de corps
+   * et chocs (début d'un déséquilibre `bump` dans l'enregistrement) : écart entre les bustes des deux joueurs.
+   */
+  probeTK(mode, tFrom, tTo) {
+    const v = this.v, D6 = v.disp6, G = v.live?.gest; if (!D6 || !G) return { tk: [], bumps: [] };
+    const flip = this.flip(), step = 1 / 96, tk = [], bumps = [], V = new THREE.Vector3();
+    const foot = (P3, i) => P3.legs[i].ankle.localToWorld(new THREE.Vector3(0.1, -0.05, 0));
+    const legPts = (P3) => { const out = []; for (const L3 of P3.legs) { const h = L3.hip.getWorldPosition(new THREE.Vector3()), k = L3.knee.getWorldPosition(new THREE.Vector3()), a = L3.ankle.localToWorld(new THREE.Vector3(0.1, -0.05, 0)); for (let j = 0; j <= 4; j++) out.push(k.clone().lerp(a, j / 4)); for (let j = 1; j < 4; j++) out.push(h.clone().lerp(k, j / 4)); } return out; };
+    const legGap = (A, B) => { let m = Infinity; for (const a of A) for (const b of B) m = Math.min(m, a.distanceTo(b)); return m - 0.12; };   // (rayon des jambes ~6 cm chacune)
+    const poseAt = (e, pid, t) => { if (!D6.sample(mode, t)) return null; const p = D6.disp.get(pid); if (!p) return null; const [x, z] = this.toWorld(p.x, p.y, flip); e.p3.root.position.set(x, 0, z); const B = D6.ballN; e.p3.pose(p, flip, { dt: step, ballAng: Math.atan2((B.y - p.y) * W, (B.x - p.x) * L) }); e.p3.smoothPose(step); if (p._air) this.applyAir(e, p, flip, B); if (p._ik) this.applyIK(e, p, flip, B); this.antiPen(e, p, flip, B); if (p.fall > 0 || p.slide > 0 || p.hurt > 0 || p.place > 0 || p.block > 0) e.p3.groundContact(); if (p.gk && mode === 'contrat' && this.applyGK) this.applyGK(e, p, flip, B, false); e.p3.root.updateMatrixWorld(true); return { p, x, z }; };
+    for (const g of G.gestures) {
+      if (!g.kind.startsWith('tacle')) continue;
+      const slide = g.kind === 'tacle (glissé)', dur = (slide ? 0.9 : 0.55);
+      const T = g.tContact ?? g.t0; if (T < tFrom || T > tTo) continue;
+      const e = this.players.get(g.pid); if (!e) continue;
+      const P3 = e.p3, man = (g.notes || []).find((n) => /homme/.test(n.what));
+      let atC = null, dFr = null, best = null, minD = null, minDT = null, offMax = 0, manGap = null, legMin = null, footZ = null, victim = null;
+      P3._sm = null;
+      for (let t = g.t0 - 0.1; t <= g.t0 + dur * 1.6 + 0.2; t += step) {
+        const r = poseAt(e, g.pid, t); if (!r) break;
+        const B = D6.ballN, [bx, bz] = this.toWorld(B.x, B.y, flip), C = new THREE.Vector3(bx, BALL_R + B.h * 26, bz);
+        const df = Math.min(foot(P3, 0).distanceTo(C), foot(P3, 1).distanceTo(C)) - BALL_R;
+        offMax = Math.max(offMax, Math.hypot(P3.root.position.x - r.x, P3.root.position.z - r.z));
+        if (minD == null || df < minD) { minD = df; minDT = t - T; }
+        if (g.tContact != null) {
+          if (!best || df < best.d) best = { d: df, t };
+          if (Math.abs(t - g.tContact) <= step + 1e-6) { if (atC == null || df < atC) { atC = df; footZ = Math.min(foot(P3, 0).y, foot(P3, 1).y); } }
+          if (Math.abs(t - g.tContact) <= 1 / 60 + 1e-6 && (dFr == null || df < dFr)) dFr = df;
+        }
+        // Jambes des adversaires proches (contact sur l'homme ou faux contact) : posées à leur pose affichée.
+        const A = legPts(P3);
+        for (const [id2, q] of D6.disp) {
+          if (q.side === r.p.side || id2 === g.pid) continue;
+          if (Math.hypot((q.x - r.p.x) * L, (q.y - r.p.y) * W) > 2.5) continue;
+          const e2 = this.players.get(id2); if (!e2) continue;
+          const [x2, z2] = this.toWorld(q.x, q.y, flip); e2.p3.root.position.set(x2, 0, z2); e2.p3.pose(q, flip, { dt: step }); if (q.fall > 0 || q.slide > 0) e2.p3.groundContact(); e2.p3.root.updateMatrixWorld(true);
+          const gap = legGap(A, legPts(e2.p3));
+          if (legMin == null || gap < legMin.d) legMin = { d: gap, t: t - T, pid: id2 };
+          if (man && Math.abs(t - man.t) <= step + 1e-6 && (manGap == null || gap < manGap.d)) { manGap = { d: gap, pid: id2 }; victim = id2; }
+        }
+      }
+      tk.push({ gid: g.id, kind: g.kind, pid: g.pid, T, t0: g.t0, ball: g.tContact != null, man: man ? man.what : null, outcome: g.outcome,
+        dAtC: atC == null ? null : +atC.toFixed(3), dFrame: dFr == null ? null : +dFr.toFixed(3), minAtC: best ? +best.d.toFixed(3) : null, dtMin: best ? +(best.t - g.tContact).toFixed(4) : null,
+        minD: minD == null ? null : +minD.toFixed(3), minDT: minDT == null ? null : +minDT.toFixed(3), footZ: footZ == null ? null : +footZ.toFixed(2),
+        manGap: manGap ? +manGap.d.toFixed(3) : null, manT: man ? +(man.t - T).toFixed(3) : null, legMin: legMin ? { d: +legMin.d.toFixed(3), t: legMin.t, pid: legMin.pid } : null, off: +offMax.toFixed(3) });
+    }
+    // Duels de corps et chocs : début d'un déséquilibre dans l'enregistrement.
+    const S = D6.snaps, seen = (this._bumpSeen ||= new Set());
+    for (let i = 1; i < S.length; i++) {
+      const s0 = S[i - 1], s1 = S[i]; if (s1.t < tFrom || s1.t > tTo) continue;
+      for (const [id, q] of s1.ps) {
+        const q0 = s0.ps.get(id); if (!q0 || !((q.bump || 0) > (q0.bump || 0) + 0.05)) continue;
+        const key = mode + id + '@' + s1.t.toFixed(3); if (seen.has(key)) continue; seen.add(key);
+        // Adversaire (ou partenaire) le plus proche au même instant.
+        let other = null, od = Infinity;
+        for (const [id2, q2] of s1.ps) { if (id2 === id) continue; const d = Math.hypot((q2.x - q.x) * L, (q2.y - q.y) * W); if (d < od) { od = d; other = id2; } }
+        const e = this.players.get(id), e2 = other != null ? this.players.get(other) : null; if (!e || !e2) continue;
+        const pp = v.players.get(id), po = v.players.get(other);
+        const tk2 = G.gestures.find((g) => g.kind.startsWith('tacle') && (g.notes || []).some((n) => /homme/.test(n.what) && Math.abs(n.t - s1.t) < 0.02));
+        const kind = tk2 ? 'tacle sur l\'homme' : (pp && po && pp.side !== po.side) ? 'duel / choc entre adversaires' : 'choc entre partenaires';
+        // Écart entre les bustes (surface du modèle visible) à l'instant du choc, poses affichées.
+        let gap = null;
+        for (const t of [s1.t - step, s1.t, s1.t + step]) {
+          const r1 = poseAt(e, id, t), r2 = poseAt(e2, other, t); if (!r1 || !r2) continue;
+          const cA = e.p3.surfCenter('chest'), cB = e2.p3.surfCenter('chest'); if (!cA || !cB) continue;
+          const qa = e.p3.surfNearest('chest', cB), qb = e2.p3.surfNearest('chest', cA);
+          const dir = cB.clone().sub(cA); dir.y = 0; const dl = dir.length() || 1; dir.multiplyScalar(1 / dl);
+          // écart le long de l'axe des centres : avancée de chaque buste vers l'autre
+          const ra = qa.clone().sub(cA).dot(dir), rb = cB.clone().sub(qb).dot(dir), g2 = dl - ra - rb;
+          if (gap == null || g2 < gap) gap = g2;
+        }
+        bumps.push({ pid: id, other, kind, t: s1.t, bump: +q.bump.toFixed(2), centers: +od.toFixed(2), gap: gap == null ? null : +gap.toFixed(3), fall: (q.fall || 0) > 0 });
+      }
+    }
+    return { tk, bumps };
+  }
   probe6(mode, tFrom, tTo) {
     const v = this.v, D6 = v.disp6, G = v.live?.gest; if (!D6 || !G) return [];
     const flip = this.flip(), out = [], step = 1 / 96, V = new THREE.Vector3();
@@ -3361,7 +3444,7 @@ export class Match3D {
       }
     }
     k.legUsed = leg; k.side = 0;
-    if (k.leg != null && k.w > 0) {
+    if (k.leg != null && k.w > 0 && !k.noShift) {
       // Frappe du pied décidé par le moteur, ballon du côté de l'autre pied : à l'affichage, le joueur se
       // décale latéralement (au plus 0,35 m) pour que le ballon soit devant le pied de frappe, au lieu de
       // croiser la jambe derrière la jambe d'appui.
@@ -3378,7 +3461,7 @@ export class Match3D {
     const tooHigh = Cc.y - BALL_R > 0.75;
     let hip = P3.legs[leg].hip.getWorldPosition(new THREE.Vector3()), need = Cc.distanceTo(hip) - BALL_R - P3._legLen * 0.85;
     k.lunge = 0;
-    if (need > 0 && k.w > 0 && !tooHigh) {
+    if (need > 0 && k.w > 0 && !tooHigh && !k.noShift) {   // (tacle, 6c-C : aucun déplacement du corps ajouté)
       // Fente : le corps se porte vers le ballon (horizontalement), au plus 0,5 m.
       const R = P3.root.position, dx = Cc.x - R.x, dz = Cc.z - R.z, dl = Math.hypot(dx, dz) || 1, sft = Math.min(0.5, need) * k.w;
       R.x += (dx / dl) * sft; R.z += (dz / dl) * sft; k.lunge = sft;
@@ -3425,7 +3508,8 @@ export class Match3D {
     }
     if (Math.hypot(bx - R.x, bz - R.z) > 1.3 || by > 1.2) return;
     const C = (this._apC ||= new THREE.Vector3()).set(bx, by, bz), V = (this._apV ||= new THREE.Vector3());
-    const atContact = p._ik && Math.abs(p._ik.dtc) <= 1 / 96 + 1e-6, rMin = atContact ? BALL_R - 0.008 : BALL_R;
+    // (6c-C) Tacle sans contact avec le ballon : les pieds restent à 3 cm au moins du ballon (jamais de contact ballon représenté).
+    const atContact = p._ik && Math.abs(p._ik.dtc) <= 1 / 96 + 1e-6, rMin = atContact ? BALL_R - 0.008 : p._tkMiss ? BALL_R + 0.03 : BALL_R;
     for (const leg of [0, 1]) for (let pass = 0; pass < 3; pass++) {
       e.p3.root.updateMatrixWorld(true);
       const t = e.p3.legs[leg].ankle.localToWorld(V.set(0.1, -0.05, 0)), r = t.distanceTo(C);

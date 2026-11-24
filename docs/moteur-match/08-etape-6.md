@@ -894,9 +894,12 @@ contacts de tête par le côté ou l'arrière (ballons arrivant de côté ou de 
 tête à 3,4-4,2 cm ; séquences rapprochées tête puis contrôle de poitrine ; contrôles de la cuisse. Seuils
 inchangés. DI-1 suivi séparément.
 
-## 6c-B — Gardien — rapport, non validé
+## 6c-B — Gardien — validée avec réserves
 
-Statut : rapport présenté, en attente de validation. 6c-C non commencée.
+**Décision (utilisateur)** : 6c-B validée avec réserves. Réserves conservées explicitement : 6 contacts des
+mains sur 34 à plus de 10 cm ; pénétrations des gants dans le ballon ; glissement du ballon pendant une prise
+en plongeon ; ballon tenu avec gants croisés et bras traversant partiellement le buste ; relances au pied avec
+un déplacement du corps de 35 cm en un pas (anomalie préexistante de la cinématique de frappe).
 
 ### Constat de départ (version d'origine, même sonde)
 Sonde dédiée `probeGK` (`GK=1 node tools/bench/anim-probe.cjs`) : tous les gestes du gardien (plongeon, saut
@@ -994,3 +997,7 @@ centrée sur le ballon a été ajoutée pour le gardien. Constat (vue plongeante
 * Outils : sonde `probeGK` (`GK=1`), relevé pas à pas (`GKSERIES=1`), bancs `GKTEST` et `DIVESIDE`.
 
 
+
+## 6c-C — Tacles et duels corporels — en cours
+
+*(Rapport à venir.)*
