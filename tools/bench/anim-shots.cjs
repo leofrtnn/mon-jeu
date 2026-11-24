@@ -67,7 +67,7 @@ const serve = () => new Promise((resolve) => {
     await page.waitForTimeout(8000);
     const want = ['touche de conduite', 'contrôle', 'passe', 'passe levée', 'centre', 'frappe', 'dégagement', 'subi'];
     const done = new Map(); let shots = 0;
-    const RES = !!(process.env.RES || process.env.SEQ), SEQ = !!process.env.SEQ, GK = !!process.env.GK, AIR = !!process.env.AIR || GK;   // GK=1 : gestes du gardien (6c-B) ; OFFS=0,0.4 : instants capturés autour du contact (s)
+    const RES = !!(process.env.RES || process.env.SEQ), SEQ = !!process.env.SEQ, GK = !!process.env.GK, TKS = !!process.env.TK, AIR = !!process.env.AIR || GK || TKS;   // TK=1 : tacles (6c-C)   // GK=1 : gestes du gardien (6c-B) ; OFFS=0,0.4 : instants capturés autour du contact (s)
     if (AIR) await page.evaluate((k) => { const v = window.__view; v.TS = k ? 20 : 6; v.opts.replays = false; v.replayPlan = null; }, !!process.env.KEYS);   // (gestes aériens rares : jeu accéléré entre deux captures)
     if (RES) await page.evaluate((x) => { window.__view.disp6.extra = x; }, process.env.KEYS ? 32 : AIR ? 5 : 1.4);
     for (let tries = 0; tries < (process.env.TRIES ? +process.env.TRIES : AIR ? 600 : RES ? 200 : 80) && shots < PAIRS; tries++) {
@@ -75,7 +75,16 @@ const serve = () => new Promise((resolve) => {
       const pick = await page.evaluate((args) => {
         const [want, done, RES, SEQ, AIR] = args, v = window.__view, G = v.live.gest, now = v.live.now;
         let g = null, why = null;
-        if (args[6]) {
+        if (args[7]) {
+          // Tacles (6c-C) : contact ballon, sur l'homme, manqués (fente, glissé) ; KEYS=pid:t0 pour des gestes précis.
+          v.TS = 20;
+          const pr = v.r3d.probeTK('contrat', Math.max(v._airT || 0, now - 30), now - 1.6).tk; v._airT = now - 1.6;
+          const cat = (x) => (x.kind === 'tacle (glissé)' ? 'glisse' : 'fente') + '_' + (x.ball ? 'ballon' : x.man ? 'homme' : 'manque');
+          const KEYS = (args[5] || '').split(',').filter(Boolean).map((k) => k.split(':').map(Number));
+          v._keysDone ||= new Set();
+          const r = KEYS.length ? pr.find((x) => KEYS.some(([pid, T]) => x.pid === pid && Math.abs(x.t0 - T) < 0.01) && !v._keysDone.has(x.gid) && (v._keysDone.add(x.gid), true)) : pr.find((x) => (done[cat(x)] || 0) < 2 && !v._keysDone.has(x.gid) && (v._keysDone.add(x.gid), true));
+          if (r) { g = G.gestures.find((x) => x.id === r.gid); g._T = r.ball ? r.T : r.man ? r.T + (r.manT || 0) : r.T + (r.minDT || 0.3); why = cat(r) + ` (pied↔ballon ${r.dAtC != null ? (r.dAtC * 100).toFixed(1) + ' cm' : '—'}, approche min ${r.minD != null ? (r.minD * 100).toFixed(1) : '—'} cm, jambe↔adversaire ${r.manGap != null ? (r.manGap * 100).toFixed(1) + ' cm' : '—'}, pid ${r.pid}, t0 ${r.t0.toFixed(3)})`; }
+        } else if (args[6]) {
           // Gardien (6c-B) : gestes du gardien, classés par famille et résultat ; KEYS=pid:T pour des gestes précis.
           v.TS = 20;
           const pr = v.r3d.probeGK('contrat', Math.max(v._airT || 0, now - 30), now - 1.2); v._airT = now - 1.2;
@@ -102,7 +111,7 @@ const serve = () => new Promise((resolve) => {
         } else g = [...G.gestures].reverse().find((x) => want.includes(x.kind) && x.tContact != null && x.tContact > now - 1.1 && x.tContact < now - 0.45 && (done[x.kind] || 0) < 1);
         if (!g) return null;
         const e = v.r3d.players.get(g.pid); if (!e) return null;
-        v.TS0 = AIR ? (args[5] ? 20 : 6) : v.TS; v.TS = 0; v._shotAir = AIR; v._shotGK = !!args[6];   // simulation figée
+        v.TS0 = AIR ? (args[5] ? 20 : 6) : v.TS; v.TS = 0; v._shotAir = AIR; v._shotGK = !!args[6] || !!args[7];   // simulation figée
         v._cam0 = v.r3d.updateCamera; v._samp0 = v.sampleDisplay;
         // Caméra de côté : perpendiculaire à l'axe joueur → ballon, du côté opposé au joueur le plus proche (pas d'occultation).
         v.r3d.updateCamera = function () {
@@ -115,7 +124,7 @@ const serve = () => new Promise((resolve) => {
         };
         v._shot = { tC: (g._T ?? g.tContact) + (why && /penetration_hors/.test(why) ? +(why.match(/à (-?\d+) ms/) || [0, 0])[1] / 1000 : 0), kind: g.kind + (g.reflex && ['passe', 'passe levée', 'centre', 'frappe', 'dégagement'].includes(g.kind) ? ' sans armé' : ''), id: g.id, why, cat: why ? why.split(' ')[0] : null };
         return v._shot;
-      }, [want, Object.fromEntries(done), RES, SEQ, AIR, process.env.KEYS || '', GK]);
+      }, [want, Object.fromEntries(done), RES, SEQ, AIR, process.env.KEYS || '', GK, TKS]);
       if (!pick) continue;
       if (SEQ) {
         // Séquence : même geste, instants successifs ; caméra de côté figée sur sa position au contact, puis caméra de jeu.
