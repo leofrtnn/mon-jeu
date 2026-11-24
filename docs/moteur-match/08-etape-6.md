@@ -1076,4 +1076,23 @@ Duels et chocs (début d'un déséquilibre, écart entre les bustes affichés, i
 * Tacles manqués : 2 fentes passent encore à moins de 1 cm du ballon (−0,4 cm) ; pointe du pied estimée
   à 4 cm sous le niveau de la pelouse au contact (médiane ; avant +2 cm).
 
-*(Captures et non-régression : à venir dans ce rapport.)*
+### Captures (`anim-shots.cjs`, `TK=1`, mêmes tacles avant/après, graine 22, vue plongeante, −150 ms / contact / +200 ms)
+Neuf tacles choisis dans la mesure (favorables et défavorables, non écartés). L'outil de capture ne gardait
+que 1,4 s d'historique d'affichage pour une recherche sur 30 s : une première passe filmait des instants
+faux (distances incohérentes avec la sonde) ; corrigé (32 s), les distances affichées par l'outil
+concordent avec la sonde.
+* Fente, contact ballon (2 cas favorables) : avant, le tacleur est encore debout au contact et la pose de
+  tacle arrive 200 ms plus tard, ballon déjà parti (dans un cas, glissé tardif « sur » le ballon qui
+  s'éloigne) ; après, jambe tendue, pied au ballon (0,1 et 0,8 cm) au contact, relevé ensuite.
+* Fente, faute sur l'homme : avant, pied sur le ballon au contact (faux contact ballon) ; après, jambe sur
+  celles de la victime (−3,5 cm) ; le pied reste toutefois visuellement très près du ballon (3,3 cm).
+* Fente, contact sur l'homme sans faute : avant, tacleur à 72 cm ; après, jambe vers les jambes de
+  l'adversaire (17 cm).
+* Fente et glissé manqués : aucun pied au ballon, avant comme après.
+* Défavorables : deux fentes avec contact ballon à 21-22 cm (jambe tendue vers le ballon, trop courte, sans
+  déplacement du corps) ; glissé avec faute : tacleur couché à 38 cm des jambes de la victime.
+* Défaut visible : sur un des cas favorables, l'autre jambe est tendue loin derrière le corps au contact
+  (pose peu naturelle).
+
+### Non-régression
+*(en cours)*
