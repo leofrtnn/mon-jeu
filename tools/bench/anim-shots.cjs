@@ -67,15 +67,23 @@ const serve = () => new Promise((resolve) => {
     await page.waitForTimeout(8000);
     const want = ['touche de conduite', 'contrôle', 'passe', 'passe levée', 'centre', 'frappe', 'dégagement', 'subi'];
     const done = new Map(); let shots = 0;
-    const RES = !!(process.env.RES || process.env.SEQ), SEQ = !!process.env.SEQ, GK = !!process.env.GK, TKS = !!process.env.TK, AIR = !!process.env.AIR || GK || TKS;   // TK=1 : tacles (6c-C)   // GK=1 : gestes du gardien (6c-B) ; OFFS=0,0.4 : instants capturés autour du contact (s)
+    const RES = !!(process.env.RES || process.env.SEQ), SEQ = !!process.env.SEQ, GK = !!process.env.GK, TKS = !!process.env.TK, THS = !!process.env.TH, AIR = !!process.env.AIR || GK || TKS || THS;   // TH=1 : touches (6c-D) ; OFFS=h0.2,… : instants comptés depuis le début de la tenue du ballon   // TK=1 : tacles (6c-C)   // GK=1 : gestes du gardien (6c-B) ; OFFS=0,0.4 : instants capturés autour du contact (s)
     if (AIR) await page.evaluate((k) => { const v = window.__view; v.TS = k ? 20 : 6; v.opts.replays = false; v.replayPlan = null; }, !!process.env.KEYS);   // (gestes aériens rares : jeu accéléré entre deux captures)
-    if (RES || TKS) await page.evaluate((x) => { window.__view.disp6.extra = x; }, process.env.KEYS || TKS ? 32 : AIR ? 5 : 1.4);   // (tacles : fenêtre de recherche de 30 s, historique d'affichage à la mesure)
+    if (RES || TKS || THS) await page.evaluate((x) => { window.__view.disp6.extra = x; }, THS ? 48 : process.env.KEYS || TKS ? 32 : AIR ? 5 : 1.4);   // (tacles : fenêtre de recherche de 30 s, historique d'affichage à la mesure)
     for (let tries = 0; tries < (process.env.TRIES ? +process.env.TRIES : AIR ? 600 : RES ? 200 : 80) && shots < PAIRS; tries++) {
       await page.waitForTimeout(1200);
       const pick = await page.evaluate((args) => {
         const [want, done, RES, SEQ, AIR] = args, v = window.__view, G = v.live.gest, now = v.live.now;
         let g = null, why = null;
-        if (args[7]) {
+        if (args[8]) {
+          // Touches (6c-D) : lâchées ou non ; KEYS=pid:t0 pour des gestes précis ; prise, tenue et lâcher.
+          v.TS = 20;
+          const pr = v.r3d.probeTH('contrat', Math.max(v._airT || 0, now - 30), now - 1.6); v._airT = now - 1.6;
+          const KEYS = (args[5] || '').split(',').filter(Boolean).map((k) => k.split(':').map(Number));
+          v._keysDone ||= new Set();
+          const r = KEYS.length ? pr.find((x) => KEYS.some(([pid, T]) => x.pid === pid && Math.abs(x.t0 - T) < 0.01) && !v._keysDone.has(x.gid) && (v._keysDone.add(x.gid), true)) : pr.find((x) => !v._keysDone.has(x.gid) && (v._keysDone.add(x.gid), true));
+          if (r) { g = G.gestures.find((x) => x.id === r.gid); g._T = r.T; g._holdS = r.holdS; why = (r.rel ? 'touche lâchée' : 'touche sans lâcher') + ` (mains au lâcher ${r.atRel ? r.atRel.hands.map((u) => (u * 100).toFixed(1)).join(' / ') + ' cm' : '—'}, point de lâcher à ${r.atRel ? (r.atRel.dh * 100).toFixed(0) + ' cm' : '—'} du joueur, tenue ${r.holdS ?? '—'} s, pid ${r.pid}, t0 ${r.t0.toFixed(3)})`; }
+        } else if (args[7]) {
           // Tacles (6c-C) : contact ballon, sur l'homme, manqués (fente, glissé) ; KEYS=pid:t0 pour des gestes précis.
           v.TS = 20;
           const pr = v.r3d.probeTK('contrat', Math.max(v._airT || 0, now - 30), now - 1.6).tk; v._airT = now - 1.6;
@@ -122,9 +130,9 @@ const serve = () => new Promise((resolve) => {
           if (v._shotGK) { const by = 0.11 + (B.h || 0) * 26; this.camera.position.set(bx + nx * side * 2.2 - (q.x - bx) * 0.35, by + 2.6, bz + nz * side * 2.2 - (q.z - bz) * 0.35); this.camera.lookAt((bx * 2 + q.x) / 3, Math.max(0.3, by * 0.8), (bz * 2 + q.z) / 3); this.camera.fov = 40; this.camera.updateProjectionMatrix(); return; }   // (gardien : vue plongeante centrée sur le ballon)
           const hi = v._shotAir ? 1 : 0; this.camera.position.set(mx + nx * side * (2.8 + hi), 1.1 + 0.6 * hi, mz + nz * side * (2.8 + hi)); this.camera.lookAt(mx, 0.45 + 1.0 * hi, mz); this.camera.fov = 34; this.camera.updateProjectionMatrix();
         };
-        v._shot = { tC: (g._T ?? g.tContact) + (why && /penetration_hors/.test(why) ? +(why.match(/à (-?\d+) ms/) || [0, 0])[1] / 1000 : 0), kind: g.kind + (g.reflex && ['passe', 'passe levée', 'centre', 'frappe', 'dégagement'].includes(g.kind) ? ' sans armé' : ''), id: g.id, why, cat: why ? why.split(' ')[0] : null };
+        v._shot = { holdS: g._holdS ?? null, tC: (g._T ?? g.tContact) + (why && /penetration_hors/.test(why) ? +(why.match(/à (-?\d+) ms/) || [0, 0])[1] / 1000 : 0), kind: g.kind + (g.reflex && ['passe', 'passe levée', 'centre', 'frappe', 'dégagement'].includes(g.kind) ? ' sans armé' : ''), id: g.id, why, cat: why ? why.split(' ')[0] : null };
         return v._shot;
-      }, [want, Object.fromEntries(done), RES, SEQ, AIR, process.env.KEYS || '', GK, TKS]);
+      }, [want, Object.fromEntries(done), RES, SEQ, AIR, process.env.KEYS || '', GK, TKS, THS]);
       if (!pick) continue;
       if (SEQ) {
         // Séquence : même geste, instants successifs ; caméra de côté figée sur sa position au contact, puis caméra de jeu.
@@ -145,7 +153,7 @@ const serve = () => new Promise((resolve) => {
         await page.evaluate(() => { const v = window.__view; v.TS = v.TS0; v.r3d.updateCamera = v._cam0; v.sampleDisplay = v._samp0; v._camSide = null; });
         shots++; continue;
       }
-      const OFFS = (process.env.OFFS || '0').split(',').map(Number);
+      const OFFS = (process.env.OFFS || '0').split(',').map((o) => (o[0] === 'h' ? (pick.holdS != null ? -pick.holdS + +o.slice(1) : null) : +o)).filter((o) => o != null);
       for (const off of OFFS) {
       await page.evaluate((o) => { const v = window.__view; v._shot.tC0 ??= v._shot.tC; v._shot.tC = v._shot.tC0 + o; }, off);
       for (const mode of (RES && !AIR) || process.env.KEYS ? ['contrat'] : ['ancien', 'contrat']) {
