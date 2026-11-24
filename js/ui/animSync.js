@@ -316,14 +316,14 @@ export class DisplayBuffer {
       for (let j = gs.length - 1; j >= 0; j--) {
         const g = gs[j]; if (!g.kind.startsWith('tacle')) continue;
         const kind = g.kind === 'tacle (glissé)' ? 'slide' : 'stand', manN = (g.notes || []).find((n) => /homme/.test(n.what) && n.t <= simNow);
-        const tcK = g.tContact != null && g.tContact <= simNow ? g.tContact : manN ? manN.t : null, u = tacklePhase(kind, tD - g.t0, tcK != null ? tcK - g.t0 : null);
+        const tcK = g.tContact != null && g.tContact <= simNow ? g.tContact : null, u = tacklePhase(kind, tD - g.t0, tcK != null ? tcK - g.t0 : null);   // (contact sur l'homme : phase du moteur, sans recalage)
         if (u == null) { if (tD - g.t0 < 3) d.slide = 0; break; }   // (fin du geste : l'ancien minuteur, plus long, ne le prolonge pas)
         d._tkU = u; d.tk = kind; d.slide = Math.max(d.slide || 0, 0.05);
         const leg = (d.id ?? 0) % 2 === 1 ? 0 : 1;   // (jambe d'attaque des images clés, comme le rendu les applique)
         const ballC = g.tContact != null && g.tContact <= simNow;
         d._tkMiss = !ballC;
         const man = (g.notes || []).find((n) => /homme/.test(n.what) && n.t <= simNow);
-        if (ballC) { tkIK = ikOf(g, TK.rise, TK.fall, leg); tkIK.wy = 0; tkIK.noShift = true; }
+        if (ballC) { tkIK = ikOf(g, TK.rise, TK.fall, leg); tkIK.wy = 0; tkIK.noShift = true; if (kind === 'stand') tkIK.lungeMax = 0.35; }   // (fente : le corps peut se porter vers le ballon, au plus 0,35 m ; glissé : aucun déplacement)
         else if (man) {
           // Jambes de l'adversaire touché : le plus proche du pied du tacleur à l'instant noté par le moteur.
           const me = this.posAt(g.pid, man.t); let vic = null, vd = Infinity;

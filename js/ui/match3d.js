@@ -3461,9 +3461,9 @@ export class Match3D {
     const tooHigh = Cc.y - BALL_R > 0.75;
     let hip = P3.legs[leg].hip.getWorldPosition(new THREE.Vector3()), need = Cc.distanceTo(hip) - BALL_R - P3._legLen * 0.85;
     k.lunge = 0;
-    if (need > 0 && k.w > 0 && !tooHigh && !k.noShift) {   // (tacle, 6c-C : aucun déplacement du corps ajouté)
+    if (need > 0 && k.w > 0 && !tooHigh && (!k.noShift || k.lungeMax > 0)) {   // (tacle, 6c-C : glissé sans déplacement ; fente au plus lungeMax)
       // Fente : le corps se porte vers le ballon (horizontalement), au plus 0,5 m.
-      const R = P3.root.position, dx = Cc.x - R.x, dz = Cc.z - R.z, dl = Math.hypot(dx, dz) || 1, sft = Math.min(0.5, need) * k.w;
+      const R = P3.root.position, dx = Cc.x - R.x, dz = Cc.z - R.z, dl = Math.hypot(dx, dz) || 1, sft = Math.min(k.lungeMax ?? 0.5, need) * k.w;
       R.x += (dx / dl) * sft; R.z += (dz / dl) * sft; k.lunge = sft;
       P3.root.updateMatrixWorld(true); hip = P3.legs[leg].hip.getWorldPosition(new THREE.Vector3());
     }
