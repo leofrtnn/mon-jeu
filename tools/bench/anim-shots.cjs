@@ -102,7 +102,7 @@ const serve = () => new Promise((resolve) => {
         } else g = [...G.gestures].reverse().find((x) => want.includes(x.kind) && x.tContact != null && x.tContact > now - 1.1 && x.tContact < now - 0.45 && (done[x.kind] || 0) < 1);
         if (!g) return null;
         const e = v.r3d.players.get(g.pid); if (!e) return null;
-        v.TS0 = AIR ? (args[5] ? 20 : 6) : v.TS; v.TS = 0; v._shotAir = AIR;   // simulation figée
+        v.TS0 = AIR ? (args[5] ? 20 : 6) : v.TS; v.TS = 0; v._shotAir = AIR; v._shotGK = !!args[6];   // simulation figée
         v._cam0 = v.r3d.updateCamera; v._samp0 = v.sampleDisplay;
         // Caméra de côté : perpendiculaire à l'axe joueur → ballon, du côté opposé au joueur le plus proche (pas d'occultation).
         v.r3d.updateCamera = function () {
@@ -110,6 +110,7 @@ const serve = () => new Promise((resolve) => {
           const mx = (q.x + bx) / 2, mz = (q.z + bz) / 2; let nx = -(bz - q.z), nz = bx - q.x; const nl = Math.hypot(nx, nz) || 1; nx /= nl; nz /= nl;
           let side = 1, best = Infinity;
           for (const [id2, e2] of this.players) { if (e2 === e) continue; const r = e2.p3.root.position, d = Math.hypot(r.x - mx, r.z - mz); if (d < best) { best = d; side = ((r.x - mx) * nx + (r.z - mz) * nz) > 0 ? -1 : 1; } }
+          if (v._shotGK) { const by = 0.11 + (B.h || 0) * 26; this.camera.position.set(bx + nx * side * 2.2 - (q.x - bx) * 0.35, by + 2.6, bz + nz * side * 2.2 - (q.z - bz) * 0.35); this.camera.lookAt((bx * 2 + q.x) / 3, Math.max(0.3, by * 0.8), (bz * 2 + q.z) / 3); this.camera.fov = 40; this.camera.updateProjectionMatrix(); return; }   // (gardien : vue plongeante centrée sur le ballon)
           const hi = v._shotAir ? 1 : 0; this.camera.position.set(mx + nx * side * (2.8 + hi), 1.1 + 0.6 * hi, mz + nz * side * (2.8 + hi)); this.camera.lookAt(mx, 0.45 + 1.0 * hi, mz); this.camera.fov = 34; this.camera.updateProjectionMatrix();
         };
         v._shot = { tC: (g._T ?? g.tContact) + (why && /penetration_hors/.test(why) ? +(why.match(/à (-?\d+) ms/) || [0, 0])[1] / 1000 : 0), kind: g.kind + (g.reflex && ['passe', 'passe levée', 'centre', 'frappe', 'dégagement'].includes(g.kind) ? ' sans armé' : ''), id: g.id, why, cat: why ? why.split(' ')[0] : null };
