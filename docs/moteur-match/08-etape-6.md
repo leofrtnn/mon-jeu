@@ -1095,4 +1095,16 @@ concordent avec la sonde.
   (pose peu naturelle).
 
 ### Non-régression
-*(en cours)*
+* Empreintes du moteur inchangées : 112bd1dc ; graine 104 → 2a6d7bc9 ; 300 → 8b411e7e ; moteur rapide
+  b47d8708.
+* 131 tests unitaires (dont le nouveau test de la phase du tacle), tests d'interface et test du match à deux
+  (en ligne) réussis.
+* Sonde 6b (graine 21, 8 min, 6c-B / 6c-C) : conduite 92 / 91 %, contrôles 54 / 54 %, passes 92 / 92 %,
+  centres, dégagements et frappes 100 / 100 % crédibles ; remises en jeu au pied 100 / 100 %.
+* Coût d'affichage (rendu logiciel sans GPU, mesures alternées 6c-B / 6c-C, médiane par image, trois
+  passes chacune) : sans ralentissement 231-273 / 216-253 ms ; processeur ralenti ×4 283-343 / 309-366 ms :
+  pas d'écart mesurable au-delà du bruit.
+* Outils conservés : sondes `probe6`, `probeAir`, `probeGK`, `probeTK` (`TK=1`) ; captures `TK=1`.
+
+### Décision demandée
+6c-C est présentée pour validation, avec les réserves ci-dessus. 6c-D n'est pas commencée.
