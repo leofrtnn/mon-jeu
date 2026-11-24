@@ -69,7 +69,7 @@ const serve = () => new Promise((resolve) => {
     const done = new Map(); let shots = 0;
     const RES = !!(process.env.RES || process.env.SEQ), SEQ = !!process.env.SEQ, GK = !!process.env.GK, TKS = !!process.env.TK, AIR = !!process.env.AIR || GK || TKS;   // TK=1 : tacles (6c-C)   // GK=1 : gestes du gardien (6c-B) ; OFFS=0,0.4 : instants capturés autour du contact (s)
     if (AIR) await page.evaluate((k) => { const v = window.__view; v.TS = k ? 20 : 6; v.opts.replays = false; v.replayPlan = null; }, !!process.env.KEYS);   // (gestes aériens rares : jeu accéléré entre deux captures)
-    if (RES) await page.evaluate((x) => { window.__view.disp6.extra = x; }, process.env.KEYS ? 32 : AIR ? 5 : 1.4);
+    if (RES || TKS) await page.evaluate((x) => { window.__view.disp6.extra = x; }, process.env.KEYS || TKS ? 32 : AIR ? 5 : 1.4);   // (tacles : fenêtre de recherche de 30 s, historique d'affichage à la mesure)
     for (let tries = 0; tries < (process.env.TRIES ? +process.env.TRIES : AIR ? 600 : RES ? 200 : 80) && shots < PAIRS; tries++) {
       await page.waitForTimeout(1200);
       const pick = await page.evaluate((args) => {
