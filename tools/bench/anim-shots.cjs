@@ -70,7 +70,7 @@ const serve = () => new Promise((resolve) => {
     const RES = !!(process.env.RES || process.env.SEQ), SEQ = !!process.env.SEQ, GK = !!process.env.GK, AIR = !!process.env.AIR || GK;   // GK=1 : gestes du gardien (6c-B) ; OFFS=0,0.4 : instants capturés autour du contact (s)
     if (AIR) await page.evaluate((k) => { const v = window.__view; v.TS = k ? 20 : 6; v.opts.replays = false; v.replayPlan = null; }, !!process.env.KEYS);   // (gestes aériens rares : jeu accéléré entre deux captures)
     if (RES) await page.evaluate((x) => { window.__view.disp6.extra = x; }, process.env.KEYS ? 32 : AIR ? 5 : 1.4);
-    for (let tries = 0; tries < (AIR ? 600 : RES ? 200 : 80) && shots < PAIRS; tries++) {
+    for (let tries = 0; tries < (process.env.TRIES ? +process.env.TRIES : AIR ? 600 : RES ? 200 : 80) && shots < PAIRS; tries++) {
       await page.waitForTimeout(1200);
       const pick = await page.evaluate((args) => {
         const [want, done, RES, SEQ, AIR] = args, v = window.__view, G = v.live.gest, now = v.live.now;
