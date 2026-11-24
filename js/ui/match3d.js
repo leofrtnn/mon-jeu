@@ -2827,7 +2827,10 @@ export class Match3D {
       const hs = P3.arms.map((a) => R.worldToLocal(a.hand.getWorldPosition(new THREE.Vector3())));
       // (recalage proportionnel à l'extension des bras sur le côté : nul au départ du plongeon, sans saut ni bascule de côté)
       const hz = (hs[0].z + hs[1].z) / 2, hx = (hs[0].x + hs[1].x) / 2, ext = Math.max(0, Math.min(1, (Math.abs(hz) - 0.3) / 1.2)), sd = Math.sign(hz) || 1;
-      const off = new THREE.Vector3((0.1 - hx) * ext, 0, (sd * 0.95 - hz) * ext).applyQuaternion(R.quaternion);
+      // Portée visée sur le côté : 0,95 m (mains du moteur) ; contact connu : la distance réelle du point de contact.
+      let rz = 0.95, rx = 0.1;
+      if (k && k.at && k.w > 0) { const [cx, cz] = this.toWorld(k.at.x / L, k.at.y / W, flip), q = R.worldToLocal(new THREE.Vector3(cx, 0, cz)); rz += (Math.min(2.2, Math.max(0.6, Math.abs(q.z))) - rz) * k.w; rx += (Math.max(-0.3, Math.min(0.6, q.x)) - rx) * k.w; }
+      const off = new THREE.Vector3((rx - hx) * ext, 0, (sd * rz - hz) * ext).applyQuaternion(R.quaternion);
       R.position.addScaledVector(off, fa); R.updateMatrixWorld(true);
       // Contact connu : les gants sont amenés au point de contact (horizontalement, au plus 1 m, poids de la fenêtre).
       if (k && k.at && k.w > 0) {
@@ -2850,11 +2853,13 @@ export class Match3D {
     if (o && dt > 0 && dt < 0.3) {
       const diff = d.clone().sub(o.d), lim = 6 * dt;
       if (diff.length() > lim) {
+        const before = R.position.clone();
         d.copy(o.d).addScaledVector(diff, lim / diff.length()); R.position.copy(base).add(d); R.updateMatrixWorld(true);
         const g = e._gkLast;
         if (g && g.w > 0) {
+          // Ballon tenu : il suit le corps lissé (il reste entre les gants) ; sinon, les gants retournent au ballon.
+          if (held && e._heldPos) { const sh = R.position.clone().sub(before); e._heldPos.add(sh); if (g.C !== e._heldPos) g.C.add(sh); for (const [, S] of g.pairs) S.add(sh); }
           for (const [i, S] of g.pairs) this.armSolve(e.p3.arms[i], g.ctr(S, S._off?.v || 0));
-          if (held && e._heldPos) { /* (ballon tenu : il reste entre les gants recalculés) */ }
         }
       }
     }
