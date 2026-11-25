@@ -1192,4 +1192,20 @@ prise +0,15 s et +0,5 s, tenue +2 s, lâcher −0,1 s, lâcher, +0,15 s.
   moteur le remet au sol sur la ligne) ; aucun lancer n'est joué.
 
 ### Non-régression
-*(en cours)*
+* Empreintes du moteur inchangées : 112bd1dc ; graine 104 → 2a6d7bc9 ; 300 → 8b411e7e ; moteur rapide
+  b47d8708.
+* 132 tests unitaires (dont le nouveau test de la touche : ballon tenu jusqu'à l'instant réel du lâcher, lâché
+  ensuite, prise relevée, ancien minuteur coupé, aucun lancer sans lâcher), tests d'interface et test du match à
+  deux (en ligne) réussis.
+* Sonde 6b (graine 21, 8 min, 6c-C / 6c-D) : identique — conduite 92 / 92 %, contrôles 56 / 56 %, passes 92 / 92 %,
+  centres, dégagements, frappes et remises en jeu au pied 100 / 100 % crédibles.
+* Coût d'affichage (rendu logiciel sans GPU, passes alternées 6c-C / 6c-D, médianes par image) : sans
+  ralentissement, affichage direct 198 / 218 ms et contrat 197 / 218 ms (écart contrat − direct, même passe :
+  +0,7 / +2,6 ms) ; processeur ralenti ×4 : direct 320 / 300 ms, contrat 328 / 314 ms (écart +20 / +11 ms). Les
+  deux modes varient ensemble d'une passe à l'autre (bruit de la machine) : pas de coût mesurable du lancer de
+  touche.
+* Outils conservés : sondes `probe6`, `probeAir`, `probeGK`, `probeTK`, `probeTH` (`TH=1`, `THTRACE=1` pour le
+  relevé image par image de la prise) ; captures `TH=1` (`OFFS=h…` : instants comptés depuis la prise).
+
+### Décision demandée
+6c-D est présentée pour validation, avec les réserves ci-dessus. 6d n'est pas commencée.
