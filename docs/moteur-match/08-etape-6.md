@@ -1179,4 +1179,17 @@ Les matchs du navigateur ne sont pas strictement identiques d'une passe à l'aut
   Options : dépose du ballon par l'affichage, ou correction du moteur.
 * Le moteur réoriente le tireur d'un coup pendant la tenue (rotation bornée à l'affichage).
 
-*(Captures et non-régression : à venir dans ce rapport.)*
+### Captures (`anim-shots.cjs`, `TH=1`, mêmes touches avant/après, graine 22)
+Quatre touches (la cinquième, à 2 327 s, n'a pas pu être capturée dans le temps imparti), six instants chacune :
+prise +0,15 s et +0,5 s, tenue +2 s, lâcher −0,1 s, lâcher, +0,15 s.
+* Prise : avant, joueur debout, bras en l'air, ballon déjà « dans les mains » (resté au sol pour le moteur) ;
+  après, joueur accroupi vers le ballon posé, puis ballon monté entre les mains.
+* Tenue : avant, ballon derrière la tête, qu'il traverse ; après, au-dessus de la tête, deux mains dessus.
+* Lâcher : avant, ballon déjà parti au-dessus du joueur, bras le long du corps, geste joué ensuite ; après,
+  bras tendus, mains au ballon au point de lâcher, puis accompagnement.
+* Défavorables : une touche avec une main à 11,5 cm du ballon au lâcher (point de lâcher à 56 cm, de côté) ;
+  une touche sans lâcher : le ballon tenu au-dessus de la tête disparaît des mains d'une image à l'autre (le
+  moteur le remet au sol sur la ligne) ; aucun lancer n'est joué.
+
+### Non-régression
+*(en cours)*
