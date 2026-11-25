@@ -1119,6 +1119,64 @@ concordent avec la sonde.
   centres à 0,25-0,57 m ; déséquilibre déclenché à 1 m entre les centres (corps affichés à ~54 cm).
 
 
-## 6c-D — Lancer de touche — en cours
+## 6c-D — Lancer de touche — rapport, en attente de validation
 
-*(Rapport à venir.)*
+### Constat de départ (version 6c-C, même sonde)
+Sonde dédiée `probeTH` (`TH=1 node tools/bench/anim-probe.cjs`) : tous les gestes « touche », avec ou sans
+lâcher, de la prise du ballon posé (début du ballon tenu, relevé à l'enregistrement) jusqu'à 0,6 s après le
+lâcher : ballon affiché (dans les mains tant qu'il est tenu, sinon celui du moteur) ; distance de chaque main
+(surface du modèle visible) à la surface du ballon ; ballon au-dessus de la tête ; mains ↔ ballon du moteur à
+l'instant réel du lâcher ; saut du ballon affiché d'une image à l'autre ; écart ballon affiché / moteur après le
+lâcher. Deux matchs complets (graines 21 et 22), couverture 75/75.
+* Moteur (inchangé) : le tireur tient le ballon (`hold`) pendant 9 à 14 s ; le ballon du moteur reste posé au
+  sol, à ~0,6 m de lui. Le lâcher a lieu au pas même où le geste « touche » commence : ballon à 2,13 m de haut,
+  à 66 cm du joueur (médiane), surtout de côté (52 cm) : le point de lâcher n'est pas au-dessus de la tête.
+* Prise : le ballon sautait du sol aux mains en une image (1,5 m, médiane).
+* Tenue : ballon derrière la tête, dedans de 9 cm (médiane), jamais au-dessus.
+* Lâcher : l'ancien minuteur lançait le geste APRÈS le départ du ballon ; mains à 65-85 cm du ballon à
+  l'instant réel du lâcher, au plus près 231 ms plus tard (médiane).
+* Touche sans lâcher : 27 touches sur 75 commencent le geste sans lâcher (le moteur remet le ballon au sol,
+  sur la ligne, où il roule à ~2 m/s vers le tireur, qui le joue au pied ; aucun contact enregistré) ; l'ancien
+  affichage y jouait un lancer 25 fois sur 27.
+
+### Principe (rendu seul ; moteur, physique, contacts, décisions et arbitrage inchangés)
+* Contrat (`js/ui/animSync.js`, `TH`) : début du ballon tenu et ballon posé relevés à l'enregistrement (champs
+  d'affichage) ; le lancer est calé sur l'instant réel du lâcher (`g.tContact`), connu 0,15 s à l'avance grâce
+  au différé ; ballon dans les mains jusqu'à cet instant, puis uniquement la trajectoire du moteur ; ancien
+  minuteur coupé ; aucun lancer sans lâcher.
+* Rendu (`js/ui/match3d.js`, `applyThrow`) : prise — le joueur s'accroupit et se tourne vers le ballon posé
+  (0,3 s), le ballon monte entre ses mains (devant la poitrine, puis au-dessus de la tête, 0,5 s) ; tenue — ballon
+  au-dessus du crâne du modèle (1,5 cm au-dessus), une main de chaque côté ; lancer — dans les 0,14 s qui
+  précèdent le lâcher, le ballon va d'au-dessus de la tête au point de lâcher du moteur, buste incliné vers lui
+  (au plus 0,7 rad) ; après — accompagnement des bras, retour à la pose animée. Cinématique inverse des bras,
+  chaque main du côté de son épaule ; main dans le ballon ramenée sur sa surface. Corps jamais déplacé ;
+  rotation du corps affiché bornée à 10 rad/s, ballon tenu borné à 12 m/s d'une image à l'autre.
+
+### Résultats (deux matchs complets ; avant : 75 touches, après : 72 ; couverture 100 % des deux côtés)
+Les matchs du navigateur ne sont pas strictement identiques d'une passe à l'autre ; 71 touches appariées.
+
+| Famille / mesure | avant | après |
+|---|---|---|
+| Prise : saut du ballon affiché d'une image à l'autre | 1,54 m (médiane), max 1,97 m | ≤ 12,5 cm (borne 12 m/s) |
+| Prise : mains ↔ ballon pendant la montée (écart max) | 8 cm (médiane) ; pénétration < −5 cm : 26/75 | 22,5 cm (médiane), max 39 cm ; pénétration < −5 cm : 6/72 |
+| Tenue : ballon au-dessus de la tête | 0 % des images ; dans la tête −9,2 cm | 100 % ; 7,3 cm au-dessus (min 6,1) |
+| Tenue : deux mains au ballon (≤ 3 cm) | 100 % ; écart max 2 cm (max 13) ; pénétration jusqu'à −10,6 cm | 100 % ; écart max 1,2 cm (max 1,8) ; pénétration ≤ −0,9 cm |
+| Lâcher : main la plus proche / la plus loin (médiane) | 65 / 85 cm | 2,9 / 5,4 cm (p90 12 cm, max 18) |
+| Lâcher : deux mains crédibles (−1 à +3 cm) | 0 % | 4 % ; une main > 3 cm : 91 % ; pénétration : 13 % (−1 à −6 cm) |
+| Synchronisation : mains au plus près du point de lâcher | 231 ms après (médiane) | 33 ms (médiane, p90 44 ms) |
+| Après le lâcher : ballon affiché / moteur | 0 cm | 0 cm (aucune image avec ballon encore tenu) |
+| Touche sans lâcher : lancer joué | 25 / 27 | 0 / 25 |
+
+### Réserves (cas défavorables, non exclus des mesures)
+* Lâcher : le point de lâcher du moteur est de côté (47 cm, médiane) ; la main la plus éloignée reste à plus de
+  3 cm dans 91 % des touches (5,4 cm médiane, jusqu'à 18 cm) ; 13 % de pénétrations d'une main (jusqu'à −6 cm).
+* Prise : le ballon posé est souvent hors de portée des mains au départ de la montée (écart jusqu'à 39 cm,
+  22,5 cm en médiane) ; il quitte alors le sol en 0,12 s pour rejoindre les mains (mouvement propre de
+  l'affichage, ballon arrêté) ; mains dans le ballon de plus de 5 cm sur 6 touches.
+* Lancer : le ballon parcourt ~0,6 m en 0,14 s jusqu'au point de lâcher (jusqu'à 11,7 cm par image).
+* Touche sans lâcher (incohérence moteur/rendu, pour décision ultérieure) : le ballon tenu au-dessus de la tête
+  retombe au sol (2,1 m) en une image quand le moteur le remet en jeu sans lancer ; aucun geste n'est inventé.
+  Options : dépose du ballon par l'affichage, ou correction du moteur.
+* Le moteur réoriente le tireur d'un coup pendant la tenue (rotation bornée à l'affichage).
+
+*(Captures et non-régression : à venir dans ce rapport.)*
