@@ -2802,6 +2802,9 @@ export class Match3D {
         C = Rw.clone().addScaledVector(dirT, 0.35 * ez(v)).addScaledVector(up, -0.3 * ez(v));
       }
     }
+    // Ballon tenu : jamais dans la tête (le buste se penche pour ramasser ou reposer le ballon) ; écarté de la tête.
+    if (held) { R.updateMatrixWorld(true); const hc = P3.surfCenter('head');
+      for (let it = 0; it < 3 && hc; it++) { const hq = P3.surfNearest('head', C); if (!hq) break; const d = hq.distanceTo(C) - BALL_R; if (d > 0.008) break; const n = C.clone().sub(hc); if (n.lengthSq() < 1e-8) n.copy(fw); C.addScaledVector(n.normalize(), 0.012 - d); } }
     // Ballon tenu : déplacement borné à 12 m/s d'une image à l'autre AVANT de placer les mains (les mains suivent le
     // ballon affiché ; pas de saut quand le chemin change d'un coup, ex. orientation du joueur donnée par le moteur).
     if (held) { const tD = this.v.disp6?.tD ?? 0, o = e._thPrev, dt = o ? tD - o.t : 0;
@@ -3405,10 +3408,11 @@ export class Match3D {
         // Geste sans lâcher (annulé) : saut du ballon affiché quand le moteur cesse de le faire tenir ; lancer joué ?
         if (!rel && t >= T - 0.2) {
           endJump = Math.max(endJump, jx); if (p._th || p.throwIn > 0) thrownNoRel = true;
-          // Dépose (touche sans libération) : mains au ballon tant qu'il est tenu ; ensuite, ballon affiché = moteur.
+          // Dépose (touche sans libération) : mains au ballon tant qu'il est porté (jusqu'à 80 % de la dépose ; ensuite il est
+          // posé et rejoint le ballon du moteur) ; après la dépose, ballon affiché = moteur.
           if (globalThis.__thTrace && t >= T - 0.2 && t <= T + 0.6) (drop.tr ||= []).push([+(t - T).toFixed(3), p._thDrop ? +p._thDrop.u.toFixed(2) : null, ...hg.map((u) => +(u ?? 9).toFixed(3)), +Cd.y.toFixed(2), +jx.toFixed(3), held ? 1 : 0]);
           if (held && t >= T - 0.15) { const hq = P3.surfNearest('head', Cd); if (hq) drop.headMin = Math.min(drop.headMin, hq.distanceTo(Cd) - BALL_R); }
-          if (held && t >= T - 0.15 && hg[0] != null) { drop.n++; drop.gapMax = Math.max(drop.gapMax, ...hg); drop.penMin = Math.min(drop.penMin, ...hg); drop.heldUntil = t - T; }
+          if (held && t >= T - 0.15 && hg[0] != null && (!p._thDrop || p._thDrop.u < 0.8)) { drop.n++; drop.gapMax = Math.max(drop.gapMax, ...hg); drop.penMin = Math.min(drop.penMin, ...hg); drop.heldUntil = t - T; }
           if (!held && t > T) drop.devAfter = Math.max(drop.devAfter, Cd.distanceTo(Ce));
           if (held && t > T) drop.devHeld = Math.max(drop.devHeld, Cd.distanceTo(Ce));
         }
