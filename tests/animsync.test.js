@@ -126,7 +126,7 @@ test('tacles (6c-C) : phase des images clés calée sur la cinématique du moteu
   let prev = -1; for (let s = 0; s < 1.6; s += 0.01) { const u = tacklePhase('slide', s); if (u == null) break; assert.ok(u >= prev); prev = u; }
 });
 
-test('touche (6c-D) : ballon dans les mains jusqu\'à l\'instant réel du lâcher, aucun lancer sans lâcher', async () => {
+test('touche (6c-D) : ballon dans les mains jusqu\'à l\'instant réel du lâcher ; sans libération : ballon reposé, aucun lancer', async () => {
   const { TH } = await import('../js/ui/animSync.js');
   const m = createMatch(await cfgFor(21)), sim = new LiveSim(m);
   sim.gest.all = true;
@@ -141,11 +141,17 @@ test('touche (6c-D) : ballon dans les mains jusqu\'à l\'instant réel du lâche
       if (g.kind !== 'touche' || Math.abs(tD - g.t0) > 0.5) continue;
       const d = D.disp.get(g.pid); if (!d) continue;
       assert.ok(!(d.throwIn > 0), 'ancien minuteur de touche coupé');
-      if (g.tContact == null) { assert.equal(d._th, null, 'aucun lancer sans lâcher'); noRel++; continue; }
+      if (g.tContact == null) {
+        assert.equal(d._th, null, 'aucun lancer sans lâcher');
+        // Touche sans libération : le ballon est reposé (dépose de TH.lead avant à TH.drop après le début du geste).
+        if (tD >= g.t0 - TH.lead + dt && tD <= g.t0 + TH.drop - dt) { assert.ok(d._thDrop && d._thDrop.u > 0 && d._thDrop.u < 1, 'dépose en cours'); noRel++; }
+        if (tD > g.t0 + TH.drop + dt) assert.equal(d._thDrop, null, 'dépose terminée : ballon du moteur');
+        continue;
+      }
       if (tD >= g.tContact - TH.lead && tD < g.tContact) { assert.ok(d._th && d._thHeld, 'tenu avant le lâcher'); before++; }
       if (tD >= g.tContact && tD <= g.tContact + TH.post) { assert.ok(d._th && !d._thHeld, 'lâché à l\'instant réel'); after++; if (Math.abs(tD - g.tContact) < dt) atRel++; }
       if (tD < g.tContact - TH.lead && d.hold > 0) { assert.ok(d._thHold, 'tenue : prise relevée'); held++; }
     }
   }
-  assert.ok(before > 0 && after > 0 && held > 0, `touches observées (avant ${before}, après ${after}, tenue ${held}, sans lâcher ${noRel})`);
+  assert.ok(before > 0 && after > 0 && held > 0 && noRel > 0, `touches observées (avant ${before}, après ${after}, tenue ${held}, sans lâcher ${noRel})`);
 });

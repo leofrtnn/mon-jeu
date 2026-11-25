@@ -2748,17 +2748,18 @@ export class Match3D {
    * Bras par cinématique inverse, buste incliné vers le ballon (au plus 0,7 rad) ; corps jamais déplacé (rotation bornée à 10 rad/s).
    * Renvoie la position du ballon tenu (ou null).
    */
-  applyThrow(e, p, flip) {
-    const P3 = e.p3, R = P3.root, arms = P3.arms, k = p._th, hh = p._thHold;
-    e._thBall = null; e._thInfo = null; if (!k && !hh) e._thHL = null;
-    if ((!k && !hh) || !arms[0]?.hand || !arms[1]?.hand) { e._thYaw = null; return null; }
+  applyThrow(e, p, flip, VB = null) {
+    const P3 = e.p3, R = P3.root, arms = P3.arms, k = p._th, hh = p._thHold, dr = p._thDrop;
+    e._thBall = null; e._thInfo = null; e._thPosture = null; if (!k && !hh && !dr) e._thHL = null;
+    if ((!k && !hh && !dr) || !arms[0]?.hand || !arms[1]?.hand) { e._thYaw = null; return null; }
     // Rotation du corps affiché bornée à 10 rad/s (le moteur oriente le tireur d'un coup pendant la tenue).
     { const tD = this.v.disp6?.tD ?? 0, o = e._thYaw, dt = o ? tD - o.t : 0;
       if (o && dt > 0 && dt < 0.3) { const dr = Math.atan2(Math.sin(R.rotation.y - o.y), Math.cos(R.rotation.y - o.y)), lr = 10 * dt; if (Math.abs(dr) > lr) R.rotation.y = o.y + Math.sign(dr) * lr; }
       e._thYaw = { t: tD, y: R.rotation.y }; }
     R.updateMatrixWorld(true);
     const V3 = THREE.Vector3, up = new V3(0, 1, 0), fa = flip ? p.face + Math.PI : p.face, fw = new V3(Math.cos(fa), 0, Math.sin(fa));
-    const W3 = (b) => { const [x, z] = this.toWorld(b.x / 105, b.y / 68, flip); return new V3(x, Math.max(BALL_R, b.z), z); };
+    // (centre du ballon affiché : même conversion que le rendu — hauteur au-dessus du ballon posé, ballon affiché de rayon BALL_R)
+    const W3 = (b) => { const [x, z] = this.toWorld(b.x / 105, b.y / 68, flip); return new V3(x, BALL_R + Math.max(0, b.z - 0.11), z); };
     const ez = (u) => { u = Math.max(0, Math.min(1, u)); return u * u * (3 - 2 * u); };
     const headTop = () => { R.updateMatrixWorld(true); const hc = P3.surfCenter('head'); return hc ? (P3.surfNearest('head', hc.clone().add(up)) || hc) : P3.headPivot.getWorldPosition(new V3()); };
     let C = null, w = 1, held = true, crouch = 0, turnTo = null, lead = 0.14, dirT = fw.clone(), pitch = 0;
@@ -2773,6 +2774,18 @@ export class Match3D {
       C = s < s1 ? G : s < pick ? (u2 < 0.5 ? G.clone().lerp(F, ez(u2 / 0.5)) : F.clone().lerp(H, ez((u2 - 0.5) / 0.5))) : H;
       pitch = s >= pick ? 0.18 : 0;
       if (s >= pick) e._thHL = R.worldToLocal(H.clone());
+    } else if (dr) {
+      // Touche abandonnée (le moteur remet le ballon au sol sans le lancer) : le joueur ramène le ballon devant lui
+      // puis le repose là où il est pour le moteur (ballon posé ou qui roule) ; aucun geste de lancer.
+      const [ex, ez2] = VB ? this.toWorld(VB.x, VB.y, flip) : [R.position.x, R.position.z], E = new V3(ex, BALL_R + (VB?.h || 0) * 26, ez2);
+      const H = e._thHL ? R.localToWorld(e._thHL.clone()) : headTop().addScaledVector(up, BALL_R + 0.015).addScaledVector(fw, -0.05);
+      const u = dr.u, c = ez((u - 0.35) / 0.65);
+      crouch = c; this.thCrouch(P3, c);
+      if (c > 0) { const q = R.worldToLocal(E.clone()), a = Math.atan2(q.z, q.x); R.rotation.y -= Math.max(-1.2, Math.min(1.2, a)) * c; R.updateMatrixWorld(true); }
+      const cc = P3.surfCenter('chest'), F = (cc ? cc.clone().setY(Math.max(0.9, cc.y)) : R.localToWorld(new V3(0, 1.15, 0))).addScaledVector(fw, 0.42);
+      C = u < 0.35 ? H.clone().lerp(F, ez(u / 0.35)) : F.clone().lerp(E, ez((u - 0.35) / 0.65));
+      if (u >= 0.999) C = E.clone();
+      e._thDropEnd = u >= 0.999;
     } else {
       const Rw = W3(k.R);
       if (k.dir && Math.hypot(k.dir.x, k.dir.y) > 1e-4) { const [x1, z1] = this.toWorld((k.R.x + k.dir.x) / 105, (k.R.y + k.dir.y) / 68, flip); dirT = new V3(x1 - Rw.x, 0, z1 - Rw.z).normalize(); }
@@ -2786,45 +2799,91 @@ export class Match3D {
         C = Rw.clone().addScaledVector(dirT, 0.35 * ez(v)).addScaledVector(up, -0.3 * ez(v));
       }
     }
-    // Buste incliné vers le ballon (roulis et tangage, bornés) : aide les bras sans déplacer le corps.
-    const U = P3.upper; U.rotation.z += pitch;
+    // Ballon tenu : déplacement borné à 12 m/s d'une image à l'autre AVANT de placer les mains (les mains suivent le
+    // ballon affiché ; pas de saut quand le chemin change d'un coup, ex. orientation du joueur donnée par le moteur).
+    if (held) { const tD = this.v.disp6?.tD ?? 0, o = e._thPrev, dt = o ? tD - o.t : 0;
+      if (o && dt > 0 && dt < 0.3 && !(hh && hh.s < 0.3) && !(dr && dr.u >= 0.999)) { const d = C.clone().sub(o.c), lim = 12 * dt; if (d.length() > lim) C = o.c.clone().addScaledVector(d, lim / d.length()); } }
+    // Lancer (6c-D, correction) : posture d'atteinte du point de lâcher réel — le corps bascule sur ses pieds et le buste
+    // se tourne vers le ballon (angles bornés, pieds en place) ; poids nul pendant la tenue, plein au lâcher.
+    const U = P3.upper, RH = 0.03, reachW = k ? (k.u < 0 ? ez((k.u + lead) / lead) : w) : 0;
+    U.rotation.z += pitch * (1 - reachW);
     { R.updateMatrixWorld(true); const q = R.worldToLocal(C.clone()), o = R.worldToLocal(U.getWorldPosition(new V3())), dq = q.sub(o);
-      U.rotation.x += Math.max(-0.7, Math.min(0.7, Math.atan2(dq.z, Math.max(0.2, dq.y)) * 1.1)) * w; R.updateMatrixWorld(true); }
-    // Deux mains de part et d'autre du ballon, un peu en arrière (dans le sens du lancer).
-    const side = new V3().crossVectors(up, dirT).normalize(), RH = 0.03;
+      U.rotation.x += Math.max(-0.7, Math.min(0.7, Math.atan2(dq.z, Math.max(0.2, dq.y)) * 1.1)) * w * (1 - reachW); R.updateMatrixWorld(true); }
+    if (reachW > 0) e._thPosture = this.thReach(e, C, reachW, RH);
+    const side = new V3().crossVectors(up, dirT).normalize();
     const save = arms.map((a) => [a.sh.rotation.x, a.sh.rotation.y, a.sh.rotation.z, a.el.rotation.z]);
-    // Chaque main sur la moitié du ballon tournée vers son épaule, écartée de l'autre (de part et d'autre) : un bras
-    // ne traverse jamais le ballon ; hors de portée, la main s'arrête devant lui (jamais dedans).
+    // Mains : pendant la tenue et la dépose, de part et d'autre du ballon (chacune du côté de son épaule) ; au lâcher,
+    // sur la face du ballon tournée vers le joueur, écartées de 50° de part et d'autre (lancer à deux mains, derrière
+    // le ballon) : aucun bras ne traverse le ballon ; hors de portée, la main s'arrête devant lui.
     const shp = arms.map((a) => a.sh.getWorldPosition(new V3())), sgn = shp[0].clone().sub(shp[1]).dot(side) >= 0 ? 1 : -1;
-    const T = [0, 1].map((i) => { const n = side.clone().multiplyScalar((i === 0 ? 1 : -1) * sgn).addScaledVector(shp[i].clone().sub(C).normalize(), 0.5).addScaledVector(dirT, -0.2).normalize(); return C.clone().addScaledVector(n, BALL_R + RH); });
+    const nF = this.thFaceNormals(C, shp);
+    const T = [0, 1].map((i) => { const nS = side.clone().multiplyScalar((i === 0 ? 1 : -1) * sgn).addScaledVector(shp[i].clone().sub(C).normalize(), 0.5).addScaledVector(dirT, -0.2).normalize(); const n = nS.lerp(nF[i], reachW).normalize(); return C.clone().addScaledVector(n, BALL_R + RH); });
     const order = [0, 1];
     let res = 0;
-    for (let i = 0; i < 2; i++) res = Math.max(res, this.armSolve(arms[i], T[order[i]]));
-    // Correction sur la surface réelle de la main (modèle visible) : écart visé 2 mm.
-    for (let i = 0; i < 2; i++) { const q = P3.surfNearest('hand' + i, C); if (!q) continue; const gap = q.distanceTo(C) - BALL_R - 0.002; if (Math.abs(gap) > 0.004) { const t = T[order[i]], n = t.clone().sub(C).normalize(); this.armSolve(arms[i], t.addScaledVector(n, -gap)); } }
+    // Bras : solution depuis la pose courante, et depuis une pose bras levés (au lâcher) ; la meilleure est gardée.
+    const solveArm = (i, t) => {
+      const a = arms[i], r1 = this.armSolve(a, t);
+      if (r1 < 0.01 || reachW <= 0) return r1;
+      const s1 = [a.sh.rotation.x, a.sh.rotation.y, a.sh.rotation.z, a.el.rotation.z];
+      a.sh.rotation.set(-a.sgn * 0.2, s1[1], 2.9); a.el.rotation.z = 0.3;
+      const r2 = this.armSolve(a, t);
+      if (r2 < r1) return r2;
+      a.sh.rotation.set(s1[0], s1[1], s1[2]); a.el.rotation.z = s1[3]; a.sh.updateMatrixWorld(true); return r1;
+    };
+    for (let i = 0; i < 2; i++) res = Math.max(res, solveArm(i, T[order[i]]));
+    // Correction sur la surface réelle de la main (modèle visible) : écart visé 2 mm, trois passes.
+    const off = [0, 0];
+    for (let it = 0; it < 3; it++) for (let i = 0; i < 2; i++) { const q = P3.surfNearest('hand' + i, C); if (!q) continue; const gap = q.distanceTo(C) - BALL_R - 0.002; if (Math.abs(gap) <= 0.004) continue; off[i] += gap; const t = T[order[i]], n = t.clone().sub(C).normalize(); this.armSolve(arms[i], t.clone().addScaledVector(n, -off[i])); }
     // Main dans le ballon (cible hors de portée) : ramenée sur la surface du côté où elle se trouve.
     for (let it = 0; it < 2; it++) for (let i = 0; i < 2; i++) { const q = P3.surfNearest('hand' + i, C); if (!q || q.distanceTo(C) - BALL_R > -0.01) continue; const h = arms[i].hand.getWorldPosition(new V3()), n = h.sub(C); if (n.lengthSq() < 1e-6) n.copy(side).multiplyScalar(i === 0 ? 1 : -1); this.armSolve(arms[i], C.clone().addScaledVector(n.normalize(), BALL_R + RH + 0.01)); }
     if (w < 1) arms.forEach((a, i) => { const s0 = save[i]; a.sh.rotation.x = s0[0] + (a.sh.rotation.x - s0[0]) * w; a.sh.rotation.y = s0[1] + (a.sh.rotation.y - s0[1]) * w; a.sh.rotation.z = s0[2] + (a.sh.rotation.z - s0[2]) * w; a.el.rotation.z = s0[3] + (a.el.rotation.z - s0[3]) * w; a.sh.updateMatrixWorld(true); });
     R.updateMatrixWorld(true);
-    e._thInfo = { res: +res.toFixed(3), crouch: +crouch.toFixed(2) };
+    e._thInfo = { res: +res.toFixed(3), crouch: +crouch.toFixed(2), posture: e._thPosture };
     // Montée du ballon ramassé : il est porté entre les deux mains (jamais traversé par elles) ; il quitte le sol en
     // 0,12 s (de sa position posée jusqu'entre les mains).
-    if (held && hh && hh.s >= 0.3 && hh.s < 0.8) {
-      const Hb = this.heldBallPos(e, p, flip);
-      if (Hb) {
-        // (devant les paumes : poussé à l'opposé du buste jusqu'à ne plus toucher l'intérieur des mains)
-        const cc = P3.surfCenter('chest'), out = cc ? Hb.clone().sub(cc).normalize() : fw.clone();
-        for (let it = 0; it < 3; it++) { let worst = 0; for (let i = 0; i < 2; i++) { const q = P3.surfNearest('hand' + i, Hb); if (q) worst = Math.min(worst, q.distanceTo(Hb) - BALL_R); } if (worst > -0.004) break; Hb.addScaledVector(out, 0.004 - worst); }
-        C = W3(hh.B0).lerp(Hb, ez((hh.s - 0.3) / 0.12));
-      }
-    }
+    // Ballon porté entre les deux mains (devant les paumes : poussé à l'opposé du buste jusqu'à ne plus toucher
+    // l'intérieur des mains) : montée du ballon ramassé, et descente du ballon reposé (touche abandonnée).
+    const carried = () => {
+      const Hb = this.heldBallPos(e, p, flip); if (!Hb) return null;
+      const cc = P3.surfCenter('chest'), out = cc ? Hb.clone().sub(cc).normalize() : fw.clone();
+      for (let it = 0; it < 3; it++) { let worst = 0; for (let i = 0; i < 2; i++) { const q = P3.surfNearest('hand' + i, Hb); if (q) worst = Math.min(worst, q.distanceTo(Hb) - BALL_R); } if (worst > -0.004) break; Hb.addScaledVector(out, 0.004 - worst); }
+      return Hb;
+    };
+    if (held && hh && hh.s >= 0.3 && hh.s < 0.8) { const Hb = carried(); if (Hb) C = W3(hh.B0).lerp(Hb, ez((hh.s - 0.3) / 0.12)); }
+    // Dépose : porté jusqu'au sol, puis posé là où le moteur a le ballon (les 20 derniers % de la dépose).
+    if (held && dr && dr.u >= 0.35 && dr.u < 0.999) { const Hb = carried(); if (Hb) C = dr.u < 0.8 ? Hb : Hb.lerp(C, ez((dr.u - 0.8) / 0.2)); }
     if (held) {
-      // Ballon tenu : déplacement borné à 12 m/s d'une image à l'autre (pas de saut quand les bras changent de solution).
+      // Ballon tenu (porté entre les mains : montée, dépose) : même borne de 12 m/s d'une image à l'autre.
       const tD = this.v.disp6?.tD ?? 0, o = e._thPrev, dt = o ? tD - o.t : 0;
-      if (o && dt > 0 && dt < 0.3 && !(hh && hh.s < 0.3)) { const d = C.clone().sub(o.c), lim = 12 * dt; if (d.length() > lim) C = o.c.clone().addScaledVector(d, lim / d.length()); }
+      if (o && dt > 0 && dt < 0.3 && !(hh && hh.s < 0.3) && !(dr && dr.u >= 0.999)) { const d = C.clone().sub(o.c), lim = 12 * dt; if (d.length() > lim) C = o.c.clone().addScaledVector(d, lim / d.length()); }
       e._thBall = C.clone(); e._thPrev = { t: tD, c: C.clone() };
     } else e._thPrev = null;
     return e._thBall;
+  }
+  /** Normales de la face du ballon tournée vers le joueur, écartées de 50° vers chaque épaule (lancer à deux mains). */
+  thFaceNormals(C, shp) {
+    const V3 = THREE.Vector3, mid = shp[0].clone().add(shp[1]).multiplyScalar(0.5), back = mid.sub(C).normalize();
+    return shp.map((s0) => { const l = s0.clone().sub(C); l.addScaledVector(back, -l.dot(back)); if (l.lengthSq() < 1e-8) l.set(0, 1, 0); l.normalize(); return back.clone().multiplyScalar(Math.cos(0.87)).addScaledVector(l, Math.sin(0.87)).normalize(); });
+  }
+  /**
+   * Posture d'atteinte (6c-D) : torsion du buste puis bascule du corps sur ses pieds (tangage, roulis) pour que les deux
+   * épaules arrivent à portée de leur main sur le ballon, avec 6 cm de marge (torsion ≤ 1,2 rad, bascule ≤ 0,45 rad) ;
+   * appliquée avec le poids w. Aucun déplacement du corps (le pivot de la bascule est entre les pieds).
+   */
+  thReach(e, C, w, RH) {
+    const P3 = e.p3, R = P3.root, B = P3.body, U = P3.upper, arms = P3.arms, V3 = THREE.Vector3;
+    if (P3._armLen == null) { const a = arms[0], e0 = a.el.rotation.z; a.el.rotation.z = 0; R.updateMatrixWorld(true); P3._armLen = a.hand.getWorldPosition(new V3()).distanceTo(a.sh.getWorldPosition(new V3())); a.el.rotation.z = e0; R.updateMatrixWorld(true); }
+    const Lr = P3._armLen * 0.97, b0 = [B.rotation.z, B.rotation.x, U.rotation.y];
+    const cost = () => { R.updateMatrixWorld(true); const shp = arms.map((a) => a.sh.getWorldPosition(new V3())), nF = this.thFaceNormals(C, shp); return Math.max(...shp.map((s0, i) => s0.distanceTo(C.clone().addScaledVector(nF[i], BALL_R + RH)) - Lr)); };
+    let best = { c: Infinity, sc: Infinity, y: 0, p: 0, r: 0 };
+    for (let y = -1.2; y <= 1.201; y += 0.15) { U.rotation.y = b0[2] + y; const c = cost(), sc = Math.max(0, c + 0.06) * 10 + Math.abs(y) * 0.02; if (sc < best.sc) best = { c, sc, y, p: 0, r: 0 }; }
+    U.rotation.y = b0[2] + best.y;
+    if (best.c > -0.06) for (let p0 = -0.45; p0 <= 0.151; p0 += 0.075) for (let r0 = -0.4; r0 <= 0.401; r0 += 0.1) {
+      B.rotation.z = b0[0] + p0; B.rotation.x = b0[1] + r0; const c = cost(), sc = Math.max(0, c + 0.06) * 10 + Math.hypot(p0, r0) * 0.05 + Math.abs(best.y) * 0.02;
+      if (sc < best.sc) best = { ...best, c, sc, p: p0, r: r0 };
+    }
+    B.rotation.z = b0[0] + best.p * w; B.rotation.x = b0[1] + best.r * w; U.rotation.y = b0[2] + best.y * w; R.updateMatrixWorld(true);
+    return { twist: +best.y.toFixed(2), pitch: +best.p.toFixed(3), roll: +best.r.toFixed(2), reach: +best.c.toFixed(3) };
   }
   /** Prise du ballon posé (6c-D) : accroupi, buste penché (c de 0 à 1 ; bassin abaissé de 0,5 m au plus). */
   thCrouch(P3, c) {
@@ -3298,7 +3357,7 @@ export class Match3D {
       // Début du ballon tenu (relevé à l'enregistrement) : la mesure couvre la prise, la tenue et le lâcher.
       let hs = null; if (D6.sample(mode, T - 0.03)) { const q = D6.disp.get(g.pid); if (q && q.thT0 != null) hs = q.thT0; }
       const t1 = hs != null ? Math.max(hs - 0.3, T - 30) : g.t0 - 1.0;
-      let endJump = 0, thrownNoRel = false, hold = null, holdEng = null, atRel = null, sync = null, jump = { d: 0, at: null }, pick = null, post = 0, played = false, heldAfter = 0, prevD = null, prevE = null, Crel = null, prevHeld = false, info = null;
+      let endJump = 0, thrownNoRel = false, drop = { n: 0, gapMax: -9, penMin: 9, heldUntil: null, devAfter: 0, devHeld: 0 }, hold = null, holdEng = null, atRel = null, sync = null, jump = { d: 0, at: null }, pick = null, post = 0, played = false, heldAfter = 0, prevD = null, prevE = null, Crel = null, prevHeld = false, info = null;
       if (rel && D6.sample(mode, g.tContact)) Crel = engBall();
       for (let t = t1; t <= T + 0.6; t += step) {
         if (!D6.sample(mode, t)) break;
@@ -3307,10 +3366,10 @@ export class Match3D {
         const [x, z] = this.toWorld(p.x, p.y, flip); P3.root.position.set(x, 0, z);
         const B = D6.ballN; P3.pose(p, flip, { dt: step, ballAng: Math.atan2((B.y - p.y) * W, (B.x - p.x) * L) }); P3.smoothPose(step);
         if (p._ik) this.applyIK(e, p, flip, B);
-        if (p._th || p._thHold) this.applyThrow(e, p, flip); else e._thBall = null;
+        if (p._th || p._thHold || p._thDrop) this.applyThrow(e, p, flip, B); else e._thBall = null;
         P3.root.updateMatrixWorld(true);
         if (p.throwIn > 0 || p._th) played = true;
-        const held = p.hold > 0 || !!p._thHeld || !!p._thHold;
+        const held = p.hold > 0 || !!p._thHeld || !!p._thHold || !!p._thDrop;
         const Cd = e._thBall ? e._thBall.clone() : held ? (this.heldBallPos(e, p, flip) || Ce) : Ce;
         const hg = [0, 1].map((i) => { const q = P3.surfNearest('hand' + i, Cd); return q ? q.distanceTo(Cd) - BALL_R : null; });
         const jx = prevD ? Cd.distanceTo(prevD) - Ce.distanceTo(prevE) : 0;
@@ -3328,7 +3387,8 @@ export class Match3D {
           if (hc && Cd.y > hc.y) hold.above++;
         }
         if (rel && Math.abs(t - g.tContact) <= step / 2 + 1e-6) {
-          const hr = [0, 1].map((i) => { const q = P3.surfNearest('hand' + i, Ce); return q ? q.distanceTo(Ce) - BALL_R : null; });
+          // (ballon du moteur à l'instant exact du lâcher : entre deux pas, l'interpolation mêle le ballon posé et le ballon lâché à 2,1 m)
+          const Cr = Crel || Ce, hr = [0, 1].map((i) => { const q = P3.surfNearest('hand' + i, Cr); return q ? q.distanceTo(Cr) - BALL_R : null; });
           // Point de lâcher du moteur dans le repère du joueur affiché : devant (selon son orientation), de côté, hauteur.
           const fa = flip ? p.face + Math.PI : p.face, dx = Ce.x - x, dz = Ce.z - z;
           atRel = { hands: hr.map((u) => u == null ? null : +u.toFixed(3)), held, ballH: +Ce.y.toFixed(2), dh: +Math.hypot(dx, dz).toFixed(2), fwd: +(dx * Math.cos(fa) + dz * Math.sin(fa)).toFixed(2), lat: +(-dx * Math.sin(fa) + dz * Math.cos(fa)).toFixed(2) };
@@ -3338,13 +3398,20 @@ export class Match3D {
         if (prevD && rel && Math.abs(t - g.tContact) < 0.15 && jx > jump.d) { jump.d = jx; jump.at = t - g.tContact; }
         if (rel && t > g.tContact + step / 2) { post = Math.max(post, Cd.distanceTo(Ce)); if (held) heldAfter++; }
         // Geste sans lâcher (annulé) : saut du ballon affiché quand le moteur cesse de le faire tenir ; lancer joué ?
-        if (!rel && t >= T - 0.05) { endJump = Math.max(endJump, jx); if (p._th || p.throwIn > 0) thrownNoRel = true; }
+        if (!rel && t >= T - 0.2) {
+          endJump = Math.max(endJump, jx); if (p._th || p.throwIn > 0) thrownNoRel = true;
+          // Dépose (touche sans libération) : mains au ballon tant qu'il est tenu ; ensuite, ballon affiché = moteur.
+          if (globalThis.__thTrace && t >= T - 0.2 && t <= T + 0.6) (drop.tr ||= []).push([+(t - T).toFixed(3), p._thDrop ? +p._thDrop.u.toFixed(2) : null, ...hg.map((u) => +(u ?? 9).toFixed(3)), +Cd.y.toFixed(2), +jx.toFixed(3), held ? 1 : 0]);
+          if (held && t >= T - 0.15 && hg[0] != null) { drop.n++; drop.gapMax = Math.max(drop.gapMax, ...hg); drop.penMin = Math.min(drop.penMin, ...hg); drop.heldUntil = t - T; }
+          if (!held && t > T) drop.devAfter = Math.max(drop.devAfter, Cd.distanceTo(Ce));
+          if (held && t > T) drop.devHeld = Math.max(drop.devHeld, Cd.distanceTo(Ce));
+        }
         prevD = Cd.clone(); prevE = Ce.clone(); prevHeld = held;
       }
       out.push({ gid: g.id, pid: g.pid, t0: g.t0, T, rel, dtRel: rel ? +(g.tContact - g.t0).toFixed(3) : null, played, holdS: hs == null ? null : +(T - hs).toFixed(2),
         pick: pick ? { jump: +pick.jump.toFixed(3), gapMax: +pick.gapMax.toFixed(3), penMin: +pick.penMin.toFixed(3), tr: pick.tr } : null,
         hold: hold ? { n: hold.n, gapMax: +hold.gapMax.toFixed(3), penMin: +hold.penMin.toFixed(3), both: +(hold.both / hold.n).toFixed(2), headMin: +hold.headMin.toFixed(3), above: +(hold.above / hold.n).toFixed(2) } : null,
-        atRel, info, sync: sync ? { d: +sync.d.toFixed(3), dt: +sync.dt.toFixed(3) } : null, jump: { d: +jump.d.toFixed(3), at: jump.at == null ? null : +jump.at.toFixed(3) }, post: +post.toFixed(3), heldAfter, endJump: rel ? null : +endJump.toFixed(3), thrownNoRel, holdEng: holdEng ? { h: +holdEng.h.toFixed(2), dh: +holdEng.dh.toFixed(2) } : null });
+        atRel, info, sync: sync ? { d: +sync.d.toFixed(3), dt: +sync.dt.toFixed(3) } : null, jump: { d: +jump.d.toFixed(3), at: jump.at == null ? null : +jump.at.toFixed(3) }, post: +post.toFixed(3), heldAfter, endJump: rel ? null : +endJump.toFixed(3), thrownNoRel, drop: rel ? null : { tr: drop.tr, n: drop.n, gapMax: +drop.gapMax.toFixed(3), penMin: +drop.penMin.toFixed(3), heldUntil: drop.heldUntil == null ? null : +drop.heldUntil.toFixed(3), devAfter: +drop.devAfter.toFixed(3), devHeld: +drop.devHeld.toFixed(3) }, outcome: g.outcome || null, holdEng: holdEng ? { h: +holdEng.h.toFixed(2), dh: +holdEng.dh.toFixed(2) } : null });
     }
     return out;
   }
@@ -4278,7 +4345,7 @@ export class Match3D {
       if (p._air) this.applyAir(e, p, flip, VB);   // (étape 6c-A : saut à la hauteur du ballon)
       if (p._ik) this.applyIK(e, p, flip, VB);   // (étape 6b : le pied touche le ballon là où il est, à l'instant du contact)
       if (v.dispPlayers) this.antiPen(e, p, flip, VB);
-      if (p._th || p._thHold) this.applyThrow(e, p, flip); else e._thBall = null;   // (étape 6c-D : lancer de touche)
+      if (p._th || p._thHold || p._thDrop) this.applyThrow(e, p, flip, VB); else e._thBall = null;   // (étape 6c-D : lancer de touche)
       if (e.cloth) this.updateCloth(e.cloth, p, grab, dt || 0.016);
       // Gestes au sol : après le lissage, le point le plus bas du corps est reposé sur la pelouse.
       if (p.fall > 0 || p.slide > 0 || p.hurt > 0 || p.place > 0 || p.block > 0 || (p.celeb > 0 && (p.celebType === 'knees' || p.celebType === 'slide') && ((p.speed || 0) <= 2 || (p.celebType === 'slide' && p.celeb < 2.4))) || (p.dive > 0 && p.dive < 0.3)) e.p3.groundContact();
@@ -4299,7 +4366,7 @@ export class Match3D {
     // Ballon dans les mains : gardien (contre la poitrine) ou joueur qui fait la touche (au-dessus de la tête).
     let handId = carrier != null && VIH ? carrier : null, thPos = null;
     // (6c-D) Touche pilotée par le contrat : ballon dans les mains jusqu'à l'instant réel du lâcher.
-    for (const [id, p] of VP) if ((p._thHeld || p._thHold) && this.players.get(id)?._thBall) { thPos = this.players.get(id)._thBall; break; }
+    for (const [id, p] of VP) if ((p._thHeld || p._thHold || p._thDrop) && this.players.get(id)?._thBall) { thPos = this.players.get(id)._thBall; break; }
     if (handId == null && !thPos) for (const [id, p] of VP) if (p.hold > 0) { handId = id; break; }
     const handP = handId != null ? VP.get(handId) : null;
     let inHandsPos = null;

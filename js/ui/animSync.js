@@ -66,9 +66,11 @@ export const PUNT = { z: 0.6, lead: 0.15, blend: 0.12 };
  * réel = g.tContact), à 2 m de haut, au-dessus du point où le ballon était posé ; avant, le joueur le tient
  * (hold). lead : le ballon passe d'au-dessus de la tête au point de lâcher dans les `lead` s qui précèdent le
  * contact (connu grâce au différé de 0,15 s) ; post : accompagnement des bras après le lâcher ; pick : prise
- * du ballon posé (début du hold : accroupi 0,3 s, puis montée) jusqu'au-dessus de la tête.
+ * du ballon posé (début du hold : accroupi 0,3 s, puis montée) jusqu'au-dessus de la tête ; drop : touche sans
+ * libération (le moteur remet le ballon au sol) — le joueur repose le ballon là où il est pour le moteur, de `lead` s
+ * avant à `drop` s après le début du geste (avant le contact suivant du tireur, ≥ 0,98 s dans les matchs mesurés).
  */
-export const TH = { lead: 0.14, post: 0.35, pick: 0.8 };
+export const TH = { lead: 0.14, post: 0.35, pick: 0.8, drop: 0.45 };
 export const TK = { stand: { t1: 0.36, dur: 0.55, up: 0.35 }, slide: { t1: 0.6, dur: 0.9, down: 0.3, up: 0.6 }, rise: 0.1, fall: 0.1 };
 export function tacklePhase(kind, s, sc = null) {
   if (s < 0) return null;
@@ -327,7 +329,7 @@ export class DisplayBuffer {
       // jambes de l'adversaire au contact sur l'homme ; tacle sans contact ballon : pieds tenus à distance du ballon.
       // Lancer de touche (6c-D) : geste calé sur l'instant réel du lâcher ; ballon tenu dans les mains jusqu'à cet
       // instant, puis uniquement la trajectoire du moteur ; aucun lancer sans lâcher (geste annulé : rien).
-      d._th = null; d._thHeld = false; d._thHold = null;
+      d._th = null; d._thHeld = false; d._thHold = null; d._thDrop = null;
       {
         const g = gs.findLast((x) => x.kind === 'touche' && tD - x.t0 > -0.5 && tD - x.t0 < TH.post + 0.5);
         if (g) d.throwIn = 0;   // (ancien minuteur : remplacé, ni geste en retard ni lancer sans lâcher)
@@ -335,6 +337,11 @@ export class DisplayBuffer {
         if (tC != null && tD >= tC - TH.lead && tD <= tC + TH.post) {
           const R = this.ballAt(tC), R2 = this.ballAt(Math.min(simNow, tC + 0.05));
           d._th = { u: tD - tC, R, dir: R && R2 ? { x: R2.x - R.x, y: R2.y - R.y } : null, gid: g.id }; d._thHeld = tD < tC; d.hold = 0;
+        } else if (g && g.tContact == null && tD >= g.t0 - TH.lead) {
+          // Touche sans libération (geste commencé, ballon jamais lâché) : tentative abandonnée, ballon reposé au sol.
+          const nx = gs.find((x) => x !== g && x.t0 >= g.t0 && x.tContact != null && x.tContact <= simNow);
+          const t1 = g.t0 - TH.lead, t2 = Math.max(g.t0, Math.min(g.t0 + TH.drop, nx ? nx.tContact - 0.05 : Infinity));
+          if (tD <= t2) { d._thDrop = { u: Math.min(1, (tD - t1) / (t2 - t1)), gid: g.id }; d.hold = 0; }
         } else if (d.hold > 0) {
           // Prise : début du ballon tenu et ballon posé à cet instant (relevés à l'enregistrement).
           if (d.thT0 != null) d._thHold = { s: tD - d.thT0, B0: { x: d.thBx, y: d.thBy, z: d.thBz } };
