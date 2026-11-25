@@ -2745,7 +2745,7 @@ export class Match3D {
    *  - lancer : dans les 0,14 s qui précèdent l'instant réel du lâcher, le ballon passe d'au-dessus de la tête
    *    au point de lâcher du moteur ; à cet instant, les deux mains sont de part et d'autre du ballon ;
    *  - après le lâcher : ballon du moteur seulement ; les bras accompagnent puis reviennent à la pose animée.
-   * Bras par cinématique inverse, buste incliné vers le ballon (au plus 0,45 rad) ; corps jamais déplacé.
+   * Bras par cinématique inverse, buste incliné vers le ballon (au plus 0,7 rad) ; corps jamais déplacé (rotation bornée à 10 rad/s).
    * Renvoie la position du ballon tenu (ou null).
    */
   applyThrow(e, p, flip) {
@@ -2789,7 +2789,7 @@ export class Match3D {
     // Buste incliné vers le ballon (roulis et tangage, bornés) : aide les bras sans déplacer le corps.
     const U = P3.upper; U.rotation.z += pitch;
     { R.updateMatrixWorld(true); const q = R.worldToLocal(C.clone()), o = R.worldToLocal(U.getWorldPosition(new V3())), dq = q.sub(o);
-      U.rotation.x += Math.max(-0.45, Math.min(0.45, Math.atan2(dq.z, Math.max(0.2, dq.y)) * 0.8)) * w; R.updateMatrixWorld(true); }
+      U.rotation.x += Math.max(-0.7, Math.min(0.7, Math.atan2(dq.z, Math.max(0.2, dq.y)) * 1.1)) * w; R.updateMatrixWorld(true); }
     // Deux mains de part et d'autre du ballon, un peu en arrière (dans le sens du lancer).
     const side = new V3().crossVectors(up, dirT).normalize(), RH = 0.03;
     const save = arms.map((a) => [a.sh.rotation.x, a.sh.rotation.y, a.sh.rotation.z, a.el.rotation.z]);
