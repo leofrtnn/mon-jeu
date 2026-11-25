@@ -2757,7 +2757,8 @@ export class Match3D {
       if (o && dt > 0 && dt < 0.3) { const dr = Math.atan2(Math.sin(R.rotation.y - o.y), Math.cos(R.rotation.y - o.y)), lr = 10 * dt; if (Math.abs(dr) > lr) R.rotation.y = o.y + Math.sign(dr) * lr; }
       e._thYaw = { t: tD, y: R.rotation.y }; }
     R.updateMatrixWorld(true);
-    const V3 = THREE.Vector3, up = new V3(0, 1, 0), fa = flip ? p.face + Math.PI : p.face, fw = new V3(Math.cos(fa), 0, Math.sin(fa));
+    // (avant du corps AFFICHÉ, après la borne de rotation : l'orientation du moteur peut changer d'un coup)
+    const V3 = THREE.Vector3, up = new V3(0, 1, 0), fw = R.localToWorld(new V3(1, 0, 0)).sub(R.position).setY(0).normalize();
     // (centre du ballon affiché : même conversion que le rendu — hauteur au-dessus du ballon posé, ballon affiché de rayon BALL_R)
     const W3 = (b) => { const [x, z] = this.toWorld(b.x / 105, b.y / 68, flip); return new V3(x, BALL_R + Math.max(0, b.z - 0.11), z); };
     const ez = (u) => { u = Math.max(0, Math.min(1, u)); return u * u * (3 - 2 * u); };
@@ -2779,11 +2780,13 @@ export class Match3D {
       // puis le repose là où il est pour le moteur (ballon posé ou qui roule) ; aucun geste de lancer.
       const [ex, ez2] = VB ? this.toWorld(VB.x, VB.y, flip) : [R.position.x, R.position.z], E = new V3(ex, BALL_R + (VB?.h || 0) * 26, ez2);
       const H = e._thHL ? R.localToWorld(e._thHL.clone()) : headTop().addScaledVector(up, BALL_R + 0.015).addScaledVector(fw, -0.05);
-      const u = dr.u, c = ez((u - 0.35) / 0.65);
+      const u = dr.u, c = ez((u - 0.45) / 0.55);
       crouch = c; this.thCrouch(P3, c);
       if (c > 0) { const q = R.worldToLocal(E.clone()), a = Math.atan2(q.z, q.x); R.rotation.y -= Math.max(-1.2, Math.min(1.2, a)) * c; R.updateMatrixWorld(true); }
       const cc = P3.surfCenter('chest'), F = (cc ? cc.clone().setY(Math.max(0.9, cc.y)) : R.localToWorld(new V3(0, 1.15, 0))).addScaledVector(fw, 0.42);
-      C = u < 0.35 ? H.clone().lerp(F, ez(u / 0.35)) : F.clone().lerp(E, ez((u - 0.35) / 0.65));
+      // (d'abord vers l'avant au-dessus de la tête, puis devant le visage et la poitrine : le ballon ne traverse pas la tête)
+      const Hf = H.clone().addScaledVector(fw, 0.45);
+      C = u < 0.2 ? H.clone().lerp(Hf, ez(u / 0.2)) : u < 0.45 ? Hf.clone().lerp(F, ez((u - 0.2) / 0.25)) : F.clone().lerp(E, ez((u - 0.45) / 0.55));
       if (u >= 0.999) C = E.clone();
       e._thDropEnd = u >= 0.999;
     } else {
@@ -2851,7 +2854,7 @@ export class Match3D {
     };
     if (held && hh && hh.s >= 0.3 && hh.s < 0.8) { const Hb = carried(); if (Hb) C = W3(hh.B0).lerp(Hb, ez((hh.s - 0.3) / 0.12)); }
     // Dépose : porté jusqu'au sol, puis posé là où le moteur a le ballon (les 20 derniers % de la dépose).
-    if (held && dr && dr.u >= 0.35 && dr.u < 0.999) { const Hb = carried(); if (Hb) C = dr.u < 0.8 ? Hb : Hb.lerp(C, ez((dr.u - 0.8) / 0.2)); }
+    if (held && dr && dr.u >= 0.45 && dr.u < 0.999) { const Hb = carried(); if (Hb) C = dr.u < 0.8 ? Hb : Hb.lerp(C, ez((dr.u - 0.8) / 0.2)); }
     if (held) {
       // Ballon tenu (porté entre les mains : montée, dépose) : même borne de 12 m/s d'une image à l'autre.
       const tD = this.v.disp6?.tD ?? 0, o = e._thPrev, dt = o ? tD - o.t : 0;
@@ -3357,7 +3360,7 @@ export class Match3D {
       // Début du ballon tenu (relevé à l'enregistrement) : la mesure couvre la prise, la tenue et le lâcher.
       let hs = null; if (D6.sample(mode, T - 0.03)) { const q = D6.disp.get(g.pid); if (q && q.thT0 != null) hs = q.thT0; }
       const t1 = hs != null ? Math.max(hs - 0.3, T - 30) : g.t0 - 1.0;
-      let endJump = 0, thrownNoRel = false, drop = { n: 0, gapMax: -9, penMin: 9, heldUntil: null, devAfter: 0, devHeld: 0 }, hold = null, holdEng = null, atRel = null, sync = null, jump = { d: 0, at: null }, pick = null, post = 0, played = false, heldAfter = 0, prevD = null, prevE = null, Crel = null, prevHeld = false, info = null;
+      let endJump = 0, thrownNoRel = false, drop = { n: 0, gapMax: -9, penMin: 9, heldUntil: null, devAfter: 0, devHeld: 0, headMin: 9 }, leadHead = 9, hold = null, holdEng = null, atRel = null, sync = null, jump = { d: 0, at: null }, pick = null, post = 0, played = false, heldAfter = 0, prevD = null, prevE = null, Crel = null, prevHeld = false, info = null;
       if (rel && D6.sample(mode, g.tContact)) Crel = engBall();
       for (let t = t1; t <= T + 0.6; t += step) {
         if (!D6.sample(mode, t)) break;
@@ -3377,14 +3380,15 @@ export class Match3D {
         if (held && !prevHeld && hs != null && Math.abs(t - hs) < 0.05) pick = { jump: 0, gapMax: -9, penMin: 9 };
         if (pick && hs != null && t - hs <= 1.6 && globalThis.__thTrace) (pick.tr ||= []).push([+(t - hs).toFixed(3), ...hg.map((u) => +(u ?? 9).toFixed(3)), +Cd.y.toFixed(2), +jx.toFixed(3), e._thInfo?.res ?? null]);
         if (pick && hs != null && t - hs <= 0.9) { pick.jump = Math.max(pick.jump, jx); if (held && hg[0] != null && (!p._thHold || p._thHold.s >= 0.3)) { pick.gapMax = Math.max(pick.gapMax, ...hg); pick.penMin = Math.min(pick.penMin, ...hg); } }
-        if (held && (!rel || t < g.tContact - 0.15) && (hs == null || t - hs > 0.9)) { holdEng ||= { h: 0, dh: 0 }; holdEng.h = Math.max(holdEng.h, Ce.y); holdEng.dh = Math.max(holdEng.dh, Math.hypot(Ce.x - x, Ce.z - z)); }
-        if (held && (!rel || t < g.tContact - 0.15) && (hs == null || t - hs > 0.9) && hg[0] != null) {
+        if (held && t < T - 0.15 && (hs == null || t - hs > 0.9)) { holdEng ||= { h: 0, dh: 0 }; holdEng.h = Math.max(holdEng.h, Ce.y); holdEng.dh = Math.max(holdEng.dh, Math.hypot(Ce.x - x, Ce.z - z)); }
+        if (held && t < T - 0.15 && (hs == null || t - hs > 0.9) && hg[0] != null) {
           const hq = P3.surfNearest('head', Cd), hc = P3.surfCenter('head');
           hold ||= { n: 0, gapMax: -9, penMin: 9, both: 0, headMin: 9, above: 0 };
           hold.n++; hold.gapMax = Math.max(hold.gapMax, ...hg); hold.penMin = Math.min(hold.penMin, ...hg);
           if (hg[0] <= 0.03 && hg[1] <= 0.03) hold.both++;
           if (hq) hold.headMin = Math.min(hold.headMin, hq.distanceTo(Cd) - BALL_R);
           if (hc && Cd.y > hc.y) hold.above++;
+          if (globalThis.__thTrace && hq && hq.distanceTo(Cd) - BALL_R < 0) (hold.bad ||= []).length < 12 && hold.bad.push([+(t - T).toFixed(2), p._thHold ? +p._thHold.s.toFixed(2) : null, !!p._thDrop, +(hq.distanceTo(Cd) - BALL_R).toFixed(3), p.hold]);
         }
         if (rel && Math.abs(t - g.tContact) <= step / 2 + 1e-6) {
           // (ballon du moteur à l'instant exact du lâcher : entre deux pas, l'interpolation mêle le ballon posé et le ballon lâché à 2,1 m)
@@ -3396,12 +3400,14 @@ export class Match3D {
         }
         if (Crel) { const h0 = P3.surfNearest('hand0', Crel), h1 = P3.surfNearest('hand1', Crel); if (h0 && h1) { const d = h0.clone().add(h1).multiplyScalar(0.5).distanceTo(Crel) - BALL_R; if (!sync || d < sync.d) sync = { d, dt: t - g.tContact }; } }
         if (prevD && rel && Math.abs(t - g.tContact) < 0.15 && jx > jump.d) { jump.d = jx; jump.at = t - g.tContact; }
+        if (rel && held && t >= g.tContact - 0.15 && t < g.tContact) { const hq = P3.surfNearest('head', Cd); if (hq) leadHead = Math.min(leadHead, hq.distanceTo(Cd) - BALL_R); }
         if (rel && t > g.tContact + step / 2) { post = Math.max(post, Cd.distanceTo(Ce)); if (held) heldAfter++; }
         // Geste sans lâcher (annulé) : saut du ballon affiché quand le moteur cesse de le faire tenir ; lancer joué ?
         if (!rel && t >= T - 0.2) {
           endJump = Math.max(endJump, jx); if (p._th || p.throwIn > 0) thrownNoRel = true;
           // Dépose (touche sans libération) : mains au ballon tant qu'il est tenu ; ensuite, ballon affiché = moteur.
           if (globalThis.__thTrace && t >= T - 0.2 && t <= T + 0.6) (drop.tr ||= []).push([+(t - T).toFixed(3), p._thDrop ? +p._thDrop.u.toFixed(2) : null, ...hg.map((u) => +(u ?? 9).toFixed(3)), +Cd.y.toFixed(2), +jx.toFixed(3), held ? 1 : 0]);
+          if (held && t >= T - 0.15) { const hq = P3.surfNearest('head', Cd); if (hq) drop.headMin = Math.min(drop.headMin, hq.distanceTo(Cd) - BALL_R); }
           if (held && t >= T - 0.15 && hg[0] != null) { drop.n++; drop.gapMax = Math.max(drop.gapMax, ...hg); drop.penMin = Math.min(drop.penMin, ...hg); drop.heldUntil = t - T; }
           if (!held && t > T) drop.devAfter = Math.max(drop.devAfter, Cd.distanceTo(Ce));
           if (held && t > T) drop.devHeld = Math.max(drop.devHeld, Cd.distanceTo(Ce));
@@ -3410,8 +3416,8 @@ export class Match3D {
       }
       out.push({ gid: g.id, pid: g.pid, t0: g.t0, T, rel, dtRel: rel ? +(g.tContact - g.t0).toFixed(3) : null, played, holdS: hs == null ? null : +(T - hs).toFixed(2),
         pick: pick ? { jump: +pick.jump.toFixed(3), gapMax: +pick.gapMax.toFixed(3), penMin: +pick.penMin.toFixed(3), tr: pick.tr } : null,
-        hold: hold ? { n: hold.n, gapMax: +hold.gapMax.toFixed(3), penMin: +hold.penMin.toFixed(3), both: +(hold.both / hold.n).toFixed(2), headMin: +hold.headMin.toFixed(3), above: +(hold.above / hold.n).toFixed(2) } : null,
-        atRel, info, sync: sync ? { d: +sync.d.toFixed(3), dt: +sync.dt.toFixed(3) } : null, jump: { d: +jump.d.toFixed(3), at: jump.at == null ? null : +jump.at.toFixed(3) }, post: +post.toFixed(3), heldAfter, endJump: rel ? null : +endJump.toFixed(3), thrownNoRel, drop: rel ? null : { tr: drop.tr, n: drop.n, gapMax: +drop.gapMax.toFixed(3), penMin: +drop.penMin.toFixed(3), heldUntil: drop.heldUntil == null ? null : +drop.heldUntil.toFixed(3), devAfter: +drop.devAfter.toFixed(3), devHeld: +drop.devHeld.toFixed(3) }, outcome: g.outcome || null, holdEng: holdEng ? { h: +holdEng.h.toFixed(2), dh: +holdEng.dh.toFixed(2) } : null });
+        hold: hold ? { bad: hold.bad, n: hold.n, gapMax: +hold.gapMax.toFixed(3), penMin: +hold.penMin.toFixed(3), both: +(hold.both / hold.n).toFixed(2), headMin: +hold.headMin.toFixed(3), above: +(hold.above / hold.n).toFixed(2) } : null,
+        atRel, info, sync: sync ? { d: +sync.d.toFixed(3), dt: +sync.dt.toFixed(3) } : null, jump: { d: +jump.d.toFixed(3), at: jump.at == null ? null : +jump.at.toFixed(3) }, post: +post.toFixed(3), heldAfter, leadHead: rel && leadHead < 9 ? +leadHead.toFixed(3) : null, endJump: rel ? null : +endJump.toFixed(3), thrownNoRel, drop: rel ? null : { tr: drop.tr, n: drop.n, gapMax: +drop.gapMax.toFixed(3), penMin: +drop.penMin.toFixed(3), heldUntil: drop.heldUntil == null ? null : +drop.heldUntil.toFixed(3), devAfter: +drop.devAfter.toFixed(3), devHeld: +drop.devHeld.toFixed(3), headMin: +drop.headMin.toFixed(3) }, outcome: g.outcome || null, holdEng: holdEng ? { h: +holdEng.h.toFixed(2), dh: +holdEng.dh.toFixed(2) } : null });
     }
     return out;
   }
