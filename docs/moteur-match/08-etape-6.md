@@ -1284,8 +1284,24 @@ Graine 22, mêmes touches avant (6c-C) / après, instants : prise + 2 s, −100 
 * cas 4 — cas défavorable, ballon remis derrière le joueur (2589 à 1876 s) : après, le joueur se tourne, pose le
   ballon devant lui sans contact avec la tête.
 
-### Non-régression
-*(en cours de mesure)*
+### Non-régression (version finale, e53ead5)
+* Empreintes du moteur inchangées : 112bd1dc ; graine 104 → 2a6d7bc9 ; 300 → 8b411e7e ; moteur rapide
+  b47d8708 (relancées sur la version finale).
+* 132 tests unitaires (dont le test de la touche : ballon tenu jusqu'à l'instant réel du lâcher, lâché ensuite,
+  prise relevée, ancien minuteur coupé, aucun lancer sans lâcher, dépose bornée), tests d'interface et test du match
+  à deux (en ligne) réussis.
+* Sonde 6b (graine 21, 8 min, 6c-C / 6c-D) : taux crédibles identiques — conduite 92 / 92 %, passes 92 / 92 %,
+  passes levées 75 / 75 %, centres, dégagements, frappes et remises en jeu au pied 100 / 100 %, contrôles 55 / 54 %
+  (91 / 90 gestes) ; « subi » 40 / 20 % (5 gestes : un seul geste passe de part et d'autre du seuil ; l'ancien
+  indicateur, que 6c-D ne touche pas, varie de la même façon ; la passe précédente donnait 20 / 20 %). Le nombre de
+  gestes varie de 1 ou 2 d'une passe à l'autre (sonde en temps réel).
+* Coût d'affichage (rendu logiciel sans GPU, passes alternées 6c-C / 6c-D, médianes par image) : sans
+  ralentissement, direct 191 / 165 ms et contrat 184 / 156 ms ; processeur ralenti ×4 : direct 288 / 270 ms,
+  contrat 306 / 308 ms. Les deux modes varient ensemble d'une passe à l'autre (bruit de la machine) : pas de coût
+  mesurable du lancer de touche.
+* Outils conservés : sondes `probe6`, `probeAir`, `probeGK`, `probeTK`, `probeTH` (`TH=1` ; `THTRACE=1` pour le
+  relevé image par image de la prise et de la dépose : mains, tête, angle du ballon du moteur, accroupi) ; captures
+  `TH=1` (`OFFS=h…` : instants comptés depuis la prise).
 
 ### Décision demandée
 6c-D (correction ciblée) est présentée pour validation, avec les réserves ci-dessus. 6d n'est pas commencée.
