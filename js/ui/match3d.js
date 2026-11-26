@@ -2779,14 +2779,25 @@ export class Match3D {
       // Touche abandonnée (le moteur remet le ballon au sol sans le lancer) : le joueur ramène le ballon devant lui
       // puis le repose là où il est pour le moteur (ballon posé ou qui roule) ; aucun geste de lancer.
       const [ex, ez2] = VB ? this.toWorld(VB.x, VB.y, flip) : [R.position.x, R.position.z], E = new V3(ex, BALL_R + (VB?.h || 0) * 26, ez2);
-      const H = e._thHL ? R.localToWorld(e._thHL.clone()) : headTop().addScaledVector(up, BALL_R + 0.015).addScaledVector(fw, -0.05);
       // (accroupi pendant qu'il porte le ballon vers le sol, au plus 85 % ; il se relève pendant que le ballon, posé, rejoint celui du moteur)
       const u = dr.u, c = 0.85 * (u < 0.8 ? ez((u - 0.45) / 0.2) : 1 - ez((u - 0.8) / 0.2));
-      crouch = c; this.thCrouch(P3, c);
-      if (c > 0) { const q = R.worldToLocal(E.clone()), a = Math.atan2(q.z, q.x); R.rotation.y -= Math.max(-1.2, Math.min(1.2, a)) * c; R.updateMatrixWorld(true); }
-      const cc = P3.surfCenter('chest'), F = (cc ? cc.clone().setY(Math.max(0.9, cc.y)) : R.localToWorld(new V3(0, 1.15, 0))).addScaledVector(fw, 0.42);
+      // (buste moins penché que pour ramasser : la tête reste en arrière du ballon porté vers le sol)
+      crouch = c; this.thCrouch(P3, c); P3.upper.rotation.z += 0.5 * c; R.updateMatrixWorld(true);
+      // (le joueur se tourne d'abord vers le ballon du moteur — qui peut être derrière lui —, à 10 rad/s au plus, sans
+      // saut d'angle autour de ±π ; il le repose ensuite devant lui ; après la dépose, il revient à l'orientation du moteur)
+      { R.updateMatrixWorld(true); const q = R.worldToLocal(E.clone()), tD = this.v.disp6?.tD ?? 0, o = e._thTurn; let a = Math.atan2(q.z, q.x);
+        const o0 = o && tD - o.t > 0 && tD - o.t < 0.3 ? o : null, off0 = o0 ? o0.off : 0;
+        if (Math.abs(a - off0) > Math.PI) a -= 2 * Math.PI * Math.sign(a - off0);
+        const tgt = a * ez(u / 0.4), lim = o0 ? 10 * (tD - o0.t) : Infinity, off = off0 + Math.max(-lim, Math.min(lim, tgt - off0));
+        // (sens de rotation mesuré : le repère du joueur peut être miroir selon le côté)
+        R.rotation.y += 0.01; R.updateMatrixWorld(true); const q2 = R.worldToLocal(E.clone()), sg = Math.sin(Math.atan2(q2.z, q2.x) - Math.atan2(q.z, q.x)) >= 0 ? 1 : -1; R.rotation.y -= 0.01;
+        R.rotation.y -= off * sg; R.updateMatrixWorld(true); e._thTurn = { t: tD, off, y: R.rotation.y }; }
+      // (chemin du ballon dans le repère du corps tourné : au-dessus de la tête, devant le visage, devant la poitrine)
+      const fwT = R.localToWorld(new V3(1, 0, 0)).sub(R.position).setY(0).normalize();
+      const H = e._thHL ? R.localToWorld(e._thHL.clone()) : headTop().addScaledVector(up, BALL_R + 0.015).addScaledVector(fwT, -0.05);
+      const cc = P3.surfCenter('chest'), F = (cc ? cc.clone().setY(Math.max(0.9, cc.y)) : R.localToWorld(new V3(0, 1.15, 0))).addScaledVector(fwT, 0.42);
       // (d'abord vers l'avant au-dessus de la tête, puis devant le visage et la poitrine : le ballon ne traverse pas la tête)
-      const Hf = H.clone().addScaledVector(fw, 0.45);
+      const Hf = H.clone().addScaledVector(fwT, 0.45);
       C = u < 0.2 ? H.clone().lerp(Hf, ez(u / 0.2)) : u < 0.45 ? Hf.clone().lerp(F, ez((u - 0.2) / 0.25)) : F.clone().lerp(E, ez((u - 0.45) / 0.55));
       if (u >= 0.999) C = E.clone();
       e._thDropEnd = u >= 0.999;
@@ -2866,6 +2877,14 @@ export class Match3D {
       e._thBall = C.clone(); e._thPrev = { t: tD, c: C.clone() };
     } else e._thPrev = null;
     return e._thBall;
+  }
+  /** Après une touche abandonnée : le joueur revient à l'orientation du moteur, à 10 rad/s au plus (rendu seul). */
+  thTurnRelax(e) {
+    const o = e._thTurn, R = e.p3.root, tD = this.v.disp6?.tD ?? 0, dt = tD - o.t;
+    if (!(dt > 0) || dt >= 0.3) { if (dt !== 0) e._thTurn = null; else { R.rotation.y = o.y; R.updateMatrixWorld(true); } return; }
+    const d = Math.atan2(Math.sin(R.rotation.y - o.y), Math.cos(R.rotation.y - o.y)), lim = 10 * dt;
+    if (Math.abs(d) <= lim) { e._thTurn = null; return; }
+    R.rotation.y = o.y + Math.sign(d) * lim; R.updateMatrixWorld(true); e._thTurn = { t: tD, off: 0, y: R.rotation.y };
   }
   /** Normales de la face du ballon tournée vers le joueur, écartées de 50° vers chaque épaule (lancer à deux mains). */
   thFaceNormals(C, shp) {
@@ -3373,7 +3392,7 @@ export class Match3D {
         const [x, z] = this.toWorld(p.x, p.y, flip); P3.root.position.set(x, 0, z);
         const B = D6.ballN; P3.pose(p, flip, { dt: step, ballAng: Math.atan2((B.y - p.y) * W, (B.x - p.x) * L) }); P3.smoothPose(step);
         if (p._ik) this.applyIK(e, p, flip, B);
-        if (p._th || p._thHold || p._thDrop) this.applyThrow(e, p, flip, B); else e._thBall = null;
+        if (p._th || p._thHold || p._thDrop) this.applyThrow(e, p, flip, B); else { e._thBall = null; if (e._thTurn) this.thTurnRelax(e); }
         P3.root.updateMatrixWorld(true);
         if (p.throwIn > 0 || p._th) played = true;
         const held = p.hold > 0 || !!p._thHeld || !!p._thHold || !!p._thDrop;
@@ -3411,7 +3430,7 @@ export class Match3D {
           endJump = Math.max(endJump, jx); if (p._th || p.throwIn > 0) thrownNoRel = true;
           // Dépose (touche sans libération) : mains au ballon tant qu'il est porté (jusqu'à 65 % de la dépose ; ensuite il est
           // posé et rejoint le ballon du moteur) ; après la dépose, ballon affiché = moteur.
-          if (globalThis.__thTrace && t >= T - 0.2 && t <= T + 0.6) (drop.tr ||= []).push([+(t - T).toFixed(3), p._thDrop ? +p._thDrop.u.toFixed(2) : null, ...hg.map((u) => +(u ?? 9).toFixed(3)), +Cd.y.toFixed(2), +jx.toFixed(3), held ? 1 : 0]);
+          if (globalThis.__thTrace && t >= T - 0.2 && t <= T + 0.6) (drop.tr ||= []).push([+(t - T).toFixed(3), p._thDrop ? +p._thDrop.u.toFixed(2) : null, ...hg.map((u) => +(u ?? 9).toFixed(3)), +Cd.y.toFixed(2), +jx.toFixed(3), held ? 1 : 0, (() => { const hq = P3.surfNearest('head', Cd); return hq ? +(hq.distanceTo(Cd) - BALL_R).toFixed(3) : null; })(), (() => { const q = P3.root.worldToLocal(Ce.clone()); return +Math.atan2(q.z, q.x).toFixed(2); })(), e._thInfo?.crouch ?? null]);
           if (held && t >= T - 0.15) { const hq = P3.surfNearest('head', Cd); if (hq) drop.headMin = Math.min(drop.headMin, hq.distanceTo(Cd) - BALL_R); }
           if (held && t >= T - 0.15 && hg[0] != null && (!p._thDrop || p._thDrop.u < 0.65)) { drop.n++; drop.gapMax = Math.max(drop.gapMax, ...hg); drop.penMin = Math.min(drop.penMin, ...hg); drop.heldUntil = t - T; }
           if (!held && t > T) drop.devAfter = Math.max(drop.devAfter, Cd.distanceTo(Ce));
@@ -4356,7 +4375,7 @@ export class Match3D {
       if (p._air) this.applyAir(e, p, flip, VB);   // (étape 6c-A : saut à la hauteur du ballon)
       if (p._ik) this.applyIK(e, p, flip, VB);   // (étape 6b : le pied touche le ballon là où il est, à l'instant du contact)
       if (v.dispPlayers) this.antiPen(e, p, flip, VB);
-      if (p._th || p._thHold || p._thDrop) this.applyThrow(e, p, flip, VB); else e._thBall = null;   // (étape 6c-D : lancer de touche)
+      if (p._th || p._thHold || p._thDrop) this.applyThrow(e, p, flip, VB); else { e._thBall = null; if (e._thTurn) this.thTurnRelax(e); }   // (étape 6c-D : lancer de touche)
       if (e.cloth) this.updateCloth(e.cloth, p, grab, dt || 0.016);
       // Gestes au sol : après le lissage, le point le plus bas du corps est reposé sur la pelouse.
       if (p.fall > 0 || p.slide > 0 || p.hurt > 0 || p.place > 0 || p.block > 0 || (p.celeb > 0 && (p.celebType === 'knees' || p.celebType === 'slide') && ((p.speed || 0) <= 2 || (p.celebType === 'slide' && p.celeb < 2.4))) || (p.dive > 0 && p.dive < 0.3)) e.p3.groundContact();
