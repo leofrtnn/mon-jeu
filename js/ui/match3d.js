@@ -2780,7 +2780,8 @@ export class Match3D {
       // puis le repose là où il est pour le moteur (ballon posé ou qui roule) ; aucun geste de lancer.
       const [ex, ez2] = VB ? this.toWorld(VB.x, VB.y, flip) : [R.position.x, R.position.z], E = new V3(ex, BALL_R + (VB?.h || 0) * 26, ez2);
       const H = e._thHL ? R.localToWorld(e._thHL.clone()) : headTop().addScaledVector(up, BALL_R + 0.015).addScaledVector(fw, -0.05);
-      const u = dr.u, c = ez((u - 0.45) / 0.55);
+      // (accroupi pendant qu'il porte le ballon vers le sol, au plus 85 % ; il se relève pendant que le ballon, posé, rejoint celui du moteur)
+      const u = dr.u, c = 0.85 * (u < 0.8 ? ez((u - 0.45) / 0.2) : 1 - ez((u - 0.8) / 0.2));
       crouch = c; this.thCrouch(P3, c);
       if (c > 0) { const q = R.worldToLocal(E.clone()), a = Math.atan2(q.z, q.x); R.rotation.y -= Math.max(-1.2, Math.min(1.2, a)) * c; R.updateMatrixWorld(true); }
       const cc = P3.surfCenter('chest'), F = (cc ? cc.clone().setY(Math.max(0.9, cc.y)) : R.localToWorld(new V3(0, 1.15, 0))).addScaledVector(fw, 0.42);
@@ -2856,8 +2857,8 @@ export class Match3D {
       return Hb;
     };
     if (held && hh && hh.s >= 0.3 && hh.s < 0.8) { const Hb = carried(); if (Hb) C = W3(hh.B0).lerp(Hb, ez((hh.s - 0.3) / 0.12)); }
-    // Dépose : porté jusqu'au sol, puis posé là où le moteur a le ballon (les 20 derniers % de la dépose).
-    if (held && dr && dr.u >= 0.45 && dr.u < 0.999) { const Hb = carried(); if (Hb) C = dr.u < 0.8 ? Hb : Hb.lerp(C, ez((dr.u - 0.8) / 0.2)); }
+    // Dépose : porté vers le sol, puis posé là où le moteur a le ballon (les 35 derniers % de la dépose).
+    if (held && dr && dr.u >= 0.45 && dr.u < 0.999) { const Hb = carried(); if (Hb) C = dr.u < 0.65 ? Hb : Hb.lerp(C, ez((dr.u - 0.65) / 0.35)); }
     if (held) {
       // Ballon tenu (porté entre les mains : montée, dépose) : même borne de 12 m/s d'une image à l'autre.
       const tD = this.v.disp6?.tD ?? 0, o = e._thPrev, dt = o ? tD - o.t : 0;
@@ -3408,11 +3409,11 @@ export class Match3D {
         // Geste sans lâcher (annulé) : saut du ballon affiché quand le moteur cesse de le faire tenir ; lancer joué ?
         if (!rel && t >= T - 0.2) {
           endJump = Math.max(endJump, jx); if (p._th || p.throwIn > 0) thrownNoRel = true;
-          // Dépose (touche sans libération) : mains au ballon tant qu'il est porté (jusqu'à 80 % de la dépose ; ensuite il est
+          // Dépose (touche sans libération) : mains au ballon tant qu'il est porté (jusqu'à 65 % de la dépose ; ensuite il est
           // posé et rejoint le ballon du moteur) ; après la dépose, ballon affiché = moteur.
           if (globalThis.__thTrace && t >= T - 0.2 && t <= T + 0.6) (drop.tr ||= []).push([+(t - T).toFixed(3), p._thDrop ? +p._thDrop.u.toFixed(2) : null, ...hg.map((u) => +(u ?? 9).toFixed(3)), +Cd.y.toFixed(2), +jx.toFixed(3), held ? 1 : 0]);
           if (held && t >= T - 0.15) { const hq = P3.surfNearest('head', Cd); if (hq) drop.headMin = Math.min(drop.headMin, hq.distanceTo(Cd) - BALL_R); }
-          if (held && t >= T - 0.15 && hg[0] != null && (!p._thDrop || p._thDrop.u < 0.8)) { drop.n++; drop.gapMax = Math.max(drop.gapMax, ...hg); drop.penMin = Math.min(drop.penMin, ...hg); drop.heldUntil = t - T; }
+          if (held && t >= T - 0.15 && hg[0] != null && (!p._thDrop || p._thDrop.u < 0.65)) { drop.n++; drop.gapMax = Math.max(drop.gapMax, ...hg); drop.penMin = Math.min(drop.penMin, ...hg); drop.heldUntil = t - T; }
           if (!held && t > T) drop.devAfter = Math.max(drop.devAfter, Cd.distanceTo(Ce));
           if (held && t > T) drop.devHeld = Math.max(drop.devHeld, Cd.distanceTo(Ce));
         }
