@@ -79,7 +79,7 @@ const serve = () => new Promise((resolve) => {
         if (args[9]) {
           // Chutes (6d-A) : épisodes de l'état du moteur (fall/hurt) ; KEYS=pid:t0 pour des chutes précises.
           v.TS = 20;
-          const pr = v.r3d.probeFL('contrat', Math.max(v._airT || 0, now - 30), now - 5); v._airT = now - 5;
+          const pr = v.r3d.probeFL('contrat', Math.max(v._airT || 0, now - 30), now - 5); v._airT = now - 5; if (args[10]) window.__flDbg = 'FL ' + now.toFixed(0) + ' ' + pr.length + ' ' + pr.map((x) => x.pid + ':' + x.t0.toFixed(3)).join(' ');
           const KEYS = (args[5] || '').split(',').filter(Boolean).map((k) => k.split(':').map(Number));
           v._keysDone ||= new Set();
           const r = pr.find((x) => (!KEYS.length || KEYS.some(([pid, T]) => x.pid === pid && Math.abs(x.t0 - T) < 0.01)) && !v._keysDone.has(x.pid + ':' + x.t0) && (v._keysDone.add(x.pid + ':' + x.t0), true));
@@ -142,7 +142,8 @@ const serve = () => new Promise((resolve) => {
         };
         v._shot = { holdS: g._holdS ?? null, tC: (g._T ?? g.tContact) + (why && /penetration_hors/.test(why) ? +(why.match(/à (-?\d+) ms/) || [0, 0])[1] / 1000 : 0), kind: g.kind + (g.reflex && ['passe', 'passe levée', 'centre', 'frappe', 'dégagement'].includes(g.kind) ? ' sans armé' : ''), id: g.id, why, cat: why ? why.split(' ')[0] : null };
         return v._shot;
-      }, [want, Object.fromEntries(done), RES, SEQ, AIR, process.env.KEYS || '', GK, TKS, THS, FLS]);
+      }, [want, Object.fromEntries(done), RES, SEQ, AIR, process.env.KEYS || '', GK, TKS, THS, FLS, !!process.env.DBG]);
+      if (process.env.DBG) console.log(await page.evaluate(() => window.__flDbg || ('t ' + window.__view.live.now.toFixed(0) + ' TS ' + window.__view.TS)));
       if (!pick) continue;
       if (SEQ) {
         // Séquence : même geste, instants successifs ; caméra de côté figée sur sa position au contact, puis caméra de jeu.
