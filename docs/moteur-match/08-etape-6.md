@@ -1318,3 +1318,83 @@ Graine 22, mêmes touches avant (6c-C) / après, instants : prise + 2 s, −100 
 * Pénétrations de plus de 5 cm pendant certaines prises (23/67, max −15,3 cm).
 * Incohérences du moteur non corrigées : point de lâcher latéral (≈ 50 cm) ; touches sans libération (≈ 34 %),
   ballon parfois remis derrière le tireur.
+
+## 6d — Chutes, célébrations et gestes techniques
+
+**Décision (utilisateur)** : feu vert pour 6d uniquement. Principes : le moteur reste l'unique source de vérité
+(décisions, contacts, déplacements, événements) ; les gestes techniques représentent les actions réellement
+décidées, sans contact inventé avec le ballon ; chutes et célébrations suivent les événements et états du moteur
+sans modifier leur durée ni leur issue ; gestes avec contact réel, sans contact et interrompus/annulés
+distingués ; anciens indicateurs conservés pour les familles non migrées, puis vérification qu'ils ne pilotent
+plus les gestes migrés ; mesure exhaustive par famille, résultats séparés, captures favorables et défavorables ;
+pas de correction, pendant 6d, des anomalies moteur/rendu déjà consignées. Un rapport par sous-famille, validation
+explicite avant la suivante.
+
+Découpage : **6d-A — chutes** (au sol, relevé), **6d-B — célébrations**, **6d-C — gestes techniques / feintes**.
+
+## 6d-A — Chutes — rapport (en attente de validation)
+
+### Constat de départ (version 6c-D, même sonde)
+Sonde dédiée `probeFL` (`FL=1 node tools/bench/anim-probe.cjs`) : chaque épisode de chute (`fall`) ou de blessure
+au sol (`hurt`) est pris dans l'état du moteur relevé à chaque pas (front montant), avec sa cause déduite de la
+valeur de départ du moteur (2,0 faute subie ; 1,0 glissé sur le ballon ; tacle sur l'homme ; 0,7 duel de corps ;
+blessure), sa durée, s'il est interrompu ou prolongé. La pose affichée est rejouée à 60 images/s de −0,25 s à
++0,6 s après la fin : début et fin de la pose de chute affichée par rapport au moteur, séquence complète
+(départ de la pose = valeur de départ du moteur), saut de pose d'une image à l'autre (plus grand déplacement d'un
+point du corps, déplacement du corps entier retiré), point le plus bas du corps, déplacement du joueur couché
+et en se relevant (moteur), ballon dans le corps au sol. Trois matchs complets (graines 21, 22, 24).
+* Moteur (inchangé) : toutes les chutes observées sont des fautes subies (`fall` = 2,0, soit 3,2 s affichées) ;
+  sur les trois matchs, aucun glissé sur le ballon ni choc de tacle, un seul duel de corps (graines 21-22,
+  passe précédente), aucune blessure au sol, aucune chute interrompue ni prolongée.
+* Début en retard : la liste des champs recopiés dans l'instantané d'affichage n'était rafraîchie qu'une fois par
+  seconde ; une chute pouvait être absente de l'affichage pendant jusqu'à 1 s (médiane 0,267 s, 33/52 chutes
+  en retard de plus d'une image) et la pose démarrait en cours de route (séquence complète 19/52).
+* Orientation : à la faute, l'orientation du moteur bascule d'un coup et continue de tourner pendant que le joueur
+  est au sol ; le corps couché pivotait avec elle (sauts de pose jusqu'à 1,5 m).
+* Corps sous la pelouse : 4 cas, jusqu'à −16,1 cm.
+
+### Principe (rendu seul ; moteur, physique, contacts, décisions et arbitrage inchangés)
+* Contrat (`js/ui/animSync.js`, `ST6D`) : `fall` et `hurt` sont recopiés à chaque pas dans l'instantané, avec
+  leur valeur de départ (`fall0`, `hurt0`) relevée au front montant ; la pose de chute est pilotée par ces
+  valeurs : même début, même durée, même fin que le moteur.
+* Rendu (`js/ui/match3d.js`) : progression de la pose calée sur `fall / fall0` (l'ancienne estimation
+  `_fallMax`, déduite de la première valeur vue, ne sert plus que si `fall0` manque) ; orientation du joueur
+  au sol tenue tant qu'il est couché ou à genoux (jusqu'à 88 % de la chute), puis ramenée vers celle du moteur
+  à 6 rad/s au plus (`fallYaw`) ; lissage de pose ralenti (9/s au lieu de 24/s) pendant 0,25 s au début et à la
+  fin d'une chute. Le déplacement du corps reste celui du moteur.
+* Ancien affichage (mode `ancien`, familles non migrées) inchangé.
+
+### Résultats (trois matchs complets, graines 21, 22, 24 ; avant : 52 chutes, après : 57 ; couverture 100 %)
+| | avant (6c-D) | après |
+|---|---|---|
+| début affiché − début moteur (médiane / max) | 0,267 s / 1,000 s | 0,017 s / 0,017 s (1 image) |
+| chutes en retard de plus d'une image | 33/52 | 0/57 |
+| fin affichée − fin moteur (max) | 8 ms | 8 ms |
+| séquence complète | 19/52 | 57/57 |
+| saut de pose, médiane / p90 / max | 28,2 / 117,6 / 153,0 cm | 12,0 / 27,5 / 140,2 cm |
+| sauts > 20 cm / > 50 cm | 39 / 11 | 10 / 4 |
+| corps sous la pelouse (min / cas < 0) | −16,1 cm / 4 | +4,2 cm / 0 |
+
+Le nombre de chutes diffère entre les passes parce que la sonde tourne en temps réel (fenêtres de mesure) ; le
+moteur produit les mêmes chutes aux mêmes instants (graine 24 : 20/20 épisodes identiques avant et après).
+
+### Réserves (cas défavorables, non exclus des mesures)
+* Sauts de plus de 1 m (4/57 après, 5 avec la passe précédente ; déjà présents avant) : la cheville gauche part
+  vers le ballon pendant une ou deux images puis revient (graine 21, 2376 à 5946 s, fin de chute ; graine 24 :
+  2376 à 3778,7 s en pleine chute, 2372 à 1032,0 s et 27414 à 4604,4 s juste après la fin, 2373 à 4811,6 s à la
+  fin). Mécanisme hors des chutes (pose du pied vers le ballon, 6b) : signalé, non corrigé.
+* Sauts de 20 à 50 cm (6/57) : changement de pose au début et à la fin de la chute, en partie absorbé par le
+  lissage ralenti.
+* Incohérences du moteur non corrigées :
+  * le joueur couché glisse (décélération du moteur) : médiane 4,0 m/s, jusqu'à 12,1 m/s au tout début de la
+    chute (la mesure « avant », 2,4 m/s, ne voyait pas ce début, affiché en retard) ;
+  * le joueur se déplace à ~2,4 m/s pendant qu'il finit de se relever (le moteur l'autorise dès `fall` ≤ 0,3) ;
+  * le ballon traverse le joueur au sol (36/57 après, 35/52 avant).
+* Écritures de l'interface dans l'état des joueurs du moteur (principe 1, pour décision) : `matchView.js` écrit
+  dans les objets joueurs partagés avec le moteur — `jump` (tête), `appeal` (contestation), `celeb`
+  (célébration), `headHands` (mains sur la tête), et à la blessure `hurt = 4,5 ; fall = 0`. Le moteur relit
+  `hurt`, `celeb` et `jump`. Relevé sur les trois matchs (après) : jump 56, appeal 93, celeb 80, headHands 7,
+  aucune blessure. Les empreintes du moteur sont mesurées sans interface et restent inchangées, mais en match
+  affiché ces écritures peuvent influencer le moteur. Proposition : 6d-B (célébrations) déplace `celeb` vers un
+  état propre à l'affichage ; `jump`, `appeal`, `headHands` et `hurt` font l'objet d'une décision séparée
+  (backlog), 6d-A n'y touche pas.

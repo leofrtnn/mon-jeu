@@ -67,15 +67,24 @@ const serve = () => new Promise((resolve) => {
     await page.waitForTimeout(8000);
     const want = ['touche de conduite', 'contrôle', 'passe', 'passe levée', 'centre', 'frappe', 'dégagement', 'subi'];
     const done = new Map(); let shots = 0;
-    const RES = !!(process.env.RES || process.env.SEQ), SEQ = !!process.env.SEQ, GK = !!process.env.GK, TKS = !!process.env.TK, THS = !!process.env.TH, AIR = !!process.env.AIR || GK || TKS || THS;   // TH=1 : touches (6c-D) ; OFFS=h0.2,… : instants comptés depuis le début de la tenue du ballon   // TK=1 : tacles (6c-C)   // GK=1 : gestes du gardien (6c-B) ; OFFS=0,0.4 : instants capturés autour du contact (s)
+    const RES = !!(process.env.RES || process.env.SEQ), SEQ = !!process.env.SEQ, GK = !!process.env.GK, TKS = !!process.env.TK, THS = !!process.env.TH, FLS = !!process.env.FL, AIR = !!process.env.AIR || GK || TKS || THS || FLS;   // FL=1 : chutes (6d-A) ; OFFS en s depuis le début de la chute du moteur ; affichage rejoué image par image (1/60 s) depuis −0,4 s   // TH=1 : touches (6c-D) ; OFFS=h0.2,… : instants comptés depuis le début de la tenue du ballon   // TK=1 : tacles (6c-C)   // GK=1 : gestes du gardien (6c-B) ; OFFS=0,0.4 : instants capturés autour du contact (s)
     if (AIR) await page.evaluate((k) => { const v = window.__view; v.TS = k ? 20 : 6; v.opts.replays = false; v.replayPlan = null; }, !!process.env.KEYS);   // (gestes aériens rares : jeu accéléré entre deux captures)
-    if (RES || TKS || THS) await page.evaluate((x) => { window.__view.disp6.extra = x; }, THS ? 48 : process.env.KEYS || TKS ? 32 : AIR ? 5 : 1.4);   // (tacles : fenêtre de recherche de 30 s, historique d'affichage à la mesure)
+    if (FLS) await page.evaluate(() => { window.__view.disp6.probeSt = true; });
+    if (RES || TKS || THS || FLS) await page.evaluate((x) => { window.__view.disp6.extra = x; }, THS || FLS ? 48 : process.env.KEYS || TKS ? 32 : AIR ? 5 : 1.4);   // (tacles : fenêtre de recherche de 30 s, historique d'affichage à la mesure)
     for (let tries = 0; tries < (process.env.TRIES ? +process.env.TRIES : AIR ? 600 : RES ? 200 : 80) && shots < PAIRS; tries++) {
       await page.waitForTimeout(1200);
       const pick = await page.evaluate((args) => {
         const [want, done, RES, SEQ, AIR] = args, v = window.__view, G = v.live.gest, now = v.live.now;
         let g = null, why = null;
-        if (args[8]) {
+        if (args[9]) {
+          // Chutes (6d-A) : épisodes de l'état du moteur (fall/hurt) ; KEYS=pid:t0 pour des chutes précises.
+          v.TS = 20;
+          const pr = v.r3d.probeFL('contrat', Math.max(v._airT || 0, now - 30), now - 5); v._airT = now - 5;
+          const KEYS = (args[5] || '').split(',').filter(Boolean).map((k) => k.split(':').map(Number));
+          v._keysDone ||= new Set();
+          const r = pr.find((x) => (!KEYS.length || KEYS.some(([pid, T]) => x.pid === pid && Math.abs(x.t0 - T) < 0.01)) && !v._keysDone.has(x.pid + ':' + x.t0) && (v._keysDone.add(x.pid + ':' + x.t0), true));
+          if (r) { g = { pid: r.pid, id: r.pid + ':' + r.t0, kind: 'chute', _T: r.t0, _fl: true }; why = `${r.cause} (début affiché ${r.dispOn != null ? Math.round(r.dispOn * 1000) + ' ms' : '—'}, saut de pose max ${r.jumpIn != null ? (r.jumpIn * 100).toFixed(0) + ' cm' : '—'}, joueur couché déplacé ${r.lyingMove ?? '—'} m/s, pid ${r.pid}, t0 ${r.t0.toFixed(3)})`; }
+        } else if (args[8]) {
           // Touches (6c-D) : lâchées ou non ; KEYS=pid:t0 pour des gestes précis ; prise, tenue et lâcher.
           v.TS = 20;
           const pr = v.r3d.probeTH('contrat', Math.max(v._airT || 0, now - 30), now - 1.6); v._airT = now - 1.6;
@@ -119,6 +128,7 @@ const serve = () => new Promise((resolve) => {
         } else g = [...G.gestures].reverse().find((x) => want.includes(x.kind) && x.tContact != null && x.tContact > now - 1.1 && x.tContact < now - 0.45 && (done[x.kind] || 0) < 1);
         if (!g) return null;
         const e = v.r3d.players.get(g.pid); if (!e) return null;
+        v._flShot = !!g._fl;
         v.TS0 = AIR ? (args[5] ? 20 : 6) : v.TS; v.TS = 0; v._shotAir = AIR; v._shotGK = !!args[6] || !!args[7];   // simulation figée
         v._cam0 = v.r3d.updateCamera; v._samp0 = v.sampleDisplay;
         // Caméra de côté : perpendiculaire à l'axe joueur → ballon, du côté opposé au joueur le plus proche (pas d'occultation).
@@ -132,7 +142,7 @@ const serve = () => new Promise((resolve) => {
         };
         v._shot = { holdS: g._holdS ?? null, tC: (g._T ?? g.tContact) + (why && /penetration_hors/.test(why) ? +(why.match(/à (-?\d+) ms/) || [0, 0])[1] / 1000 : 0), kind: g.kind + (g.reflex && ['passe', 'passe levée', 'centre', 'frappe', 'dégagement'].includes(g.kind) ? ' sans armé' : ''), id: g.id, why, cat: why ? why.split(' ')[0] : null };
         return v._shot;
-      }, [want, Object.fromEntries(done), RES, SEQ, AIR, process.env.KEYS || '', GK, TKS, THS]);
+      }, [want, Object.fromEntries(done), RES, SEQ, AIR, process.env.KEYS || '', GK, TKS, THS, FLS]);
       if (!pick) continue;
       if (SEQ) {
         // Séquence : même geste, instants successifs ; caméra de côté figée sur sa position au contact, puis caméra de jeu.
@@ -157,8 +167,16 @@ const serve = () => new Promise((resolve) => {
       for (const off of OFFS) {
       await page.evaluate((o) => { const v = window.__view; v._shot.tC0 ??= v._shot.tC; v._shot.tC = v._shot.tC0 + o; }, off);
       for (const mode of (RES && !AIR) || process.env.KEYS ? ['contrat'] : ['ancien', 'contrat']) {
+        if (FLS) {
+          // Chute : l'affichage est rejoué image par image jusqu'à l'instant voulu (états de pose et d'orientation construits comme en jeu).
+          await page.evaluate((m) => { const v = window.__view; const S = v._shot; if (!(S.tCur <= S.tC)) S.tCur = S.tC - 0.4;
+            v.sampleDisplay = function () { const S = this._shot; S.tCur = Math.min(S.tC, S.tCur + 1 / 60); const ok = this.disp6.sample(m, S.tCur); if (!ok) return; this.dispPlayers = this.disp6.disp; this.dispPhys = this.disp6.ball; this.dispBall = this.disp6.ballN; this.dispHolder = this.disp6.holder; this.dispInHands = this.disp6.inHands; }; v.liveAcc = 0; }, mode);
+          await page.waitForFunction(() => { const S = window.__view._shot; return S.tCur >= S.tC - 1e-9; }, null, { timeout: 600000 });
+          await page.waitForTimeout(120);
+        } else {
         await page.evaluate((m) => { const v = window.__view; v.sampleDisplay = function () { const ok = this.disp6.sample(m, this._shot.tC); if (!ok) return; this.dispPlayers = this.disp6.disp; this.dispPhys = this.disp6.ball; this.dispBall = this.disp6.ballN; this.dispHolder = this.disp6.holder; this.dispInHands = this.disp6.inHands; }; v.liveAcc = 0; }, mode);
         await page.waitForTimeout(700);
+        }
         const f = path.join(OUT, `${String(shots + 1).padStart(2, '0')}-${pick.kind.replace(/ /g, '_')}-${AIR ? pick.cat + "-" + mode : pick.cat || mode}${OFFS.length > 1 ? '-' + (off >= 0 ? '+' : '') + Math.round(off * 1000) + 'ms' : ''}.png`);
         await page.screenshot({ path: f, clip: { x: 0, y: 0, width: 1280 * 0.7, height: 720 } });
         console.log(f + (pick.why ? ' — ' + pick.why : ''));
