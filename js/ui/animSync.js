@@ -70,6 +70,8 @@ export const PUNT = { z: 0.6, lead: 0.15, blend: 0.12 };
  * libération (le moteur remet le ballon au sol) — le joueur repose le ballon là où il est pour le moteur, de `lead` s
  * avant à `drop` s après le début du geste (avant le contact suivant du tireur, ≥ 0,98 s dans les matchs mesurés).
  */
+/** Minuteurs d'état du moteur relevés à chaque pas (6d-A : chute, blessure au sol). */
+export const ST6D = ['fall', 'hurt'];
 export const TH = { lead: 0.14, post: 0.35, pick: 0.8, drop: 0.45 };
 export const TK = { stand: { t1: 0.36, dur: 0.55, up: 0.35 }, slide: { t1: 0.6, dur: 0.9, down: 0.3, up: 0.6 }, rise: 0.1, fall: 0.1 };
 export function tacklePhase(kind, s, sc = null) {
@@ -128,7 +130,7 @@ export function peakPhase(tC, t, lead, post) {
 
 export class DisplayBuffer {
   constructor(view) { this.v = view; this.snaps = []; this.keys = new Map(); this.disp = new Map(); this.ball = { rot: { a: 0, b: 0 } }; this.ballN = { x: 0.5, y: 0.5, h: 0 }; this.probe = null; this.extra = 0; }
-  reset() { this.snaps.length = 0; this._hs?.clear(); }
+  reset() { this.snaps.length = 0; this._hs?.clear(); this._f0?.clear(); }
   /** Copie des champs d'affichage (valeurs simples) d'un joueur ; liste des clés revue chaque seconde. */
   _keysOf(id, p, t) {
     let k = this.keys.get(id);
@@ -138,14 +140,19 @@ export class DisplayBuffer {
   /** Après chaque pas du moteur. */
   record() {
     const L = this.v.live, t = L.now, P = this.v.phys;
-    const ps = new Map();
+    const ps = new Map(), st = new Map();
     const hs = (this._hs ||= new Map());
     for (const [id, p] of this.v.players) {
       const o = {}; for (const k of this._keysOf(id, p, t)) o[k] = p[k]; ps.set(id, o);
+      // (6d-A) Chute et blessure au sol : minuteurs du moteur relevés à CHAQUE pas (la liste des champs n'est revue
+      // qu'une fois par seconde : une chute apparaissait jusqu'à 1 s en retard) ; valeur de départ de l'épisode.
+      for (const k of ST6D) { const x = p[k] || 0, f0 = (this._f0 ||= new Map()), key = k + id, pr = f0.get(key); o[k] = x; if (x > 0) { const v0 = pr && x <= pr.last + 0.05 ? pr.v0 : x; f0.set(key, { v0, last: x }); o[k + '0'] = v0; } else f0.delete(key); }
+      // (6d, mesure : minuteurs d'état du moteur relevés directement à chaque pas, pour la sonde)
+      if (this.probeSt) st.set(id, { fall: p.fall || 0, hurt: p.hurt || 0, celeb: p.celeb || 0 });
       // (6c-D) Début du ballon tenu (touche) et ballon posé à cet instant : champs d'affichage seulement.
       if (p.hold > 0) { if (!hs.has(id)) hs.set(id, { t, x: P.x, y: P.y, z: P.z }); const h = hs.get(id); o.thT0 = h.t; o.thBx = h.x; o.thBy = h.y; o.thBz = h.z; } else hs.delete(id);
     }
-    this.snaps.push({ t, ps, holder: L.holder ? L.holder.mp.id : null, inHands: L.inHands, restart: !!L.restart,
+    this.snaps.push({ t, ps, st: this.probeSt ? st : null, holder: L.holder ? L.holder.mp.id : null, inHands: L.inHands, restart: !!L.restart,
       b: { x: P.x, y: P.y, z: P.z, vx: P.vx, vy: P.vy, vz: P.vz, ra: P.rot?.a || 0, rb: P.rot?.b || 0, spin: P.spin || 0, inGoal: P.inGoal || 0 } });
     while (this.snaps.length > 2 && this.snaps[1].t < t - DELAY - 0.1 - this.extra) this.snaps.shift();   // (extra : sonde de contrôle visuel)
   }

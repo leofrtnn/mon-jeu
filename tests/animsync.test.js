@@ -155,3 +155,23 @@ test('touche (6c-D) : ballon dans les mains jusqu\'à l\'instant réel du lâche
   }
   assert.ok(before > 0 && after > 0 && held > 0 && noRel > 0, `touches observées (avant ${before}, après ${after}, tenue ${held}, sans lâcher ${noRel})`);
 });
+
+test('chute (6d-A) : chute affichée au pas même où le moteur la fixe, valeur de départ relevée, durée du moteur', async () => {
+  const m = createMatch(await cfgFor(22)), sim = new LiveSim(m);
+  const view = { live: sim, players: sim.players, phys: sim.P };
+  const D = new DisplayBuffer(view);
+  const prev = new Map(); let starts = 0, checked = 0;
+  for (let k = 0; k < 96 * 60 * 9 && m.phase !== 'ft'; k++) {
+    sim.step(dt); if (m.phase === 'ht') sim.resumeHT = true;
+    D.record();
+    const s = D.snaps[D.snaps.length - 1];
+    for (const p of sim.players.values()) {
+      const id = p.mp.id, f = p.fall || 0, o = s.ps.get(id);
+      assert.equal(o.fall, f, 'minuteur de chute relevé à chaque pas');
+      if (f > (prev.get(id) || 0) + 0.05) { starts++; assert.equal(o.fall0, f, 'valeur de départ'); }
+      if (f > 0) { assert.ok(o.fall0 >= f, 'départ ≥ minuteur'); checked++; }
+      prev.set(id, f);
+    }
+  }
+  assert.ok(starts > 0 && checked > 0, `chutes observées (${starts})`);
+});

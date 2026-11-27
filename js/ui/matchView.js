@@ -369,7 +369,12 @@ export class MatchView {
     // l'arbitre, le tireur qui manque une grosse occasion se prend la tête dans les mains.
     if (!ev.replay) try { this.r3d?.coachEvent?.(ev); } catch { /* ignore */ }
     const who = ev.pid != null ? this.players.get(ev.pid) : null;
+    // (6d, mesure seulement : écritures de l'interface dans l'état des joueurs du moteur, relevées par la sonde)
+    const uiW = (q, k) => { if (this.live && q) (this._uiWrites ||= []).push({ t: this.live.now, pid: q.mp?.id ?? q.id, k }); if (this._uiWrites?.length > 4000) this._uiWrites.splice(0, 1000); };
     if (who && !ev.replay) {
+      if (ev.type === 'injury') uiW(who, 'hurt+fall0');
+      if (ev.type === 'foul' || ev.type === 'yellow') uiW(who, 'appeal');
+      if (ev.type === 'shot' && ev.outcome !== 'goal' && (ev.xg || 0) >= 0.18) uiW(who, 'headHands');
       if (ev.type === 'injury') { who.hurt = 4.5; who.fall = 0; }
       if (ev.type === 'foul' || ev.type === 'yellow') who.appeal = 1.8;
       if (ev.type === 'shot' && ev.outcome !== 'goal' && (ev.xg || 0) >= 0.18) who.headHands = 2.2;
@@ -377,11 +382,11 @@ export class MatchView {
       if (ev.type === 'yellow' || ev.type === 'red') {
         const mates = [...this.players.values()].filter((q) => q !== who && q.side === who.side && !q.gk)
           .map((q) => [q, Math.hypot((q.x - who.x) * PITCH_L, (q.y - who.y) * PITCH_W)]).filter(([, d]) => d < 16).sort((x, y) => x[1] - y[1]).slice(0, 2);
-        for (const [q] of mates) q.appeal = Math.max(q.appeal || 0, 1.6);
+        for (const [q] of mates) { q.appeal = Math.max(q.appeal || 0, 1.6); uiW(q, 'appeal'); }
       }
     }
     // But encaissé : le gardien battu, tête dans les mains.
-    if (ev.type === 'goal' && !ev.replay) for (const q of this.players.values()) if (q.gk && q.side !== ev.side && !(q.dive > 0)) q.headHands = 2.0;
+    if (ev.type === 'goal' && !ev.replay) for (const q of this.players.values()) if (q.gk && q.side !== ev.side && !(q.dive > 0)) { q.headHands = 2.0; uiW(q, 'headHands'); }
     // Étiquettes de noms sur les actions importantes.
     if (['shot', 'goal', 'yellow', 'red', 'penalty', 'injury', 'dribble', 'sub'].includes(ev.type) && ev.pid) {
       this.tags.push({ id: ev.pid, text: this.nameOf(ev.pid), life: 1.6 });
@@ -403,11 +408,13 @@ export class MatchView {
     const other = this.players.get(ev.pid2);
     const b = this.ball;
 
-    if (ev.type === 'header' && actor) actor.jump = 0.45;
-    if (ev.type === 'shot' && ev.kind === 'header' && actor) actor.jump = 0.45;
+    // (6d, mesure seulement : écritures de l'interface dans l'état des joueurs du moteur)
+    const uiW = (q, k) => { if (this.live && q) (this._uiWrites ||= []).push({ t: this.live.now, pid: q.mp?.id ?? q.id, k }); };
+    if (ev.type === 'header' && actor) { actor.jump = 0.45; uiW(actor, 'jump'); }
+    if (ev.type === 'shot' && ev.kind === 'header' && actor) { actor.jump = 0.45; uiW(actor, 'jump'); }
 
     if (ev.type === 'goal') {
-      for (const p of this.players.values()) if (p.team.side === ev.side && !p.gk) p.celeb = p.mp.id === ev.pid ? 3.2 : 2.6;
+      for (const p of this.players.values()) if (p.team.side === ev.side && !p.gk) { p.celeb = p.mp.id === ev.pid ? 3.2 : 2.6; uiW(p, 'celeb'); }
     }
   }
 

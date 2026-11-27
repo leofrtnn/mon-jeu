@@ -1349,7 +1349,9 @@ export class Player3D {
     }
     // Fauché : il trébuche, amortit avec les mains, reste au sol, se relève par les genoux.
     if (p.fall > 0 && !(p.slide > 0)) {
-      if (!(this._fallMax > 0) || p.fall > this._fallPrev + 0.01) this._fallMax = p.fall;
+      // (6d-A : valeur de départ de la chute relevée par le moteur à chaque pas ; sinon l'ancienne estimation)
+      if (p.fall0 > 0) this._fallMax = p.fall0;
+      else if (!(this._fallMax > 0) || p.fall > this._fallPrev + 0.01) this._fallMax = p.fall;
       this._fallPrev = p.fall;
       const t = 1 - p.fall / this._fallMax;
       // Chute courte (simple déséquilibre) : on ne joue que le début et la fin de la séquence.
@@ -2878,6 +2880,21 @@ export class Match3D {
     } else e._thPrev = null;
     return e._thBall;
   }
+  /**
+   * Chute (6d-A, rendu seul) : orientation affichée du joueur au sol. Le moteur change l'orientation d'un coup à la
+   * faute, puis la fait tourner pendant que le joueur glisse au sol : le corps affiché garde l'orientation qu'il avait
+   * au début de la chute tant qu'il est au sol, puis rejoint celle du moteur à 10 rad/s au plus (relevé, et après).
+   * Position, durée et issue de la chute : celles du moteur.
+   */
+  fallYaw(e, p) {
+    const R = e.p3.root, tD = this.v.disp6?.tD ?? 0, o = e._flY, dt = o ? tD - o.t : 0, ok = o && dt > 0 && dt < 0.3;
+    const on = p.fall > 0 && !(p.slide > 0), u = on && p.fall0 > 0 ? 1 - p.fall / p.fall0 : 1;
+    if (!on && !(ok && o.act)) { e._flY = { t: tD, y: R.rotation.y, act: false }; return; }
+    if (!ok) { e._flY = { t: tD, y: R.rotation.y, act: on }; return; }
+    const d = Math.atan2(Math.sin(R.rotation.y - o.y), Math.cos(R.rotation.y - o.y)), lim = on && u < 0.76 ? 0 : 10 * dt;
+    if (Math.abs(d) > lim) { R.rotation.y = o.y + Math.sign(d) * lim; R.updateMatrixWorld(true); }
+    e._flY = { t: tD, y: R.rotation.y, act: on || Math.abs(d) > lim };
+  }
   /** Après une touche abandonnée : le joueur revient à l'orientation du moteur, à 10 rad/s au plus (rendu seul). */
   thTurnRelax(e) {
     const o = e._thTurn, R = e.p3.root, tD = this.v.disp6?.tD ?? 0, dt = tD - o.t;
@@ -3442,6 +3459,67 @@ export class Match3D {
         pick: pick ? { jump: +pick.jump.toFixed(3), gapMax: +pick.gapMax.toFixed(3), penMin: +pick.penMin.toFixed(3), tr: pick.tr } : null,
         hold: hold ? { bad: hold.bad, n: hold.n, gapMax: +hold.gapMax.toFixed(3), penMin: +hold.penMin.toFixed(3), both: +(hold.both / hold.n).toFixed(2), headMin: +hold.headMin.toFixed(3), above: +(hold.above / hold.n).toFixed(2) } : null,
         atRel, info, sync: sync ? { d: +sync.d.toFixed(3), dt: +sync.dt.toFixed(3) } : null, jump: { d: +jump.d.toFixed(3), at: jump.at == null ? null : +jump.at.toFixed(3) }, post: +post.toFixed(3), heldAfter, leadHead: rel && leadHead < 9 ? +leadHead.toFixed(3) : null, endJump: rel ? null : +endJump.toFixed(3), thrownNoRel, drop: rel ? null : { tr: drop.tr, n: drop.n, gapMax: +drop.gapMax.toFixed(3), penMin: +drop.penMin.toFixed(3), heldUntil: drop.heldUntil == null ? null : +drop.heldUntil.toFixed(3), devAfter: +drop.devAfter.toFixed(3), devHeld: +drop.devHeld.toFixed(3), headMin: +drop.headMin.toFixed(3) }, outcome: g.outcome || null, holdEng: holdEng ? { h: +holdEng.h.toFixed(2), dh: +holdEng.dh.toFixed(2) } : null });
+    }
+    return out;
+  }
+  /**
+   * Sonde des chutes (6d-A) : toutes les chutes (`fall`) et blessures au sol (`hurt`) relevées dans l'enregistrement,
+   * cause (lue dans le moteur : valeur de départ, notes des tacles), durée côté moteur, interruption ou prolongation,
+   * écritures de l'interface dans l'état du moteur ; à l'affichage (pose complète, image par image, 60 i/s) :
+   * saut de pose d'une image à l'autre (déplacement d'un point du corps au-delà de celui du joueur), corps sous la
+   * pelouse, déplacement du joueur couché ou en se relevant, ballon qui traverse un joueur au sol.
+   */
+  probeFL(mode, tFrom, tTo) {
+    const v = this.v, D6 = v.disp6, G = v.live?.gest; if (!D6 || !G) return [];
+    const flip = this.flip(), S = D6.snaps, out = [], fr = 1 / 60, V3 = THREE.Vector3, seen = (this._flSeen ||= new Set());
+    const UW = v._uiWrites || [];
+    const pts = (P3) => [...P3.legs.flatMap((l) => [l.ankle, l.knee, l.hip]), ...P3.arms.map((a) => a.hand || a.el), P3.headPivot, P3.upper];
+    const poseFull = (e, pid, t) => {
+      if (!D6.sample(mode, t)) return null; const p = D6.disp.get(pid); if (!p) return null; const B = D6.ballN;
+      const [x, z] = this.toWorld(p.x, p.y, flip); e.p3.root.position.set(x, 0, z);
+      e.p3.pose(p, flip, { dt: fr, ballAng: Math.atan2((B.y - p.y) * W, (B.x - p.x) * L) }); e.p3.smoothPose(fr);
+      if (mode === 'contrat') this.fallYaw(e, p);
+      if (p._air) this.applyAir(e, p, flip, B); if (p._ik) this.applyIK(e, p, flip, B); this.antiPen(e, p, flip, B);
+      if (p._th || p._thHold || p._thDrop) this.applyThrow(e, p, flip, B); else { e._thBall = null; if (e._thTurn) this.thTurnRelax(e); }
+      if (p.fall > 0 || p.slide > 0 || p.hurt > 0 || p.place > 0 || p.block > 0 || (p.celeb > 0 && (p.celebType === 'knees' || p.celebType === 'slide') && ((p.speed || 0) <= 2 || (p.celebType === 'slide' && p.celeb < 2.4))) || (p.dive > 0 && p.dive < 0.3)) e.p3.groundContact();
+      if (p.gk && mode === 'contrat' && this.applyGK) this.applyGK(e, p, flip, B, false);
+      e.p3.root.updateMatrixWorld(true); return { p, x, z, B };
+    };
+    for (const key of ['fall', 'hurt']) for (let i = 1; i < S.length; i++) {
+      const s0 = S[i - 1], s1 = S[i]; if (s1.t < tFrom || s1.t > tTo) continue;
+      if (!s1.st || !s0.st) continue;   // (minuteurs du moteur relevés à chaque pas : D6.probeSt)
+      for (const [id, q] of s1.st) {
+        const q0 = s0.st.get(id); if (!q0 || !((q[key] || 0) > (q0[key] || 0) + 0.05)) continue;
+        const sk = key + id + '@' + s1.t.toFixed(3) + mode; if (seen.has(sk)) continue; seen.add(sk);
+        const t0 = s1.t, v0 = q[key], ongoing = (q0[key] || 0) > 0;
+        // Durée côté moteur, interruption (chute remise à zéro plus vite que le décompte), prolongation.
+        let tEnd = null, interrupted = false, extended = 0, prev = v0, dec = [];
+        for (let j = i + 1; j < S.length; j++) { const r = S[j].st?.get(id); if (!r) break; const x = r[key] || 0; if (x > prev + 0.05) extended++; else if (prev - x > 0) dec.push(prev - x); if (x <= 0) { const md = dec.length ? dec.slice().sort((a, b) => a - b)[dec.length >> 1] : 0; if (prev > 3 * Math.max(md, 1e-3) + 1e-6) interrupted = true; tEnd = S[j].t; break; } prev = x; }
+        const pl = v.players.get(id), notes = G.gestures.filter((g) => g.kind.startsWith('tacle') && (g.notes || []).some((n) => /homme/.test(n.what) && Math.abs(n.t - t0) < 0.03));
+        const cause = key === 'hurt' ? 'blessure' : Math.abs(v0 - 2) < 0.06 ? 'faute (victime)' : Math.abs(v0 - 1) < 0.06 ? 'glissé sur le ballon (victime)' : notes.length ? 'choc d\'un tacle sur l\'homme' : Math.abs(v0 - 0.7) < 0.06 ? 'duel de corps' : 'autre';
+        const ui = UW.filter((w) => w.pid === id && w.t >= t0 - 0.05 && (tEnd == null || w.t <= tEnd + 0.05)).map((w) => w.k);
+        const rec = { dbg: globalThis.__flTrace ? S.slice(Math.max(0, i - 3), i + 3).map((x) => [+x.t.toFixed(3), x.st?.get(id)?.[key], x.ps.get(id)?.[key]]) : undefined, key, pid: id, gk: !!pl?.gk, t0, v0: +v0.toFixed(2), ongoing, cause, dur: tEnd == null ? null : +(tEnd - t0).toFixed(3), interrupted, extended, ui, done: tEnd != null };
+        if (tEnd == null) { out.push(rec); continue; }
+        const e = this.players.get(id); if (!e) { out.push(rec); continue; }
+        const P3 = e.p3; P3._sm = null; P3._fallMax = 0; P3._fallPrev = 0; e._flY = null;
+        let tr = globalThis.__flTrace ? [] : null, lowAt = null, prevF = null, prevP = null, prevR = null, jump = { d: 0, at: null }, jumpIn = 0, low = 9, lyingMove = 0, upMove = 0, ballIn = 9, dispOn = null, dispOff = null, seqEnd = null, engMoveLy = 0;
+        for (let t = t0 - 0.25; t <= tEnd + 0.6; t += fr) {
+          const r = poseFull(e, id, t); if (!r) break;
+          const P = pts(P3).map((o) => o.getWorldPosition(new V3())), R = P3.root.position.clone(), on = (r.p[key] || 0) > 0;
+          if (on && dispOn == null) dispOn = t - t0; if (!on && dispOn != null && dispOff == null && t > t0) dispOff = t - tEnd;
+          if (key === 'fall' && on) seqEnd = P3._fallMax > 0 ? +P3._fallMax.toFixed(2) : seqEnd;
+          let lowF = 9; for (const q of P) lowF = Math.min(lowF, q.y); if (t >= t0 && lowF < low) { low = lowF; lowAt = +(t - t0).toFixed(3); }
+          if (prevP) { const dr = R.distanceTo(prevR); let m = 0; for (let k = 0; k < P.length; k++) m = Math.max(m, P[k].distanceTo(prevP[k]) - dr); if (m > jump.d) { jump = { d: m, at: +(t - t0).toFixed(3), rel: t > tEnd ? 'après' : t < t0 ? 'avant' : 'pendant' }; } if (t >= t0 && t <= tEnd + 0.3) jumpIn = Math.max(jumpIn, m); }
+          // Déplacement du joueur affiché : couché (minuteur > 0,3, le moteur le fige) ; en se relevant (≤ 0,3).
+          if (prevR && on) { const sp = R.distanceTo(prevR) / fr; if ((r.p[key] || 0) > 0.3) lyingMove = Math.max(lyingMove, sp); else upMove = Math.max(upMove, sp); }
+          // Ballon qui traverse le joueur au sol (centre du ballon à moins de son rayon + 10 cm d'un point du corps).
+          if (on) { const [bx, bz] = this.toWorld(r.B.x, r.B.y, flip), C = new V3(bx, BALL_R + r.B.h * 26, bz); for (const q of P) ballIn = Math.min(ballIn, q.distanceTo(C) - BALL_R - 0.1); }
+          if (tr) { let m = 0; if (prevP) { const dr = R.distanceTo(prevR); for (let k = 0; k < P.length; k++) m = Math.max(m, P[k].distanceTo(prevP[k]) - dr); } tr.push([+(t - t0).toFixed(3), +(r.p[key] || 0).toFixed(2), +m.toFixed(3), +lowF.toFixed(3), prevR ? +(R.distanceTo(prevR) / fr).toFixed(2) : 0, +(r.p.face || 0).toFixed(2), P3._fallMax ? +P3._fallMax.toFixed(2) : 0]); }
+          prevP = P; prevR = R;
+        }
+        Object.assign(rec, { dispOn: dispOn == null ? null : +dispOn.toFixed(3), dispOff: dispOff == null ? null : +dispOff.toFixed(3), seqMax: seqEnd, jump: { d: +jump.d.toFixed(3), at: jump.at, rel: jump.rel }, jumpIn: +jumpIn.toFixed(3), low: +low.toFixed(3), lowAt, tr, lyingMove: +lyingMove.toFixed(2), upMove: +upMove.toFixed(2), ballIn: ballIn < 9 ? +ballIn.toFixed(3) : null });
+        out.push(rec);
+      }
     }
     return out;
   }
@@ -4372,6 +4450,7 @@ export class Match3D {
       const ballAng = dB < 45 ? Math.atan2((VB.y - p.y) * W, (VB.x - p.x) * L) : null;
       e.p3.pose(p, flip, { dt: dt || 0.016, ballAng, jostle, ballNear: p.gk && dB < 30, alert: dB < 14 && !isCar && !v.restart, restFar: dB > 28 && !isCar, shield: isCar && !VIH && (p.shieldK || 0) > 0, holding: isCar && VIH && p.gk });
       e.p3.smoothPose(dt || 0.016);
+      if (v.dispPlayers) this.fallYaw(e, p);   // (étape 6d-A : orientation du joueur au sol)
       if (p._air) this.applyAir(e, p, flip, VB);   // (étape 6c-A : saut à la hauteur du ballon)
       if (p._ik) this.applyIK(e, p, flip, VB);   // (étape 6b : le pied touche le ballon là où il est, à l'instant du contact)
       if (v.dispPlayers) this.antiPen(e, p, flip, VB);
