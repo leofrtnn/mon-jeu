@@ -711,7 +711,9 @@ export class Player3D {
     for (const r of objs) cur.push(r.x, r.y, r.z);
     cur.push(this.body.position.y);
     if (!this._sm || !(dt > 0)) { this._sm = cur; return; }
-    const a = 1 - Math.exp(-dt * 24);
+    // (6d-A : transition plus douce pendant 0,25 s au début et à la fin d'une chute ; position et durée inchangées)
+    const slow = (this._flTr || 0) > 0; if (slow) this._flTr -= dt;
+    const a = 1 - Math.exp(-dt * (slow ? 9 : 24));
     const sm = this._sm;
     for (let i = 0; i < cur.length; i++) sm[i] += (cur[i] - sm[i]) * a;
     let k = 0;
@@ -1348,6 +1350,7 @@ export class Player3D {
       for (const a of this.arms) { a.sh.rotation.x += a.sgn * 0.6 * k; a.el.rotation.z = Math.max(a.el.rotation.z, 0.4 * k); }
     }
     // Fauché : il trébuche, amortit avec les mains, reste au sol, se relève par les genoux.
+    { const onF = p.fall > 0 && !(p.slide > 0); if (onF !== !!this._flOn) { this._flOn = onF; this._flTr = 0.25; } }
     if (p.fall > 0 && !(p.slide > 0)) {
       // (6d-A : valeur de départ de la chute relevée par le moteur à chaque pas ; sinon l'ancienne estimation)
       if (p.fall0 > 0) this._fallMax = p.fall0;
