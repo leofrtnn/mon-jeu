@@ -2883,7 +2883,8 @@ export class Match3D {
   /**
    * Chute (6d-A, rendu seul) : orientation affichée du joueur au sol. Le moteur change l'orientation d'un coup à la
    * faute, puis la fait tourner pendant que le joueur glisse au sol : le corps affiché garde l'orientation qu'il avait
-   * au début de la chute tant qu'il est au sol, puis rejoint celle du moteur à 10 rad/s au plus (relevé, et après).
+   * au début de la chute tant qu'il est au sol ou à genoux, puis rejoint celle du moteur à 6 rad/s au plus quand il se
+   * redresse (dernière phase du relevé, et après : un corps couché qui pivote balaie le terrain).
    * Position, durée et issue de la chute : celles du moteur.
    */
   fallYaw(e, p) {
@@ -2891,7 +2892,7 @@ export class Match3D {
     const on = p.fall > 0 && !(p.slide > 0), u = on && p.fall0 > 0 ? 1 - p.fall / p.fall0 : 1;
     if (!on && !(ok && o.act)) { e._flY = { t: tD, y: R.rotation.y, act: false }; return; }
     if (!ok) { e._flY = { t: tD, y: R.rotation.y, act: on }; return; }
-    const d = Math.atan2(Math.sin(R.rotation.y - o.y), Math.cos(R.rotation.y - o.y)), lim = on && u < 0.76 ? 0 : 10 * dt;
+    const d = Math.atan2(Math.sin(R.rotation.y - o.y), Math.cos(R.rotation.y - o.y)), lim = on && u < 0.88 ? 0 : 6 * dt;
     if (Math.abs(d) > lim) { R.rotation.y = o.y + Math.sign(d) * lim; R.updateMatrixWorld(true); }
     e._flY = { t: tD, y: R.rotation.y, act: on || Math.abs(d) > lim };
   }
@@ -3514,7 +3515,7 @@ export class Match3D {
           if (prevR && on) { const sp = R.distanceTo(prevR) / fr; if ((r.p[key] || 0) > 0.3) lyingMove = Math.max(lyingMove, sp); else upMove = Math.max(upMove, sp); }
           // Ballon qui traverse le joueur au sol (centre du ballon à moins de son rayon + 10 cm d'un point du corps).
           if (on) { const [bx, bz] = this.toWorld(r.B.x, r.B.y, flip), C = new V3(bx, BALL_R + r.B.h * 26, bz); for (const q of P) ballIn = Math.min(ballIn, q.distanceTo(C) - BALL_R - 0.1); }
-          if (tr) { let m = 0; if (prevP) { const dr = R.distanceTo(prevR); for (let k = 0; k < P.length; k++) m = Math.max(m, P[k].distanceTo(prevP[k]) - dr); } tr.push([+(t - t0).toFixed(3), +(r.p[key] || 0).toFixed(2), +m.toFixed(3), +lowF.toFixed(3), prevR ? +(R.distanceTo(prevR) / fr).toFixed(2) : 0, +(r.p.face || 0).toFixed(2), P3._fallMax ? +P3._fallMax.toFixed(2) : 0]); }
+          if (tr) { let m = 0, mk = -1; if (prevP) { const dr = R.distanceTo(prevR); for (let k = 0; k < P.length; k++) { const x = P[k].distanceTo(prevP[k]) - dr; if (x > m) { m = x; mk = k; } } } tr.push([+(t - t0).toFixed(3), +(r.p[key] || 0).toFixed(2), +m.toFixed(3), +lowF.toFixed(3), prevR ? +(R.distanceTo(prevR) / fr).toFixed(2) : 0, +(r.p.face || 0).toFixed(2), P3._fallMax ? +P3._fallMax.toFixed(2) : 0, mk, +P3.root.rotation.y.toFixed(2), prevR ? +R.distanceTo(prevR).toFixed(3) : 0, +P3.body.rotation.z.toFixed(2), +P3.body.position.y.toFixed(2), r.p.slide > 0 ? 's' : '', r.p.celeb > 0 ? 'c' : '', r.p.place > 0 ? 'p' : '', r.p.kick > 0 ? 'k' : '', r.p.bump > 0 ? 'b' : '', r.p.appeal > 0 ? 'a' : '']); }
           prevP = P; prevR = R;
         }
         Object.assign(rec, { dispOn: dispOn == null ? null : +dispOn.toFixed(3), dispOff: dispOff == null ? null : +dispOff.toFixed(3), seqMax: seqEnd, jump: { d: +jump.d.toFixed(3), at: jump.at, rel: jump.rel }, jumpIn: +jumpIn.toFixed(3), low: +low.toFixed(3), lowAt, tr, lyingMove: +lyingMove.toFixed(2), upMove: +upMove.toFixed(2), ballIn: ballIn < 9 ? +ballIn.toFixed(3) : null });
