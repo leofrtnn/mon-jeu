@@ -1119,7 +1119,13 @@ concordent avec la sonde.
   centres à 0,25-0,57 m ; déséquilibre déclenché à 1 m entre les centres (corps affichés à ~54 cm).
 
 
-## 6c-D — Lancer de touche — correction ciblée, en attente de validation
+## 6c-D — Lancer de touche — validée (étape 6c clôturée)
+
+**Décision (utilisateur)** : 6c-D validée ; étape 6c entièrement clôturée ; feu vert pour 6d uniquement. Les deux
+corrections ciblées sont validées : mains au lâcher crédibles dans 100 % des 44 touches libérées, sans
+pénétration (écart max 1,4 cm), synchronisation 12 ms ; aucune touche sans libération ne joue de lancer fictif,
+déplacement du ballon d'une image à l'autre ≤ 13,7 cm, ballon affiché égal au ballon du moteur à la fin de la
+dépose. Réserves conservées dans le bilan et le backlog (voir « Backlog 6c-D » en fin de section).
 
 ### Constat de départ (version 6c-C, même sonde)
 Sonde dédiée `probeTH` (`TH=1 node tools/bench/anim-probe.cjs`) : tous les gestes « touche », avec ou sans
@@ -1303,5 +1309,12 @@ Graine 22, mêmes touches avant (6c-C) / après, instants : prise + 2 s, −100 
   relevé image par image de la prise et de la dépose : mains, tête, angle du ballon du moteur, accroupi) ; captures
   `TH=1` (`OFFS=h…` : instants comptés depuis la prise).
 
-### Décision demandée
-6c-D (correction ciblée) est présentée pour validation, avec les réserves ci-dessus. 6d n'est pas commencée.
+### Backlog 6c-D (décision ultérieure, moteur/rendu)
+* Frôlements de la tête pendant les lancers (≤ 1,2 cm, 3/44) et les déposes (1 à 1,7 cm, 7/23).
+* Mains parfois éloignées du ballon porté pendant la dépose (> 5 cm dans 4/23, max 10,8 cm).
+* Décalage temporaire entre ballon porté et ballon du moteur au début de la dépose (jusqu'à 2,2 m, résorbé en
+  0,45 s).
+* Rotation du joueur pouvant atteindre 10 rad/s (ballon remis derrière lui).
+* Pénétrations de plus de 5 cm pendant certaines prises (23/67, max −15,3 cm).
+* Incohérences du moteur non corrigées : point de lâcher latéral (≈ 50 cm) ; touches sans libération (≈ 34 %),
+  ballon parfois remis derrière le tireur.
