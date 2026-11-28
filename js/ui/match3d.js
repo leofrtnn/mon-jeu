@@ -3568,7 +3568,10 @@ export class Match3D {
           // Type affiché : celui que la pose utilise (type absent = célébration par défaut, bras levés).
           if (on && eOn && (p.celebType ?? null) !== (eng.celebType ?? null)) { typeBad++; typeBadRun += fr; typeBadMax = Math.max(typeBadMax, typeBadRun); if (typeBadFirst == null) typeBadFirst = { at: +(t - t0).toFixed(3), shown: p.celebType ?? '(défaut)', eng: eng.celebType }; } else typeBadRun = 0;
           const P = pts(P3).map((o) => o.getWorldPosition(new V3())), R = P3.root.position.clone();
-          if (prevP) { const dr = R.distanceTo(prevR); let m = 0; for (let k = 0; k < P.length; k++) m = Math.max(m, P[k].distanceTo(prevP[k]) - dr); if (m > jump.d) jump = { d: m, at: +(t - t0).toFixed(3) }; }
+          let mk = -1, mm = 0;
+          if (prevP) { const dr = R.distanceTo(prevR); let m = 0; for (let k = 0; k < P.length; k++) { const x = P[k].distanceTo(prevP[k]) - dr; if (x > m) { m = x; mk = k; } } mm = m; if (m > jump.d) jump = { d: m, at: +(t - t0).toFixed(3), joint: mk }; }
+          // (CETRACE=1 : trace image par image autour du début et des sauts — t, celeb, vitesse, orientation, rotation du corps, saut, point du corps)
+          if (globalThis.__ceTrace && ((t >= t0 - 0.05 && t <= t0 + 0.12) || mm > 0.2)) (rec.tr ||= []).push([+(t - t0).toFixed(3), +(p.celeb || 0).toFixed(2), +(p.speed || 0).toFixed(2), +(p.face || 0).toFixed(2), +P3.root.rotation.y.toFixed(2), +mm.toFixed(3), mk, p.celebType ?? '-', +P3.body.position.y.toFixed(2)]);
           prevP = P; prevR = R; n++;
         }
         Object.assign(rec, { n, dispOn: dispOn == null ? null : +dispOn.toFixed(3), dispOff: dispOff == null ? null : +dispOff.toFixed(3), typeBad, typeBadMax: +typeBadMax.toFixed(3), typeBadFirst, valBad, valMax: +valMax.toFixed(4), jump: { d: +jump.d.toFixed(3), at: jump.at } });

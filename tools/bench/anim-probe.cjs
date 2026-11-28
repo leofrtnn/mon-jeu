@@ -33,6 +33,7 @@ const serve = () => new Promise((resolve) => {
   await ctx.addInitScript(() => { try { localStorage.setItem('cdp-tuto', JSON.stringify({ done: true })); } catch {} });
   if (process.env.THTRACE) await ctx.addInitScript(() => { globalThis.__thTrace = true; });
   if (process.env.FLTRACE) await ctx.addInitScript(() => { globalThis.__flTrace = true; });
+  if (process.env.CETRACE) await ctx.addInitScript(() => { globalThis.__ceTrace = true; });
   // TWIN=1 (6d-B) : moteurs jumeaux sans interface (« pur ») et avec les écritures de l'interface sauf celeb (« miroir »), comparés à chaque pas.
   if (process.env.TWIN) await ctx.addInitScript((nm) => { globalThis.__twin6 = { noMirror: nm.split(',') }; }, process.env.TWIN_NOMIRROR || 'celeb');
   await ctx.route(/wikipedia\.org|wikimedia\.org|flagcdn/, (r) => r.abort());

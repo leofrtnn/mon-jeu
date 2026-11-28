@@ -1446,7 +1446,7 @@ de la chute (affiché en retard), où le moteur fait encore glisser le joueur ; 
 ### Décision
 Validée (voir en tête de section).
 
-## 6d-B — Célébrations — rapport (en attente de validation)
+## 6d-B — Célébrations — premier rapport
 
 ### Constat de départ (version 6d-A, même sonde)
 Sonde dédiée `probeCE` (`CE=1 node tools/bench/anim-probe.cjs`) : chaque épisode de célébration est pris dans
@@ -1577,5 +1577,137 @@ mode célébration (`CE=1`, `KEYS=pid:t0`).
 * Transition vers la pose de célébration (saut de pose au début).
 * **Prioritaire** : joueur sans état d'affichage dans la boucle de rendu 3D (match figé, voir non-régression).
 
+### Décision (utilisateur) sur le premier rapport
+Travail fonctionnel jugé convaincant (séparation de `celeb`, type synchronisé, plus de prolongation), mais 6d-B
+non validée : vérification complémentaire ciblée demandée — (1) conditions exactes de l'échec intermittent du test
+d'interface, même scénario rejoué sur 6d-A et 6d-B, défaut préexistant à établir par comparaison et non par la
+seule absence de changement de la ligne ; (2) essai réel du ralenti en 2D et en 3D (moteur jamais modifié,
+célébration qui réapparaît) ; (3) analyse des 22 changements de pose > 50 cm (fin normale, rupture réelle,
+synchronisation), sans transition artificielle ; sans toucher `jump`, `appeal`, `headHands`, `hurt`, `fall`, ni
+les décisions et règles de célébration, ni corriger l'entrée des remplaçants. Voir le rapport complémentaire.
+
+## 6d-B — Célébrations — rapport complémentaire (en attente de validation)
+
+Versions comparées : **6d-A** = `70a2484` (dernier état validé), **6d-B** = `ee591a1`, chacune dans sa propre copie
+de travail, servie séparément. Aucune modification du jeu dans ce complément (seuls des outils de mesure sont
+ajoutés : `tools/bench/repro-ffsub.cjs`, `tools/bench/replay-check.cjs`, trace `CETRACE=1` de `probeCE`).
+
+### 1. Échec intermittent du test d'interface (« reading 'x' », match figé)
+**Conditions exactes (reproduites à coup sûr)** : avance rapide des temps forts (`hl = 'skip'`, mode résumé ;
+le test d'interface la force pendant toute la première mi-temps) **et** entrée d'un remplaçant décidée par le
+moteur pendant cette avance rapide (blessure → remplacement automatique : `injure` → `doSub` → `live.sync` →
+`syncPlayers` de la vue).
+* Pendant l'avance rapide, `updateHighlights` fait avancer le moteur et vide l'historique d'affichage
+  (`disp6.reset()`), sans rééchantillonner l'affichage : `dispPlayers` garde le dernier état d'affichage. Le rendu
+  3D, lui, continue de dessiner chaque image et crée le nouveau joueur d'après les joueurs du moteur
+  (`Match3D.syncPlayers`), puis lit son état d'affichage `VP.get(id)` : absent → `TypeError` sur `p.x`
+  (`Match3D.render` ← `draw3D` ← `draw`). L'exception survient avant `requestAnimationFrame` en fin de
+  `frame()` : la boucle d'animation s'arrête, le match reste figé, la causerie de mi-temps n'arrive jamais.
+* Scénario rejoué (`node tools/bench/repro-ffsub.cjs <version> <scénario>`), vue 3D, même procédure ; blessure
+  déclenchée par le chemin du moteur (`m._pendingInjury`, traité à la minute suivante comme une blessure réelle) :
+
+| scénario | 6d-A (`70a2484`) | 6d-B (`ee591a1`) |
+|---|---|---|
+| avance rapide + blessure/remplaçant | **erreur** `reading 'x'` à `match3d.js:4442` (`render`) ; match figé à 70,37 s ; remplaçant 2375 absent de l'affichage | **erreur** `reading 'x'` à `match3d.js:4493` (même instruction, décalée par l'ajout de `probeCE`) ; match figé à 91,73 s ; remplaçant 2512 absent |
+| avance rapide sans blessure (témoin) | aucune erreur, le match avance (minute 11 en 7 s) | aucune erreur (minute 8 en 7 s) |
+| jeu affiché (×10) + blessure/remplaçant | aucune erreur ; remplaçant présent dès l'image suivante | aucune erreur ; idem |
+
+* Fréquence naturelle : sur 60 premières mi-temps simulées sans interface (graines 500 à 559), **10 (17 %)**
+  comportent une blessure suivie d'un remplacement automatique — cohérent avec 1 échec sur 8 passes du test.
+* Remplacement décidé par l'entraîneur : appliqué par la file `view.queue` avant les pas du moteur, puis
+  échantillonné ; non concerné.
+* Origine : le défaut est identique, aux mêmes conditions, en 6d-A et en 6d-B ; aucune des fonctions en cause
+  (`updateHighlights`, `sampleDisplay`, `DisplayBuffer.sample`, `syncPlayers`) n'est modifiée par 6d-B ; le code
+  en cause date de l'étape 6b (affichage différé : `2c5827b`, `dd06edc`). La condition ajoutée par 6d-B dans la
+  boucle de rendu n'est évaluée qu'en ralenti, jamais pendant l'avance rapide. **Défaut préexistant, hors
+  périmètre de 6d-B, non corrigé**, classé prioritaire au backlog (match figé pour le joueur).
+
+### 2. Ralenti du but — essai réel (2D et 3D)
+`SEED=24 TWIN=1 node tools/bench/replay-check.cjs <version> <3d|anim>` : vrai match, premier but à 25,4 s,
+ralenti de but automatique (deux passages), mesures image par image ; jumeaux sans interface pendant tout l'essai
+(ils reçoivent toutes les écritures relevées de l'interface).
+
+| | 6d-A 3D | 6d-B 3D | 6d-A 2D | 6d-B 2D |
+|---|---|---|---|---|
+| célébrations du moteur au début du ralenti | 10/10 (prolongées par l'interface) | 1/10 (buteur) | 10/10 | 1/10 |
+| écritures de `celeb` pendant le ralenti | 20 (mise à 0) | **0** | 20 | **0** |
+| célébrations dessinées pendant le ralenti (min–max) | 0–10 (image(s) dessinée(s) avant la première mise à 0 par `playReplay`) | **0–0** | non mesuré ¹ | **0–0** |
+| première image après le ralenti : moteur / dessiné | 10 / 10 | 1 / 1 | 10 / 10 ¹ | 1 / 1 |
+
+¹ 2D : le relevé applique la règle de dessin de 6d-B (`celeb > 0` et hors ralenti) ; en 6d-A la règle 2D est
+`celeb > 0` seule, masquée par l'écriture `celeb = 0` dans le moteur : la colonne « dessiné » 6d-A 2D n'est donc
+pas une mesure de son propre rendu.
+| horloge du moteur pendant le ralenti | figée | figée | figée | figée |
+| jumeau miroir (toutes écritures) | identique | identique | identique | identique |
+| jumeau pur (aucune écriture) | diverge au but (`celeb`) | **identique** (but, célébration, ralenti, reprise) | diverge au but | **identique** |
+| erreurs de page | 0 | 0 | 0 | 0 |
+
+* La célébration réapparaît à la première image après le ralenti, telle que le moteur l'a laissée (moteur figé
+  pendant le ralenti), puis suit le moteur avec le différé habituel de 0,15 s (écarts relevés hors ralenti : 1 à
+  3 images, toutes dues à ce différé).
+* État du moteur avant / après le ralenti, comparé champ par champ : `celeb` identique, positions, ballon,
+  générateur aléatoire, horloge identiques. **Écart, identique en 6d-A et 6d-B** : `playReplay` écrit dans les
+  joueurs du moteur les champs du ralenti (position, orientation, gestes) et `endReplay` restaure la copie
+  enregistrée, mais ne retire pas les champs absents au départ : `bump`, `fall`, `kickPow` passent d'absents à 0
+  (58 champs diffèrent dans chacun des quatre essais ; les 30 listés sont tous de cette forme). Le moteur lit ces
+  champs comme nuls (`> 0`, `|| 0`) ; les jumeaux, qui comparent positions, vitesses, gestes, ballon, porteur,
+  score, événements et générateur aléatoire, restent identiques après le ralenti. Préexistant (ralenti), hors `celeb`,
+  non corrigé, au backlog.
+* Captures (pendant le ralenti et 0,15 s après, 6d-A / 6d-B, 2D et 3D) : identiques à l'œil, la célébration
+  n'est pas visible pendant le ralenti dans les deux versions (6d-A : par l'écriture de `celeb = 0` dans le
+  moteur ; 6d-B : à l'affichage seulement).
+
+### 3. Changements de pose > 50 cm
+Trace image par image (`CETRACE=1` : temps, `celeb`, vitesse, orientation, rotation du corps, saut et point du
+corps concerné) sur 60 épisodes rejoués (graine 24 jusqu'à 60 s, graine 21 jusqu'à 2300 s : 18 des 22 cas,
+mêmes valeurs qu'au premier rapport). Saut = plus grand déplacement d'un point du corps d'une image à l'autre,
+déplacement du joueur retiré (seuil inchangé).
+* **Début de la célébration — 20/22 (16 tracés)** : saut sur la toute première image de la célébration (moteur
+  + 1 image), toujours une **main** ; orientation et position inchangées. Les images suivantes décroissent
+  géométriquement (exemple 2379 : 0,55 → 0,38 → 0,26 → 0,18 → 0,13 m) : c'est le lissage de pose existant
+  (24/s, 63 % du chemin en 2,5 images) appliqué au plus grand changement de pose du jeu, bras le long du corps →
+  bras levés (déplacement cumulé de la main ~1 m en 0,12 s, médiane ; ~1,6 m pour la célébration par défaut).
+  Mouvement continu, sans saut de position ni d'orientation : transition très rapide mais pas une rupture entre
+  deux poses. Concentré sur le type `jump` (14/21 > 50 cm), qui n'a pas de pose propre et prend la célébration
+  par défaut (bras au ciel + bonds) ; accolade 2/33, buteur 2/6.
+* **En cours de célébration — 2/22** (accolade, à 0,38 s et 0,15 s) : changement de pose quand la vitesse du
+  moteur franchit 2 m/s (`sp > 2` : course bras écartés « l'avion » ↔ pose de célébration à l'arrêt), règle du
+  rendu 3D existante. 50 des 60 épisodes ont au moins un tel changement (58 en tout, 3 au plus par épisode, vitesse
+  médiane 2,05 m/s à ces images), presque tous < 50 cm (médiane 26 cm). **Vraie discontinuité de pose** (seuil
+  sans hystérésis), lissée ; préexistante, non corrigée.
+* **Fin de la célébration — 0/22** : retour à la course, sauts ≤ 49 cm (73 images > 20 cm) ; normal.
+* **Synchronisation — 0/22** : début et fin à une image du moteur, type et valeur toujours égaux au moteur, une
+  seule image tracée avec rotation du corps > 0,3 rad.
+* Avant (6d-A), en plus de ces familles : sauts à l'arrivée tardive du vrai type (2611 à 0,15 s, 2377 à 0,70 s,
+  pile à la fin de l'affichage du mauvais type) et sauts en fin d'épisodes prolongés par l'interface (épisode de
+  2425,6 s relancé de 0,6 s : 9 sauts > 50 cm à la fin) : **causes de synchronisation, disparues en 6d-B**
+  (39/110 → 22/100).
+* Pas de transition ajoutée. Pistes pour une décision ultérieure : pose propre au type `jump`, vitesse de
+  lissage à l'entrée en célébration, hystérésis du seuil de 2 m/s.
+
+### Non-régression (version du complément : 6d-B + outils de mesure)
+* Empreintes du moteur inchangées : 112bd1dc ; graine 104 → 2a6d7bc9 ; graine 300 → 8b411e7e ; moteur rapide
+  b47d8708 ; déterminisme et neutralité du diagnostic vérifiés.
+* Tests unitaires 134/134 ; interface (`test:ui`) 4/4 ; match en ligne (`duel.e2e`) réussi.
+* Coût du rendu (`render-cost.cjs`, `REP=3 AB6=1`, 6d-A `70a2484` contre version actuelle, passes alternées),
+  médianes `contrat` / `direct` :
+  * ×1 série 1 : 6d-A 148–167 / 148–158, 6d-B 169–181 / 171–278 ;
+  * ×1 série 2 : 6d-A 16,7 partout (une image à 60 Hz : la mesure n'a pas capté la charge, série anormale, conservée),
+    6d-B 161–180 / 151–184 ;
+  * ×1 série 3 (ajoutée à cause de la série 2) : 6d-A 186–205 / 175–186, 6d-B 171–176 / 161–247 ;
+  * ×4 : 6d-A 262–266 et 270–388 / 250–293 et 317–373, 6d-B 298–355 et 258–303 / 265–387 et 252–360.
+  Les écarts entre séries d'une même version dépassent les écarts entre versions, `contrat` et `direct` varient
+  ensemble : aucun surcoût mesurable de 6d-B.
+
+### Réserves restantes
+* Défaut préexistant (6b) : remplaçant entré pendant l'avance rapide → match figé (17 % des premières mi-temps
+  en avance rapide continue). Hors périmètre, prioritaire au backlog.
+* Ralenti : champs `bump`, `fall`, `kickPow` ajoutés (à 0) dans les joueurs du moteur après le ralenti
+  (préexistant, sans effet mesuré).
+* Changements de pose : entrée en célébration très rapide (lissage existant) et bascule « avion » ↔ pose à
+  l'arrêt au seuil de 2 m/s : préexistants, non corrigés.
+* Réserves du premier rapport inchangées (`jump`, `appeal`, `headHands` écrits par l'interface ; état de départ du
+  joueur entrant).
+
 ### Décision demandée
-Valider 6d-B (célébrations) avec les réserves ci-dessus, avant de passer à 6d-C (gestes techniques).
+Valider définitivement 6d-B (célébrations) avec ces réserves, avant 6d-C.
