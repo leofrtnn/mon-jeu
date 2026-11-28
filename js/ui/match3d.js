@@ -3527,6 +3527,56 @@ export class Match3D {
     }
     return out;
   }
+  /**
+   * Sonde 6d-B (célébrations) : chaque célébration du moteur (front montant de `celeb`, relevé à chaque pas),
+   * sa durée et ses relances côté moteur, les écritures de l'interface, puis l'affichage rejoué à 60 images/s
+   * de −0,25 s à +0,6 s après la fin : début et fin affichés, type de célébration affiché ≠ type du moteur,
+   * valeur affichée ≠ valeur du moteur, saut de pose d'une image à l'autre.
+   */
+  probeCE(mode, tFrom, tTo) {
+    const v = this.v, D6 = v.disp6; if (!D6) return [];
+    const flip = this.flip(), S = D6.snaps, out = [], fr = 1 / 60, V3 = THREE.Vector3, seen = (this._ceSeen ||= new Set());
+    const UW = v._uiWrites || [];
+    const pts = (P3) => [...P3.legs.flatMap((l) => [l.ankle, l.knee, l.hip]), ...P3.arms.map((a) => a.hand || a.el), P3.headPivot, P3.upper];
+    const stAt = (t) => { let i = S.length - 1; while (i > 0 && S[i].t > t) i--; return S[i]; };
+    for (let i = 1; i < S.length; i++) {
+      const s0 = S[i - 1], s1 = S[i]; if (s1.t < tFrom || s1.t > tTo || !s1.st || !s0.st) continue;
+      for (const [id, q] of s1.st) {
+        const q0 = s0.st.get(id); if (!q0 || !((q.celeb || 0) > 0 && !((q0.celeb || 0) > 0))) continue;   // (début d'épisode : une relance pendant l'épisode est comptée dans raises)
+        const sk = id + '@' + s1.t.toFixed(3) + mode; if (seen.has(sk)) continue; seen.add(sk);
+        const t0 = s1.t, v0 = q.celeb, type = q.celebType, ongoing = (q0.celeb || 0) > 0;
+        let tEnd = null, prev = v0, dec = [], raises = [];
+        for (let j = i + 1; j < S.length; j++) { const r = S[j].st?.get(id); if (!r) break; const x = r.celeb || 0; if (x > prev + 1e-6) raises.push({ t: +(S[j].t - t0).toFixed(3), by: +(x - prev).toFixed(3) }); else if (prev - x > 0) dec.push(prev - x); if (x <= 0) { tEnd = S[j].t; break; } prev = x; }
+        const rate = dec.length ? dec.slice().sort((a, b) => a - b)[dec.length >> 1] * 96 : null;   // (décompte par seconde de jeu)
+        const ui = UW.filter((w) => w.pid === id && w.k === 'celeb' && w.t >= t0 - 0.05 && (tEnd == null || w.t <= tEnd + 0.05)).map((w) => +(w.t - t0).toFixed(3));
+        const rec = { pid: id, gk: !!v.players.get(id)?.gk, t0, v0: +v0.toFixed(3), type, ongoing, dur: tEnd == null ? null : +(tEnd - t0).toFixed(3), rate: rate && +rate.toFixed(4), expected: rate ? +(v0 / rate).toFixed(3) : null, raises, ui, done: tEnd != null };
+        if (tEnd == null) { out.push(rec); continue; }
+        const e = this.players.get(id); if (!e) { out.push(rec); continue; }
+        const P3 = e.p3; P3._sm = null; e._flY = null;
+        let dispOn = null, dispOff = null, typeBad = 0, typeBadRun = 0, typeBadMax = 0, typeBadFirst = null, valBad = 0, valMax = 0, prevP = null, prevR = null, jump = { d: 0, at: null }, n = 0;
+        for (let t = t0 - 0.25; t <= tEnd + 0.6; t += fr) {
+          if (!D6.sample(mode, t)) break; const p = D6.disp.get(id); if (!p) break; const B = D6.ballN;
+          const [x, z] = this.toWorld(p.x, p.y, flip); P3.root.position.set(x, 0, z);
+          P3.pose(p, flip, { dt: fr, ballAng: Math.atan2((B.y - p.y) * W, (B.x - p.x) * L) }); P3.smoothPose(fr);
+          if (mode === 'contrat') this.fallYaw(e, p);
+          if (p._air) this.applyAir(e, p, flip, B); if (p._ik) this.applyIK(e, p, flip, B); this.antiPen(e, p, flip, B);
+          if (p.fall > 0 || p.slide > 0 || p.hurt > 0 || p.place > 0 || p.block > 0 || (p.celeb > 0 && (p.celebType === 'knees' || p.celebType === 'slide') && ((p.speed || 0) <= 2 || (p.celebType === 'slide' && p.celeb < 2.4))) || (p.dive > 0 && p.dive < 0.3)) P3.groundContact();
+          P3.root.updateMatrixWorld(true);
+          const on = (p.celeb || 0) > 0, eng = stAt(D6.tD).st?.get(id), eOn = (eng?.celeb || 0) > 0;
+          if (on && dispOn == null) dispOn = t - t0; if (!on && dispOn != null && dispOff == null && t > t0) dispOff = t - tEnd;
+          if (eng) { const dv = Math.abs((p.celeb || 0) - (eng.celeb || 0)); if (dv > 1e-6) valBad++; valMax = Math.max(valMax, dv); }
+          // Type affiché : celui que la pose utilise (type absent = célébration par défaut, bras levés).
+          if (on && eOn && (p.celebType ?? null) !== (eng.celebType ?? null)) { typeBad++; typeBadRun += fr; typeBadMax = Math.max(typeBadMax, typeBadRun); if (typeBadFirst == null) typeBadFirst = { at: +(t - t0).toFixed(3), shown: p.celebType ?? '(défaut)', eng: eng.celebType }; } else typeBadRun = 0;
+          const P = pts(P3).map((o) => o.getWorldPosition(new V3())), R = P3.root.position.clone();
+          if (prevP) { const dr = R.distanceTo(prevR); let m = 0; for (let k = 0; k < P.length; k++) m = Math.max(m, P[k].distanceTo(prevP[k]) - dr); if (m > jump.d) jump = { d: m, at: +(t - t0).toFixed(3) }; }
+          prevP = P; prevR = R; n++;
+        }
+        Object.assign(rec, { n, dispOn: dispOn == null ? null : +dispOn.toFixed(3), dispOff: dispOff == null ? null : +dispOff.toFixed(3), typeBad, typeBadMax: +typeBadMax.toFixed(3), typeBadFirst, valBad, valMax: +valMax.toFixed(4), jump: { d: +jump.d.toFixed(3), at: jump.at } });
+        out.push(rec);
+      }
+    }
+    return out;
+  }
   probe6(mode, tFrom, tTo) {
     const v = this.v, D6 = v.disp6, G = v.live?.gest; if (!D6 || !G) return [];
     const flip = this.flip(), out = [], step = 1 / 96, V = new THREE.Vector3();
@@ -4438,7 +4488,8 @@ export class Match3D {
     // Ultra : corps réalistes jusqu'à 85 m (toute la vue télé) ; Haute : 34 m (gros plans).
     const lodD2 = (this.gfx === 'ultra' ? (this.mh ? 85 : 40) : this.mh ? 34 : 30) ** 2;
     for (const [id, e] of this.players) {
-      const p = VP.get(id);
+      let p = VP.get(id);
+      if (v.replayLive && p.celeb > 0) p = { ...p, celeb: 0 };   // (ralenti : pas de célébration, sans écrire dans l'état du moteur — 6d-B)
       const [x, z] = this.toWorld(p.x, p.y, flip);
       e.p3.root.position.set(x, 0, z);
       e.p3.setDetail((x - camP.x) ** 2 + (z - camP.z) ** 2 + camP.y ** 2 < lodD2);

@@ -17,6 +17,8 @@ import { createBall, stepBall, solveKick, R as BALL_R, GOAL_HALF } from './ballP
 import { LiveSim } from '../engine/live.js';
 import { Diag } from '../engine/diag.js';
 import { DisplayBuffer } from './animSync.js';
+import { attachTwin } from './twin6.js';
+import { snapshotMatch } from '../engine/match.js';
 
 const DUR = {
   pass: 0.75, longpass: 1.15, dribble: 0.9, tackle: 0.55, interception: 0.55, header: 0.6, cross: 1.0, cornerkick: 1.1,
@@ -111,7 +113,9 @@ export class MatchView {
     // Moteur en direct : les 22 joueurs décident eux-mêmes (voir engine/live.js) ; la vue
     // se contente d'afficher. Sinon (ancien mode), la vue rejoue les événements du moteur.
     if (opts.live) {
+      const tw6 = globalThis.__twin6?.cfg ? snapshotMatch(match) : null;   // (sonde 6d : moteurs jumeaux sans interface, inactif en jeu)
       this.live = new LiveSim(match, { players: this.players, ball: this.phys, sync: () => this.syncPlayers(false) });
+      if (tw6) attachTwin(this, globalThis.__twin6, tw6);
       // Diagnostic physique (zones de contact, trajectoires, interceptions prévues, contacts réels) :
       // Paramètres › « Diagnostic physique », ou ?diag=1 dans l'adresse. Sans effet sur le match.
       let diagOn = !!opts.diag;
@@ -413,8 +417,11 @@ export class MatchView {
     if (ev.type === 'header' && actor) { actor.jump = 0.45; uiW(actor, 'jump'); }
     if (ev.type === 'shot' && ev.kind === 'header' && actor) { actor.jump = 0.45; uiW(actor, 'jump'); }
 
-    if (ev.type === 'goal') {
-      for (const p of this.players.values()) if (p.team.side === ev.side && !p.gk) { p.celeb = p.mp.id === ev.pid ? 3.2 : 2.6; uiW(p, 'celeb'); }
+    // Célébration : en direct, décidée par le moteur seul (durée, type, buteur) — l'interface n'écrit plus `celeb`
+    // dans l'état des joueurs du moteur (6d-B) ; l'affichage la lit dans l'instantané d'affichage. Ancien mode
+    // (sans moteur en direct, joueurs propres à la vue) : la vue la déclenche elle-même, comme avant.
+    if (ev.type === 'goal' && !this.live) {
+      for (const p of this.players.values()) if (p.team.side === ev.side && !p.gk) p.celeb = p.mp.id === ev.pid ? 3.2 : 2.6;
     }
   }
 
@@ -817,7 +824,7 @@ export class MatchView {
       if (!p || !rb) continue;
       let df = rb[3] - ra[3]; while (df > Math.PI) df -= 2 * Math.PI; while (df < -Math.PI) df += 2 * Math.PI;
       p.x = mix(ra[1], rb[1]); p.y = mix(ra[2], rb[2]); p.face = ra[3] + df * k; p.speed = mix(ra[4], rb[4]); p.phase = mix(ra[5], rb[5]);
-      p.kick = rb[6]; p.slide = rb[7]; p.dive = rb[8]; p.diveDir = rb[9]; p.jump = rb[10]; p.fall = rb[11]; p.kickPow = rb[12]; p.bump = rb[13]; p.celeb = 0;
+      p.kick = rb[6]; p.slide = rb[7]; p.dive = rb[8]; p.diveDir = rb[9]; p.jump = rb[10]; p.fall = rb[11]; p.kickPow = rb[12]; p.bump = rb[13];   // (célébration masquée à l'affichage pendant le ralenti, sans écrire celeb : 6d-B)
     }
     const bl = this.ball;
     bl.x = P.x / PITCH_L; bl.y = P.y / PITCH_W; bl.h = Math.max(0, P.z - BALL_R) / 26;
@@ -1751,7 +1758,7 @@ export class MatchView {
       g.fillStyle = '#111';
       for (const [fx, fy] of feet) { g.beginPath(); g.ellipse(fx + r * 0.18, fy, r * 0.13, r * 0.13, 0, 0, Math.PI * 2); g.fill(); }
       // Bras : opposés aux jambes, levés pendant la célébration.
-      const up = p.celeb > 0 ? 1 : 0;
+      const up = p.celeb > 0 && !this.replayLive ? 1 : 0;
       for (const sgn of [1, -1]) {
         const ax = up ? r * 0.55 : -swing * 0.9 * sgn;
         const ay = sgn * r * (up ? 0.95 : 0.74);

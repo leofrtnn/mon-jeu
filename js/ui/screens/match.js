@@ -60,6 +60,7 @@ export function openMatch(app, opts = {}) {
   const s = app.state;
   const cfg = opts.cfg || opts.baseCfg || userMatchCfg(s); // baseCfg : match officiel à configuration figée (match à deux)
   if (!cfg) { app.toast('Pas de match aujourd\'hui.'); return; }
+  if (globalThis.__twin6) globalThis.__twin6.cfg = replayCfg(cfg);   // (sonde 6d : configuration du moteur jumeau sans interface)
   const m = createMatch(cfg);
   const userSide = opts.userSide ?? (cfg.home.club.id === s.userClubId ? 0 : 1);
   const label = opts.label || today(s).label;

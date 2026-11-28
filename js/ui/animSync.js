@@ -70,8 +70,10 @@ export const PUNT = { z: 0.6, lead: 0.15, blend: 0.12 };
  * libération (le moteur remet le ballon au sol) — le joueur repose le ballon là où il est pour le moteur, de `lead` s
  * avant à `drop` s après le début du geste (avant le contact suivant du tireur, ≥ 0,98 s dans les matchs mesurés).
  */
-/** Minuteurs d'état du moteur relevés à chaque pas (6d-A : chute, blessure au sol). */
-export const ST6D = ['fall', 'hurt'];
+/** Minuteurs d'état du moteur relevés à chaque pas (6d-A : chute, blessure au sol ; 6d-B : célébration). */
+export const ST6D = ['fall', 'hurt', 'celeb'];
+/** Champs texte d'état du moteur relevés à chaque pas (6d-B : type de célébration, décidé par le moteur au but). */
+export const ST6DS = ['celebType'];
 export const TH = { lead: 0.14, post: 0.35, pick: 0.8, drop: 0.45 };
 export const TK = { stand: { t1: 0.36, dur: 0.55, up: 0.35 }, slide: { t1: 0.6, dur: 0.9, down: 0.3, up: 0.6 }, rise: 0.1, fall: 0.1 };
 export function tacklePhase(kind, s, sc = null) {
@@ -147,8 +149,10 @@ export class DisplayBuffer {
       // (6d-A) Chute et blessure au sol : minuteurs du moteur relevés à CHAQUE pas (la liste des champs n'est revue
       // qu'une fois par seconde : une chute apparaissait jusqu'à 1 s en retard) ; valeur de départ de l'épisode.
       for (const k of ST6D) { const x = p[k] || 0, f0 = (this._f0 ||= new Map()), key = k + id, pr = f0.get(key); o[k] = x; if (x > 0) { const v0 = pr && x <= pr.last + 0.05 ? pr.v0 : x; f0.set(key, { v0, last: x }); o[k + '0'] = v0; } else f0.delete(key); }
+      // (6d-B) Type de célébration : relevé à chaque pas (champ texte apparu au premier but, absent jusqu'à 1 s sinon).
+      for (const k of ST6DS) if (p[k] != null) o[k] = p[k];
       // (6d, mesure : minuteurs d'état du moteur relevés directement à chaque pas, pour la sonde)
-      if (this.probeSt) st.set(id, { fall: p.fall || 0, hurt: p.hurt || 0, celeb: p.celeb || 0 });
+      if (this.probeSt) st.set(id, { fall: p.fall || 0, hurt: p.hurt || 0, celeb: p.celeb || 0, celebType: p.celebType ?? null });
       // (6c-D) Début du ballon tenu (touche) et ballon posé à cet instant : champs d'affichage seulement.
       if (p.hold > 0) { if (!hs.has(id)) hs.set(id, { t, x: P.x, y: P.y, z: P.z }); const h = hs.get(id); o.thT0 = h.t; o.thBx = h.x; o.thBy = h.y; o.thBz = h.z; } else hs.delete(id);
     }

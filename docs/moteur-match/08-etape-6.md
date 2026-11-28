@@ -1332,7 +1332,13 @@ explicite avant la suivante.
 
 Découpage : **6d-A — chutes** (au sol, relevé), **6d-B — célébrations**, **6d-C — gestes techniques / feintes**.
 
-## 6d-A — Chutes — rapport (en attente de validation)
+## 6d-A — Chutes — validée (avec les réserves documentées)
+
+**Décision (utilisateur)** : 6d-A validée avec les réserves documentées (52 chutes affichées en entier, retard
+maximal 17 ms). Feu vert pour 6d-B uniquement (célébrations) : `celeb` dans un état propre à l'affichage,
+l'interface n'écrit plus dans les joueurs du moteur ; vérifier que le moteur ne dépend plus de l'affichage et que
+les célébrations restent synchronisées ; comparer avec et sans interface ; ne pas toucher `jump`, `appeal`,
+`headHands`, `hurt`, `fall` (décision séparée, backlog) ; aucune autre correction moteur ; garanties habituelles.
 
 ### Constat de départ (version 6c-D, même sonde)
 Sonde dédiée `probeFL` (`FL=1 node tools/bench/anim-probe.cjs`) : chaque épisode de chute (`fall`) ou de blessure
@@ -1437,5 +1443,139 @@ de la chute (affiché en retard), où le moteur fait encore glisser le joueur ; 
 `probeFL` (`FL=1`, trace image par image avec `FLTRACE=1`, liste des champs du joueur sur les images de saut),
 `anim-shots.cjs` mode chute (`FL=1`, `KEYS=pid:t0`, `DBG=1`).
 
+### Décision
+Validée (voir en tête de section).
+
+## 6d-B — Célébrations — rapport (en attente de validation)
+
+### Constat de départ (version 6d-A, même sonde)
+Sonde dédiée `probeCE` (`CE=1 node tools/bench/anim-probe.cjs`) : chaque épisode de célébration est pris dans
+l'état du moteur relevé à chaque pas (front montant de `celeb`, un seul épisode même si la valeur remonte), avec
+sa valeur de départ (3,2 buteur ; 2,6 coéquipier), son type (`celebType`), sa durée, ses remontées en cours
+d'épisode et les écritures de `celeb` faites par l'interface. L'affichage est rejoué à 60 images/s de −0,25 s à
+la fin + 0,6 s : début et fin de la célébration affichée, type affiché comparé au type du moteur, valeur affichée,
+saut de pose. Moteurs jumeaux sans interface (`TWIN=1`, `js/ui/twin6.js`) : deux copies du moteur, créées depuis
+la même configuration et le même état que le moteur affiché, avancent au même pas et sont comparées en entier
+après chaque pas (joueurs, ballon, porteur, générateur aléatoire, score, événements) :
+* « pur » : aucune écriture de l'interface ;
+* « miroir » : toutes les écritures de l'interface dans les joueurs, sauf `celeb` ; s'il reste identique au
+  moteur affiché, l'écriture de `celeb` par l'interface n'a aucun effet sur le moteur.
+Décisions de l'entraîneur prises hors du moteur (causerie, remplacements, consignes) : recopiées dans les jumeaux.
+
+Avant (version 6d-A) :
+* `matchView.animate()` réécrivait `celeb` (3,2 / 2,6) dans les joueurs du moteur au traitement du but, avec le
+  différé d'affichage : la célébration du moteur était relancée en cours d'épisode (108/110 épisodes) et prolongée
+  (médiane 0,17–0,35 s, jusqu'à 0,99 s). Le moteur relit `celeb` (vitesse réduite, pas de contact, joueur occupé) :
+  le match affiché différait du match du moteur seul.
+* Le jumeau miroir diverge dès le premier but, sur `celeb` (graine 21 à 531,5 s : 2,59 contre 2,44 ; graine 24 à
+  26,0 s : 2,59 contre 2,22).
+* Type de célébration absent de l'affichage au premier but : la liste des champs de l'instantané n'était
+  rafraîchie qu'une fois par seconde, `celebType` (texte, créé au premier but) manquait ; pose par défaut
+  pendant jusqu'à 0,88 s (41/110 épisodes).
+* Ralenti : `playReplay` écrivait `celeb = 0` dans les joueurs du moteur (moteur arrêté pendant le ralenti, état
+  restauré ensuite).
+
+### Principe (rendu seul ; moteur, physique, contacts, décisions et arbitrage inchangés)
+* `celeb` et `celebType` sont décidés par le moteur seul (au but : 3,2 buteur, 2,6 coéquipiers, type choisi par
+  le moteur ; remis à 0 à l'engagement et à l'annulation par la VAR, inchangé). L'interface ne les écrit plus.
+* Contrat (`js/ui/animSync.js`) : `celeb` recopié à chaque pas dans l'instantané avec sa valeur de départ
+  (`ST6D`), `celebType` recopié à chaque pas (`ST6DS`, champs texte) ; la pose de célébration suit l'état du
+  moteur, différé de 0,15 s comme le reste de l'affichage.
+* `js/ui/matchView.js` : la réécriture de `celeb` au but n'a lieu que dans l'ancien mode sans moteur en direct
+  (`!this.live`, joueurs propres à la vue) ; `playReplay` n'écrit plus `celeb = 0` ; le dessin 2D masque la
+  célébration pendant le ralenti (`replayLive`).
+* `js/ui/match3d.js` : pendant le ralenti, la célébration est masquée sur une copie du joueur affiché, sans écrire
+  dans l'état du moteur.
+* Outils de mesure (inactifs en jeu) : `js/ui/twin6.js` (jumeaux, actif seulement si `globalThis.__twin6`),
+  crochets dans `matchView.js` et `screens/match.js`, `probeCE` dans `match3d.js`, `CE=1` / `TWIN=1` dans
+  `anim-probe.cjs`, `CE=1` dans `anim-shots.cjs`.
+* Test unitaire (`tests/animsync.test.js`) : à chaque pas d'un match avec buts, l'instantané reprend `celeb` et
+  `celebType` du moteur au pas même, et l'affichage (`record`, `sample`) ne modifie ni l'un ni l'autre.
+* `jump`, `appeal`, `headHands`, `hurt` et `fall` : non modifiés (décision séparée).
+
+### Résultats (graines 21 et 24, matchs complets, ×20, ralentis désactivés ; couverture 100 %)
+Après le premier but, le match avant n'est plus le même que le match après (c'est l'effet de l'écriture
+supprimée) : les mesures portent sur tous les épisodes de chaque passe, et les captures sur le premier but,
+identique avant et après.
+| | avant (6d-A) | après |
+|---|---|---|
+| épisodes (buteur / coéquipiers / buts) | 110 (11 / 99 / 10) | 100 (10 / 90 / 10) |
+| écritures de `celeb` par l'interface | 110 | 0 |
+| célébration du moteur relancée en cours d'épisode | 108/110 | 0/100 |
+| prolongation (durée − valeur de départ / décompte), médiane / max | 0,17–0,35 s / 0,99 s | 0,007 s / 0,007 s (arrondi au pas) |
+| début affiché − début moteur, max | 0,017 s | 0,017 s (1 image) |
+| fin affichée − fin moteur, max | 0,013 s | 0,017 s (1 image) |
+| type affiché ≠ type moteur | 41 épisodes, jusqu'à 0,88 s | 0 |
+| valeur affichée ≠ moteur | 0 | 0 |
+| saut de pose, médiane / max | 46–48 / 73,3 cm | 38–41 / 60,4 cm |
+| sauts > 50 cm | 39/110 | 22/100 |
+
+Jumeaux (preuve que l'interface ne modifie plus le moteur via `celeb`) :
+| | avant | après |
+|---|---|---|
+| graine 24, miroir | diverge au 1er but (26,0 s, `celeb`) | identique pendant tout le match (576 001 pas, 2 buts, 20 épisodes, une recopie à la mi-temps) |
+| graine 21, miroir | diverge au 1er but (531,5 s, `celeb`) | identique pendant 449 280 pas (jusqu'à 4680 s), soit les 8 buts et les 80 épisodes ; diverge ensuite à l'entrée d'un remplaçant (voir réserves) |
+| pur (aucune écriture) | diverge à la 1re tête (21 : 88,5 s, `jump`) ou au 1er but (24) | diverge à la 1re tête (21 : 89,3 s, `jump`) ou à la 1re contestation (24 : 585,7 s, `appeal`) |
+| écritures de l'interface relevées | celeb 110, jump 42, appeal 33, headHands 5 | jump 46, appeal 56, headHands 3, celeb 0 |
+
+### Réserves (cas défavorables, non exclus des mesures)
+* Le match affiché reste différent du match sans interface : `jump` (tête), `appeal` (contestation) et
+  `headHands` sont encore écrits par l'interface dans les joueurs du moteur (hors périmètre, point 4). Les
+  empreintes de référence, mesurées sans interface, sont inchangées ; l'identité stricte avec et sans
+  interface ne sera atteinte qu'après la décision sur ces champs.
+* Entrée d'un remplaçant : la vue crée le joueur entrant (`syncPlayers`) à 1,04 / −0,04 de la ligne de touche avec
+  une phase de course aléatoire, le moteur sans interface à 1,03 / −0,03 avec une phase nulle. C'est un écart
+  d'état de départ entre les deux chemins, antérieur à 6d-B et sans rapport avec `celeb` (seule divergence du
+  miroir après, graine 21 à 4680 s). Non corrigé (principe 7), au backlog.
+* Saut de pose au début et à la fin de la célébration (22/100 > 50 cm, jusqu'à 60 cm) : passage d'une image à
+  l'autre de la pose de jeu à la pose de célébration (bras levés, saut), présent avant comme après ; la baisse
+  vient de la fin d'épisode qui n'est plus relancée. Pas de transition ajoutée (rendu inchangé hors pilotage).
+* Engagement et VAR : le moteur remet `celeb` à 0 à l'engagement et à l'annulation, souvent avant la fin du
+  décompte ; l'affichage suit (fin d'épisode avancée), comportement du moteur inchangé.
+* Ralentis : désactivés pendant les mesures (×20) ; le masquage de la célébration pendant le ralenti n'est pas
+  mesuré par la sonde (vérifié par lecture du code : plus aucune écriture dans les joueurs du moteur).
+* Ancien mode sans moteur en direct (`!this.live`) : la vue écrit toujours `celeb` dans ses propres joueurs
+  (aucun moteur concerné). Sur but contre son camp, ce mode ne désigne aucun buteur (le marqueur est adverse) :
+  comportement ancien conservé.
+
+### Captures (graine 24, premier but à 25,43 s, identique avant et après ; −0,1 / +0,2 / +0,5 / +1,0 / +2,5 / +4,3 s)
+`SEED=24 CE=1 OFFS=-0.1,0.2,0.5,1.0,2.5,4.3 KEYS=<pid>:25.427 node tools/bench/anim-shots.cjs <dossier> 1`
+(avant : version 6d-A avec les sondes ; après : version actuelle ; caméra fixe centrée sur le joueur).
+* Favorable — 2369 (coéquipier, accolade) : avant, la célébration du moteur est relancée par l'interface à
+  +0,6 s et dure 4,5 s : à +4,3 s le joueur célèbre encore ; après, elle dure 4,17 s comme décidé par le moteur
+  et le joueur a repris sa course à +4,3 s.
+* Défavorable — 2374 (buteur, cœur) et 2376 (coéquipier, saut) : avant, la pose par défaut est affichée à la
+  place du type du moteur pendant 0,68 s ; à cette distance, la pose par défaut et les poses saut / cœur /
+  accolade se ressemblent dans la première seconde (bras écartés, course) : la correction du type n'est pas
+  lisible à l'image, seulement à la mesure. À +4,3 s, le buteur célèbre encore dans les deux versions (sa
+  célébration dure 5,1 s pour le moteur).
+* Mêmes images de début dans les deux versions (−0,1 s, +0,2 s) : le début n'a pas changé (1 image).
+
+### Non-régression (version finale)
+* Empreintes du moteur inchangées (112bd1dc ; graine 104 → 2a6d7bc9 ; graine 300 → 8b411e7e ; moteur rapide
+  b47d8708), déterminisme et neutralité du diagnostic vérifiés.
+* Tests unitaires 134/134 (dont le nouveau test 6d-B) ; match en ligne (`duel.e2e`) passe.
+* Interface (`test:ui`) : 7 passes sur 8. Un échec, non reproduit en 7 essais ensuite (dont 6 avec la pile
+  d'erreur relevée) : match figé avant la mi-temps, erreur de page « Cannot read properties of undefined
+  (reading 'x') ». Cause probable, antérieure à 6d-B : la boucle de rendu 3D parcourt les joueurs du moteur et
+  lit leur état d'affichage (`VP.get(id).x`, `match3d.js`) ; un joueur entré sur le terrain entre deux
+  échantillonnages de l'affichage n'a pas encore d'état d'affichage, l'exception interrompt la boucle
+  d'animation (relancée en fin d'image) et le match reste figé. Ligne inchangée depuis 6d-A (6d-B n'ajoute
+  qu'une condition évaluée après elle, en ralenti seulement). Non corrigé (consigne : pas d'autre correction),
+  proposé en priorité au backlog.
+* Coût du rendu (`render-cost.cjs`, `REP=3 AB6=1`, deux séries, version 6d-A contre 6d-B), médianes `contrat` :
+  ×1 avant 218–341, après 238–270 ; ×4 avant 302–423, après 347–400 (`direct` varie de même : 236–307 /
+  241–281 et 299–420 / 327–415). Aucun surcoût mesurable.
+
+### Outils conservés
+`probeCE` (`CE=1`), jumeaux sans interface (`TWIN=1`, `TWIN_NOMIRROR=…`, `js/ui/twin6.js`), `anim-shots.cjs`
+mode célébration (`CE=1`, `KEYS=pid:t0`).
+
+### Backlog 6d-B (décision ultérieure)
+* Écritures de `jump`, `appeal`, `headHands`, `hurt`/`fall` (blessure) par l'interface dans les joueurs du moteur.
+* État de départ du joueur entrant différent entre la vue et le moteur seul (position, phase).
+* Transition vers la pose de célébration (saut de pose au début).
+* **Prioritaire** : joueur sans état d'affichage dans la boucle de rendu 3D (match figé, voir non-régression).
+
 ### Décision demandée
-Valider 6d-A (chutes) avec les réserves ci-dessus, avant de passer à 6d-B (célébrations).
+Valider 6d-B (célébrations) avec les réserves ci-dessus, avant de passer à 6d-C (gestes techniques).

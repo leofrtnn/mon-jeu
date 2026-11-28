@@ -175,3 +175,24 @@ test('chute (6d-A) : chute affichée au pas même où le moteur la fixe, valeur 
   }
   assert.ok(starts > 0 && checked > 0, `chutes observées (${starts})`);
 });
+
+test('célébration (6d-B) : valeur et type du moteur relevés au pas même du but, sans écriture de l\'affichage', async () => {
+  const m = createMatch(await cfgFor(22)), sim = new LiveSim(m);
+  const view = { live: sim, players: sim.players, phys: sim.P };
+  const D = new DisplayBuffer(view);
+  let goals = 0, checked = 0;
+  for (let k = 0; k < 96 * 60 * 100 && m.phase !== 'ft' && goals < 2; k++) {
+    const evs = sim.step(dt); if (m.phase === 'ht') sim.resumeHT = true;
+    const before = new Map([...sim.players].map(([id, p]) => [id, [p.celeb, p.celebType]]));
+    D.record(); if (k % 2 === 0) D.sample('contrat');
+    const s = D.snaps[D.snaps.length - 1];
+    for (const [id, p] of sim.players) {
+      assert.deepEqual([p.celeb, p.celebType], before.get(id), 'l\'affichage n\'écrit pas dans l\'état du moteur');
+      const o = s.ps.get(id);
+      assert.equal(o.celeb, p.celeb || 0, 'célébration relevée à chaque pas');
+      if (p.celeb > 0) { assert.equal(o.celebType, p.celebType, 'type de célébration relevé à chaque pas'); checked++; }
+    }
+    if (evs.some((e) => e.type === 'goal')) goals++;
+  }
+  assert.ok(goals > 0 && checked > 0, `buts observés (${goals})`);
+});

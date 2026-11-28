@@ -33,6 +33,8 @@ const serve = () => new Promise((resolve) => {
   await ctx.addInitScript(() => { try { localStorage.setItem('cdp-tuto', JSON.stringify({ done: true })); } catch {} });
   if (process.env.THTRACE) await ctx.addInitScript(() => { globalThis.__thTrace = true; });
   if (process.env.FLTRACE) await ctx.addInitScript(() => { globalThis.__flTrace = true; });
+  // TWIN=1 (6d-B) : moteurs jumeaux sans interface (« pur ») et avec les écritures de l'interface sauf celeb (« miroir »), comparés à chaque pas.
+  if (process.env.TWIN) await ctx.addInitScript((nm) => { globalThis.__twin6 = { noMirror: nm.split(',') }; }, process.env.TWIN_NOMIRROR || 'celeb');
   await ctx.route(/wikipedia\.org|wikimedia\.org|flagcdn/, (r) => r.abort());
   // SEED=n : Math.random de la page fixé (création de la partie, choix d'affichage) — le même match est
   // rejoué à chaque passe, pour comparer les MÊMES gestes avant / après une correction de rendu.
@@ -70,14 +72,15 @@ const serve = () => new Promise((resolve) => {
     if (process.env.CALIB) { const c = await page.evaluate(() => window.__view.r3d.calib6()); console.log(JSON.stringify(c)); throw new Error('étalonnage terminé'); }
     // Historique d'affichage élargi (outil seulement ; l'historique des gestes reste celui du jeu) : chaque relevé couvre tout le temps
     // écoulé depuis le précédent, sans trou (couverture vérifiée ci-dessous).
-    const SPEED = +(process.env.SPEED || 0), WIN = SPEED ? 32 : 5, GKONLY = !!process.env.GK, TKONLY = !!process.env.TK, THONLY = !!process.env.TH, FLONLY = !!process.env.FL, AIRONLY = !!process.env.AIR || GKONLY || TKONLY || THONLY || FLONLY;   // FL=1 : chutes et blessures au sol (6d-A)   // TH=1 : lancers de touche (6c-D)   // TK=1 : tacles et duels de corps (6c-C)   // GK=1 : gestes du gardien seulement (6c-B)   // AIR=1 : gestes aériens seulement (6c-A)
-    await page.evaluate(([x, fl]) => { window.__view.disp6.extra = x + (fl ? 12 : 1); if (fl) window.__view.disp6.probeSt = true; }, [WIN, !!process.env.FL]);
+    const SPEED = +(process.env.SPEED || 0), WIN = SPEED ? 32 : 5, GKONLY = !!process.env.GK, TKONLY = !!process.env.TK, THONLY = !!process.env.TH, FLONLY = !!process.env.FL, CEONLY = !!process.env.CE, AIRONLY = !!process.env.AIR || GKONLY || TKONLY || THONLY || FLONLY || CEONLY;   // CE=1 : célébrations (6d-B)
+      // FL=1 : chutes et blessures au sol (6d-A)   // TH=1 : lancers de touche (6c-D)   // TK=1 : tacles et duels de corps (6c-C)   // GK=1 : gestes du gardien seulement (6c-B)   // AIR=1 : gestes aériens seulement (6c-A)
+    await page.evaluate(([x, fl]) => { window.__view.disp6.extra = x + (fl ? 12 : 1); if (fl) window.__view.disp6.probeSt = true; }, [WIN, !!process.env.FL || !!process.env.CE]);
     // SPEED=n : la simulation avance n fois plus vite (au plus 1 s de jeu par image) pour couvrir un match
     // entier ; l'affichage n'a pas à être fluide, la sonde rejoue elle-même chaque geste pas à pas.
     if (process.env.GKSERIES) await page.evaluate(() => { window.__view.r3d._gkSeries = {}; });
     if (process.env.LOD) await page.evaluate((l) => { window.__view.r3d._probeLOD = l; }, process.env.LOD);   // LOD=mh|simple : modèle mesuré
     if (SPEED) await page.evaluate((k) => { const v = window.__view; v.TS = k; v.opts.replays = false; v.replayPlan = null; }, SPEED);   // (ralentis coupés : à très faible cadence d'image, un ralenti sans assez d'images fige le match — défaut d'interface signalé, hors 6c)
-    const res = { contrat: [], ancien: [], airC: [], airA: [], gkC: [], gkA: [], tkC: [], tkA: [], bumpC: [], bumpA: [], thC: [], thA: [], flC: [], flA: [] };
+    const res = { contrat: [], ancien: [], airC: [], airA: [], gkC: [], gkA: [], tkC: [], tkA: [], bumpC: [], bumpA: [], thC: [], thA: [], flC: [], flA: [], ceC: [] };
     let last = await page.evaluate(() => window.__view.live.now), start = last;
     while (last - start < SECS) {
       await page.waitForTimeout(2500);
@@ -85,7 +88,7 @@ const serve = () => new Promise((resolve) => {
       for (const sel of ['.sheet [data-act=talk] >> nth=1', '.sheet [data-act=resume]', '.sheet [data-act=ok]']) if (await page.isVisible(sel.split(' >> ')[0]).catch(() => false)) await page.click(sel).catch(() => {});
       if (SPEED) await page.evaluate((k) => { const v = window.__view; if (!v.paused) v.TS = k; }, SPEED);
       if (await page.evaluate(() => window.__view.m.phase === 'ft' || window.__view.m.phase === 'done').catch(() => false)) break;
-      const r = await page.evaluate(([WIN, AIRONLY, GKONLY, TKONLY, THONLY, FLONLY]) => {
+      const r = await page.evaluate(([WIN, AIRONLY, GKONLY, TKONLY, THONLY, FLONLY, CEONLY]) => {
         const v = window.__view, now = v.live.now, tTo = now - 0.5, prev = v._probeT ?? null, tFrom = Math.max(prev || 0, tTo - WIN);
         if (tTo <= tFrom) return { now, c: [], a: [], ac: [], aa: [], cov: null, acov: null };
         v._probeT = tTo;
@@ -96,7 +99,7 @@ const serve = () => new Promise((resolve) => {
         const all = prev == null ? [] : v.live.gest.gestures.filter((g) => K.has(g.kind) && g.tContact != null && g.tContact > prev && g.tContact <= tTo);
         const got = new Set(c.map((x) => x.gid)); if (AIRONLY) all.length = 0;
         // Gestes aériens (6c-A) : avec ou sans contact, joueurs de champ ; même comptage de couverture.
-        const ac = GKONLY || TKONLY || THONLY || FLONLY ? [] : v.r3d.probeAir('contrat', tFrom, tTo), aa = GKONLY || TKONLY || THONLY || FLONLY ? [] : v.r3d.probeAir('ancien', tFrom, tTo);
+        const ac = GKONLY || TKONLY || THONLY || FLONLY || CEONLY ? [] : v.r3d.probeAir('contrat', tFrom, tTo), aa = GKONLY || TKONLY || THONLY || FLONLY || CEONLY ? [] : v.r3d.probeAir('ancien', tFrom, tTo);
         // Tacles et duels (6c-C) : tous les tacles (contact ballon, sur l'homme ou aucun) et tous les débuts de déséquilibre.
         // Lancers de touche (6c-D) : tous les gestes « touche », avec ou sans lâcher.
         const hc = THONLY ? v.r3d.probeTH('contrat', tFrom, tTo) : null, ha = THONLY ? v.r3d.probeTH('ancien', tFrom, tTo) : null;
@@ -116,8 +119,11 @@ const serve = () => new Promise((resolve) => {
         const acov = prev == null ? null : { n: allA.length, skipped: skippedA.length, miss: allA.filter((g) => !gotA.has(g.id)).map((g) => ({ kind: g.kind, gap: Tof(g) < tFrom })) };
         // Chutes (6d-A) : relevé décalé de 8 s (la chute et le relevé doivent être terminés dans l'enregistrement).
         const fc = FLONLY ? v.r3d.probeFL('contrat', tFrom - 8, tTo - 8) : null, fa = FLONLY ? v.r3d.probeFL('ancien', tFrom - 8, tTo - 8) : null;
-        return { now, fc, fa, ui: FLONLY ? (v._uiWrites || []).length : null, c, a, ac, aa, gc, ga, gcov, tc, ta, tcov, hc, ha, hcov, acov, cov: prev == null ? null : { n: all.length, miss: all.filter((g) => !got.has(g.id)).map((g) => ({ kind: g.kind, gap: g.tContact < tFrom })) } };
-      }, [WIN, AIRONLY, GKONLY, TKONLY, THONLY, FLONLY]);
+        // Célébrations (6d-B) : relevé décalé de 8 s (célébration de 3,2 × 1,6 s au plus, terminée dans l'enregistrement).
+        const cc = CEONLY ? v.r3d.probeCE('contrat', tFrom - 8, tTo - 8) : null;
+        return { now, cc, fc, fa, ui: FLONLY ? (v._uiWrites || []).length : null, c, a, ac, aa, gc, ga, gcov, tc, ta, tcov, hc, ha, hcov, acov, cov: prev == null ? null : { n: all.length, miss: all.filter((g) => !got.has(g.id)).map((g) => ({ kind: g.kind, gap: g.tContact < tFrom })) } };
+      }, [WIN, AIRONLY, GKONLY, TKONLY, THONLY, FLONLY, CEONLY]);
+      if (r.cc) res.ceC.push(...r.cc);
       res.contrat.push(...r.c); res.ancien.push(...r.a); res.airC.push(...(r.ac || [])); res.airA.push(...(r.aa || [])); res.gkC.push(...(r.gc || [])); res.gkA.push(...(r.ga || [])); if (r.gcov) { (res.gcov ||= { n: 0, miss: [] }).n += r.gcov.n; res.gcov.miss.push(...r.gcov.miss); } if (r.tc) { res.tkC.push(...r.tc.tk); res.bumpC.push(...r.tc.bumps); res.tkA.push(...r.ta.tk); res.bumpA.push(...r.ta.bumps); } if (r.tcov) { (res.tcov ||= { n: 0, miss: [] }).n += r.tcov.n; res.tcov.miss.push(...r.tcov.miss); } if (r.hc) { res.thC.push(...r.hc); res.thA.push(...r.ha); } if (r.fc) { res.flC.push(...r.fc); res.flA.push(...r.fa); } if (r.hcov) { (res.hcov ||= { n: 0, miss: [] }).n += r.hcov.n; res.hcov.miss.push(...r.hcov.miss); } last = r.now;
       if (process.env.PROGRESS) console.error(`t=${r.now.toFixed(0)} aériens ${res.airC.length} ` + await page.evaluate(() => { const v = window.__view; return JSON.stringify({ paused: v.paused, phase: v.m.phase, TS: v.TS, stalled: v.stalled, replay: !!v.replaying, banner: v.banner?.text, sheet: [...document.querySelectorAll('.sheet [data-act]')].map((b) => b.dataset.act).slice(0, 8), fast: v.fast, hl: v.hl, acc: v.liveAcc, slow: v.slowmo, spd: v.speed, ls: v.liveSpeed?.(0.016), rp: !!v.replayPlan, rl: !!v.replayLive, steps: v.liveSteps, ko: v.koWait, cur: v.cur?.type }); }).catch((e) => e.message));
       if (r.acov) { (res.acov ||= { n: 0, miss: [], skipped: 0 }).n += r.acov.n; res.acov.skipped += r.acov.skipped || 0; res.acov.miss.push(...r.acov.miss); }
@@ -185,6 +191,20 @@ const serve = () => new Promise((resolve) => {
       console.log(`chutes et blessures (6d-A) : ${a.length} épisodes (${a.filter((x) => !x.done).length} non terminés dans l'enregistrement)`);
       for (const [c, b] of Object.entries(by)) { const d = b.filter((x) => x.done); console.log(`  ${c.padEnd(32)} n=${b.length} · durée moteur médiane ${q(d.map((x) => x.dur), 0.5)} s · interrompues ${d.filter((x) => x.interrupted).length} · prolongées ${d.filter((x) => x.extended).length} · saut de pose max médiane ${(100 * q(d.map((x) => x.jumpIn), 0.5)).toFixed(1)} cm (max ${(100 * Math.max(0, ...d.map((x) => x.jumpIn))).toFixed(1)}) · sous le sol min ${(100 * Math.min(9, ...d.map((x) => x.low))).toFixed(1)} cm · couché déplacé max ${Math.max(0, ...d.map((x) => x.lyingMove)).toFixed(2)} m/s · relevé déplacé médiane ${q(d.map((x) => x.upMove), 0.5).toFixed(2)} m/s · ballon dans le corps ${d.filter((x) => x.ballIn != null && x.ballIn < 0).length}`); }
       console.log(`écritures de l'interface dans l'état du moteur : ${JSON.stringify((res.uiWrites || []).reduce((m, w) => ((m[w.k] = (m[w.k] || 0) + 1), m), {}))}`);
+    }
+    if (CEONLY) {
+      res.uiWrites = await page.evaluate(() => (window.__view._uiWrites || []).map((w) => ({ t: +w.t.toFixed(3), pid: w.pid, k: w.k }))).catch(() => null);
+      res.twin = await page.evaluate(() => { const T = globalThis.__twin6; return T ? { res: T.res, log: (T.log || []).filter((w) => w.k === 'celeb' || w.k === 'celebType').slice(0, 400).map((w) => ({ ...w, t: +w.t.toFixed(3) })) } : null; }).catch(() => null);
+      res.goals = await page.evaluate(() => (window.__view.m.goals || []).map((g) => ({ side: g.side, pid: g.pid, minute: g.minute, og: !!g.og }))).catch(() => null);
+      const a = res.ceC, d = a.filter((x) => x.done), hero = d.filter((x) => Math.abs(x.v0 - 3.2) < 0.06), mates = d.filter((x) => Math.abs(x.v0 - 2.6) < 0.06);
+      const fx = (x) => (x == null ? '—' : x.toFixed(3));
+      console.log(`célébrations (6d-B) : ${a.length} épisodes (${a.length - d.length} non terminés) · buteur ${hero.length} · coéquipiers ${mates.length} · autres ${d.length - hero.length - mates.length} · buts ${(res.goals || []).length}`);
+      const ext = d.map((x) => x.dur - (x.expected ?? x.dur));
+      console.log(`  moteur : relancées pendant l'épisode ${d.filter((x) => x.raises.length).length} · prolongation (durée − valeur de départ / décompte) médiane ${fx(q(ext, 0.5))} max ${fx(Math.max(0, ...ext))} s · écritures celeb de l'interface pendant l'épisode ${d.filter((x) => x.ui.length).length}`);
+      const on = d.map((x) => x.dispOn), off = d.map((x) => x.dispOff);
+      console.log(`  affichage : début − début moteur médiane ${fx(q(on, 0.5))} max ${fx(Math.max(...on))} s · fin − fin moteur max ${fx(Math.max(...off))} s · type affiché ≠ type moteur : ${d.filter((x) => x.typeBad).length} épisodes (durée max ${fx(Math.max(0, ...d.map((x) => x.typeBadMax)))} s) · valeur affichée ≠ moteur : ${d.filter((x) => x.valBad).length} · saut de pose médiane ${(q(d.map((x) => x.jump.d), 0.5) * 100).toFixed(1)} p90 ${(q(d.map((x) => x.jump.d), 0.9) * 100).toFixed(1)} max ${(Math.max(...d.map((x) => x.jump.d)) * 100).toFixed(1)} cm · > 20 cm ${d.filter((x) => x.jump.d > 0.2).length} · > 50 cm ${d.filter((x) => x.jump.d > 0.5).length}`);
+      console.log(`écritures de l'interface dans l'état du moteur : ${JSON.stringify((res.uiWrites || []).reduce((m, w) => ((m[w.k] = (m[w.k] || 0) + 1), m), {}))}`);
+      if (res.twin) console.log(`jumeaux : ${JSON.stringify(res.twin.res)}`);
     }
     if (process.env.JSON) require('fs').writeFileSync(process.env.JSON, JSON.stringify(res));
   } catch (e) { console.error('Échec :', e.message); process.exitCode = 1; }
